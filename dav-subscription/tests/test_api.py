@@ -368,6 +368,35 @@ def test_batch_import_kols():
     assert any(k["external_id"] == "8790885129" for k in kols)
 
 
+def test_weibo_kol_link_normalized():
+    client = make_client()
+    headers = auth_headers(client)
+    resp = client.post(
+        "/api/kols",
+        headers=headers,
+        json={"platform": "weibo", "name": "wu2198", "external_id": "https://weibo.com/u/1216826604"},
+    )
+    assert resp.status_code == 200
+    kol = resp.json()
+    assert kol["external_id"] == "1216826604"
+
+    resp = client.put(
+        f"/api/kols/{kol['id']}",
+        headers=headers,
+        json={"external_id": "https://weibo.com/u/9999999999"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["external_id"] == "9999999999"
+
+    resp = client.post(
+        "/api/kols/batch",
+        headers=headers,
+        json={"platform": "weibo", "lines": "微博大V2 https://weibo.com/u/8888888888"},
+    )
+    assert resp.status_code == 200 and resp.json()["ok"] == 1
+    assert resp.json()["failed"] == []
+
+
 def test_posts_search_and_push_log_filters():
     client = make_client()
     headers = auth_headers(client)

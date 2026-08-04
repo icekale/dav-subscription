@@ -25,6 +25,12 @@ def _parse_sina_jsonp(text: str) -> dict:
     return json.loads(body[start + 1 : end])
 
 
+def _normalize_weibo_id(external_id: str) -> str:
+    """微博主页链接（https://weibo.com/u/<uid>）提取 UID。"""
+    match = re.search(r"weibo\.com/u/(\d+)", external_id)
+    return match.group(1) if match else external_id
+
+
 class RegisterIn(BaseModel):
     username: str
     password: str
@@ -312,6 +318,9 @@ def create_api_router(
             match = re.search(r"xueqiu\.com/(?:u/)?(\d+)", external_id)
             if match:
                 external_id = match.group(1)
+        elif body.platform == "weibo":
+            # 支持直接粘贴微博主页链接，自动提取 UID
+            external_id = _normalize_weibo_id(external_id)
         if not body.name.strip() or not external_id:
             raise HTTPException(status_code=400, detail="昵称与外部ID不能为空")
         if body.category_id is not None and db.get_category(body.category_id) is None:
@@ -340,9 +349,12 @@ def create_api_router(
             external_id = ""
             nickname = ""
             for token in line.split():
-                match = re.search(r"xueqiu\.com/(?:u/)?(\d+)", token)
-                if match:
-                    external_id = match.group(1)
+                xueqiu_match = re.search(r"xueqiu\.com/(?:u/)?(\d+)", token)
+                weibo_match = re.search(r"weibo\.com/u/(\d+)", token)
+                if xueqiu_match:
+                    external_id = xueqiu_match.group(1)
+                elif weibo_match:
+                    external_id = weibo_match.group(1)
                 elif token.isdigit() and not external_id:
                     external_id = token
                 else:
@@ -379,6 +391,9 @@ def create_api_router(
         external_id = body.external_id.strip() if body.external_id is not None else None
         if name == "" or external_id == "":
             raise HTTPException(status_code=400, detail="昵称与外部ID不能为空")
+        kol = db.get_kol(kol_id)
+        if external_id is not None and kol["platform"] == "weibo":
+            external_id = _normalize_weibo_id(external_id)
         db.update_kol(
             kol_id,
             name=name,
