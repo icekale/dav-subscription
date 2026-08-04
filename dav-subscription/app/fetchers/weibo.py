@@ -145,6 +145,12 @@ class WeiboFetcher(Fetcher):
         msg = str(((data or {}).get("msg")) or "").lower()
         return data.get("ok") == 0 and ("login" in msg or "登录" in msg)
 
+    @staticmethod
+    def _html_login_redirect(resp: httpx.Response) -> bool:
+        """weibo.com 接口未登录时会 302 到 passport.weibo.com 的 HTML 登录页。"""
+        content_type = resp.headers.get("content-type", "")
+        return "text/html" in content_type and "passport.weibo.com" in str(resp.url)
+
     def fetch(self, kol: dict) -> list[Post]:
         self._apply_cookie()
         uid = kol["external_id"]
@@ -152,14 +158,14 @@ class WeiboFetcher(Fetcher):
         resp = self.client.get(TIMELINE_URL, params=params)
         if resp.status_code == 432:
             raise RuntimeError("微博反爬拦截（HTTP 432），请检查 cookie/账号配置或降低抓取频率后重试")
-        if self._login_required(resp):
+        if self._login_required(resp) or self._html_login_redirect(resp):
             self._login()
             self._apply_cookie()
             resp = self.client.get(TIMELINE_URL, params=params)
         resp.raise_for_status()
         try:
             data = resp.json()
-        except ValueError as exc:
+        except ValueError:
             raise RuntimeError(f"微博返回非 JSON（登录态失效或反爬）: HTTP {resp.status_code}") from None
         if data.get("ok") != 1:
             raise RuntimeError(f"微博接口异常: {(data.get('msg') or data)[:200]}")

@@ -251,32 +251,44 @@ def test_xueqiu_cookie_keepalive():
 
 def test_weibo_cookie_keepalive_refresh_and_expired_alert():
     db = make_db()
-    db.set_setting("weibo_cookie", "SUB=old")
+    db.set_setting("weibo_cookie", "SUB=old; UID=1")
 
     def handler(request):
         return httpx.Response(
             200,
-            headers={"set-cookie": "SUB=new; Path=/; Domain=.weibo.com"},
+            text="<html>ok</html>",
+            headers={
+                "content-type": "text/html",
+                "set-cookie": "SUBP=newsubp; Path=/; Domain=.weibo.com",
+            },
         )
 
     notifier = FakeNotifier()
-    client = httpx.Client(transport=httpx.MockTransport(handler))
+    client = httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=True)
     keepalive_weibo_cookie(
         db,
         [notifier],
         SimpleNamespace(cookie="", username="", password=""),
         client=client,
     )
-    assert "SUB=new" in db.get_setting("weibo_cookie")
+    cookie = db.get_setting("weibo_cookie")
+    assert "SUB=old" in cookie  # 旧会话保留
+    assert "SUBP=newsubp" in cookie  # 新 cookie 合并
     assert db.get_setting("weibo_cookie_updated_at")
+    assert notifier.texts == []  # 不误报
 
     # 会话失效（无 SUB）且没有账号密码 → 告警
     def expired(request):
-        return httpx.Response(200)
+        if request.url.host == "passport.weibo.com":
+            return httpx.Response(200, text="<html>login</html>", headers={"content-type": "text/html"})
+        return httpx.Response(
+            302,
+            headers={"location": "https://passport.weibo.com/sso/signin?url=x"},
+        )
 
     db.set_setting("weibo_cookie", "SUB=dead")
     notifier2 = FakeNotifier()
-    client2 = httpx.Client(transport=httpx.MockTransport(expired))
+    client2 = httpx.Client(transport=httpx.MockTransport(expired), follow_redirects=True)
     keepalive_weibo_cookie(
         db,
         [notifier2],

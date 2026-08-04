@@ -477,14 +477,17 @@ def probe_xueqiu(db: DB, notifiers: list[Notifier], source_config) -> None:
         client.close()
 
 
-def _flatten_cookies(client, prefer_domain: str) -> str:
-    """把会话 cookie 展平，同名多域时优先指定域名。"""
-    preferred: dict[str, str] = {}
+def _merge_cookie_string(old: str, client, prefer_domain: str) -> str:
+    """合并旧 cookie 与本次响应下发的 cookie（同名多域时优先 prefer_domain 的新值）。"""
+    items: dict[str, str] = {}
+    for part in (old or "").split(";"):
+        if "=" in part:
+            key, value = part.strip().split("=", 1)
+            items[key] = value
     for cookie in client.cookies.jar:
-        current = preferred.get(cookie.name)
-        if current is None or prefer_domain in (cookie.domain or ""):
-            preferred[cookie.name] = cookie.value
-    return "; ".join(f"{k}={v}" for k, v in preferred.items())
+        if prefer_domain in (cookie.domain or "") or cookie.name not in items:
+            items[cookie.name] = cookie.value
+    return "; ".join(f"{k}={v}" for k, v in items.items())
 
 
 def _alert_cookie_keepalive(db: DB, notifiers: list[Notifier], label: str, detail: str = "") -> None:
@@ -532,7 +535,7 @@ def keepalive_xueqiu_cookie(
             db.set_setting(SOURCE_ERR_KEY.format(platform="xueqiu"), "保活被反爬拦截")
             _alert_cookie_keepalive(db, notifiers, "雪球", f"HTTP {resp.status_code}")
             return
-        new_cookie = _flatten_cookies(client, "xueqiu.com")
+        new_cookie = _merge_cookie_string(cookie, client, "xueqiu.com")
         if new_cookie:
             db.set_setting(XUEQIU_COOKIE_KEY, new_cookie)
             db.set_setting(XUEQIU_COOKIE_TIME_KEY, str(int(time.time())))
@@ -544,7 +547,7 @@ def keepalive_xueqiu_cookie(
 
 def keepalive_weibo_cookie(db: DB, notifiers: list[Notifier], weibo_config, client=None) -> None:
     """定时访问微博首页刷新会话；失效时尝试账号密码自动登录，失败则告警。"""
-    from .fetchers.weibo import WEIBO_COOKIE_KEY, WeiboFetcher, cookie_header
+    from .fetchers.weibo import WEIBO_COOKIE_KEY, WeiboFetcher
 
     cookie = db.get_setting(WEIBO_COOKIE_KEY) or weibo_config.cookie
     if not cookie:
@@ -563,9 +566,10 @@ def keepalive_weibo_cookie(db: DB, notifiers: list[Notifier], weibo_config, clie
         },
     )
     try:
-        client.get("https://weibo.com/")
-        if any(c.name == "SUB" for c in client.cookies.jar):
-            new_cookie = cookie_header(client.cookies)
+        resp = client.get("https://weibo.com/")
+        # 会话有效：最终停留在 weibo.com（未登录会被 302 到 passport 登录页）
+        if resp.status_code == 200 and "passport.weibo.com" not in str(resp.url):
+            new_cookie = _merge_cookie_string(cookie, client, "weibo.com")
             if new_cookie:
                 db.set_setting(WEIBO_COOKIE_KEY, new_cookie)
                 db.set_setting(WEIBO_COOKIE_TIME_KEY, str(int(time.time())))
@@ -618,6 +622,11 @@ class Scheduler:
 
     def stop(self):
         self._stop.set()
+        # 尽力把缓冲中未推送的合并摘要发出去，避免重启/关闭丢消息
+        try:
+            flush_digest(self.db, self._digest, self.notifiers, self.notifiers_config)
+        except Exception:  # noqa: BLE001
+            logger.exception("关闭时摘要推送失败")
 
     async def _send_startup_message(self):
         for notifier in self.notifiers:

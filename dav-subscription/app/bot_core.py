@@ -5,8 +5,6 @@ import re
 import time
 from math import ceil
 
-from . import auth
-
 HELP_TEXT = (
     "📌 大V订阅机器人\n"
     "/list — 查看可订阅的大V（/list 2 翻页）\n"

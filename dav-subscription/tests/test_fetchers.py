@@ -192,6 +192,55 @@ def test_weibo_auto_login_and_retry():
     assert "SUB=sub123" in db.get_setting("weibo_cookie")
 
 
+def test_weibo_html_login_redirect_triggers_auto_login():
+    """会话过期时接口 302 到 passport 登录页（HTML），应触发自动登录并重试。"""
+    import rsa
+
+    fixture = json.loads((FIXTURES / "weibo_sample.json").read_text(encoding="utf-8"))
+    _, priv = rsa.newkeys(512)
+    pubkey_hex = format(priv.n, "x")
+    timeline_hits = {"n": 0}
+
+    def handler(request):
+        path = request.url.path
+        if path == "/sso/prelogin.php":
+            return httpx.Response(
+                200,
+                text=(
+                    'sinaSSOController.preloginCallBack({"retcode":0,'
+                    f'"pubkey":"{pubkey_hex}","nonce":"abc","rsakv":"1",'
+                    '"servertime":"1700000000","pcid":"pc1"})'
+                ),
+            )
+        if path == "/sso/login.php":
+            return httpx.Response(
+                200,
+                text="location.replace('https://weibo.cn/?retcode=0')",
+                headers={"set-cookie": "SUB=sub123; Path=/"},
+            )
+        if request.url.host == "passport.weibo.com":
+            return httpx.Response(
+                200,
+                text="<html>login</html>",
+                headers={"content-type": "text/html"},
+            )
+        timeline_hits["n"] += 1
+        if timeline_hits["n"] == 1:
+            return httpx.Response(
+                302,
+                headers={"location": "https://passport.weibo.com/sso/signin?url=x"},
+            )
+        return httpx.Response(200, json=fixture)
+
+    client = httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=True)
+    db = DB(":memory:")
+    fetcher = WeiboFetcher(WeiboConfig(username="u", password="p"), db=db, client=client)
+    posts = fetcher.fetch({"id": 2, "name": "微博大V", "external_id": "123"})
+    assert len(posts) == 1
+    assert timeline_hits["n"] == 2
+    assert "SUB=sub123" in db.get_setting("weibo_cookie")
+
+
 def test_weibo_login_failure_raises():
     fixture = json.loads((FIXTURES / "weibo_sample.json").read_text(encoding="utf-8"))
 
