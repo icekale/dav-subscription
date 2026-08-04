@@ -134,6 +134,7 @@ async function renderHome() {
           <div class="platform-tabs" id="platform-tabs"></div>
         </div>
       </header>
+      ${state.user?.is_admin ? "" : `<p class="muted" style="margin-top:10px">没找到想要的大V？<a href="#/search">申请添加 →</a></p>`}
       <div id="kol-list"></div>
     </section>`;
   state.platform = "";
@@ -312,8 +313,75 @@ async function renderSearch() {
       </div>
       <div id="search-result"></div>
     </section>`;
+  if (!state.user?.is_admin) {
+    const askSection = document.createElement("div");
+    askSection.innerHTML = `
+      <section class="section-panel">
+        <header class="section-head">
+          <div><p class="section-eyebrow">Request</p><h3 class="section-title">申请添加大V</h3>
+          <p class="section-meta">目录里没有的大V？提交申请，管理员审批通过后即可订阅。</p></div>
+        </header>
+        <div class="toolbar" style="margin-top:12px">
+          <select id="ask-platform" class="form-control" style="margin:0;width:auto">
+            <option value="xueqiu">雪球</option>
+            <option value="weibo">微博</option>
+            <option value="twitter">X (RSS)</option>
+          </select>
+          <input id="ask-link" class="form-control" style="margin:0;flex:1;min-width:220px" placeholder="大V主页链接或 ID">
+          <button class="btn-normal" onclick="submitAsk()">提交申请</button>
+        </div>
+        <div id="ask-result" class="muted" style="margin-top:12px"></div>
+      </section>
+      <section class="section-panel">
+        <header class="section-head"><div><p class="section-eyebrow">My Requests</p><h3 class="section-title">我的申请</h3></div></header>
+        <div id="my-asks"></div>
+      </section>`;
+    $("#main").appendChild(askSection.firstElementChild);
+    $("#main").appendChild(askSection.children[1]);
+    loadMyAsks();
+  }
   if (query) doSearch();
   else $("#search-input").focus();
+}
+
+async function submitAsk() {
+  const external_id = $("#ask-link").value.trim();
+  if (!external_id) {
+    alert("请填写大V主页链接或 ID");
+    return;
+  }
+  try {
+    await api("/api/kol-requests", {
+      method: "POST",
+      body: JSON.stringify({ platform: $("#ask-platform").value, external_id }),
+    });
+    $("#ask-link").value = "";
+    $("#ask-result").textContent = "已提交 ✅ 管理员审批通过后会自动出现在订阅广场";
+    loadMyAsks();
+  } catch (err) {
+    $("#ask-result").textContent = "提交失败: " + err.message;
+  }
+}
+
+async function loadMyAsks() {
+  try {
+    const asks = await api("/api/my/kol-requests");
+    const statusMap = { pending: "待审批", approved: "已通过 ✅", rejected: "已拒绝" };
+    $("#my-asks").innerHTML = asks.length
+      ? `<div class="table-wrap"><table>
+          <thead><tr><th>平台</th><th>外部 ID</th><th>状态</th><th>提交时间</th></tr></thead>
+          <tbody>${asks.map((a) => `
+            <tr>
+              <td>${PLATFORM_LABELS[a.platform] || a.platform}</td>
+              <td>${escapeHtml(a.external_id)}</td>
+              <td class="${a.status === "approved" ? "status-ok" : a.status === "rejected" ? "status-fail" : ""}">${statusMap[a.status] || escapeHtml(a.status)}</td>
+              <td>${escapeHtml(a.created_at)}</td>
+            </tr>`).join("")}</tbody>
+        </table></div>`
+      : emptyState("还没有提交过申请");
+  } catch {
+    /* 忽略加载失败 */
+  }
 }
 
 async function doSearch() {
