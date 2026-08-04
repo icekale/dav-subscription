@@ -5,14 +5,22 @@ import sqlite3
 import threading
 from pathlib import Path
 
+_UNSET = object()
+
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS categories (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 CREATE TABLE IF NOT EXISTS kols (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     platform TEXT NOT NULL,
     name TEXT NOT NULL,
     external_id TEXT NOT NULL,
     enabled INTEGER NOT NULL DEFAULT 1,
+    category_id INTEGER,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE TABLE IF NOT EXISTS posts (
@@ -50,10 +58,16 @@ class DB:
         Path(self.path).parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(self.path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
+        self._lock = threading.Lock()
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.executescript(SCHEMA)
+        self._migrate()
         self._conn.commit()
-        self._lock = threading.Lock()
+
+    def _migrate(self):
+        cols = {row["name"] for row in self._rows("PRAGMA table_info(kols)")}
+        if "category_id" not in cols:
+            self._conn.execute("ALTER TABLE kols ADD COLUMN category_id INTEGER")
 
     def close(self):
         with self._lock:
@@ -71,24 +85,37 @@ class DB:
             return cur.lastrowid
 
     # ---- KOL ----
-    def add_kol(self, platform: str, name: str, external_id: str) -> int:
+    def add_kol(self, platform: str, name: str, external_id: str, category_id: int | None = None) -> int:
         if platform not in ALLOWED_PLATFORMS:
             raise ValueError(f"不支持的平台: {platform}")
         return self._execute(
-            "INSERT INTO kols (platform, name, external_id) VALUES (?, ?, ?)",
-            (platform, name, external_id),
+            "INSERT INTO kols (platform, name, external_id, category_id) VALUES (?, ?, ?, ?)",
+            (platform, name, external_id, category_id),
         )
 
     def get_kol(self, kol_id: int) -> dict | None:
-        rows = self._rows("SELECT * FROM kols WHERE id = ?", (kol_id,))
+        rows = self._rows(
+            "SELECT k.*, c.name AS category_name FROM kols k "
+            "LEFT JOIN categories c ON c.id = k.category_id WHERE k.id = ?",
+            (kol_id,),
+        )
         return rows[0] if rows else None
 
-    def list_kols(self, platform: str | None = None) -> list[dict]:
+    def list_kols(self, platform: str | None = None, category_id: int | None = None) -> list[dict]:
+        sql = "SELECT k.*, c.name AS category_name FROM kols k LEFT JOIN categories c ON c.id = k.category_id"
+        conds, params = [], []
         if platform:
-            return self._rows("SELECT * FROM kols WHERE platform = ? ORDER BY id", (platform,))
-        return self._rows("SELECT * FROM kols ORDER BY id")
+            conds.append("k.platform = ?")
+            params.append(platform)
+        if category_id is not None:
+            conds.append("k.category_id = ?")
+            params.append(category_id)
+        if conds:
+            sql += " WHERE " + " AND ".join(conds)
+        sql += " ORDER BY k.id"
+        return self._rows(sql, params)
 
-    def update_kol(self, kol_id: int, name=None, external_id=None, enabled=None):
+    def update_kol(self, kol_id: int, name=None, external_id=None, enabled=None, category_id=_UNSET):
         sets, params = [], []
         if name is not None:
             sets.append("name = ?")
@@ -99,6 +126,9 @@ class DB:
         if enabled is not None:
             sets.append("enabled = ?")
             params.append(1 if enabled else 0)
+        if category_id is not _UNSET:
+            sets.append("category_id = ?")
+            params.append(category_id)
         if not sets:
             return
         params.append(kol_id)
@@ -106,6 +136,33 @@ class DB:
 
     def delete_kol(self, kol_id: int):
         self._execute("DELETE FROM kols WHERE id = ?", (kol_id,))
+
+    # ---- Category ----
+    def list_categories(self) -> list[dict]:
+        return self._rows(
+            "SELECT c.*, (SELECT COUNT(*) FROM kols k WHERE k.category_id = c.id) AS kol_count "
+            "FROM categories c ORDER BY c.id"
+        )
+
+    def get_category(self, category_id: int) -> dict | None:
+        rows = self._rows("SELECT * FROM categories WHERE id = ?", (category_id,))
+        return rows[0] if rows else None
+
+    def add_category(self, name: str) -> int:
+        try:
+            return self._execute("INSERT INTO categories (name) VALUES (?)", (name,))
+        except sqlite3.IntegrityError:
+            raise ValueError(f"分类已存在: {name}") from None
+
+    def rename_category(self, category_id: int, name: str) -> None:
+        try:
+            self._execute("UPDATE categories SET name = ? WHERE id = ?", (name, category_id))
+        except sqlite3.IntegrityError:
+            raise ValueError(f"分类已存在: {name}") from None
+
+    def delete_category(self, category_id: int) -> None:
+        self._execute("UPDATE kols SET category_id = NULL WHERE category_id = ?", (category_id,))
+        self._execute("DELETE FROM categories WHERE id = ?", (category_id,))
 
     # ---- Post ----
     def post_exists(self, platform: str, external_id: str) -> bool:
@@ -125,7 +182,12 @@ class DB:
         )
 
     def list_posts(self, limit: int = 100, platform: str | None = None, kol_id: int | None = None) -> list[dict]:
-        sql = "SELECT p.*, k.name AS kol_name FROM posts p JOIN kols k ON k.id = p.kol_id"
+        sql = (
+            "SELECT p.*, k.name AS kol_name, k.category_id AS category_id, "
+            "c.name AS category_name FROM posts p "
+            "JOIN kols k ON k.id = p.kol_id "
+            "LEFT JOIN categories c ON c.id = k.category_id"
+        )
         conds, params = [], []
         if platform:
             conds.append("p.platform = ?")

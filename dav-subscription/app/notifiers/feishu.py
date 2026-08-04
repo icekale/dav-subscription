@@ -13,6 +13,10 @@ def build_feishu_card(post: Post) -> dict:
     platform = PLATFORM_LABELS.get(post.platform, post.platform)
     title = post.title or "大V新动态"
     content = post.content[:200] or "（无正文）"
+    category = post.category or ""
+    meta = f"**{post.kol_name}** · {platform}"
+    if category:
+        meta += f" · 🗂 {category}"
     return {
         "msg_type": "interactive",
         "card": {
@@ -24,7 +28,7 @@ def build_feishu_card(post: Post) -> dict:
             "elements": [
                 {
                     "tag": "div",
-                    "text": {"tag": "lark_md", "content": f"**{post.kol_name}** · {platform}\n{content}"},
+                    "text": {"tag": "lark_md", "content": f"{meta}\n{content}"},
                 },
                 {
                     "tag": "note",

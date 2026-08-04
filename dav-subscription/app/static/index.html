@@ -15,6 +15,7 @@
       </div>
       <nav class="menu">
         <button class="menu-item active" data-page="kols"><span class="menu-icon">◎</span>订阅管理</button>
+        <button class="menu-item" data-page="categories"><span class="menu-icon">▤</span>分类</button>
         <button class="menu-item" data-page="posts"><span class="menu-icon">▤</span>帖子</button>
         <button class="menu-item" data-page="logs"><span class="menu-icon">☰</span>推送记录</button>
       </nav>
@@ -34,6 +35,9 @@
                 <option value="weibo">微博</option>
                 <option value="twitter">X (RSS)</option>
               </select>
+              <select id="kol-category">
+                <option value="">未分类</option>
+              </select>
               <input id="name" placeholder="昵称" required>
               <input id="external-id" placeholder="雪球user_id / 微博uid / RSS链接" required>
               <button type="submit" class="btn-primary">添加</button>
@@ -42,8 +46,24 @@
           <div class="card">
             <div class="card-title">订阅列表</div>
             <table>
-              <thead><tr><th>ID</th><th>平台</th><th>昵称</th><th>外部ID</th><th>状态</th><th>操作</th></tr></thead>
+              <thead><tr><th>ID</th><th>平台</th><th>昵称</th><th>分类</th><th>外部ID</th><th>状态</th><th>操作</th></tr></thead>
               <tbody id="kol-body"></tbody>
+            </table>
+          </div>
+        </section>
+        <section id="page-categories" class="page">
+          <div class="card">
+            <div class="card-title">添加分类</div>
+            <form id="category-form" class="row">
+              <input id="category-name" placeholder="分类名，如：实盘、宏观、行业研究" required>
+              <button type="submit" class="btn-primary">添加</button>
+            </form>
+          </div>
+          <div class="card">
+            <div class="card-title">分类列表</div>
+            <table>
+              <thead><tr><th>ID</th><th>分类名</th><th>大V数</th><th>操作</th></tr></thead>
+              <tbody id="category-body"></tbody>
             </table>
           </div>
         </section>
@@ -56,6 +76,9 @@
                 <option value="xueqiu">雪球</option>
                 <option value="weibo">微博</option>
                 <option value="twitter">X</option>
+              </select>
+              <select id="post-category">
+                <option value="">全部分类</option>
               </select>
               <button id="refresh-posts">刷新</button>
             </div>

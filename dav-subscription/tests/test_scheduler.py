@@ -54,11 +54,14 @@ def make_post(kol_id):
 def test_new_post_pushed_once():
     db = make_db()
     kid = db.add_kol("xueqiu", "A", "1")
+    cid = db.add_category("实盘")
+    db.update_kol(kid, category_id=cid)
     post = make_post(kid)
     notifier = FakeNotifier()
 
     poll_once(db, {"xueqiu": FakeFetcher([post])}, [notifier])
     assert len(notifier.calls) == 1
+    assert notifier.calls[0].category == "实盘"
     assert len(db.list_posts()) == 1
     assert db.list_push_logs()[0]["status"] == "success"
 

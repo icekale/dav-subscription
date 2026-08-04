@@ -90,6 +90,7 @@ def poll_once(
             continue
         state.fail_count = 0
         for post in posts:
+            post.category = kol.get("category_name") or ""
             post_id = db.insert_post(
                 post.platform,
                 post.kol_id,

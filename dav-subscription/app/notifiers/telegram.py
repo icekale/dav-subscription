@@ -15,17 +15,22 @@ def build_telegram_text(post: Post) -> str:
     platform = PLATFORM_LABELS.get(post.platform, post.platform)
     title = escape(post.title or "大V新动态")
     content = escape(post.content[:200]) or "（无正文）"
-    return "\n".join(
+    lines = [
+        f"<b>{title}</b>",
+        "",
+        content,
+        "",
+        f"📌 {escape(post.kol_name)} · {platform}",
+    ]
+    if post.category:
+        lines.append(f"🗂 {escape(post.category)}")
+    lines.extend(
         [
-            f"<b>{title}</b>",
-            "",
-            content,
-            "",
-            f"📌 {escape(post.kol_name)} · {platform}",
             f"🕐 {escape(post.published_at)}",
             f'🔗 <a href="{escape(post.url)}">查看原文</a>',
         ]
     )
+    return "\n".join(lines)
 
 
 class TelegramNotifier(Notifier):
