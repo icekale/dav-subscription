@@ -42,29 +42,25 @@ def _tenant_access_token(app_id: str, app_secret: str, client: httpx.Client) -> 
 
 def build_feishu_card(post: Post) -> dict:
     platform = PLATFORM_LABELS.get(post.platform, post.platform)
-    title = post.title or "大V新动态"
-    content = post.content[:200] or "（无正文）"
+    content = post.content[:200] or post.title or "（无正文）"
     category = post.category or ""
-    meta = f"**{post.kol_name}** · {platform}"
+    note_elements = [{"tag": "plain_text", "content": f"发布时间：{post.published_at}"}]
     if category:
-        meta += f" · 🗂 {category}"
+        note_elements.append({"tag": "plain_text", "content": f"🗂 {category}"})
     return {
         "msg_type": "interactive",
         "card": {
             "config": {"wide_screen_mode": True},
             "header": {
-                "title": {"tag": "plain_text", "content": f"{title} · {post.kol_name}"},
+                "title": {"tag": "plain_text", "content": f"📌 {post.kol_name} · {platform}"},
                 "template": "blue",
             },
             "elements": [
                 {
                     "tag": "div",
-                    "text": {"tag": "lark_md", "content": f"{meta}\n{content}"},
+                    "text": {"tag": "lark_md", "content": content},
                 },
-                {
-                    "tag": "note",
-                    "elements": [{"tag": "plain_text", "content": f"发布时间：{post.published_at}"}],
-                },
+                {"tag": "note", "elements": note_elements},
                 {
                     "tag": "action",
                     "actions": [

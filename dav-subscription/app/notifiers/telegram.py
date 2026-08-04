@@ -1,6 +1,7 @@
 """Telegram Bot API 通知。"""
 from __future__ import annotations
 
+import json
 from html import escape
 
 import httpx
@@ -13,14 +14,11 @@ PLATFORM_LABELS = {"xueqiu": "雪球", "weibo": "微博", "twitter": "X/Twitter"
 
 def build_telegram_text(post: Post) -> str:
     platform = PLATFORM_LABELS.get(post.platform, post.platform)
-    title = escape(post.title or "大V新动态")
-    content = escape(post.content[:200]) or "（无正文）"
+    body = post.content[:200] or post.title or "（无正文）"
     lines = [
-        f"<b>{title}</b>",
+        f"<b>📌 {escape(post.kol_name)} · {platform}</b>",
         "",
-        content,
-        "",
-        f"📌 {escape(post.kol_name)} · {platform}",
+        escape(body),
     ]
     if post.category:
         lines.append(f"🗂 {escape(post.category)}")
@@ -57,6 +55,14 @@ class TelegramNotifier(Notifier):
                 "text": build_telegram_text(post),
                 "parse_mode": "HTML",
                 "disable_web_page_preview": True,
+                "reply_markup": json.dumps(
+                    {
+                        "inline_keyboard": [
+                            [{"text": "🔗 查看原文", "url": post.url}]
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
             }
         )
 

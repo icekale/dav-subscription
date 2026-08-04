@@ -81,10 +81,20 @@ def test_feishu_app_send_open_id_and_chat_id():
 
 
 def test_telegram_success():
+    sent = {}
+
     def handler(request):
         assert "api.telegram.org" in str(request.url)
         form = parse_qs(request.read().decode("utf-8"))
         assert "实盘" in form.get("text", [""])[0]
+        assert "<b>📌 李四 · 微博</b>" in form.get("text", [""])[0]
+        # 头部已包含大V信息，正文不再重复出现「📌 李四 · 微博」这一行
+        text = form.get("text", [""])[0]
+        assert text.count("📌 李四 · 微博") == 1
+        # 卡片式：带「查看原文」内联按钮
+        assert "查看原文" in form.get("reply_markup", [""])[0]
+        assert '"url": "https://weibo.com/1"' in form.get("reply_markup", [""])[0]
+        sent.update(form)
         return httpx.Response(200, json={"ok": True})
 
     client = httpx.Client(transport=httpx.MockTransport(handler))
@@ -93,6 +103,7 @@ def test_telegram_success():
         client=client,
     )
     notifier.notify(make_post())
+    assert "reply_markup" in sent
 
 
 def test_telegram_unconfigured_raises():
