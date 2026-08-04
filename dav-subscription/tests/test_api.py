@@ -64,6 +64,18 @@ def test_kol_crud_api():
     assert client.get("/api/kols", headers=headers).json() == []
 
 
+def test_kol_add_with_xueqiu_homepage_link():
+    client = make_client()
+    headers = auth_headers(client)
+    resp = client.post(
+        "/api/kols",
+        headers=headers,
+        json={"platform": "xueqiu", "name": "大V", "external_id": "https://xueqiu.com/u/8790885129"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["external_id"] == "8790885129"
+
+
 def test_posts_and_push_logs_api():
     client = make_client()
     headers = auth_headers(client)

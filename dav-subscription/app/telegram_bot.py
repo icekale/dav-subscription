@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 
 import httpx
 
@@ -13,8 +14,8 @@ logger = logging.getLogger(__name__)
 HELP_TEXT = (
     "📌 大V订阅机器人\n"
     "/list — 查看可订阅的大V\n"
-    "/sub 1 或 /sub 名字 — 订阅大V\n"
-    "/unsub 1 或 /unsub 名字 — 取消订阅\n"
+    "/sub 1 / 雪球主页链接 / 雪球UID — 订阅大V\n"
+    "/unsub 1 / 雪球主页链接 / 雪球UID — 取消订阅\n"
     "/mysubs — 我的订阅\n"
     "/help — 帮助"
 )
@@ -59,12 +60,23 @@ class TelegramBot:
         arg = arg.strip()
         if not arg:
             return None
+        # 雪球主页链接：https://xueqiu.com/8790885129 或 https://xueqiu.com/u/8790885129
+        if "xueqiu.com" in arg:
+            match = re.search(r"xueqiu\.com/(?:u/)?(\d+)", arg)
+            if not match:
+                return None
+            uid = match.group(1)
+            for kol in self.db.list_kols():
+                if kol["platform"] == "xueqiu" and kol["external_id"] == uid:
+                    return kol
+            return None
+        # 纯数字：先按内部 ID，再按雪球 UID
         if arg.isdigit():
             kol = self.db.get_kol(int(arg))
             if kol:
                 return kol
         for kol in self.db.list_kols():
-            if kol["name"] == arg or arg in kol["external_id"]:
+            if kol["platform"] == "xueqiu" and kol["external_id"] == arg:
                 return kol
         return None
 

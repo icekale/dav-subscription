@@ -45,8 +45,8 @@ def test_bot_command_flow():
     bot.handle_update(update(111, "/mysubs"))
     assert "超级鹿鼎公" in sent[-1][1]
 
-    # 按名字取消
-    bot.handle_update(update(111, "/unsub 超级鹿鼎公"))
+    # 按雪球 UID 取消
+    bot.handle_update(update(111, "/unsub 8790885129"))
     assert db.subscribed_kol_ids(user["id"]) == set()
 
     bot.handle_update(update(111, "/unknown"))
@@ -58,6 +58,20 @@ def test_bot_sub_resolve_by_external_id():
     bot.handle_update(update(222, "/sub 8790885129"))
     user = db.get_user_by_telegram("222")
     assert db.subscribed_kol_ids(user["id"]) == {kid}
+
+
+def test_bot_sub_resolve_by_homepage_link():
+    for link in ("https://xueqiu.com/8790885129", "https://xueqiu.com/u/8790885129"):
+        db, bot, kid, sent = make_env()
+        bot.handle_update(update(999, f"/sub {link}"))
+        user = db.get_user_by_telegram("999")
+        assert db.subscribed_kol_ids(user["id"]) == {kid}, link
+
+
+def test_bot_sub_ignores_nickname():
+    db, bot, _, sent = make_env()
+    bot.handle_update(update(555, "/sub 超级鹿鼎公"))
+    assert "没找到" in sent[-1][1]
 
 
 def test_bot_unknown_sub():

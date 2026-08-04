@@ -1,6 +1,8 @@
 """REST API：认证、订阅目录、我的动态、KOL/分类管理。"""
 from __future__ import annotations
 
+import re
+
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 
@@ -202,14 +204,20 @@ def create_api_router(db: DB, secret: str, allow_register: bool = True, wechat_c
     def add_kol(body: KolIn):
         if body.platform not in ALLOWED_PLATFORMS:
             raise HTTPException(status_code=400, detail=f"不支持的平台: {body.platform}")
-        if not body.name.strip() or not body.external_id.strip():
+        external_id = body.external_id.strip()
+        if body.platform == "xueqiu":
+            # 支持直接粘贴雪球主页链接，自动提取 UID
+            match = re.search(r"xueqiu\.com/(?:u/)?(\d+)", external_id)
+            if match:
+                external_id = match.group(1)
+        if not body.name.strip() or not external_id:
             raise HTTPException(status_code=400, detail="昵称与外部ID不能为空")
         if body.category_id is not None and db.get_category(body.category_id) is None:
             raise HTTPException(status_code=400, detail="分类不存在")
         kid = db.add_kol(
             body.platform,
             body.name.strip(),
-            body.external_id.strip(),
+            external_id,
             category_id=body.category_id,
         )
         return db.get_kol(kid)
