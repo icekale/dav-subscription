@@ -202,8 +202,13 @@ class DB:
         self._execute(f"UPDATE kols SET {', '.join(sets)} WHERE id = ?", params)
 
     def delete_kol(self, kol_id: int):
-        # 级联清理该大V的订阅关系，避免残留
+        # 级联清理该大V的订阅、帖子与推送记录，避免残留
         self._execute("DELETE FROM subscriptions WHERE kol_id = ?", (kol_id,))
+        self._execute(
+            "DELETE FROM push_logs WHERE post_id IN (SELECT id FROM posts WHERE kol_id = ?)",
+            (kol_id,),
+        )
+        self._execute("DELETE FROM posts WHERE kol_id = ?", (kol_id,))
         self._execute("DELETE FROM kols WHERE id = ?", (kol_id,))
 
     # ---- Category ----
@@ -391,7 +396,13 @@ class DB:
             (platform, kol_id, external_id, title, content, url, published_at),
         )
 
-    def list_posts(self, limit: int = 100, platform: str | None = None, kol_id: int | None = None) -> list[dict]:
+    def list_posts(
+        self,
+        limit: int = 100,
+        platform: str | None = None,
+        kol_id: int | None = None,
+        q: str | None = None,
+    ) -> list[dict]:
         sql = (
             "SELECT p.*, k.name AS kol_name, k.category_id AS category_id, "
             "c.name AS category_name FROM posts p "
@@ -405,6 +416,10 @@ class DB:
         if kol_id:
             conds.append("p.kol_id = ?")
             params.append(kol_id)
+        if q:
+            conds.append("(p.title LIKE ? OR p.content LIKE ?)")
+            like = f"%{q}%"
+            params.extend([like, like])
         if conds:
             sql += " WHERE " + " AND ".join(conds)
         sql += " ORDER BY p.id DESC LIMIT ?"
@@ -451,14 +466,31 @@ class DB:
             (post_id, channel, status, error, user_id),
         )
 
-    def list_push_logs(self, limit: int = 100) -> list[dict]:
+    def list_push_logs(
+        self,
+        limit: int = 100,
+        user_id: int | None = None,
+        channel: str | None = None,
+        status: str | None = None,
+    ) -> list[dict]:
+        conds, params = [], []
+        if user_id is not None:
+            conds.append("l.user_id = ?")
+            params.append(user_id)
+        if channel:
+            conds.append("l.channel = ?")
+            params.append(channel)
+        if status:
+            conds.append("l.status = ?")
+            params.append(status)
+        where = (" WHERE " + " AND ".join(conds)) if conds else ""
         return self._rows(
             "SELECT l.*, p.title, k.name AS kol_name, u.username AS user_name FROM push_logs l "
             "JOIN posts p ON p.id = l.post_id "
             "JOIN kols k ON k.id = p.kol_id "
             "LEFT JOIN users u ON u.id = l.user_id "
-            "ORDER BY l.id DESC LIMIT ?",
-            (limit,),
+            f"{where} ORDER BY l.id DESC LIMIT ?",
+            (*params, limit),
         )
 
     # ---- Settings ----

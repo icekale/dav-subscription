@@ -571,6 +571,23 @@ async function loadAdminKols() {
       </header>
     </section>
     <section class="section-panel">
+      <header class="section-head">
+        <div><p class="section-eyebrow">Batch</p><h3 class="section-title">批量导入大V</h3>
+        <p class="section-meta">每行一个：昵称 + 雪球主页链接/UID（昵称可省略），如：<code>段永平 https://xueqiu.com/u/12345</code></p></div>
+      </header>
+      <textarea id="ad-batch-lines" class="form-control" rows="6" style="font-family:monospace" placeholder="https://xueqiu.com/u/12345&#10;段永平 12345&#10;https://xueqiu.com/67890"></textarea>
+      <div class="toolbar" style="margin-top:12px">
+        <select id="ad-batch-platform" class="form-control" style="margin:0;width:auto">
+          <option value="xueqiu">雪球</option>
+          <option value="weibo">微博</option>
+          <option value="twitter">X (RSS)</option>
+        </select>
+        <select id="ad-batch-category" class="form-control" style="margin:0;width:auto"><option value="">未分类</option>${catOptions}</select>
+        <button class="btn-normal" onclick="adminBatchAddKols()">批量导入</button>
+        <span id="ad-batch-result" class="muted"></span>
+      </div>
+    </section>
+    <section class="section-panel">
       <header class="section-head"><div><p class="section-eyebrow">List</p><h3 class="section-title">大V列表</h3></div></header>
       <div class="table-wrap">
         <table>
@@ -591,6 +608,30 @@ async function loadAdminKols() {
         </table>
       </div>
     </section>`;
+}
+
+async function adminBatchAddKols() {
+  const lines = $("#ad-batch-lines").value;
+  if (!lines.trim()) {
+    alert("请先粘贴要导入的大V链接/ID");
+    return;
+  }
+  try {
+    const data = await api("/api/kols/batch", {
+      method: "POST",
+      body: JSON.stringify({
+        platform: $("#ad-batch-platform").value,
+        lines,
+        category_id: $("#ad-batch-category").value ? Number($("#ad-batch-category").value) : null,
+      }),
+    });
+    const failLines = data.failed.map((f) => `${f.line} — ${f.error}`).join("\n");
+    $("#ad-batch-result").textContent = `成功 ${data.ok}/${data.total}`;
+    if (failLines) alert(`导入完成：成功 ${data.ok}/${data.total}\n\n失败：\n${failLines}`);
+    loadAdminKols();
+  } catch (err) {
+    alert("批量导入失败: " + err.message);
+  }
 }
 
 async function adminAddKol() {
@@ -683,10 +724,22 @@ async function adminDeleteCategory(id) {
 }
 
 async function loadAdminPosts() {
-  const posts = await api("/api/posts?limit=100");
+  const posts = await api(`/api/posts?limit=100${state.adminPostsFilter || ""}`);
   $("#admin-body").innerHTML = `
     <section class="section-panel">
-      <header class="section-head"><div><p class="section-eyebrow">Posts</p><h3 class="section-title">帖子列表</h3></div></header>
+      <header class="section-head">
+        <div><p class="section-eyebrow">Posts</p><h3 class="section-title">帖子列表</h3></div>
+        <div class="toolbar" style="margin-top:12px">
+          <input id="ad-posts-q" class="form-control" style="margin:0;width:260px" placeholder="搜索标题/内容关键词" value="${escapeHtml(state.adminPostsQ || "")}">
+          <select id="ad-posts-platform" class="form-control" style="margin:0;width:auto">
+            <option value="">全部平台</option>
+            <option value="xueqiu" ${state.adminPostsPlatform === "xueqiu" ? "selected" : ""}>雪球</option>
+            <option value="weibo" ${state.adminPostsPlatform === "weibo" ? "selected" : ""}>微博</option>
+            <option value="twitter" ${state.adminPostsPlatform === "twitter" ? "selected" : ""}>X</option>
+          </select>
+          <button class="btn-normal" onclick="adminFilterPosts()">筛选</button>
+        </div>
+      </header>
       <div class="table-wrap">
         <table>
           <thead><tr><th>ID</th><th>大V</th><th>分类</th><th>内容</th><th>时间</th><th>链接</th></tr></thead>
@@ -703,11 +756,41 @@ async function loadAdminPosts() {
     </section>`;
 }
 
+async function adminFilterPosts() {
+  state.adminPostsQ = $("#ad-posts-q").value.trim();
+  state.adminPostsPlatform = $("#ad-posts-platform").value;
+  const params = new URLSearchParams({ limit: "100" });
+  if (state.adminPostsQ) params.set("q", state.adminPostsQ);
+  if (state.adminPostsPlatform) params.set("platform", state.adminPostsPlatform);
+  state.adminPostsFilter = `&${params.toString()}`;
+  loadAdminPosts();
+}
+
 async function loadAdminLogs() {
-  const logs = await api("/api/push-logs?limit=100");
+  const users = await api("/api/users");
+  const logs = await api(`/api/push-logs?limit=100${state.adminLogsFilter || ""}`);
   $("#admin-body").innerHTML = `
     <section class="section-panel">
-      <header class="section-head"><div><p class="section-eyebrow">Push Logs</p><h3 class="section-title">推送记录</h3></div></header>
+      <header class="section-head">
+        <div><p class="section-eyebrow">Push Logs</p><h3 class="section-title">推送记录</h3></div>
+        <div class="toolbar" style="margin-top:12px">
+          <select id="ad-logs-user" class="form-control" style="margin:0;width:auto">
+            <option value="">全部用户</option>
+            ${users.map((u) => `<option value="${u.id}" ${state.adminLogsUserId == u.id ? "selected" : ""}>${escapeHtml(u.username)}</option>`).join("")}
+          </select>
+          <select id="ad-logs-channel" class="form-control" style="margin:0;width:auto">
+            <option value="">全部渠道</option>
+            <option value="telegram" ${state.adminLogsChannel === "telegram" ? "selected" : ""}>Telegram</option>
+            <option value="feishu" ${state.adminLogsChannel === "feishu" ? "selected" : ""}>飞书</option>
+          </select>
+          <select id="ad-logs-status" class="form-control" style="margin:0;width:auto">
+            <option value="">全部状态</option>
+            <option value="success" ${state.adminLogsStatus === "success" ? "selected" : ""}>成功</option>
+            <option value="failed" ${state.adminLogsStatus === "failed" ? "selected" : ""}>失败</option>
+          </select>
+          <button class="btn-normal" onclick="adminFilterLogs()">筛选</button>
+        </div>
+      </header>
       <div class="table-wrap">
         <table>
           <thead><tr><th>时间</th><th>用户</th><th>大V</th><th>渠道</th><th>状态</th><th>错误</th></tr></thead>
@@ -723,6 +806,21 @@ async function loadAdminLogs() {
         </table>
       </div>
     </section>`;
+}
+
+async function adminFilterLogs() {
+  const params = new URLSearchParams({ limit: "100" });
+  const userId = $("#ad-logs-user").value;
+  const channel = $("#ad-logs-channel").value;
+  const status = $("#ad-logs-status").value;
+  if (userId) params.set("user_id", userId);
+  if (channel) params.set("channel", channel);
+  if (status) params.set("status", status);
+  state.adminLogsFilter = `&${params.toString()}`;
+  state.adminLogsUserId = userId;
+  state.adminLogsChannel = channel;
+  state.adminLogsStatus = status;
+  loadAdminLogs();
 }
 
 async function loadAdminUsers() {

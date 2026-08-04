@@ -48,6 +48,13 @@ class KolIn(BaseModel):
     priority: bool = False
 
 
+class KolBatchIn(BaseModel):
+    platform: str = "xueqiu"
+    lines: str
+    category_id: int | None = None
+    priority: bool = False
+
+
 class KolUpdate(BaseModel):
     name: str | None = None
     external_id: str | None = None
@@ -305,6 +312,49 @@ def create_api_router(
         )
         return db.get_kol(kid)
 
+    @router.post("/kols/batch", dependencies=[Depends(require_admin)])
+    def batch_add_kols(body: KolBatchIn):
+        """批量导入：每行一个「昵称 链接/UID」或「链接/UID」，支持雪球主页链接。"""
+        if body.platform not in ALLOWED_PLATFORMS:
+            raise HTTPException(status_code=400, detail=f"不支持的平台: {body.platform}")
+        if body.category_id is not None and db.get_category(body.category_id) is None:
+            raise HTTPException(status_code=400, detail="分类不存在")
+        results = []
+        for raw in body.lines.splitlines():
+            line = raw.strip()
+            if not line:
+                continue
+            external_id = ""
+            nickname = ""
+            for token in line.split():
+                match = re.search(r"xueqiu\.com/(?:u/)?(\d+)", token)
+                if match:
+                    external_id = match.group(1)
+                elif token.isdigit() and not external_id:
+                    external_id = token
+                else:
+                    nickname = f"{nickname} {token}".strip()
+            if not external_id:
+                results.append({"ok": False, "line": line[:80], "error": "未识别到链接或ID"})
+                continue
+            name = nickname or f"{body.platform}_{external_id}"
+            try:
+                kid = db.add_kol(
+                    body.platform,
+                    name,
+                    external_id,
+                    category_id=body.category_id,
+                    priority=body.priority,
+                )
+                results.append({"ok": True, "id": kid, "name": name, "external_id": external_id})
+            except ValueError as exc:
+                results.append({"ok": False, "line": line[:80], "error": str(exc)})
+        return {
+            "total": len(results),
+            "ok": sum(1 for r in results if r["ok"]),
+            "failed": [r for r in results if not r["ok"]],
+        }
+
     @router.put("/kols/{kol_id}", dependencies=[Depends(require_admin)])
     def update_kol(kol_id: int, body: KolUpdate):
         if db.get_kol(kol_id) is None:
@@ -369,12 +419,22 @@ def create_api_router(
         return {"ok": True}
 
     @router.get("/posts", dependencies=[Depends(require_admin)])
-    def list_posts(limit: int = 100, platform: str | None = None, kol_id: int | None = None):
-        return db.list_posts(limit=min(limit, 500), platform=platform, kol_id=kol_id)
+    def list_posts(limit: int = 100, platform: str | None = None, kol_id: int | None = None, q: str | None = None):
+        return db.list_posts(limit=min(limit, 500), platform=platform, kol_id=kol_id, q=q)
 
     @router.get("/push-logs", dependencies=[Depends(require_admin)])
-    def list_push_logs(limit: int = 100):
-        return db.list_push_logs(limit=min(limit, 500))
+    def list_push_logs(
+        limit: int = 100,
+        user_id: int | None = None,
+        channel: str | None = None,
+        status: str | None = None,
+    ):
+        return db.list_push_logs(
+            limit=min(limit, 500),
+            user_id=user_id,
+            channel=channel,
+            status=status,
+        )
 
     @router.get("/users", dependencies=[Depends(require_admin)])
     def list_users():

@@ -276,6 +276,67 @@ def test_admin_test_push(monkeypatch):
     assert sent == [("tg", "111", "【测试推送】hi"), ("fs", "【测试推送】hi")]
 
 
+def test_batch_import_kols():
+    client = make_client()
+    headers = auth_headers(client)
+    resp = client.post(
+        "/api/kols/batch",
+        headers=headers,
+        json={
+            "platform": "xueqiu",
+            "lines": (
+                "https://xueqiu.com/8790885129\n"
+                "段永平 https://xueqiu.com/u/12345\n"
+                "67890\n"
+                "不是链接也不是ID\n"
+            ),
+        },
+    )
+    data = resp.json()
+    assert resp.status_code == 200
+    assert data["total"] == 4 and data["ok"] == 3
+    assert len(data["failed"]) == 1
+    kols = client.get("/api/kols", headers=headers).json()
+    names = {k["name"] for k in kols}
+    assert "段永平" in names
+    assert any(k["external_id"] == "8790885129" for k in kols)
+
+
+def test_posts_search_and_push_log_filters():
+    client = make_client()
+    headers = auth_headers(client)
+    db = client.app.state.db
+    kid = db.add_kol("xueqiu", "大V甲", "1")
+    post_id = db.insert_post("xueqiu", kid, "p1", "茅台又新高", "内容", "u", "")
+    db.add_push_log(post_id, "telegram", "success", user_id=1)
+    db.add_push_log(post_id, "feishu", "failed", "boom", user_id=1)
+
+    hits = client.get("/api/posts?q=茅台", headers=headers).json()
+    assert len(hits) == 1 and hits[0]["title"] == "茅台又新高"
+    assert client.get("/api/posts?q=不存在", headers=headers).json() == []
+
+    logs = client.get("/api/push-logs?channel=feishu&status=failed", headers=headers).json()
+    assert len(logs) == 1 and logs[0]["channel"] == "feishu"
+    logs = client.get("/api/push-logs?channel=telegram", headers=headers).json()
+    assert len(logs) == 1
+
+
+def test_delete_kol_cascades_posts_and_logs():
+    client = make_client()
+    headers = auth_headers(client)
+    db = client.app.state.db
+    kid = db.add_kol("xueqiu", "大V", "1")
+    post_id = db.insert_post("xueqiu", kid, "p1", "t", "c", "u", "")
+    db.add_push_log(post_id, "telegram", "success")
+    uid = db.add_user("u1", "hash")
+    db.add_subscription(uid, kid)
+
+    assert client.delete(f"/api/kols/{kid}", headers=headers).status_code == 200
+    assert db.count_posts() == 0
+    assert db.list_push_logs(limit=10) == []
+    assert db.list_subscriptions(uid) == []
+
+
 def test_posts_and_push_logs_api():
     client = make_client()
     headers = auth_headers(client)
