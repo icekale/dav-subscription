@@ -34,6 +34,11 @@ class MeUpdate(BaseModel):
     notify_enabled: bool | None = None
 
 
+class PasswordChangeIn(BaseModel):
+    old_password: str
+    new_password: str
+
+
 class KolIn(BaseModel):
     platform: str
     name: str
@@ -164,6 +169,15 @@ def create_api_router(db: DB, secret: str, allow_register: bool = True, wechat_c
         code = f"{secrets.randbelow(1_000_000):06d}"
         db.create_bind_code(code, user["id"], int(time.time()) + BIND_CODE_TTL)
         return {"code": code, "expires_in_seconds": BIND_CODE_TTL}
+
+    @router.post("/me/password")
+    def change_password(body: PasswordChangeIn, user: dict = Depends(get_current_user)):
+        if len(body.new_password) < 6:
+            raise HTTPException(status_code=400, detail="新密码至少6位")
+        if not auth.verify_password(body.old_password, user["password_hash"]):
+            raise HTTPException(status_code=400, detail="原密码错误")
+        db.update_user(user["id"], password_hash=auth.hash_password(body.new_password))
+        return {"ok": True}
 
     # ---- 目录与订阅 ----
     @router.get("/catalog")

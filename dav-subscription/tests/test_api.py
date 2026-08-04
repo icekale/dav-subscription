@@ -118,6 +118,37 @@ def test_bind_code_api():
     assert row["user_id"] == me["id"]
 
 
+def test_change_password_api():
+    client = make_client()
+    headers = user_headers(client, "pwuser")
+
+    # 原密码错误
+    resp = client.post(
+        "/api/me/password",
+        headers=headers,
+        json={"old_password": "wrong", "new_password": "newpass123"},
+    )
+    assert resp.status_code == 400 and "原密码" in resp.json()["detail"]
+
+    # 新密码太短
+    resp = client.post(
+        "/api/me/password",
+        headers=headers,
+        json={"old_password": "pass123456", "new_password": "123"},
+    )
+    assert resp.status_code == 400 and "至少6位" in resp.json()["detail"]
+
+    # 正常修改后旧密码失效、新密码可登录
+    resp = client.post(
+        "/api/me/password",
+        headers=headers,
+        json={"old_password": "pass123456", "new_password": "newpass123"},
+    )
+    assert resp.status_code == 200
+    assert client.post("/api/auth/login", json={"username": "pwuser", "password": "pass123456"}).status_code == 401
+    assert client.post("/api/auth/login", json={"username": "pwuser", "password": "newpass123"}).status_code == 200
+
+
 def test_posts_and_push_logs_api():
     client = make_client()
     headers = auth_headers(client)

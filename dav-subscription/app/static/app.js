@@ -173,7 +173,18 @@ function kolCard(kol) {
       <button class="btn-sub ${kol.subscribed ? "subscribed" : ""}" onclick="toggleSubscribe(${kol.id}, this)">
         ${kol.subscribed ? "已订阅" : "订阅"}
       </button>
+      ${state.user?.is_admin ? `<button class="btn-sm danger" onclick="adminDeleteKolFromHome(${kol.id})" title="删除该大V">删除</button>` : ""}
     </div>`;
+}
+
+async function adminDeleteKolFromHome(kolId) {
+  if (!confirm("确认删除该大V？其订阅关系会一并移除。")) return;
+  try {
+    await api(`/api/kols/${kolId}`, { method: "DELETE" });
+    await loadHomeKols();
+  } catch (err) {
+    alert("删除失败: " + err.message);
+  }
 }
 
 async function toggleSubscribe(kolId, btn) {
@@ -372,9 +383,55 @@ async function renderSettings() {
           <button class="btn-ghost" onclick="genBindCode()">生成绑定码</button>
         </div>
         <div id="bind-result" class="muted" style="margin-top:14px"></div>
+      </section>
+      <section class="section-panel">
+        <header class="section-head">
+          <div>
+            <p class="section-eyebrow">Security</p>
+            <h3 class="section-title">修改密码</h3>
+            <p class="section-meta">定期更换密码，保护你的账号安全。</p>
+          </div>
+        </header>
+        <div class="form-row">
+          <label for="pw-old">原密码</label>
+          <input id="pw-old" class="form-control" type="password" placeholder="输入当前密码" autocomplete="current-password">
+        </div>
+        <div class="form-row">
+          <label for="pw-new">新密码</label>
+          <input id="pw-new" class="form-control" type="password" placeholder="至少 6 位" autocomplete="new-password">
+        </div>
+        <div class="form-row">
+          <label for="pw-confirm">确认新密码</label>
+          <input id="pw-confirm" class="form-control" type="password" placeholder="再次输入新密码" autocomplete="new-password">
+        </div>
+        <button class="btn-normal" onclick="savePassword()">修改密码</button>
       </section>`;
   } catch (err) {
     $("#main").innerHTML = emptyState(err.message);
+  }
+}
+
+async function savePassword() {
+  const oldPw = $("#pw-old").value;
+  const newPw = $("#pw-new").value;
+  const confirmPw = $("#pw-confirm").value;
+  if (!oldPw || newPw.length < 6) {
+    alert("请填写原密码，新密码至少 6 位");
+    return;
+  }
+  if (newPw !== confirmPw) {
+    alert("两次输入的新密码不一致");
+    return;
+  }
+  try {
+    await api("/api/me/password", {
+      method: "POST",
+      body: JSON.stringify({ old_password: oldPw, new_password: newPw }),
+    });
+    $("#pw-old").value = $("#pw-new").value = $("#pw-confirm").value = "";
+    alert("密码已修改");
+  } catch (err) {
+    alert("修改失败: " + err.message);
   }
 }
 
