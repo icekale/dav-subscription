@@ -27,7 +27,20 @@ class SubscriptionBot:
         self.send = send  # send(identity_type, identity, text)
         self.get_or_create_user = get_or_create_user  # (identity_type, identity, display_name) -> user dict
 
-    def handle(self, identity_type: str, identity: str, display_name: str, text: str) -> None:
+    def handle(
+        self,
+        identity_type: str,
+        identity: str,
+        display_name: str,
+        text: str,
+        reply_type: str | None = None,
+        reply_id: str | None = None,
+    ) -> None:
+        """处理一条命令。
+
+        identity 用于用户识别（TG chat_id / 飞书 open_id）；reply 用于回复目标，
+        缺省时回复到 identity 本身（飞书群聊里回复目标是群 chat_id，需单独传）。
+        """
         text = (text or "").strip()
         if not text.startswith("/"):
             return
@@ -35,36 +48,38 @@ class SubscriptionBot:
         cmd = cmd.lower()
 
         if cmd == "/bind":
-            self._bind(identity_type, identity, arg)
+            self._bind(identity_type, identity, arg, reply_type, reply_id)
             return
 
         user = self.get_or_create_user(identity_type, identity, display_name)
 
         if cmd in ("/start", "/help"):
-            self.send(identity_type, identity, HELP_TEXT)
+            self.send(reply_type or identity_type, reply_id or identity, HELP_TEXT)
         elif cmd == "/list":
-            self._list(user, identity_type, identity)
+            self._list(user, reply_type or identity_type, reply_id or identity)
         elif cmd == "/sub":
-            self._sub(user, identity_type, identity, arg)
+            self._sub(user, reply_type or identity_type, reply_id or identity, arg)
         elif cmd == "/unsub":
-            self._unsub(user, identity_type, identity, arg)
+            self._unsub(user, reply_type or identity_type, reply_id or identity, arg)
         elif cmd == "/mysubs":
-            self._mysubs(user, identity_type, identity)
+            self._mysubs(user, reply_type or identity_type, reply_id or identity)
         else:
-            self.send(identity_type, identity, "未知命令，发 /help 查看帮助")
+            self.send(reply_type or identity_type, reply_id or identity, "未知命令，发 /help 查看帮助")
 
-    def _bind(self, identity_type: str, identity: str, code: str) -> None:
+    def _bind(self, identity_type: str, identity: str, code: str, reply_type=None, reply_id=None) -> None:
+        reply_type = reply_type or identity_type
+        reply_id = reply_id or identity
         code = code.strip().upper()
         if len(code) != 6:
-            self.send(identity_type, identity, "绑定码无效，请在网页/小程序「推送设置」里生成")
+            self.send(reply_type, reply_id, "绑定码无效，请在网页/小程序「推送设置」里生成")
             return
         row = self.db.get_bind_code(code)
         if row is None or row["expires_at"] < int(time.time()):
-            self.send(identity_type, identity, "绑定码无效或已过期，请重新生成")
+            self.send(reply_type, reply_id, "绑定码无效或已过期，请重新生成")
             return
         target = self.db.get_user(row["user_id"])
         if target is None:
-            self.send(identity_type, identity, "绑定码无效，请重新生成")
+            self.send(reply_type, reply_id, "绑定码无效，请重新生成")
             return
         # 若该渠道已有自动创建的账号，合并订阅后删除
         if identity_type == "telegram_chat_id":
@@ -79,8 +94,8 @@ class SubscriptionBot:
         self.db.update_user(target["id"], **update)
         self.db.delete_bind_code(code)
         self.send(
-            identity_type,
-            identity,
+            reply_type,
+            reply_id,
             f"已绑定到账号 {target['username']} ✅ 之后新帖会推送到这里",
         )
 

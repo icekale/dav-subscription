@@ -50,6 +50,10 @@ def create_app(config=None, db_path: str | Path | None = None) -> FastAPI:
 
             bot = TelegramBot(db, config.notifiers.telegram.bot_token, secret)
             bot_task = asyncio.create_task(bot.run())
+        if config.notifiers.feishu.app_id and config.notifiers.feishu.app_secret:
+            from .feishu_bot import FeishuBot
+
+            FeishuBot(db, config.notifiers.feishu.app_id, config.notifiers.feishu.app_secret).start()
         yield
         task.cancel()
         if bot_task is not None:
