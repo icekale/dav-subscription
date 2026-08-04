@@ -745,7 +745,8 @@ async function loadAdminUsers() {
               <td>
                 ${u.id === state.user.id
                   ? '<span class="muted">本人</span>'
-                  : `<button class="btn-sm" onclick="adminToggleAdmin(${u.id}, ${!u.is_admin})">${u.is_admin ? "取消管理员" : "设为管理员"}</button>
+                  : `<button class="btn-sm" onclick="adminRenameUser(${u.id})">改用户名</button>
+                     <button class="btn-sm" onclick="adminToggleAdmin(${u.id}, ${!u.is_admin})">${u.is_admin ? "取消管理员" : "设为管理员"}</button>
                      <button class="btn-sm" onclick="adminResetPassword(${u.id})">重置密码</button>
                      <button class="btn-sm danger" onclick="adminDeleteUser(${u.id})">删除</button>`}
               </td>
@@ -753,6 +754,31 @@ async function loadAdminUsers() {
         </table>
       </div>
     </section>`;
+}
+
+async function adminRenameUser(userId) {
+  const user = (state.adminUsers || []).find((u) => u.id === userId);
+  const name = prompt(`把「${user ? user.username : userId}」改名为：`, user ? user.username : "");
+  if (name === null) return;
+  const trimmed = name.trim();
+  if (trimmed.length < 2 || trimmed.length > 30) {
+    alert("用户名需 2-30 位");
+    return;
+  }
+  try {
+    await api(`/api/users/${userId}`, {
+      method: "PUT",
+      body: JSON.stringify({ username: trimmed }),
+    });
+    if (userId === state.user.id) {
+      state.user.username = trimmed;
+      renderSidebar(state.user);
+      renderTopbar(state.user);
+    }
+    loadAdminUsers();
+  } catch (err) {
+    alert("操作失败: " + err.message);
+  }
 }
 
 async function adminResetPassword(userId) {

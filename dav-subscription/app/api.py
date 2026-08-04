@@ -67,6 +67,7 @@ class SubscriptionIn(BaseModel):
 class UserUpdate(BaseModel):
     is_admin: bool | None = None
     password: str | None = None
+    username: str | None = None
 
 
 def public_user(user: dict) -> dict:
@@ -398,6 +399,14 @@ def create_api_router(db: DB, secret: str, allow_register: bool = True, wechat_c
             if len(password) < 6:
                 raise HTTPException(status_code=400, detail="密码至少6位")
             db.update_user(user_id, password_hash=auth.hash_password(password))
+        if "username" in body.model_fields_set:
+            username = (body.username or "").strip()
+            if len(username) < 2 or len(username) > 30:
+                raise HTTPException(status_code=400, detail="用户名需2-30位")
+            existing = db.get_user_by_username(username)
+            if existing is not None and existing["id"] != user_id:
+                raise HTTPException(status_code=400, detail="用户名已存在")
+            db.update_user(user_id, username=username)
         return public_user(db.get_user(user_id))
 
     @router.delete("/users/{user_id}", dependencies=[Depends(require_admin)])

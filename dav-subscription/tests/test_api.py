@@ -208,6 +208,25 @@ def test_admin_reset_password():
     assert client.post("/api/auth/login", json={"username": "victim", "password": "newpass456"}).status_code == 200
 
 
+def test_admin_rename_username():
+    client = make_client()
+    admin_headers = auth_headers(client, "boss")
+    user_headers(client, "victim")
+
+    users = client.get("/api/users", headers=admin_headers).json()
+    uid = next(u["id"] for u in users if u["username"] == "victim")
+
+    # 过短 / 重名
+    assert client.put(f"/api/users/{uid}", headers=admin_headers, json={"username": "x"}).status_code == 400
+    assert client.put(f"/api/users/{uid}", headers=admin_headers, json={"username": "boss"}).status_code == 400
+    # 改成自己的原名（不改动）应放行
+    assert client.put(f"/api/users/{uid}", headers=admin_headers, json={"username": "victim"}).status_code == 200
+
+    assert client.put(f"/api/users/{uid}", headers=admin_headers, json={"username": "renamed"}).status_code == 200
+    assert client.post("/api/auth/login", json={"username": "victim", "password": "pass123456"}).status_code == 401
+    assert client.post("/api/auth/login", json={"username": "renamed", "password": "pass123456"}).status_code == 200
+
+
 def test_posts_and_push_logs_api():
     client = make_client()
     headers = auth_headers(client)
