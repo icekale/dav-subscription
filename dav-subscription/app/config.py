@@ -11,6 +11,8 @@ import yaml
 @dataclass
 class FeishuConfig:
     webhook_url: str = ""
+    app_id: str = ""
+    app_secret: str = ""
 
 
 @dataclass
@@ -54,6 +56,9 @@ class PollingConfig:
 @dataclass
 class WebConfig:
     password: str = ""
+    allow_register: bool = True
+    admin_password: str = ""
+    token_secret: str = ""
 
 
 @dataclass
@@ -68,6 +73,8 @@ class Config:
 # 环境变量 -> Config 属性路径（用于覆盖）
 _ENV_MAP = {
     "FEISHU_WEBHOOK_URL": ("notifiers", "feishu", "webhook_url"),
+    "FEISHU_APP_ID": ("notifiers", "feishu", "app_id"),
+    "FEISHU_APP_SECRET": ("notifiers", "feishu", "app_secret"),
     "TELEGRAM_BOT_TOKEN": ("notifiers", "telegram", "bot_token"),
     "TELEGRAM_CHAT_ID": ("notifiers", "telegram", "chat_id"),
     "XUEQIU_COOKIE": ("sources", "xueqiu", "cookie"),
@@ -79,6 +86,9 @@ _ENV_MAP = {
     "POLLING_JITTER_SECONDS": ("polling", "jitter_seconds"),
     "NOTIFY_ON_START": ("polling", "notify_on_start"),
     "WEB_PASSWORD": ("web", "password"),
+    "WEB_ALLOW_REGISTER": ("web", "allow_register"),
+    "WEB_ADMIN_PASSWORD": ("web", "admin_password"),
+    "WEB_TOKEN_SECRET": ("web", "token_secret"),
     "DB_PATH": ("db_path",),
 }
 
@@ -108,6 +118,7 @@ def _validate(config: Config) -> None:
         ("polling.interval_seconds", config.polling, "interval_seconds", int),
         ("polling.jitter_seconds", config.polling, "jitter_seconds", int),
         ("polling.notify_on_start", config.polling, "notify_on_start", bool),
+        ("web.allow_register", config.web, "allow_register", bool),
     )
     for label, obj, attr, expected in checks:
         value = getattr(obj, attr)
@@ -151,7 +162,7 @@ def load_config(path: str | Path | None = None) -> Config:
         try:
             if env_name in ("POLLING_INTERVAL_SECONDS", "POLLING_JITTER_SECONDS"):
                 value = int(value)
-            elif env_name == "NOTIFY_ON_START":
+            elif env_name in ("NOTIFY_ON_START", "WEB_ALLOW_REGISTER"):
                 value = value.strip().lower() in ("1", "true", "yes", "on")
         except ValueError as exc:
             raise ValueError(f"环境变量 {env_name} 无效: {exc}") from exc

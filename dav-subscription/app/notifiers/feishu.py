@@ -1,6 +1,8 @@
 """飞书群机器人 webhook 通知。"""
 from __future__ import annotations
 
+import json
+
 import httpx
 
 from ..fetchers.base import Post
@@ -53,9 +55,25 @@ def build_feishu_card(post: Post) -> dict:
 class FeishuNotifier(Notifier):
     channel = "feishu"
 
-    def __init__(self, config, client: httpx.Client | None = None):
+    def __init__(self, config, client: httpx.Client | None = None, open_id: str | None = None):
         self.webhook_url = config.webhook_url
+        self.app_id = config.app_id
+        self.app_secret = config.app_secret
+        self.open_id = open_id
         self.client = client or httpx.Client(timeout=15)
+
+    def _tenant_access_token(self) -> str:
+        if not self.app_id or not self.app_secret:
+            raise RuntimeError("未配置飞书应用凭据（feishu.app_id / app_secret）")
+        resp = self.client.post(
+            "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
+            json={"app_id": self.app_id, "app_secret": self.app_secret},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        if data.get("code") != 0:
+            raise RuntimeError(f"飞书获取 token 失败: {data.get('msg', data)}")
+        return data["tenant_access_token"]
 
     def _post(self, payload: dict) -> None:
         resp = self.client.post(self.webhook_url, json=payload)
@@ -65,8 +83,24 @@ class FeishuNotifier(Notifier):
             raise RuntimeError(f"飞书返回错误: {data.get('msg', data)}")
 
     def notify(self, post: Post) -> None:
+        if self.open_id:
+            token = self._tenant_access_token()
+            resp = self.client.post(
+                "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=open_id",
+                headers={"Authorization": f"Bearer {token}"},
+                json={
+                    "receive_id": self.open_id,
+                    "msg_type": "interactive",
+                    "content": json.dumps(build_feishu_card(post), ensure_ascii=False),
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            if data.get("code") != 0:
+                raise RuntimeError(f"飞书发送失败: {data.get('msg', data)}")
+            return
         if not self.webhook_url:
-            raise RuntimeError("未配置飞书 webhook_url")
+            raise RuntimeError("未配置飞书 webhook_url 或应用凭据")
         self._post(build_feishu_card(post))
 
     def send_text(self, text: str) -> None:

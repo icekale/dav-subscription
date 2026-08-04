@@ -2,101 +2,43 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>大V订阅</title>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <div class="app">
-    <aside class="sider">
-      <div class="logo">
-        <span class="logo-mark">V</span>
-        <span class="logo-text">大V订阅</span>
-      </div>
-      <nav class="menu">
-        <button class="menu-item active" data-page="kols"><span class="menu-icon">◎</span>订阅管理</button>
-        <button class="menu-item" data-page="categories"><span class="menu-icon">▤</span>分类</button>
-        <button class="menu-item" data-page="posts"><span class="menu-icon">▤</span>帖子</button>
-        <button class="menu-item" data-page="logs"><span class="menu-icon">☰</span>推送记录</button>
-      </nav>
-    </aside>
-    <div class="main">
-      <header class="header">
-        <h2 id="page-title">订阅管理</h2>
-        <span class="status"><span class="dot"></span>运行中</span>
-      </header>
-      <main class="content">
-        <section id="page-kols" class="page active">
-          <div class="card">
-            <div class="card-title">添加订阅</div>
-            <form id="kol-form" class="row">
-              <select id="platform">
-                <option value="xueqiu">雪球</option>
-                <option value="weibo">微博</option>
-                <option value="twitter">X (RSS)</option>
-              </select>
-              <select id="kol-category">
-                <option value="">未分类</option>
-              </select>
-              <input id="name" placeholder="昵称" required>
-              <input id="external-id" placeholder="雪球user_id / 微博uid / RSS链接" required>
-              <button type="submit" class="btn-primary">添加</button>
-            </form>
-          </div>
-          <div class="card">
-            <div class="card-title">订阅列表</div>
-            <table>
-              <thead><tr><th>ID</th><th>平台</th><th>昵称</th><th>分类</th><th>外部ID</th><th>状态</th><th>操作</th></tr></thead>
-              <tbody id="kol-body"></tbody>
-            </table>
-          </div>
-        </section>
-        <section id="page-categories" class="page">
-          <div class="card">
-            <div class="card-title">添加分类</div>
-            <form id="category-form" class="row">
-              <input id="category-name" placeholder="分类名，如：实盘、宏观、行业研究" required>
-              <button type="submit" class="btn-primary">添加</button>
-            </form>
-          </div>
-          <div class="card">
-            <div class="card-title">分类列表</div>
-            <table>
-              <thead><tr><th>ID</th><th>分类名</th><th>大V数</th><th>操作</th></tr></thead>
-              <tbody id="category-body"></tbody>
-            </table>
-          </div>
-        </section>
-        <section id="page-posts" class="page">
-          <div class="card">
-            <div class="card-title">帖子列表</div>
-            <div class="row">
-              <select id="post-platform">
-                <option value="">全部平台</option>
-                <option value="xueqiu">雪球</option>
-                <option value="weibo">微博</option>
-                <option value="twitter">X</option>
-              </select>
-              <select id="post-category">
-                <option value="">全部分类</option>
-              </select>
-              <button id="refresh-posts">刷新</button>
-            </div>
-            <ul id="post-list" class="list"></ul>
-          </div>
-        </section>
-        <section id="page-logs" class="page">
-          <div class="card">
-            <div class="card-title">推送记录</div>
-            <div class="row"><button id="refresh-logs">刷新</button></div>
-            <table>
-              <thead><tr><th>时间</th><th>KOL</th><th>标题</th><th>渠道</th><th>状态</th><th>错误</th></tr></thead>
-              <tbody id="log-body"></tbody>
-            </table>
-          </div>
-        </section>
-      </main>
+  <div id="auth-view" class="auth-view hidden">
+    <div class="auth-card">
+      <div class="auth-logo"><span>V</span></div>
+      <h1>大V订阅</h1>
+      <p class="auth-desc">盯大V公开动态 · 新帖推送</p>
+      <form id="login-form" class="auth-form">
+        <input id="login-username" placeholder="用户名" autocomplete="username" required>
+        <input id="login-password" type="password" placeholder="密码" autocomplete="current-password" required>
+        <button type="submit" class="btn-dark">登 录</button>
+      </form>
+      <form id="register-form" class="auth-form hidden">
+        <input id="reg-username" placeholder="用户名（至少2位）" autocomplete="username" required>
+        <input id="reg-password" type="password" placeholder="密码（至少6位）" autocomplete="new-password" required>
+        <button type="submit" class="btn-dark">注 册</button>
+      </form>
+      <button id="toggle-auth" class="link-btn">还没有账号？去注册</button>
+      <p id="auth-error" class="auth-error"></p>
     </div>
+  </div>
+
+  <div id="app-view" class="app-view hidden">
+    <header id="top-bar" class="top-bar">
+      <button id="btn-back" class="icon-btn hidden">‹</button>
+      <h2 id="page-title">首页</h2>
+      <span id="top-right" class="top-right"></span>
+    </header>
+    <main id="main" class="main"></main>
+    <nav id="tab-bar" class="tab-bar">
+      <button class="tab-item active" data-tab="home"><span class="tab-icon">◎</span>首页</button>
+      <button class="tab-item" data-tab="timeline"><span class="tab-icon">▤</span>动态</button>
+      <button class="tab-item" data-tab="me"><span class="tab-icon">◉</span>我的</button>
+    </nav>
   </div>
   <script src="/app.js"></script>
 </body>

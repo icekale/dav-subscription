@@ -54,11 +54,41 @@ def notify_post(db: DB, post_id: int, post: Post, notifiers: list[Notifier]) -> 
                 db.add_push_log(post_id, notifier.channel, "failed", str(exc2))
 
 
+def notify_subscribers(db: DB, post_id: int, post: Post, notifiers_config) -> None:
+    """把新帖推送给订阅了该大V的用户（各自绑定的渠道）。"""
+    if notifiers_config is None:
+        return
+    from .notifiers.feishu import FeishuNotifier
+    from .notifiers.telegram import TelegramNotifier
+
+    for user in db.subscribers_of_kol(post.kol_id):
+        if user["telegram_chat_id"] and notifiers_config.telegram.bot_token:
+            notifier = TelegramNotifier(
+                notifiers_config.telegram,
+                chat_id=user["telegram_chat_id"],
+            )
+            try:
+                notifier.notify(post)
+                db.add_push_log(post_id, "telegram", "success", user_id=user["id"])
+            except Exception as exc:  # noqa: BLE001
+                db.add_push_log(post_id, "telegram", "failed", str(exc), user_id=user["id"])
+                logger.warning("用户推送失败 user=%s channel=telegram err=%s", user["username"], exc)
+        if user["feishu_open_id"]:
+            notifier = FeishuNotifier(notifiers_config.feishu, open_id=user["feishu_open_id"])
+            try:
+                notifier.notify(post)
+                db.add_push_log(post_id, "feishu", "success", user_id=user["id"])
+            except Exception as exc:  # noqa: BLE001
+                db.add_push_log(post_id, "feishu", "failed", str(exc), user_id=user["id"])
+                logger.warning("用户推送失败 user=%s channel=feishu err=%s", user["username"], exc)
+
+
 def poll_once(
     db: DB,
     fetchers: dict[str, Fetcher],
     notifiers: list[Notifier],
     states: dict[str, PlatformState] | None = None,
+    notifiers_config=None,
 ) -> None:
     """执行一轮：遍历启用 KOL → 抓取 → 去重 → 推送。"""
     states = states if states is not None else {}
@@ -104,14 +134,16 @@ def poll_once(
                 continue
             logger.info("新帖 platform=%s kol=%s id=%s", post.platform, post.kol_name, post.external_id)
             notify_post(db, post_id, post, notifiers)
+            notify_subscribers(db, post_id, post, notifiers_config)
 
 
 class Scheduler:
-    def __init__(self, db, fetchers, notifiers, polling_config):
+    def __init__(self, db, fetchers, notifiers, polling_config, notifiers_config=None):
         self.db = db
         self.fetchers = fetchers
         self.notifiers = notifiers
         self.polling_config = polling_config
+        self.notifiers_config = notifiers_config
         self.states: dict[str, PlatformState] = {}
         self._stop = asyncio.Event()
 
@@ -131,7 +163,14 @@ class Scheduler:
         while not self._stop.is_set():
             started = time.monotonic()
             try:
-                await asyncio.to_thread(poll_once, self.db, self.fetchers, self.notifiers, self.states)
+                await asyncio.to_thread(
+                    poll_once,
+                    self.db,
+                    self.fetchers,
+                    self.notifiers,
+                    self.states,
+                    self.notifiers_config,
+                )
             except Exception:  # noqa: BLE001 - 任何异常都不能终止循环
                 logger.exception("轮询周期异常")
             elapsed = time.monotonic() - started

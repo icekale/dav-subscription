@@ -47,6 +47,23 @@ CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    is_admin INTEGER NOT NULL DEFAULT 0,
+    telegram_chat_id TEXT NOT NULL DEFAULT '',
+    feishu_open_id TEXT NOT NULL DEFAULT '',
+    notify_enabled INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS subscriptions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    kol_id INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (user_id, kol_id)
+);
 """
 
 ALLOWED_PLATFORMS = {"xueqiu", "weibo", "twitter"}
@@ -68,6 +85,9 @@ class DB:
         cols = {row["name"] for row in self._rows("PRAGMA table_info(kols)")}
         if "category_id" not in cols:
             self._conn.execute("ALTER TABLE kols ADD COLUMN category_id INTEGER")
+        push_cols = {row["name"] for row in self._rows("PRAGMA table_info(push_logs)")}
+        if "user_id" not in push_cols:
+            self._conn.execute("ALTER TABLE push_logs ADD COLUMN user_id INTEGER")
 
     def close(self):
         with self._lock:
@@ -164,6 +184,94 @@ class DB:
         self._execute("UPDATE kols SET category_id = NULL WHERE category_id = ?", (category_id,))
         self._execute("DELETE FROM categories WHERE id = ?", (category_id,))
 
+    # ---- User ----
+    def get_user(self, user_id: int) -> dict | None:
+        rows = self._rows("SELECT * FROM users WHERE id = ?", (user_id,))
+        return rows[0] if rows else None
+
+    def get_user_by_username(self, username: str) -> dict | None:
+        rows = self._rows("SELECT * FROM users WHERE username = ?", (username,))
+        return rows[0] if rows else None
+
+    def count_users(self) -> int:
+        rows = self._rows("SELECT COUNT(*) AS n FROM users")
+        return rows[0]["n"]
+
+    def add_user(
+        self,
+        username: str,
+        password_hash: str,
+        is_admin: bool = False,
+        telegram_chat_id: str = "",
+        feishu_open_id: str = "",
+        notify_enabled: bool = True,
+    ) -> int:
+        try:
+            return self._execute(
+                "INSERT INTO users (username, password_hash, is_admin, telegram_chat_id, "
+                "feishu_open_id, notify_enabled) VALUES (?, ?, ?, ?, ?, ?)",
+                (username, password_hash, 1 if is_admin else 0, telegram_chat_id, feishu_open_id,
+                 1 if notify_enabled else 0),
+            )
+        except sqlite3.IntegrityError:
+            raise ValueError(f"用户名已存在: {username}") from None
+
+    def update_user(self, user_id: int, **kwargs) -> None:
+        sets, params = [], []
+        for key, value in kwargs.items():
+            if key == "is_admin":
+                value = 1 if value else 0
+            elif key == "notify_enabled":
+                value = 1 if value else 0
+            sets.append(f"{key} = ?")
+            params.append(value)
+        if not sets:
+            return
+        params.append(user_id)
+        self._execute(f"UPDATE users SET {', '.join(sets)} WHERE id = ?", params)
+
+    def list_users(self) -> list[dict]:
+        return self._rows("SELECT * FROM users ORDER BY id")
+
+    # ---- Subscription ----
+    def add_subscription(self, user_id: int, kol_id: int) -> bool:
+        try:
+            self._execute(
+                "INSERT INTO subscriptions (user_id, kol_id) VALUES (?, ?)",
+                (user_id, kol_id),
+            )
+            return True
+        except sqlite3.IntegrityError:
+            return False
+
+    def remove_subscription(self, user_id: int, kol_id: int) -> None:
+        self._execute(
+            "DELETE FROM subscriptions WHERE user_id = ? AND kol_id = ?",
+            (user_id, kol_id),
+        )
+
+    def list_subscriptions(self, user_id: int) -> list[dict]:
+        return self._rows(
+            "SELECT k.*, c.name AS category_name, s.created_at AS subscribed_at "
+            "FROM subscriptions s JOIN kols k ON k.id = s.kol_id "
+            "LEFT JOIN categories c ON c.id = k.category_id "
+            "WHERE s.user_id = ? ORDER BY s.id",
+            (user_id,),
+        )
+
+    def subscribed_kol_ids(self, user_id: int) -> set[int]:
+        rows = self._rows("SELECT kol_id FROM subscriptions WHERE user_id = ?", (user_id,))
+        return {row["kol_id"] for row in rows}
+
+    def subscribers_of_kol(self, kol_id: int) -> list[dict]:
+        """该大V的订阅者（启用通知且绑定了渠道的用户）。"""
+        return self._rows(
+            "SELECT u.* FROM subscriptions s JOIN users u ON u.id = s.user_id "
+            "WHERE s.kol_id = ? AND u.notify_enabled = 1 "
+            "AND (u.telegram_chat_id != '' OR u.feishu_open_id != '')",
+            (kol_id,),
+        )
+
     # ---- Post ----
     def post_exists(self, platform: str, external_id: str) -> bool:
         rows = self._rows(
@@ -201,18 +309,32 @@ class DB:
         params.append(limit)
         return self._rows(sql, params)
 
+    def list_feed_posts(self, kol_ids: list[int], limit: int = 100) -> list[dict]:
+        if not kol_ids:
+            return []
+        placeholders = ", ".join("?" * len(kol_ids))
+        return self._rows(
+            "SELECT p.*, k.name AS kol_name, k.category_id AS category_id, "
+            "c.name AS category_name FROM posts p "
+            "JOIN kols k ON k.id = p.kol_id "
+            "LEFT JOIN categories c ON c.id = k.category_id "
+            f"WHERE p.kol_id IN ({placeholders}) ORDER BY p.id DESC LIMIT ?",
+            (*kol_ids, limit),
+        )
+
     # ---- Push log ----
-    def add_push_log(self, post_id: int, channel: str, status: str, error: str = "") -> int:
+    def add_push_log(self, post_id: int, channel: str, status: str, error: str = "", user_id: int | None = None) -> int:
         return self._execute(
-            "INSERT INTO push_logs (post_id, channel, status, error) VALUES (?, ?, ?, ?)",
-            (post_id, channel, status, error),
+            "INSERT INTO push_logs (post_id, channel, status, error, user_id) VALUES (?, ?, ?, ?, ?)",
+            (post_id, channel, status, error, user_id),
         )
 
     def list_push_logs(self, limit: int = 100) -> list[dict]:
         return self._rows(
-            "SELECT l.*, p.title, k.name AS kol_name FROM push_logs l "
+            "SELECT l.*, p.title, k.name AS kol_name, u.username AS user_name FROM push_logs l "
             "JOIN posts p ON p.id = l.post_id "
             "JOIN kols k ON k.id = p.kol_id "
+            "LEFT JOIN users u ON u.id = l.user_id "
             "ORDER BY l.id DESC LIMIT ?",
             (limit,),
         )

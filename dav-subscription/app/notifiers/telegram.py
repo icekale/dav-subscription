@@ -36,9 +36,9 @@ def build_telegram_text(post: Post) -> str:
 class TelegramNotifier(Notifier):
     channel = "telegram"
 
-    def __init__(self, config, client: httpx.Client | None = None):
+    def __init__(self, config, client: httpx.Client | None = None, chat_id: str | None = None):
         self.bot_token = config.bot_token
-        self.chat_id = config.chat_id
+        self.chat_id = chat_id or config.chat_id
         self.client = client or httpx.Client(timeout=15)
 
     def _send(self, data: dict) -> None:

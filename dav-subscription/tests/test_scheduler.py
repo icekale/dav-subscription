@@ -1,6 +1,7 @@
 import tempfile
 from pathlib import Path
 
+from app.config import FeishuConfig, NotifiersConfig, TelegramConfig
 from app.db import DB
 from app.fetchers.base import Post
 from app.scheduler import poll_once
@@ -131,3 +132,55 @@ def test_backoff_skips_failing_platform():
     assert fetcher.calls == 1
     poll_once(db, {"xueqiu": fetcher}, [], states)
     assert fetcher.calls == 1  # 退避期内不应再请求
+
+
+def test_subscriber_push_uses_user_channels(monkeypatch):
+    calls = []
+
+    class FakeTelegram:
+        def __init__(self, config, chat_id=None):
+            calls.append(("telegram", chat_id))
+
+        def notify(self, post):
+            pass
+
+    class FakeFeishu:
+        def __init__(self, config, open_id=None):
+            calls.append(("feishu", open_id))
+
+        def notify(self, post):
+            pass
+
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FakeTelegram)
+    monkeypatch.setattr("app.notifiers.feishu.FeishuNotifier", FakeFeishu)
+
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    uid = db.add_user("u1", "hash", telegram_chat_id="tg123", feishu_open_id="open456")
+    db.add_subscription(uid, kid)
+    ncfg = NotifiersConfig(
+        telegram=TelegramConfig(bot_token="t"),
+        feishu=FeishuConfig(app_id="a", app_secret="s"),
+    )
+
+    poll_once(db, {"xueqiu": FakeFetcher([make_post(kid)])}, [], notifiers_config=ncfg)
+    assert ("telegram", "tg123") in calls
+    assert ("feishu", "open456") in calls
+    logs = db.list_push_logs()
+    assert len(logs) == 2
+    assert all(log["status"] == "success" for log in logs)
+
+
+def test_no_channel_no_user_push(monkeypatch):
+    def fail(*args, **kwargs):
+        raise AssertionError("未绑定渠道不应调用通知器")
+
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", fail)
+    monkeypatch.setattr("app.notifiers.feishu.FeishuNotifier", fail)
+
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    uid = db.add_user("u1", "hash")
+    db.add_subscription(uid, kid)
+    poll_once(db, {"xueqiu": FakeFetcher([make_post(kid)])}, [])
+    assert db.list_push_logs() == []
