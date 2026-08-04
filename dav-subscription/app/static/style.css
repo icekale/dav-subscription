@@ -358,6 +358,21 @@ td .btn-sm {
 td .btn-sm.danger { color: var(--color-danger); border-color: rgba(220, 38, 38, 0.3); }
 .status-ok { color: var(--color-success); }
 .status-fail { color: var(--color-danger); }
+.status-warn { color: var(--color-warning, #d97706); }
+.channel-card {
+  flex: 1;
+  min-width: 240px;
+  background: var(--color-bg-muted);
+  border-radius: var(--radius-control);
+  padding: 16px 18px;
+}
+.channel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.channel-head b { color: var(--color-text-strong); }
 pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260px; font-family: inherit; }
 
 .empty { text-align: center; color: var(--color-text-muted); padding: 56px 20px; }

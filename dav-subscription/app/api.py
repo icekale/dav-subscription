@@ -31,6 +31,7 @@ class WechatLoginIn(BaseModel):
 class MeUpdate(BaseModel):
     telegram_chat_id: str | None = None
     feishu_open_id: str | None = None
+    feishu_chat_id: str | None = None
     notify_enabled: bool | None = None
 
 
@@ -74,6 +75,7 @@ def public_user(user: dict) -> dict:
         "is_admin": bool(user["is_admin"]),
         "telegram_chat_id": user["telegram_chat_id"],
         "feishu_open_id": user["feishu_open_id"],
+        "feishu_chat_id": user["feishu_chat_id"],
         "notify_enabled": bool(user["notify_enabled"]),
         "created_at": user["created_at"],
     }
@@ -159,6 +161,8 @@ def create_api_router(db: DB, secret: str, allow_register: bool = True, wechat_c
             db.update_user(user["id"], telegram_chat_id=body.telegram_chat_id or "")
         if "feishu_open_id" in body.model_fields_set:
             db.update_user(user["id"], feishu_open_id=body.feishu_open_id or "")
+        if "feishu_chat_id" in body.model_fields_set:
+            db.update_user(user["id"], feishu_chat_id=body.feishu_chat_id or "")
         if "notify_enabled" in body.model_fields_set:
             db.update_user(user["id"], notify_enabled=body.notify_enabled)
         return public_user(db.get_user(user["id"]))

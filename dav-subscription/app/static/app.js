@@ -346,43 +346,70 @@ async function renderSettings() {
   setPageTitle("推送设置");
   try {
     state.user = await api("/api/me");
+    const tg = state.user.telegram_chat_id;
+    const fsOpen = state.user.feishu_open_id;
+    const fsChat = state.user.feishu_chat_id;
+    const fsOk = !!(fsOpen && fsChat);
     $("#main").innerHTML = `
-      ${heroPanel("Push Settings", "推送设置", "绑定你的 Telegram / 飞书账号，新帖按订阅关系逐人推送。", ["Telegram", "飞书"])}
+      ${heroPanel("Push Settings", "推送设置", "新帖按订阅关系逐人推送：先与机器人建立会话，再用绑定码合并到当前账号。", ["Telegram", "飞书"])}
       <section class="section-panel">
-        <div class="notice">
-          <b>怎么绑定？</b><br>
-          · Telegram：给机器人发任意消息后，用 @userinfobot 查询自己的 chat_id（需在 config.yaml 配置 bot_token）。<br>
-          · 飞书：需要飞书自建应用的 app_id / app_secret（未配置时飞书推送会跳过）。
+        <header class="section-head">
+          <div>
+            <p class="section-eyebrow">Channels</p>
+            <h3 class="section-title">推送渠道</h3>
+            <p class="section-meta">当前账号绑定的接收渠道状态。</p>
+          </div>
+        </header>
+        <div class="row" style="gap:16px;flex-wrap:wrap">
+          <div class="channel-card">
+            <div class="channel-head">
+              <b>Telegram</b>
+              <span class="${tg ? "status-ok" : "status-fail"}">${tg ? "已绑定" : "未绑定"}</span>
+            </div>
+            <p class="muted" style="margin:8px 0 12px">${tg ? "chat_id：" + escapeHtml(tg) : "给机器人发一条消息即可自动绑定"}</p>
+            ${tg ? "<button class=\"btn-sm danger\" onclick=\"unbindChannel('telegram_chat_id')\">解绑</button>" : ""}
+          </div>
+          <div class="channel-card">
+            <div class="channel-head">
+              <b>飞书</b>
+              <span class="${fsOk ? "status-ok" : (fsOpen ? "status-warn" : "status-fail")}">${fsOk ? "已绑定" : (fsOpen ? "未完成" : "未绑定")}</span>
+            </div>
+            <p class="muted" style="margin:8px 0 12px">
+              ${fsOk ? "已建立单聊会话，推送正常"
+                : (fsOpen ? "已填 open_id 但未与机器人建立单聊，推送会失败，请先给机器人发消息"
+                : "给机器人发一条消息即可自动绑定")}
+            </p>
+            ${fsOpen ? "<button class=\"btn-sm danger\" onclick=\"unbindChannel('feishu')\">解绑</button>" : ""}
+          </div>
         </div>
-        <div class="form-row">
-          <label for="set-tg">Telegram chat_id</label>
-          <input id="set-tg" class="form-control" value="${escapeHtml(state.user.telegram_chat_id)}" placeholder="如 123456789">
-        </div>
-        <div class="form-row">
-          <label for="set-fs">飞书 open_id</label>
-          <input id="set-fs" class="form-control" value="${escapeHtml(state.user.feishu_open_id)}" placeholder="ou_xxxxxxxx">
-        </div>
-        <div class="form-row">
-          <label for="set-notify">新帖推送开关</label>
-          <select id="set-notify" class="form-control">
-            <option value="1" ${state.user.notify_enabled ? "selected" : ""}>开启</option>
-            <option value="0" ${!state.user.notify_enabled ? "selected" : ""}>关闭</option>
-          </select>
-        </div>
-        <button class="btn-normal" onclick="saveSettings()">保存设置</button>
       </section>
       <section class="section-panel">
         <header class="section-head">
           <div>
             <p class="section-eyebrow">Bind</p>
-            <h3 class="section-title">账号绑定</h3>
-            <p class="section-meta">生成绑定码，发给 Telegram / 飞书机器人（/bind 6位码），即可把该渠道绑到当前账号，一处订阅处处同步。</p>
+            <h3 class="section-title">绑定方法</h3>
+            <p class="section-meta">机器人账号与网页账号合并后，新帖才会推送到你的渠道。</p>
           </div>
         </header>
+        <ol style="padding-left:20px;line-height:2">
+          <li>在 Telegram / 飞书里搜索并打开机器人，发送任意一条消息（如 <code>/start</code>），系统自动记录你的会话。</li>
+          <li>回到本页点「生成绑定码」，把 <code>/bind 6位码</code> 发给机器人。</li>
+          <li>绑定完成后，机器人账号会合并到当前网页账号，订阅与推送同步。</li>
+        </ol>
         <div class="row">
           <button class="btn-ghost" onclick="genBindCode()">生成绑定码</button>
         </div>
         <div id="bind-result" class="muted" style="margin-top:14px"></div>
+      </section>
+      <section class="section-panel">
+        <div class="form-row">
+          <label for="set-notify">新帖推送开关</label>
+          <select id="set-notify" class="form-control" onchange="saveNotify()">
+            <option value="1" ${state.user.notify_enabled ? "selected" : ""}>开启</option>
+            <option value="0" ${!state.user.notify_enabled ? "selected" : ""}>关闭</option>
+          </select>
+        </div>
+        <p class="muted">关闭后不会向任何渠道推送新帖，订阅关系保留。</p>
       </section>
       <section class="section-panel">
         <header class="section-head">
@@ -408,6 +435,31 @@ async function renderSettings() {
       </section>`;
   } catch (err) {
     $("#main").innerHTML = emptyState(err.message);
+  }
+}
+
+async function saveNotify() {
+  try {
+    await api("/api/me", {
+      method: "PUT",
+      body: JSON.stringify({ notify_enabled: $("#set-notify").value === "1" }),
+    });
+  } catch (err) {
+    alert("保存失败: " + err.message);
+  }
+}
+
+async function unbindChannel(channel) {
+  const label = channel === "telegram_chat_id" ? "Telegram" : "飞书";
+  if (!confirm(`确认解绑 ${label}？解绑后将不再往该渠道推送。`)) return;
+  try {
+    const body = channel === "feishu"
+      ? { feishu_open_id: "", feishu_chat_id: "" }
+      : { telegram_chat_id: "" };
+    await api("/api/me", { method: "PUT", body: JSON.stringify(body) });
+    renderSettings();
+  } catch (err) {
+    alert("解绑失败: " + err.message);
   }
 }
 
@@ -444,22 +496,6 @@ async function genBindCode() {
       `发给机器人：<code>/bind ${escapeHtml(data.code)}</code>`;
   } catch (err) {
     alert("生成失败: " + err.message);
-  }
-}
-
-async function saveSettings() {
-  try {
-    await api("/api/me", {
-      method: "PUT",
-      body: JSON.stringify({
-        telegram_chat_id: $("#set-tg").value.trim(),
-        feishu_open_id: $("#set-fs").value.trim(),
-        notify_enabled: $("#set-notify").value === "1",
-      }),
-    });
-    alert("已保存");
-  } catch (err) {
-    alert("保存失败: " + err.message);
   }
 }
 

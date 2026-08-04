@@ -1,18 +1,25 @@
 <view class="page">
-  <view class="card notice-card">
-    <view class="notice-title">怎么绑定？</view>
-    <view class="notice-line">· Telegram：给机器人发任意消息后，用 @userinfobot 查自己的 chat_id（需配置 bot_token）。</view>
-    <view class="notice-line">· 飞书：需要飞书自建应用的 app_id / app_secret（未配置时飞书推送会跳过）。</view>
+  <view class="card">
+    <view class="card-title">推送渠道</view>
+    <view class="form-item">
+      <view class="form-label">Telegram</view>
+      <view class="channel-line">
+        <text class="channel-status {{tgBound ? 'ok' : 'muted'}}">{{tgBound ? "已绑定：" + tg : "未绑定"}}</text>
+        <button wx:if="{{tgBound}}" class="btn-link" data-channel="telegram" bindtap="unbind">解绑</button>
+      </view>
+    </view>
+    <view class="form-item">
+      <view class="form-label">飞书</view>
+      <view class="channel-line">
+        <text class="channel-status {{fsBound ? 'ok' : 'muted'}}">{{fsBound ? "已绑定（单聊会话已建立）" : (fsIncomplete ? "未完成：请先给机器人发消息" : "未绑定")}}</text>
+        <button wx:if="{{fsOpen}}" class="btn-link" data-channel="feishu" bindtap="unbind">解绑</button>
+      </view>
+    </view>
+    <view class="notice-line" style="color:var(--text-muted);font-size:24rpx;line-height:1.8;margin-top:8rpx">
+      给机器人发任意一条消息（如 /start），系统会自动记录会话；再用下方绑定码把渠道合并到当前账号。
+    </view>
   </view>
   <view class="card">
-    <view class="form-item">
-      <view class="form-label">Telegram chat_id</view>
-      <input class="input" placeholder="如 123456789" value="{{tg}}" bindinput="onTg" />
-    </view>
-    <view class="form-item">
-      <view class="form-label">飞书 open_id</view>
-      <input class="input" placeholder="ou_xxxxxxxx" value="{{fs}}" bindinput="onFs" />
-    </view>
     <view class="form-item">
       <view class="form-label">新帖推送开关</view>
       <switch checked="{{notify}}" color="#1677ff" bindchange="onNotify" />
