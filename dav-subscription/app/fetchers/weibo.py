@@ -15,7 +15,18 @@ from .base import Fetcher, Post, strip_html
 WEIBO_COOKIE_KEY = "weibo_cookie"
 PRELOGIN_URL = "https://login.sina.com.cn/sso/prelogin.php"
 LOGIN_URL = "https://login.sina.com.cn/sso/login.php"
-TIMELINE_URL = "https://m.weibo.cn/api/container/getIndex"
+# 桌面端 AJAX 接口，配合 weibo.com 域会话 cookie（扫码登录得到的会话即可用）
+TIMELINE_URL = "https://weibo.com/ajax/statuses/mymblog"
+
+
+def cookie_header(cookies: httpx.Cookies) -> str:
+    """把会话 cookie 展平为 header；同名多域时优先取 weibo.com 域的值。"""
+    preferred: dict[str, str] = {}
+    for cookie in cookies.jar:
+        current = preferred.get(cookie.name)
+        if current is None or "weibo.com" in (cookie.domain or ""):
+            preferred[cookie.name] = cookie.value
+    return "; ".join(f"{k}={v}" for k, v in preferred.items())
 
 
 class WeiboFetcher(Fetcher):
@@ -28,9 +39,9 @@ class WeiboFetcher(Fetcher):
             timeout=20,
             follow_redirects=True,
             headers={
-                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) "
-                "AppleWebKit/605.1.15 Mobile/15E148",
-                "Referer": "https://m.weibo.cn/",
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+                "Referer": "https://weibo.com/",
             },
         )
         if self.source_config.cookie:
@@ -110,7 +121,7 @@ class WeiboFetcher(Fetcher):
             raise RuntimeError(f"微博登录失败（可能需要验证码或凭据错误）: {text[:200]}")
         # returntype=META 的响应里带 meta refresh 跳转（ticket 交换），
         # httpx 不会自动跟随 meta refresh，需手动 GET 才能拿到 SUB 等会话 cookie。
-        if not self.client.cookies.get("SUB"):
+        if not any(c.name == "SUB" for c in self.client.cookies.jar):
             match = re.search(r"url\s*=\s*['\"]([^'\"]+)['\"]", text)
             if match:
                 redirect_url = html.unescape(match.group(1))
@@ -118,9 +129,9 @@ class WeiboFetcher(Fetcher):
                     self.client.get(redirect_url)
                 except Exception as exc:  # noqa: BLE001
                     raise RuntimeError(f"微博登录票据交换失败: {exc}") from None
-        if not self.client.cookies.get("SUB"):
+        if not any(c.name == "SUB" for c in self.client.cookies.jar):
             raise RuntimeError("微博登录后未获取到 SUB cookie")
-        cookie = "; ".join(f"{k}={v}" for k, v in self.client.cookies.items())
+        cookie = cookie_header(self.client.cookies)
         self.db.set_setting(WEIBO_COOKIE_KEY, cookie)
 
     @staticmethod
@@ -137,7 +148,7 @@ class WeiboFetcher(Fetcher):
     def fetch(self, kol: dict) -> list[Post]:
         self._apply_cookie()
         uid = kol["external_id"]
-        params = {"type": "uid", "value": uid, "containerid": f"107603{uid}"}
+        params = {"uid": uid, "feature": "0"}
         resp = self.client.get(TIMELINE_URL, params=params)
         if resp.status_code == 432:
             raise RuntimeError("微博反爬拦截（HTTP 432），请检查 cookie/账号配置或降低抓取频率后重试")
@@ -146,25 +157,28 @@ class WeiboFetcher(Fetcher):
             self._apply_cookie()
             resp = self.client.get(TIMELINE_URL, params=params)
         resp.raise_for_status()
-        cards = ((resp.json() or {}).get("data") or {}).get("cards") or []
+        try:
+            data = resp.json()
+        except ValueError as exc:
+            raise RuntimeError(f"微博返回非 JSON（登录态失效或反爬）: HTTP {resp.status_code}") from None
+        if data.get("ok") != 1:
+            raise RuntimeError(f"微博接口异常: {(data.get('msg') or data)[:200]}")
         posts = []
-        for card in cards:
-            if card.get("card_type") != 9:
-                continue
-            mblog = card.get("mblog") or {}
+        for mblog in ((data.get("data") or {}).get("list") or []):
             mid = mblog.get("id")
             if not mid:
                 continue
             text = strip_html(mblog.get("text") or "")
+            title = (mblog.get("text_raw") or text)[:80]
             posts.append(
                 Post(
                     platform=self.platform,
                     kol_id=kol["id"],
                     kol_name=kol["name"],
                     external_id=str(mid),
-                    title=(mblog.get("raw_text") or text)[:80],
+                    title=title,
                     content=text,
-                    url=f"https://m.weibo.cn/detail/{mid}",
+                    url=f"https://weibo.com/detail/{mid}",
                     published_at=str(mblog.get("created_at") or ""),
                 )
             )

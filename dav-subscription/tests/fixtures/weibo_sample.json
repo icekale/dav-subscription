@@ -1,17 +1,12 @@
 {
+  "ok": 1,
   "data": {
-    "cards": [
+    "list": [
       {
-        "card_type": 9,
-        "mblog": {
-          "id": "M1",
-          "text": "今天<em>行情</em>不错，继续关注",
-          "created_at": "08-04"
-        }
-      },
-      {
-        "card_type": 8,
-        "mblog": null
+        "id": "M1",
+        "text": "今天<em>行情</em>不错，继续关注",
+        "text_raw": "今天行情不错，继续关注",
+        "created_at": "08-04"
       }
     ]
   }

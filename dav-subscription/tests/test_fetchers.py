@@ -132,7 +132,7 @@ def test_weibo_parse_fixture():
     posts = fetcher.fetch({"id": 2, "name": "微博大V", "external_id": "1234567890"})
     assert len(posts) == 1
     assert posts[0].external_id == "M1"
-    assert posts[0].url == "https://m.weibo.cn/detail/M1"
+    assert posts[0].url == "https://weibo.com/detail/M1"
     assert "行情" in posts[0].content
 
 

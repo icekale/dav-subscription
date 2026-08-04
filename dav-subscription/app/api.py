@@ -14,7 +14,7 @@ from . import auth
 from . import wechat
 from .bot_core import BIND_CODE_TTL
 from .db import ALLOWED_PLATFORMS, DB
-from .fetchers.weibo import WEIBO_COOKIE_KEY
+from .fetchers.weibo import WEIBO_COOKIE_KEY, cookie_header
 
 
 def _parse_sina_jsonp(text: str) -> dict:
@@ -23,16 +23,6 @@ def _parse_sina_jsonp(text: str) -> dict:
     start = body.index("(")
     end = body.rindex(")")
     return json.loads(body[start + 1 : end])
-
-
-def _cookie_header(cookies: httpx.Cookies) -> str:
-    """把会话 cookie 展平为 header；同名多域时优先取 weibo.com 域的值。"""
-    preferred: dict[str, str] = {}
-    for cookie in cookies.jar:
-        current = preferred.get(cookie.name)
-        if current is None or "weibo.com" in (cookie.domain or ""):
-            preferred[cookie.name] = cookie.value
-    return "; ".join(f"{k}={v}" for k, v in preferred.items())
 
 
 class RegisterIn(BaseModel):
@@ -646,7 +636,7 @@ def create_api_router(
                 raise HTTPException(status_code=400, detail="微博登录确认失败，请重新扫码") from None
             if not any(c.name == "SUB" for c in client.cookies.jar):
                 raise HTTPException(status_code=400, detail="登录后未获取到微博会话，请重试")
-            cookie = _cookie_header(client.cookies)
+            cookie = cookie_header(client.cookies)
             db.set_setting(WEIBO_COOKIE_KEY, cookie)
             client.close()
             weibo_qr_sessions.pop(qrid, None)
