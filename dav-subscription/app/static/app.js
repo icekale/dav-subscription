@@ -216,16 +216,16 @@ async function adminDeleteKolFromHome(kolId) {
 async function toggleSubscribe(kolId, btn) {
   try {
     const kol = state.catalog.find((k) => k.id === kolId);
-    if (kol && kol.subscribed) {
+    const wasSubscribed = kol ? kol.subscribed : btn.classList.contains("subscribed");
+    if (wasSubscribed) {
       await api(`/api/subscriptions/${kolId}`, { method: "DELETE" });
     } else {
       await api("/api/subscriptions", { method: "POST", body: JSON.stringify({ kol_id: kolId }) });
     }
-    if (kol) {
-      kol.subscribed = !kol.subscribed;
-      btn.textContent = kol.subscribed ? "已订阅" : "订阅";
-      btn.classList.toggle("subscribed", kol.subscribed);
-    }
+    const nowSubscribed = !wasSubscribed;
+    if (kol) kol.subscribed = nowSubscribed;
+    btn.textContent = nowSubscribed ? "已订阅" : "订阅";
+    btn.classList.toggle("subscribed", nowSubscribed);
   } catch (err) {
     alert("操作失败: " + err.message);
   }
@@ -280,6 +280,7 @@ async function renderTimeline() {
 }
 
 function postCard(post) {
+  const safeUrl = /^https?:\/\//i.test(post.url || "") ? post.url : "#";
   return `
     <div class="post-item">
       <div class="p-header">
@@ -294,7 +295,7 @@ function postCard(post) {
       <div class="p-meta">
         ${post.category_name ? `<span class="cat">${escapeHtml(post.category_name)}</span>` : ""}
         <span>${PLATFORM_LABELS[post.platform] || post.platform}</span>
-        <a href="${escapeHtml(post.url)}" target="_blank" rel="noopener">查看原文 →</a>
+        <a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener">查看原文 →</a>
       </div>
     </div>`;
 }
@@ -458,6 +459,7 @@ function channelStatusHtml(user) {
           <span class="${tg ? "status-ok" : "status-fail"}">${tg ? "已绑定 ✅" : "未绑定"}</span>
         </div>
         <p class="muted" style="margin:8px 0 0">${tg ? "推送已启用" : "按下方步骤操作，本页会自动刷新状态"}</p>
+        ${tg ? `<button class="btn-sm" style="margin-top:10px" onclick="unbindChannel('telegram_chat_id')">解绑</button>` : ""}
       </div>
       <div class="channel-card">
         <div class="channel-head">
@@ -469,6 +471,7 @@ function channelStatusHtml(user) {
             : (fsOpen ? "已关联账号，请先在飞书私聊机器人发一条消息"
             : "按下方步骤操作，本页会自动刷新状态")}
         </p>
+        ${fsOpen ? `<button class="btn-sm" style="margin-top:10px" onclick="unbindChannel('feishu')">解绑</button>` : ""}
       </div>
     </div>`;
 }
@@ -898,7 +901,7 @@ async function loadAdminKols() {
         <div><p class="section-eyebrow">Batch</p><h3 class="section-title">批量导入大V</h3>
         <p class="section-meta">每行一个：昵称 + 雪球主页链接/UID（昵称可省略），如：<code>段永平 https://xueqiu.com/u/12345</code></p></div>
       </header>
-      <textarea id="ad-batch-lines" class="form-control" rows="6" style="font-family:monospace" placeholder="https://xueqiu.com/u/12345&#10;段永平 12345&#10;https://xueqiu.com/67890"></textarea>
+      <textarea id="ad-batch-lines" class="form-control" rows="8" style="font-family:monospace;min-height:180px;resize:vertical" placeholder="https://xueqiu.com/u/12345&#10;段永平 12345&#10;https://xueqiu.com/67890"></textarea>
       <div class="toolbar" style="margin-top:12px">
         <select id="ad-batch-platform" class="form-control" style="margin:0;width:auto">
           <option value="xueqiu">雪球</option>
@@ -978,19 +981,31 @@ async function adminAddKol() {
 }
 
 async function adminToggleKol(id, enabled) {
-  await api(`/api/kols/${id}`, { method: "PUT", body: JSON.stringify({ enabled: !!enabled }) });
-  loadAdminKols();
+  try {
+    await api(`/api/kols/${id}`, { method: "PUT", body: JSON.stringify({ enabled: !!enabled }) });
+    loadAdminKols();
+  } catch (err) {
+    alert("操作失败: " + err.message);
+  }
 }
 
 async function adminTogglePriority(id, priority) {
-  await api(`/api/kols/${id}`, { method: "PUT", body: JSON.stringify({ priority: !!priority }) });
-  loadAdminKols();
+  try {
+    await api(`/api/kols/${id}`, { method: "PUT", body: JSON.stringify({ priority: !!priority }) });
+    loadAdminKols();
+  } catch (err) {
+    alert("操作失败: " + err.message);
+  }
 }
 
 async function adminDeleteKol(id) {
   if (!confirm("确认删除该大V？")) return;
-  await api(`/api/kols/${id}`, { method: "DELETE" });
-  loadAdminKols();
+  try {
+    await api(`/api/kols/${id}`, { method: "DELETE" });
+    loadAdminKols();
+  } catch (err) {
+    alert("删除失败: " + err.message);
+  }
 }
 
 async function adminEditKol(id) {

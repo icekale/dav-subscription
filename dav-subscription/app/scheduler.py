@@ -427,7 +427,7 @@ def notify_subscribers(
                     maybe_alert_push_failure(
                         db, notifiers or [], f"user={user['username']} channel=telegram err={exc}"
                     )
-            if user["feishu_open_id"]:
+            if user.get("feishu_open_id") or user.get("feishu_chat_id"):
                 # 优先用 p2p 会话 chat_id 发送（open_id 直发可能被飞书 230101 拦截）
                 notifier = FeishuNotifier(
                     notifiers_config.feishu,
@@ -611,7 +611,7 @@ def notify_digest_subscribers(
                             str(exc),
                             user_id=user["id"],
                         )
-            if user["feishu_open_id"]:
+            if user.get("feishu_open_id") or user.get("feishu_chat_id"):
                 notifier = FeishuNotifier(
                     notifiers_config.feishu,
                     client=client,
@@ -1129,7 +1129,9 @@ class Scheduler:
                     continue
                 if row["channel"] == "telegram" and not user.get("telegram_chat_id"):
                     continue
-                if row["channel"] == "feishu" and not user.get("feishu_open_id"):
+                if row["channel"] == "feishu" and not (
+                    user.get("feishu_open_id") or user.get("feishu_chat_id")
+                ):
                     continue
             post = Post(
                 platform=post_row["platform"],
@@ -1149,7 +1151,13 @@ class Scheduler:
     def _retry_push(self, item: dict) -> None:
         post = item["post"]
         notifier = self._build_retry_notifier(item["channel"], item["user_id"])
-        notifier.notify(post)
+        try:
+            notifier.notify(post)
+        finally:
+            # 按用户重建的 notifier 持有独立 client，用完即关；
+            # user_id 为 None 时复用全局 notifier，不能关它的连接
+            if item["user_id"] is not None and getattr(notifier, "client", None) is not None:
+                notifier.client.close()
         post_id = self.db.get_post_id(post.platform, post.external_id)
         if post_id:
             self.db.mark_failed_push_success(post_id, item["channel"], item["user_id"])
@@ -1172,7 +1180,7 @@ class Scheduler:
                 raise RuntimeError("用户未绑定 Telegram")
             return TelegramNotifier(self.notifiers_config.telegram, chat_id=user["telegram_chat_id"])
         if channel == "feishu":
-            if not user.get("feishu_open_id"):
+            if not (user.get("feishu_open_id") or user.get("feishu_chat_id")):
                 raise RuntimeError("用户未绑定飞书")
             return FeishuNotifier(
                 self.notifiers_config.feishu,
@@ -1231,7 +1239,7 @@ class Scheduler:
                     logger.warning("每日精选推送失败 user=%s channel=telegram err=%s", user["username"], exc)
                 finally:
                     notifier.client.close()
-            if user.get("feishu_open_id"):
+            if user.get("feishu_open_id") or user.get("feishu_chat_id"):
                 notifier = FeishuNotifier(
                     self.notifiers_config.feishu,
                     open_id=user["feishu_open_id"] if not user.get("feishu_chat_id") else None,

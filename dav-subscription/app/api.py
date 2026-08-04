@@ -173,6 +173,11 @@ def create_api_router(
         login_attempts[ip] = recent
         if len(recent) >= LOGIN_MAX_FAILURES:
             raise HTTPException(status_code=429, detail="尝试次数过多，请 5 分钟后再试")
+        # 防止无界增长：超过 1000 个 IP 时清掉窗口外旧记录
+        if len(login_attempts) > 1000:
+            expired = [k for k, v in login_attempts.items() if not v]
+            for k in expired:
+                login_attempts.pop(k, None)
 
     def _record_login_failure(ip: str) -> None:
         login_attempts.setdefault(ip, []).append(time.time())
@@ -478,15 +483,19 @@ def create_api_router(
             requester = db.get_user(req["user_id"])
             message = f"✅ 你申请的大V「{name}」已通过审批，已自动为你订阅"
             if requester and requester["telegram_chat_id"] and notifiers_config.telegram.bot_token:
+                notifier = None
                 try:
                     notifier = TelegramNotifier(
                         notifiers_config.telegram, chat_id=requester["telegram_chat_id"]
                     )
                     notifier.send_text(message)
-                    notifier.client.close()
                 except Exception:  # noqa: BLE001
                     pass
-            if requester and requester["feishu_open_id"]:
+                finally:
+                    if notifier is not None:
+                        notifier.client.close()
+            if requester and (requester.get("feishu_open_id") or requester.get("feishu_chat_id")):
+                notifier = None
                 try:
                     notifier = FeishuNotifier(
                         notifiers_config.feishu,
@@ -494,9 +503,11 @@ def create_api_router(
                         chat_id=requester.get("feishu_chat_id") or None,
                     )
                     notifier.send_text(message)
-                    notifier.client.close()
                 except Exception:  # noqa: BLE001
                     pass
+                finally:
+                    if notifier is not None:
+                        notifier.client.close()
         return db.get_kol(kid)
 
     @router.post("/admin/kol-requests/{request_id}/reject", dependencies=[Depends(require_admin)])
@@ -899,7 +910,7 @@ def create_api_router(
                 results.append({"channel": "telegram", "ok": False, "error": str(exc)})
             finally:
                 notifier.client.close()
-        if user["feishu_open_id"]:
+        if user.get("feishu_open_id") or user.get("feishu_chat_id"):
             notifier = FeishuNotifier(
                 notifiers_config.feishu,
                 open_id=user["feishu_open_id"] if not user.get("feishu_chat_id") else None,

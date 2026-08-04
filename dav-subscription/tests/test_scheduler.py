@@ -15,6 +15,7 @@ from app.scheduler import (
     flush_digest,
     keepalive_weibo_cookie,
     keepalive_xueqiu_cookie,
+    notify_subscribers,
     parse_twitter_cookie,
     poll_once,
     translate_text,
@@ -161,6 +162,47 @@ def test_private_kol_subscribers_acl_filtered():
     assert db.subscribers_of_kol(kid) == []
     db.set_kol_acl(kid, [uid])
     assert [u["id"] for u in db.subscribers_of_kol(kid)] == [uid]
+
+
+def test_subscribers_include_feishu_chat_only():
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    uid = db.add_user("fs_chat", "h", feishu_chat_id="oc_chat1")
+    db.add_subscription(uid, kid)
+    # 只绑了飞书 p2p 会话、没有 open_id 的用户也要收到推送
+    assert [u["id"] for u in db.subscribers_of_kol(kid)] == [uid]
+    # 每日精选同样纳入此类用户
+    assert db.daily_report_users() == []
+    db.update_user(uid, daily_report=1)
+    assert [u["id"] for u in db.daily_report_users()] == [uid]
+
+
+def test_notify_subscribers_feishu_chat_only(monkeypatch):
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    uid = db.add_user("fs_chat", "h", feishu_chat_id="oc_chat1")
+    db.add_subscription(uid, kid)
+    post = Post(
+        platform="xueqiu", kol_id=kid, kol_name="A",
+        external_id="p1", title="t", content="c", url="u", published_at="",
+    )
+    sent = {"ok": False}
+
+    class FakeFS:
+        def __init__(self, *args, **kwargs):
+            self.client = SimpleNamespace(close=lambda: None)
+            self.channel = "feishu"
+
+        def notify(self, post):
+            sent["ok"] = True
+
+    notifiers_config = SimpleNamespace(
+        telegram=SimpleNamespace(bot_token="", chat_id=""),
+        feishu=SimpleNamespace(),
+    )
+    monkeypatch.setattr("app.notifiers.feishu.FeishuNotifier", FakeFS)
+    notify_subscribers(db, 1, post, notifiers_config, notifiers=[], retry_queue=None)
+    assert sent["ok"] is True
 
 
 def test_source_failure_alert_and_recovery(monkeypatch):

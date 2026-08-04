@@ -558,7 +558,7 @@ class DB:
             "SELECT u.* FROM subscriptions s JOIN users u ON u.id = s.user_id "
             "JOIN kols k ON k.id = s.kol_id "
             "WHERE s.kol_id = ? AND u.notify_enabled = 1 "
-            "AND (u.telegram_chat_id != '' OR u.feishu_open_id != '') "
+            "AND (u.telegram_chat_id != '' OR u.feishu_open_id != '' OR u.feishu_chat_id != '') "
             "AND (k.is_private = 0 OR EXISTS "
             "(SELECT 1 FROM kol_acl a WHERE a.kol_id = k.id AND a.user_id = u.id))",
             (kol_id,),
@@ -728,7 +728,7 @@ class DB:
         """开启每日精选、启用通知且绑定过渠道的用户。"""
         return self._rows(
             "SELECT * FROM users WHERE notify_enabled = 1 AND daily_report = 1 "
-            "AND (telegram_chat_id != '' OR feishu_open_id != '')"
+            "AND (telegram_chat_id != '' OR feishu_open_id != '' OR feishu_chat_id != '')"
         )
 
     # ---- Push log ----
