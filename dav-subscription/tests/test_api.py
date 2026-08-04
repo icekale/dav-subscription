@@ -404,6 +404,39 @@ def test_weibo_kol_link_normalized():
     assert resp.json()["failed"] == []
 
 
+def test_xueqiu_cookie_write_and_batch_rss_url():
+    client = make_client()
+    headers = auth_headers(client)
+
+    status = client.get("/api/admin/xueqiu-cookie", headers=headers)
+    assert status.status_code == 200 and status.json()["set"] is False
+
+    resp = client.post(
+        "/api/admin/xueqiu-cookie",
+        headers=headers,
+        json={"cookie": "xq_a_token=abc; u=123"},
+    )
+    assert resp.status_code == 200
+    status = client.get("/api/admin/xueqiu-cookie", headers=headers).json()
+    assert status["set"] is True and status["preview"].startswith("xq_a_token=abc")
+
+    assert (
+        client.post("/api/admin/xueqiu-cookie", headers=headers, json={"cookie": "  "}).status_code
+        == 400
+    )
+
+    # 批量导入支持 X/RSS 源地址
+    resp = client.post(
+        "/api/kols/batch",
+        headers=headers,
+        json={"platform": "twitter", "lines": "Elon Musk https://rsshub.app/twitter/user/elonmusk"},
+    )
+    assert resp.status_code == 200 and resp.json()["ok"] == 1
+    assert resp.json()["failed"] == []
+    kols = client.get("/api/kols", headers=headers).json()
+    assert any(k["external_id"] == "https://rsshub.app/twitter/user/elonmusk" for k in kols)
+
+
 def test_kol_request_flow():
     client = make_client()
     admin_headers = auth_headers(client)

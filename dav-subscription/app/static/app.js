@@ -50,6 +50,7 @@ const NAV = [
     { route: "settings", icon: "⚙", label: "推送设置" },
   ]},
   { group: "管理", admin: true, items: [
+    { route: "admin/stats", icon: "◎", label: "数据源" },
     { route: "admin/kols", icon: "◇", label: "大V管理" },
     { route: "admin/requests", icon: "✚", label: "求添加" },
     { route: "admin/codes", icon: "✉", label: "注册码" },
@@ -588,7 +589,7 @@ async function genBindCode() {
 
 // ---------- 管理后台 ----------
 const ADMIN_TABS = [
-  ["stats", "状态"],
+  ["stats", "数据源"],
   ["kols", "大V管理"],
   ["requests", "求添加"],
   ["codes", "注册码"],
@@ -612,12 +613,12 @@ async function renderAdmin(tab) {
 }
 
 async function loadAdminStats() {
-  const s = await api("/api/stats");
+  const [s, xq] = await Promise.all([api("/api/stats"), api("/api/admin/xueqiu-cookie")]);
   const fmtTime = (ts) => (ts ? new Date(Number(ts) * 1000).toLocaleString() : "尚未抓取");
   $("#admin-body").innerHTML = `
     <section class="section-panel">
-      <header class="section-head"><div><p class="section-eyebrow">Runtime</p><h3 class="section-title">运行状态</h3>
-      <p class="section-meta">抓取频率与时效性一览</p></div></header>
+      <header class="section-head"><div><p class="section-eyebrow">Data Sources</p><h3 class="section-title">数据源</h3>
+      <p class="section-meta">各平台抓取状态与登录凭据维护。</p></div></header>
       <div class="row" style="gap:16px;flex-wrap:wrap">
         ${statCard("轮询间隔", `${s.polling_interval_seconds} 秒`)}
         ${statCard("最近抓取", fmtTime(s.last_poll_at))}
@@ -633,7 +634,36 @@ async function loadAdminStats() {
         <span class="muted" style="margin-left:10px">用微博 App 扫码后自动保存 Cookie，无需手动复制</span>
       </div>
       <div id="wb-qr-box" style="margin-top:16px"></div>
+    </section>
+    <section class="section-panel">
+      <header class="section-head">
+        <div><p class="section-eyebrow">Xueqiu</p><h3 class="section-title">雪球 Cookie</h3>
+        <p class="section-meta">${xq.set ? `已写入（${escapeHtml(xq.updated_at || "")}），预览：${escapeHtml(xq.preview)}` : "未写入，抓取可能受限或被反爬拦截"}</p></div>
+      </header>
+      <textarea id="xq-cookie" class="form-control" rows="4" style="font-family:monospace" placeholder="登录 xueqiu.com 后，浏览器 F12 → Application → Cookies 复制整串（形如 xq_a_token=...; u=...）"></textarea>
+      <div class="toolbar" style="margin-top:12px">
+        <button class="btn-normal" onclick="saveXueqiuCookie()">保存雪球 Cookie</button>
+        <span id="xq-result" class="muted"></span>
+      </div>
     </section>`;
+}
+
+async function saveXueqiuCookie() {
+  const cookie = $("#xq-cookie").value.trim();
+  if (!cookie) {
+    alert("请先粘贴雪球 cookie");
+    return;
+  }
+  try {
+    await api("/api/admin/xueqiu-cookie", {
+      method: "POST",
+      body: JSON.stringify({ cookie }),
+    });
+    $("#xq-result").textContent = "已保存 ✅";
+    loadAdminStats();
+  } catch (err) {
+    alert("保存失败: " + err.message);
+  }
 }
 
 let wbQrTimer = null;

@@ -14,6 +14,7 @@ from . import auth
 from . import wechat
 from .bot_core import BIND_CODE_TTL
 from .db import ALLOWED_PLATFORMS, DB
+from .fetchers.xueqiu import XUEQIU_COOKIE_KEY, XUEQIU_COOKIE_TIME_KEY
 from .fetchers.weibo import WEIBO_COOKIE_KEY, cookie_header
 
 
@@ -96,6 +97,10 @@ class KolRequestIn(BaseModel):
 class RegisterCodeGenIn(BaseModel):
     count: int = 5
     note: str = ""
+
+
+class CookieIn(BaseModel):
+    cookie: str
 
 
 class SubscriptionIn(BaseModel):
@@ -459,6 +464,24 @@ def create_api_router(
     def list_register_codes():
         return db.list_register_codes()
 
+    @router.get("/admin/xueqiu-cookie", dependencies=[Depends(require_admin)])
+    def get_xueqiu_cookie():
+        cookie = db.get_setting(XUEQIU_COOKIE_KEY) or ""
+        return {
+            "set": bool(cookie),
+            "updated_at": db.get_setting(XUEQIU_COOKIE_TIME_KEY) or "",
+            "preview": (cookie[:40] + "…") if len(cookie) > 40 else cookie,
+        }
+
+    @router.post("/admin/xueqiu-cookie", dependencies=[Depends(require_admin)])
+    def set_xueqiu_cookie(body: CookieIn):
+        cookie = body.cookie.strip()
+        if not cookie:
+            raise HTTPException(status_code=400, detail="cookie 不能为空")
+        db.set_setting(XUEQIU_COOKIE_KEY, cookie)
+        db.set_setting(XUEQIU_COOKIE_TIME_KEY, str(int(time.time())))
+        return {"ok": True}
+
     @router.delete("/admin/register-codes/{code}", dependencies=[Depends(require_admin)])
     def revoke_register_code(code: str):
         row = db.get_register_code(code)
@@ -521,6 +544,8 @@ def create_api_router(
                     external_id = xueqiu_match.group(1)
                 elif weibo_match:
                     external_id = weibo_match.group(1)
+                elif token.startswith(("http://", "https://")) and not external_id:
+                    external_id = token  # X/RSS 等直接用源地址
                 elif token.isdigit() and not external_id:
                     external_id = token
                 else:
