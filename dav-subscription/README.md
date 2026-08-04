@@ -40,7 +40,7 @@ docker compose up -d --build
 | `notifiers.feishu.webhook_url` | 飞书群机器人 webhook |
 | `notifiers.telegram.bot_token` | Telegram Bot token |
 | `notifiers.telegram.chat_id` | 接收消息的会话 ID |
-| `sources.xueqiu.cookie` | 可选，雪球 Cookie 初始值；服务会自动续期，无需手动更新 |
+| `sources.xueqiu.cookie` | 可选，雪球 Cookie 初始值；过期后需手动更新（自动续期会尝试，但受 WAF 限制通常需要浏览器） |
 | `sources.weibo.cookie` | 可选，微博 Cookie 初始值（未配置账号密码时的兜底） |
 | `sources.weibo.token` | 可选，x-xsrf-token |
 | `sources.weibo.username` | 可选，微博账号；配置后自动登录并自动续期 cookie |
@@ -54,7 +54,7 @@ docker compose up -d --build
 
 ## Cookie 获取与自动续期
 
-- **雪球**：服务会自动续期——匿名访问首页即可获得新的 `xq_a_token`（约 30 天有效），无需手动维护；初始值可选填。
+- **雪球**：抓取走 `user_timeline.json` JSON 接口，普通 HTTP 请求即可，不受 WAF 挑战影响。Cookie 约 30 天有效；过期后服务会尝试自动续期，但雪球首页受阿里云 WAF 保护（需要浏览器执行 JS 验证），自动续期通常无法成功，此时会清晰报错，请手动更新 `sources.xueqiu.cookie`。
 - **微博**：推荐配置 `sources.weibo.username/password`，服务会自动走 weibo.cn 登录流程获取 cookie 并续期（可能偶尔遇到验证码导致登录失败，失败时会推送告警并在次日重试）。不想用账号密码时，也可手动填 cookie：浏览器登录 weibo.cn → 开发者工具 → Network → 复制请求头里的 `Cookie` 整串。
 
 手动 cookie 过期后重新复制即可，无需重启容器（改 `config.yaml` 后 `docker compose restart`）。

@@ -9,6 +9,15 @@ from .base import Fetcher, Post, strip_html
 
 XUEQIU_COOKIE_KEY = "xueqiu_cookie"
 XUEQIU_COOKIE_TIME_KEY = "xueqiu_cookie_updated_at"
+XUEQIU_TIMELINE_URL = "https://xueqiu.com/statuses/user_timeline.json"
+
+
+def _is_waf_html(resp: httpx.Response) -> bool:
+    """判断响应是否为阿里云 WAF 的 JS 挑战页（普通 HTTP 客户端无法通过）。"""
+    content_type = resp.headers.get("content-type", "")
+    return "text/html" in content_type and any(
+        marker in resp.text for marker in ("renderData", "aliyun_waf", "acw_sc__v2")
+    )
 
 
 class XueqiuFetcher(Fetcher):
@@ -21,6 +30,10 @@ class XueqiuFetcher(Fetcher):
             timeout=20,
             headers={
                 "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X)",
+                "Accept": "application/json, text/plain, */*",
+                "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+                "Origin": "https://xueqiu.com",
+                "X-Requested-With": "XMLHttpRequest",
                 "Referer": "https://xueqiu.com/",
             },
         )
@@ -37,6 +50,11 @@ class XueqiuFetcher(Fetcher):
         """访问雪球首页拿新 token（匿名访问也会下发 xq_a_token），持久化到 DB。"""
         resp = self.client.get("https://xueqiu.com/")
         resp.raise_for_status()
+        if _is_waf_html(resp):
+            raise RuntimeError(
+                "雪球 cookie 自动续期被反爬拦截（首页需要浏览器执行 JS 验证），"
+                "请手动更新 sources.xueqiu.cookie 后重试"
+            )
         if not self.client.cookies.get("xq_a_token"):
             raise RuntimeError("雪球首页未返回 xq_a_token，cookie 续期失败")
         cookie = "; ".join(f"{k}={v}" for k, v in self.client.cookies.items())
@@ -45,8 +63,18 @@ class XueqiuFetcher(Fetcher):
 
     def fetch(self, kol: dict) -> list[Post]:
         self._apply_cookie()
-        url = "https://xueqiu.com/statuses/original/timeline.json"
-        params = {"user_id": kol["external_id"], "page": 1}
+        # 用户时间线 JSON 接口不受 WAF 挑战保护；original/timeline.json 反而会被 WAF 拦截
+        url = XUEQIU_TIMELINE_URL
+        params = {"user_id": kol["external_id"], "page": 1, "count": 20}
+        self.client.headers.update(
+            {
+                "Accept": "application/json, text/plain, */*",
+                "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+                "Origin": "https://xueqiu.com",
+                "X-Requested-With": "XMLHttpRequest",
+                "Referer": f"https://xueqiu.com/u/{kol['external_id']}",
+            }
+        )
         resp = self.client.get(
             url,
             params=params,
@@ -65,6 +93,8 @@ class XueqiuFetcher(Fetcher):
         statuses = (data or {}).get("statuses") or []
         posts = []
         for s in statuses:
+            if s.get("retweeted_status"):
+                continue  # 只保留原创动态，转发不推送
             target = s.get("target") or ""
             url = f"https://xueqiu.com{target}" if target.startswith("/") else target
             posts.append(

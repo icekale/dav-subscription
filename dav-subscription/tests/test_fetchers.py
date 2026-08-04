@@ -16,6 +16,11 @@ def test_xueqiu_parse_fixture():
 
     def handler(request):
         assert request.headers.get("Cookie", "").startswith("xq_a_token=")
+        assert request.url.path == "/statuses/user_timeline.json"
+        assert request.url.params.get("user_id") == "123"
+        assert request.headers.get("Origin") == "https://xueqiu.com"
+        assert request.headers.get("X-Requested-With") == "XMLHttpRequest"
+        assert request.headers.get("Referer") == "https://xueqiu.com/u/123"
         return httpx.Response(200, json=payload)
 
     client = httpx.Client(transport=httpx.MockTransport(handler))
@@ -27,6 +32,29 @@ def test_xueqiu_parse_fixture():
     assert "大涨" in posts[0].content
     assert "<strong>" not in posts[0].content
     assert posts[0].kol_name == "大V"
+
+
+def test_xueqiu_skips_reposts():
+    payload = {
+        "statuses": [
+            {"id": 101, "title": "原创", "description": "第一条", "target": "/101"},
+            {
+                "id": 102,
+                "title": "转发",
+                "description": "转发的",
+                "target": "/102",
+                "retweeted_status": {"id": 999, "title": "被转内容"},
+            },
+        ]
+    }
+
+    def handler(request):
+        return httpx.Response(200, json=payload)
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    fetcher = XueqiuFetcher(XueqiuConfig(cookie="xq_a_token=abc"), db=DB(":memory:"), client=client)
+    posts = fetcher.fetch({"id": 1, "name": "大V", "external_id": "123"})
+    assert [p.external_id for p in posts] == ["101"]
 
 
 def test_xueqiu_cookie_refresh_on_401():
@@ -51,6 +79,27 @@ def test_xueqiu_cookie_refresh_on_401():
     posts = fetcher.fetch({"id": 1, "name": "大V", "external_id": "123"})
     assert len(posts) == 2
     assert "xq_a_token=newtoken" in db.get_setting("xueqiu_cookie")
+
+
+def test_xueqiu_refresh_waf_html_raises_clear_error():
+    def handler(request):
+        if request.url.path == "/":
+            return httpx.Response(
+                200,
+                headers={"content-type": "text/html"},
+                text='<textarea id="renderData">waf challenge</textarea><html>',
+            )
+        return httpx.Response(401)
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    fetcher = XueqiuFetcher(XueqiuConfig(cookie="xq_a_token=old"), db=DB(":memory:"), client=client)
+    try:
+        fetcher.fetch({"id": 1, "name": "大V", "external_id": "123"})
+    except RuntimeError as exc:
+        assert "反爬" in str(exc)
+        assert "手动更新" in str(exc)
+        return
+    raise AssertionError("WAF 拦截首页时应抛出清晰错误")
 
 
 def test_xueqiu_waf_html_raises_clear_error():
