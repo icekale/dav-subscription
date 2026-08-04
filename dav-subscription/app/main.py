@@ -18,6 +18,8 @@ from .notifiers import build_notifiers
 from .scheduler import Scheduler
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+# httpx 访问日志会打印完整 URL（含 bot token），降到 WARNING 防泄露
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 def create_app(config=None, db_path: str | Path | None = None) -> FastAPI:
