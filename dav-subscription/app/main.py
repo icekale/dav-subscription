@@ -43,12 +43,25 @@ def create_app(config=None, db_path: str | Path | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         task = asyncio.create_task(scheduler.run())
+        bot_task = None
+        if config.notifiers.telegram.bot_token:
+            from .telegram_bot import TelegramBot
+
+            bot = TelegramBot(db, config.notifiers.telegram.bot_token, secret)
+            bot_task = asyncio.create_task(bot.run())
         yield
         task.cancel()
+        if bot_task is not None:
+            bot_task.cancel()
         try:
             await task
         except asyncio.CancelledError:
             pass
+        if bot_task is not None:
+            try:
+                await bot_task
+            except asyncio.CancelledError:
+                pass
         db.close()
 
     app = FastAPI(title="大V订阅", lifespan=lifespan)

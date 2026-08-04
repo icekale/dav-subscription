@@ -197,6 +197,10 @@ class DB:
         rows = self._rows("SELECT * FROM users WHERE username = ?", (username,))
         return rows[0] if rows else None
 
+    def get_user_by_telegram(self, chat_id: str) -> dict | None:
+        rows = self._rows("SELECT * FROM users WHERE telegram_chat_id = ?", (chat_id,))
+        return rows[0] if rows else None
+
     def get_user_by_openid(self, openid: str) -> dict | None:
         rows = self._rows("SELECT * FROM users WHERE wechat_openid = ?", (openid,))
         return rows[0] if rows else None
