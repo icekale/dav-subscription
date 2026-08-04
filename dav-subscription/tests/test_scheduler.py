@@ -118,6 +118,37 @@ def test_private_kol_subscribers_acl_filtered():
     assert [u["id"] for u in db.subscribers_of_kol(kid)] == [uid]
 
 
+def test_source_failure_alert_and_recovery(monkeypatch):
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    notifier = FakeNotifier()
+    states = {}
+    clock = {"t": 0.0}
+    monkeypatch.setattr("app.scheduler.time.monotonic", lambda: clock["t"])
+
+    # 前 2 次失败不打扰
+    for _ in range(2):
+        clock["t"] += 3600
+        poll_once(db, {"xueqiu": FakeFetcherError()}, [notifier], states, interval_seconds=0)
+    assert not any("数据源告警" in t for t in notifier.texts)
+
+    # 第 3 次连续失败触发告警
+    clock["t"] += 3600
+    poll_once(db, {"xueqiu": FakeFetcherError()}, [notifier], states, interval_seconds=0)
+    assert any("数据源告警" in t and "连续失败 3 次" in t for t in notifier.texts)
+
+    # 6 小时内重复失败不再重复告警（冷却期）
+    for _ in range(7):
+        clock["t"] += 60
+        poll_once(db, {"xueqiu": FakeFetcherError()}, [notifier], states, interval_seconds=0)
+    assert sum("数据源告警" in t for t in notifier.texts) == 1
+
+    # 恢复后发送恢复通知
+    clock["t"] += 3600
+    poll_once(db, {"xueqiu": FakeFetcher([make_post(kid)])}, [notifier], states, interval_seconds=0)
+    assert any("数据源已恢复" in t for t in notifier.texts)
+
+
 def test_push_failure_logged():
     db = make_db()
     kid = db.add_kol("xueqiu", "A", "1")

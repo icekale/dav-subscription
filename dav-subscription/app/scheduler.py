@@ -18,6 +18,9 @@ WEIBO_WARNING_KEY = "weibo_warning_date"
 XUEQIU_WARNING_KEY = "xueqiu_warning_date"
 PUSH_ALERT_KEY = "push_alert_last_at"
 PUSH_ALERT_INTERVAL = 3600
+SOURCE_ALERT_INTERVAL = 6 * 3600
+SOURCE_FAIL_THRESHOLD = 3
+PLATFORM_LABELS = {"xueqiu": "雪球", "weibo": "微博", "twitter": "X"}
 
 
 def _post_sort_key(post: Post) -> float:
@@ -56,6 +59,42 @@ class PlatformState:
         self.fail_count = 0
         self.skip_until = 0.0
         self.last_fetched: dict[int, float] = {}
+        self.alerted = False
+
+
+def maybe_alert_source_failure(
+    db: DB, notifiers: list[Notifier], platform: str, kol_name: str, detail: str, fail_count: int
+) -> None:
+    """数据源连续失败时向管理员推送告警（每平台每 6 小时最多一次）。"""
+    now = int(time.time())
+    key = f"source_alert_{platform}"
+    last = db.get_setting(key)
+    if last and now - int(last) < SOURCE_ALERT_INTERVAL:
+        return
+    db.set_setting(key, str(now))
+    label = PLATFORM_LABELS.get(platform, platform)
+    message = (
+        f"⚠️ 数据源告警：{label}「{kol_name}」连续失败 {fail_count} 次。\n"
+        f"错误：{detail[:200]}"
+    )
+    for notifier in notifiers:
+        try:
+            notifier.send_text(message)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("数据源告警发送失败 channel=%s err=%s", notifier.channel, exc)
+
+
+def maybe_alert_source_recovered(
+    db: DB, notifiers: list[Notifier], platform: str, kol_name: str
+) -> None:
+    """数据源从连续失败中恢复后通知管理员。"""
+    label = PLATFORM_LABELS.get(platform, platform)
+    message = f"✅ 数据源已恢复：{label}「{kol_name}」重新抓取成功。"
+    for notifier in notifiers:
+        try:
+            notifier.send_text(message)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("数据源恢复通知发送失败 channel=%s err=%s", notifier.channel, exc)
 
 
 def maybe_warn_weibo_login(db: DB, notifiers: list[Notifier], detail: str) -> None:
@@ -202,6 +241,11 @@ def poll_once(
             state.fail_count += 1
             delay = min(30 * (2 ** (state.fail_count - 1)), 600)
             state.skip_until = time.monotonic() + delay
+            if state.fail_count == SOURCE_FAIL_THRESHOLD or state.fail_count % 10 == 0:
+                maybe_alert_source_failure(
+                    db, notifiers, kol["platform"], kol["name"], str(exc), state.fail_count
+                )
+                state.alerted = True
             logger.warning(
                 "抓取失败 platform=%s kol=%s err=%s 下次尝试 %.0fs 后",
                 kol["platform"],
@@ -216,6 +260,9 @@ def poll_once(
             ):
                 maybe_warn_xueqiu_cookie(db, notifiers, str(exc))
             continue
+        if state.alerted:
+            maybe_alert_source_recovered(db, notifiers, kol["platform"], kol["name"])
+            state.alerted = False
         state.fail_count = 0
         state.last_fetched[kol["id"]] = now
         # 按发布时间升序推送，避免各平台返回顺序（置顶/反爬兜底）导致乱序
