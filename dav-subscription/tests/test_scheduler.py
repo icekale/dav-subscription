@@ -11,9 +11,11 @@ from app.scheduler import (
     PushRetryQueue,
     _polling_bool,
     _polling_setting,
+    extract_tweet_id,
     flush_digest,
     keepalive_weibo_cookie,
     keepalive_xueqiu_cookie,
+    parse_twitter_cookie,
     poll_once,
     translate_text,
 )
@@ -489,6 +491,94 @@ def test_translate_text_grok_failure_falls_back():
     client = httpx.Client(transport=httpx.MockTransport(handler))
     assert translate_text("hello", client=client, xai_key="bad") == "回退译文"
     assert len(calls) >= 2
+
+
+def test_extract_tweet_id():
+    assert extract_tweet_id("https://twitter.com/SemiAnalysis_/status/2084394819145674794") == "2084394819145674794"
+    assert extract_tweet_id("https://x.com/a/status/123456789") == "123456789"
+    assert extract_tweet_id("123456789") == "123456789"
+    assert extract_tweet_id("") == ""
+
+
+def test_parse_twitter_cookie():
+    cookie = "guest_id=v1%3A1; auth_token=abc123; ct0=csrf-token; lang=zh-CN"
+    assert parse_twitter_cookie(cookie) == {"auth_token": "abc123", "ct0": "csrf-token"}
+    assert parse_twitter_cookie("") == {}
+
+
+def test_translate_text_uses_x_official_translation():
+    calls = []
+
+    def handler(request):
+        calls.append(str(request.url))
+        assert "api.x.com/2/grok/translation.json" in str(request.url)
+        assert request.headers.get("x-csrf-token") == "ct0-token"
+        assert "auth_token=my-auth-token" in request.headers.get("cookie", "")
+        assert request.headers.get("authorization", "").startswith("Bearer ")
+        return httpx.Response(
+            200,
+            json={"result": {"content_type": "POST", "text": "Kimi K3，人之手，之神话，之传奇"}},
+        )
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    result = translate_text(
+        "Kimi K3, The Manos",
+        client=client,
+        tweet_id="2084394819145674794",
+        twitter_cookie="auth_token=my-auth-token; ct0=ct0-token; lang=zh-CN",
+    )
+    assert result == "Kimi K3，人之手，之神话，之传奇"
+    assert len(calls) == 1  # 不走 google/mymemory 降级
+
+
+def test_translate_text_x_official_missing_cookie_falls_back():
+    calls = []
+
+    def handler(request):
+        calls.append(str(request.url))
+        if "translate.googleapis.com" in str(request.url):
+            return httpx.Response(302)  # Google 不可用
+        return httpx.Response(
+            200,
+            json={"responseData": {"translatedText": "回退译文"}},
+        )
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    result = translate_text(
+        "hello",
+        client=client,
+        tweet_id="123",
+        twitter_cookie="guest_id=abc",  # 没有 auth_token/ct0，走降级
+    )
+    assert result == "回退译文"
+    assert len(calls) == 2
+
+
+def test_twitter_translation_uses_x_official_once_with_cookie(monkeypatch):
+    db = make_db()
+    kid = db.add_kol("twitter", "Semi", "https://x.com/Semi")
+    db.set_setting("config_translate_twitter_content", "1")
+    post = Post(
+        platform="twitter", kol_id=kid, kol_name="Semi",
+        external_id="https://twitter.com/SemiAnalysis_/status/2084394819145674794",
+        title="Kimi K3, The Manos", content="Kimi K3, The Manos\nKimi K3's architecture",
+        url="u", published_at="",
+    )
+    monkeypatch.setenv("TWITTER_COOKIE", "auth_token=my-auth-token; ct0=ct0-token")
+    calls = {"n": 0}
+
+    def fake_translate(text, target="zh-CN", client=None, xai_key=None, model=None, tweet_id=None, twitter_cookie=None):
+        calls["n"] += 1
+        calls["tweet_id"] = tweet_id
+        return "Kimi K3，人之手，之神话，之传奇\nKimi K3 的架构"
+
+    monkeypatch.setattr("app.scheduler.translate_text", fake_translate)
+    poll_once(db, {"twitter": FakeFetcher([post])}, [FakeNotifier()], interval_seconds=0)
+    rows = db.list_posts(limit=5)
+    assert calls["n"] == 1  # X 官方翻译只调一次
+    assert calls["tweet_id"] == "2084394819145674794"
+    assert rows[0]["content"] == "Kimi K3，人之手，之神话，之传奇\nKimi K3 的架构"
+    assert rows[0]["title"] == "Kimi K3，人之手，之神话，之传奇"
 
 
 def test_xueqiu_cookie_keepalive():

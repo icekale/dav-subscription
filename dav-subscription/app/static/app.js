@@ -757,6 +757,7 @@ async function loadAdminStats() {
         </label>
         <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--color-text-muted);height:36px">
           <input id="pc-translate" type="checkbox" ${s.polling_config.translate_twitter_content ? "checked" : ""}> X 内容自动翻译成中文
+          <span class="muted">（配置 TWITTER_COOKIE 后走 X 官方翻译，质量同网页版）</span>
         </label>
         <button class="btn-normal" onclick="savePollingConfig()">保存抓取设置</button>
         <span id="pc-result" class="muted"></span>

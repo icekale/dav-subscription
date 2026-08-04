@@ -4,7 +4,9 @@ from __future__ import annotations
 import asyncio
 import email.utils
 import logging
+import os
 import random
+import re
 import threading
 import time
 from datetime import datetime
@@ -31,6 +33,32 @@ WEIBO_COOKIE_TIME_KEY = "weibo_cookie_updated_at"
 WEIBO_QR_RENEWAL_KEY = "weibo_qr_renewal_at"
 WEIBO_QR_RENEWAL_COOLDOWN = 15 * 60
 
+# X 网页端公开的 guest bearer token（来自 abs.twimg.com 前端包），用于内部翻译接口
+X_GUEST_BEARER_TOKEN = (
+    "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs"
+    "%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA"
+)
+
+
+def extract_tweet_id(external_id: str) -> str:
+    """从 x.com / twitter.com 状态链接或纯 ID 里提取数字推文 ID。"""
+    match = re.search(r"(?:x\.com|twitter\.com)/\w+/status/(\d+)", external_id or "")
+    if match:
+        return match.group(1)
+    return (external_id or "").strip()
+
+
+def parse_twitter_cookie(cookie: str) -> dict:
+    """从完整 Cookie 字符串里解析 X 官方翻译所需的 auth_token / ct0。"""
+    out: dict[str, str] = {}
+    for part in (cookie or "").split(";"):
+        part = part.strip()
+        if "=" in part:
+            key, _, value = part.partition("=")
+            if key.strip() in ("auth_token", "ct0"):
+                out[key.strip()] = value.strip()
+    return out
+
 
 def _polling_setting(db: DB, key: str, default: int) -> int:
     """读取后台可覆盖的抓取配置（config_*），未设置时用启动配置默认值。"""
@@ -50,10 +78,20 @@ def _polling_bool(db: DB, key: str, default: bool = False) -> bool:
     return value.strip().lower() in ("1", "true", "yes", "on")
 
 
-def translate_text(text: str, target: str = "zh-CN", client=None, xai_key: str | None = None, model: str | None = None) -> str:
-    """把 X 内容转成中文：配了 XAI_API_KEY 优先用 Grok，否则 Google → MyMemory 降级。"""
-    import os
+def translate_text(
+    text: str,
+    target: str = "zh-CN",
+    client=None,
+    xai_key: str | None = None,
+    model: str | None = None,
+    tweet_id: str | None = None,
+    twitter_cookie: str | None = None,
+) -> str:
+    """把 X 内容转成中文。
 
+    优先用 X 官方翻译（同网页版 Grok 翻译，需 X 登录 cookie，免 API key）；
+    未提供 cookie 时按 xAI Grok → Google → MyMemory 降级。
+    """
     import httpx
 
     text = (text or "").strip()
@@ -61,11 +99,45 @@ def translate_text(text: str, target: str = "zh-CN", client=None, xai_key: str |
         return text
     xai_key = xai_key or os.environ.get("XAI_API_KEY", "")
     model = model or os.environ.get("XAI_MODEL", "") or "grok-2-latest"
+    if twitter_cookie is None:
+        twitter_cookie = os.environ.get("TWITTER_COOKIE", "")
     owns_client = client is None
     client = client or httpx.Client(timeout=15)
     errors = []
     try:
-        # 1) Grok（质量最好，需 xAI API Key）
+        # 0) X 官方翻译：与 X 网页版同源（内部 Grok），需要登录 cookie + 推文 ID，免 API key
+        x_cookie = parse_twitter_cookie(twitter_cookie)
+        if tweet_id and x_cookie.get("auth_token") and x_cookie.get("ct0"):
+            try:
+                resp = client.post(
+                    "https://api.x.com/2/grok/translation.json",
+                    headers={
+                        "Authorization": f"Bearer {X_GUEST_BEARER_TOKEN}",
+                        "Content-Type": "application/json",
+                        "Cookie": (
+                            f"auth_token={x_cookie['auth_token']}; ct0={x_cookie['ct0']}; lang=zh-CN"
+                        ),
+                        "x-csrf-token": x_cookie["ct0"],
+                        "x-twitter-active-user": "yes",
+                        "User-Agent": (
+                            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+                        ),
+                    },
+                    json={
+                        "content_type": "POST",
+                        "id": tweet_id,
+                        "dst_lang": "zh-cn",
+                        "include_polls": True,
+                    },
+                )
+                resp.raise_for_status()
+                translated = ((resp.json() or {}).get("result") or {}).get("text") or ""
+                if translated.strip():
+                    return translated.strip()
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"x_translate: {exc}")
+        # 1) Grok（xAI API，质量好，需 Key）
         if xai_key:
             try:
                 resp = client.post(
@@ -95,7 +167,7 @@ def translate_text(text: str, target: str = "zh-CN", client=None, xai_key: str |
                     return content.strip()
             except Exception as exc:  # noqa: BLE001
                 errors.append(f"grok: {exc}")
-        # 1) Google translate（海外网络可用）
+        # 2) Google translate（海外网络可用）
         try:
             resp = client.get(
                 "https://translate.googleapis.com/translate_a/single",
@@ -108,7 +180,7 @@ def translate_text(text: str, target: str = "zh-CN", client=None, xai_key: str |
                 return translated
         except Exception as exc:  # noqa: BLE001
             errors.append(f"google: {exc}")
-        # 2) MyMemory（国内网络可用，单条限 500 字符）
+        # 3) MyMemory（国内网络可用，单条限 500 字符）
         try:
             resp = client.get(
                 "https://api.mymemory.translated.net/get",
@@ -124,7 +196,6 @@ def translate_text(text: str, target: str = "zh-CN", client=None, xai_key: str |
         if owns_client:
             client.close()
     raise RuntimeError("; ".join(errors) or "无可用翻译源")
-
 
 class PushRetryQueue:
     """推送失败重试队列：指数退避（1m/5m/15m），超过次数放弃。"""
@@ -452,8 +523,20 @@ def poll_once(
             ):
                 # 仅翻译新帖，避免每轮重复调用翻译接口
                 try:
-                    post.title = translate_text(post.title or "")
-                    post.content = translate_text(post.content or "")
+                    tweet_id = extract_tweet_id(post.external_id)
+                    x_cookie = parse_twitter_cookie(os.environ.get("TWITTER_COOKIE", ""))
+                    if tweet_id and x_cookie.get("auth_token") and x_cookie.get("ct0"):
+                        # X 官方翻译按整条推文返回，翻译一次后拆出标题
+                        translated = translate_text(
+                            post.content or "",
+                            tweet_id=tweet_id,
+                            twitter_cookie=os.environ.get("TWITTER_COOKIE", ""),
+                        )
+                        post.content = translated
+                        post.title = translated.splitlines()[0][:80] if translated else (post.title or "")
+                    else:
+                        post.title = translate_text(post.title or "")
+                        post.content = translate_text(post.content or "")
                 except Exception as exc:  # noqa: BLE001 - 翻译失败退回原文
                     logger.warning("X 内容翻译失败 post=%s err=%s", post.external_id, exc)
             post_id = db.insert_post(
