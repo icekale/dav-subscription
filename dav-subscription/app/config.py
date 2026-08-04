@@ -62,11 +62,18 @@ class WebConfig:
 
 
 @dataclass
+class WeChatConfig:
+    app_id: str = ""
+    app_secret: str = ""
+
+
+@dataclass
 class Config:
     notifiers: NotifiersConfig = field(default_factory=NotifiersConfig)
     sources: SourcesConfig = field(default_factory=SourcesConfig)
     polling: PollingConfig = field(default_factory=PollingConfig)
     web: WebConfig = field(default_factory=WebConfig)
+    wechat: WeChatConfig = field(default_factory=WeChatConfig)
     db_path: str = "data/dav.db"
 
 
@@ -89,6 +96,8 @@ _ENV_MAP = {
     "WEB_ALLOW_REGISTER": ("web", "allow_register"),
     "WEB_ADMIN_PASSWORD": ("web", "admin_password"),
     "WEB_TOKEN_SECRET": ("web", "token_secret"),
+    "WECHAT_APP_ID": ("wechat", "app_id"),
+    "WECHAT_APP_SECRET": ("wechat", "app_secret"),
     "DB_PATH": ("db_path",),
 }
 

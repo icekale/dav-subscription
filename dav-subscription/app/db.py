@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS users (
     username TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
     is_admin INTEGER NOT NULL DEFAULT 0,
+    wechat_openid TEXT NOT NULL DEFAULT '',
     telegram_chat_id TEXT NOT NULL DEFAULT '',
     feishu_open_id TEXT NOT NULL DEFAULT '',
     notify_enabled INTEGER NOT NULL DEFAULT 1,
@@ -88,6 +89,9 @@ class DB:
         push_cols = {row["name"] for row in self._rows("PRAGMA table_info(push_logs)")}
         if "user_id" not in push_cols:
             self._conn.execute("ALTER TABLE push_logs ADD COLUMN user_id INTEGER")
+        user_cols = {row["name"] for row in self._rows("PRAGMA table_info(users)")}
+        if "wechat_openid" not in user_cols:
+            self._conn.execute("ALTER TABLE users ADD COLUMN wechat_openid TEXT NOT NULL DEFAULT ''")
 
     def close(self):
         with self._lock:
@@ -193,6 +197,10 @@ class DB:
         rows = self._rows("SELECT * FROM users WHERE username = ?", (username,))
         return rows[0] if rows else None
 
+    def get_user_by_openid(self, openid: str) -> dict | None:
+        rows = self._rows("SELECT * FROM users WHERE wechat_openid = ?", (openid,))
+        return rows[0] if rows else None
+
     def count_users(self) -> int:
         rows = self._rows("SELECT COUNT(*) AS n FROM users")
         return rows[0]["n"]
@@ -205,13 +213,14 @@ class DB:
         telegram_chat_id: str = "",
         feishu_open_id: str = "",
         notify_enabled: bool = True,
+        wechat_openid: str = "",
     ) -> int:
         try:
             return self._execute(
                 "INSERT INTO users (username, password_hash, is_admin, telegram_chat_id, "
-                "feishu_open_id, notify_enabled) VALUES (?, ?, ?, ?, ?, ?)",
+                "feishu_open_id, notify_enabled, wechat_openid) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (username, password_hash, 1 if is_admin else 0, telegram_chat_id, feishu_open_id,
-                 1 if notify_enabled else 0),
+                 1 if notify_enabled else 0, wechat_openid),
             )
         except sqlite3.IntegrityError:
             raise ValueError(f"用户名已存在: {username}") from None

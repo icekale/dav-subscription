@@ -1,0 +1,47 @@
+<view class="page">
+  <view class="card hero">
+    <view class="eyebrow">DaV Catalog</view>
+    <view class="hero-title">订阅广场</view>
+    <view class="hero-sub">浏览大V目录，点击卡片查看动态，一键订阅你关注的人。</view>
+  </view>
+
+  <view class="card">
+    <view class="search-bar" bindtap="goSearch">
+      <text class="search-icon">🔍</text>
+      <text class="search-placeholder">搜索大V / 雪球UID</text>
+    </view>
+    <view class="platform-tabs" style="margin-top:24rpx">
+      <view
+        class="platform-tab {{platform === item.value ? 'selected' : ''}}"
+        wx:for="{{platforms}}"
+        wx:key="value"
+        data-p="{{item.value}}"
+        bindtap="switchPlatform">{{item.label}}</view>
+    </view>
+  </view>
+
+  <view class="card">
+    <view class="row" style="justify-content:space-between;margin-bottom:8rpx">
+      <view class="card-title">全部大V</view>
+      <view class="card-meta">共 {{kols.length}} 个</view>
+    </view>
+    <view wx:if="{{loading}}" class="empty">加载中…</view>
+    <view wx:elif="{{kols.length === 0}}" class="empty">暂无大V，管理员可在后台添加</view>
+    <view wx:else>
+      <view class="kol-item" wx:for="{{kols}}" wx:key="id">
+        <view class="avatar">{{item.name[0]}}</view>
+        <view class="kol-info" data-id="{{item.id}}" bindtap="goKol">
+          <view class="row">
+            <text class="kol-name">{{item.name}}</text>
+            <text class="tag">{{platformLabel(item.platform)}}</text>
+            <text wx:if="{{item.category_name}}" class="tag">{{item.category_name}}</text>
+          </view>
+          <view class="kol-desc">ID：{{item.external_id}}</view>
+        </view>
+        <button class="btn-sub {{item.subscribed ? 'subscribed' : ''}}" data-id="{{item.id}}" bindtap="toggleSubscribe">
+          {{item.subscribed ? '已订阅' : '订阅'}}
+        </button>
+      </view>
+    </view>
+  </view>
+</view>

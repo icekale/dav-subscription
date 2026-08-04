@@ -1,0 +1,15 @@
+.hero { background: linear-gradient(180deg, #ffffff, #fafcff); }
+.hero-title { font-size: 40rpx; font-weight: 700; color: var(--text-strong); margin-top: 8rpx; }
+.hero-sub { font-size: 26rpx; color: var(--text-muted); margin-top: 10rpx; line-height: 1.7; }
+.search-bar {
+  display: flex;
+  align-items: center;
+  height: 84rpx;
+  background: var(--bg);
+  border: 1rpx solid var(--line-strong);
+  border-radius: var(--radius-control);
+  padding: 0 28rpx;
+  color: var(--text-faint);
+  font-size: 28rpx;
+}
+.search-icon { margin-right: 12rpx; }

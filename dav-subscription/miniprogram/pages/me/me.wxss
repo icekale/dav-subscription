@@ -1,0 +1,11 @@
+.user-card { display: flex; align-items: center; }
+.user-name { font-size: 36rpx; font-weight: 700; color: var(--text-strong); }
+.role-badge {
+  font-size: 22rpx;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: var(--radius-pill);
+  padding: 4rpx 20rpx;
+  margin-left: 16rpx;
+}
+.user-desc { font-size: 24rpx; color: var(--text-muted); margin-top: 10rpx; }

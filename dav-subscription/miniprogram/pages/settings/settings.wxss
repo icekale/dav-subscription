@@ -1,0 +1,4 @@
+.notice-card { background: var(--accent-soft); }
+.notice-title { font-size: 28rpx; font-weight: 600; color: var(--accent-strong); margin-bottom: 12rpx; }
+.notice-line { font-size: 24rpx; color: var(--accent-strong); line-height: 1.8; }
+.btn-block { width: 100%; }

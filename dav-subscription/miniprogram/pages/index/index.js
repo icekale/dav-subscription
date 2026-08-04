@@ -1,0 +1,71 @@
+const { request } = require("../../utils/api");
+
+const PLATFORM_LABELS = { xueqiu: "雪球", weibo: "微博", twitter: "X" };
+
+Page({
+  data: {
+    kols: [],
+    platform: "",
+    loading: true,
+    platforms: [
+      { value: "", label: "全部" },
+      { value: "xueqiu", label: "雪球" },
+      { value: "weibo", label: "微博" },
+      { value: "twitter", label: "X" },
+    ],
+  },
+
+  onShow() {
+    this.load();
+  },
+
+  onPullDownRefresh() {
+    this.load().finally(() => wx.stopPullDownRefresh());
+  },
+
+  async load() {
+    try {
+      const q = this.data.platform ? `?platform=${this.data.platform}` : "";
+      const kols = await request(`/api/catalog${q}`);
+      this.setData({ kols, loading: false });
+    } catch (err) {
+      this.setData({ loading: false });
+      wx.showToast({ title: err.message, icon: "none" });
+    }
+  },
+
+  platformLabel(platform) {
+    return PLATFORM_LABELS[platform] || platform;
+  },
+
+  switchPlatform(e) {
+    this.setData({ platform: e.currentTarget.dataset.p, loading: true });
+    this.load();
+  },
+
+  goSearch() {
+    wx.navigateTo({ url: "/pages/search/search" });
+  },
+
+  goKol(e) {
+    wx.navigateTo({ url: `/pages/kol/kol?id=${e.currentTarget.dataset.id}` });
+  },
+
+  async toggleSubscribe(e) {
+    const id = e.currentTarget.dataset.id;
+    const kol = this.data.kols.find((k) => k.id === id);
+    if (!kol) return;
+    try {
+      if (kol.subscribed) {
+        await request(`/api/subscriptions/${id}`, { method: "DELETE" });
+      } else {
+        await request("/api/subscriptions", { method: "POST", data: { kol_id: id } });
+      }
+      this.setData({
+        kols: this.data.kols.map((k) => (k.id === id ? { ...k, subscribed: !k.subscribed } : k)),
+      });
+    } catch (err) {
+      wx.showToast({ title: err.message, icon: "none" });
+    }
+  },
+});

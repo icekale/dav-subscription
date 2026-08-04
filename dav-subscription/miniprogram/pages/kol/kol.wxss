@@ -1,0 +1,2 @@
+.kol-name { font-size: 32rpx; font-weight: 600; color: var(--text-strong); }
+.kol-desc { font-size: 24rpx; color: var(--text-muted); margin-top: 8rpx; }

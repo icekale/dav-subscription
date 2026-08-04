@@ -1,0 +1,27 @@
+<view class="page">
+  <view class="card">
+    <view class="row search-line">
+      <input class="input search-input" placeholder="昵称或雪球UID" value="{{keyword}}" bindinput="onInput" confirm-type="search" bindconfirm="doSearch" />
+      <button class="btn btn-primary" bindtap="doSearch">搜索</button>
+    </view>
+  </view>
+  <view class="card">
+    <view wx:if="{{loading}}" class="empty">搜索中…</view>
+    <view wx:elif="{{searched && results.length === 0}}" class="empty">没有找到匹配的大V，可联系管理员添加</view>
+    <view wx:else>
+      <view class="kol-item" wx:for="{{results}}" wx:key="id">
+        <view class="avatar">{{item.name[0]}}</view>
+        <view class="kol-info" data-id="{{item.id}}" bindtap="goKol">
+          <view class="row">
+            <text class="kol-name">{{item.name}}</text>
+            <text class="tag">{{platformLabel(item.platform)}}</text>
+          </view>
+          <view class="kol-desc">ID：{{item.external_id}}</view>
+        </view>
+        <button class="btn-sub {{item.subscribed ? 'subscribed' : ''}}" data-id="{{item.id}}" bindtap="toggleSubscribe">
+          {{item.subscribed ? '已订阅' : '订阅'}}
+        </button>
+      </view>
+    </view>
+  </view>
+</view>

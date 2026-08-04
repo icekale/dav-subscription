@@ -1,0 +1,2 @@
+.search-line { gap: 20rpx; }
+.search-input { flex: 1; }

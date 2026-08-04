@@ -1,0 +1,35 @@
+.login-page { min-height: 100vh; padding: 120rpx 40rpx 60rpx; }
+.login-head { text-align: center; margin-bottom: 60rpx; }
+.brand-mark {
+  width: 112rpx; height: 112rpx;
+  margin: 0 auto;
+  border-radius: 30rpx;
+  background: linear-gradient(180deg, #2a86ff, var(--accent));
+  color: #fff;
+  font-size: 56rpx; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 16rpx 40rpx rgba(22, 119, 255, 0.28);
+}
+.login-title { font-size: 44rpx; font-weight: 700; color: var(--text-strong); margin-top: 28rpx; }
+.login-sub { font-size: 26rpx; color: var(--text-muted); margin-top: 12rpx; }
+.auth-switch {
+  display: flex;
+  background: var(--bg);
+  border-radius: var(--radius-pill);
+  padding: 6rpx;
+  margin-bottom: 36rpx;
+}
+.switch-item {
+  flex: 1;
+  text-align: center;
+  padding: 16rpx 0;
+  border-radius: var(--radius-pill);
+  font-size: 28rpx;
+  color: var(--text-muted);
+}
+.switch-item.active { background: var(--surface); color: var(--text-strong); font-weight: 600; }
+.btn-block { width: 100%; }
+.error-text { color: var(--danger); font-size: 26rpx; min-height: 36rpx; margin-bottom: 8rpx; }
+.loading-card { text-align: center; padding: 80rpx 32rpx; }
+.loading-text { color: var(--text-muted); font-size: 28rpx; }
+.login-brief { color: var(--text-muted); font-size: 26rpx; line-height: 1.7; margin-bottom: 32rpx; }

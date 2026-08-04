@@ -57,7 +57,12 @@ def create_app(config=None, db_path: str | Path | None = None) -> FastAPI:
         return {"status": "ok"}
 
     app.include_router(
-        create_api_router(db, secret, allow_register=config.web.allow_register)
+        create_api_router(
+            db,
+            secret,
+            allow_register=config.web.allow_register,
+            wechat_config=config.wechat,
+        )
     )
     app.mount("/", StaticFiles(directory=Path(__file__).parent / "static", html=True), name="static")
     return app

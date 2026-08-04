@@ -1,6 +1,12 @@
 # 大V订阅（自托管版）
 
-聚合订阅雪球 / 微博 / X(Twitter) 大V公开动态，新帖实时推送到**飞书**与**Telegram**。前端参照微信小程序「大V订阅」的布局：首页发现大V并自助订阅、动态时间线、个人中心。
+聚合订阅雪球 / 微博 / X(Twitter) 大V公开动态，新帖实时推送到**飞书**与**Telegram**。
+
+架构：
+
+- **微信小程序**（`miniprogram/`）：客户前端——微信登录，首页广场发现大V并自助订阅、动态时间线、我的订阅、推送绑定
+- **Docker 服务**：后端 API + 网页后台管理（大V目录、分类、推送记录、用户与管理员指定）
+- **推送**：飞书（群 webhook + 自建应用直聊）与 Telegram bot 双通道，按订阅关系逐人推送
 
 > 说明：本项目为自托管替代方案，仅抓取公开可见的动态，不包含任何平台会员/付费内容；无订阅名额与推送次数限制。
 
@@ -23,7 +29,17 @@ cp config.example.yaml config.yaml
 docker compose up -d --build
 ```
 
-打开 http://localhost:8000，第一个注册的用户自动成为管理员，可维护大V目录与分类；后续注册的用户可自助订阅。数据保存在 `./data/dav.db`，重启不丢。
+打开 http://localhost:8000 进入网页后台。**管理员只能通过后台指定**：注册用户一律是普通用户；启动时配置 `web.admin_password` 会创建 `admin` 管理员账号，管理员登录后可在「管理后台 → 用户」里把其他用户设为/取消管理员。数据保存在 `./data/dav.db`，重启不丢。
+
+## 微信小程序
+
+小程序代码在 `miniprogram/`，用微信开发者工具打开即可预览：
+
+1. 在 [微信公众平台](https://mp.weixin.qq.com) 注册小程序，拿到 `appid`/`appsecret`，填入 `wechat.app_id` / `wechat.app_secret`
+2. 修改 `miniprogram/utils/api.js` 里的 `BASE_URL` 为后端地址；本地开发勾选开发者工具「不校验合法域名」
+3. 首次使用走 `wx.login` 自动登录（未配置微信凭据时登录页会降级为账号密码登录）
+
+上线前需要把后端部署到 HTTPS 域名，并在小程序后台配置 request 合法域名。
 
 ## 飞书机器人（申请 webhook）
 
@@ -55,6 +71,7 @@ docker compose up -d --build
 | `web.allow_register` | 是否开放自助注册（默认 true） |
 | `web.admin_password` | 可选，启动时创建 `admin` 管理员账号（密码） |
 | `web.token_secret` | 可选，token 签名密钥，留空自动生成并持久化 |
+| `wechat.app_id` / `app_secret` | 微信小程序登录凭据（小程序端用） |
 
 所有配置项均可通过环境变量覆盖（见 `.env.example`）。注意 `.env` 文件本身不会被程序自动读取，环境变量需由运行环境注入（Docker compose 已处理，直接 `python app/main.py` 本地运行不会读取 `.env`）。
 
@@ -67,7 +84,8 @@ docker compose up -d --build
 
 ## 用户与订阅
 
-- 第一个注册的用户自动成为管理员，可在「我的 → 管理后台」维护大V目录、分类和查看推送记录
+- 管理员只能在网页后台指定（`web.admin_password` 引导 + 后台用户页设置），注册/小程序登录用户一律为普通用户
+- 管理员在「我的 → 管理后台」维护大V目录、分类、查看推送记录、指定管理员
 - 普通用户在首页/搜索中浏览大V并点击「订阅」，动态页只显示自己订阅的大V的新帖
 - 「我的 → 推送设置」绑定 Telegram chat_id / 飞书 open_id 并开启推送，新帖会按订阅关系逐人推送
 

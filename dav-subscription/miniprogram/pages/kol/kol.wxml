@@ -1,0 +1,41 @@
+<view class="page">
+  <view class="card" wx:if="{{kol}}">
+    <view class="row" style="justify-content:space-between">
+      <view class="row">
+        <view class="avatar">{{kol.name[0]}}</view>
+        <view style="margin-left:24rpx">
+          <view class="row">
+            <text class="kol-name">{{kol.name}}</text>
+            <text class="tag">{{platformLabel(kol.platform)}}</text>
+          </view>
+          <view class="kol-desc">ID：{{kol.external_id}}{{kol.category_name ? ' · ' + kol.category_name : ''}}</view>
+        </view>
+      </view>
+      <button class="btn-sub {{kol.subscribed ? 'subscribed' : ''}}" bindtap="toggleSubscribe">
+        {{kol.subscribed ? '已订阅' : '订阅'}}
+      </button>
+    </view>
+  </view>
+  <view class="card">
+    <view class="card-title">最近动态</view>
+    <view wx:if="{{loading}}" class="empty">加载中…</view>
+    <view wx:elif="{{posts.length === 0}}" class="empty">暂无动态</view>
+    <view wx:else>
+      <view class="post-item" wx:for="{{posts}}" wx:key="id">
+        <view class="post-header">
+          <view class="avatar sm">{{item.kol_name[0]}}</view>
+          <view style="margin-left:20rpx">
+            <view class="post-name">{{item.kol_name}}</view>
+            <view class="post-time">{{item.published_at}}</view>
+          </view>
+        </view>
+        <view wx:if="{{item.title}}" class="post-title">{{item.title}}</view>
+        <view class="post-content">{{item.content || '（无正文）'}}</view>
+        <view class="post-meta">
+          <text style="margin-left:0">{{platformLabel(item.platform)}}</text>
+          <text class="post-link" data-url="{{item.url}}" bindtap="copyLink">查看原文 →</text>
+        </view>
+      </view>
+    </view>
+  </view>
+</view>

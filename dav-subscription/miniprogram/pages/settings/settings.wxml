@@ -1,0 +1,22 @@
+<view class="page">
+  <view class="card notice-card">
+    <view class="notice-title">怎么绑定？</view>
+    <view class="notice-line">· Telegram：给机器人发任意消息后，用 @userinfobot 查自己的 chat_id（需配置 bot_token）。</view>
+    <view class="notice-line">· 飞书：需要飞书自建应用的 app_id / app_secret（未配置时飞书推送会跳过）。</view>
+  </view>
+  <view class="card">
+    <view class="form-item">
+      <view class="form-label">Telegram chat_id</view>
+      <input class="input" placeholder="如 123456789" value="{{tg}}" bindinput="onTg" />
+    </view>
+    <view class="form-item">
+      <view class="form-label">飞书 open_id</view>
+      <input class="input" placeholder="ou_xxxxxxxx" value="{{fs}}" bindinput="onFs" />
+    </view>
+    <view class="form-item">
+      <view class="form-label">新帖推送开关</view>
+      <switch checked="{{notify}}" color="#1677ff" bindchange="onNotify" />
+    </view>
+    <button class="btn btn-primary btn-block" bindtap="save">保存设置</button>
+  </view>
+</view>

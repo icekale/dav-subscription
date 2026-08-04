@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 
 from . import auth
+from . import wechat
 from .db import ALLOWED_PLATFORMS, DB
 
 
@@ -16,6 +17,10 @@ class RegisterIn(BaseModel):
 class LoginIn(BaseModel):
     username: str
     password: str
+
+
+class WechatLoginIn(BaseModel):
+    code: str
 
 
 class MeUpdate(BaseModel):
@@ -46,6 +51,10 @@ class SubscriptionIn(BaseModel):
     kol_id: int
 
 
+class UserUpdate(BaseModel):
+    is_admin: bool | None = None
+
+
 def public_user(user: dict) -> dict:
     return {
         "id": user["id"],
@@ -58,7 +67,7 @@ def public_user(user: dict) -> dict:
     }
 
 
-def create_api_router(db: DB, secret: str, allow_register: bool = True) -> APIRouter:
+def create_api_router(db: DB, secret: str, allow_register: bool = True, wechat_config=None) -> APIRouter:
     router = APIRouter(prefix="/api")
 
     def get_current_user(authorization: str | None = Header(None)):
@@ -87,7 +96,8 @@ def create_api_router(db: DB, secret: str, allow_register: bool = True) -> APIRo
         if len(username) < 2 or len(body.password) < 6:
             raise HTTPException(status_code=400, detail="用户名至少2位，密码至少6位")
         try:
-            uid = db.add_user(username, auth.hash_password(body.password), is_admin=db.count_users() == 0)
+            # 管理员只能在网页后台指定，注册用户一律为普通用户
+            uid = db.add_user(username, auth.hash_password(body.password))
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from None
         user = db.get_user(uid)
@@ -98,6 +108,30 @@ def create_api_router(db: DB, secret: str, allow_register: bool = True) -> APIRo
         user = db.get_user_by_username(body.username.strip())
         if user is None or not auth.verify_password(body.password, user["password_hash"]):
             raise HTTPException(status_code=401, detail="用户名或密码错误")
+        return {"token": auth.create_token(user["id"], user["username"], secret), "user": public_user(user)}
+
+    @router.post("/auth/wechat")
+    def wechat_login(body: WechatLoginIn):
+        if wechat_config is None or not wechat_config.app_id or not wechat_config.app_secret:
+            raise HTTPException(status_code=400, detail="未配置微信小程序 app_id/app_secret")
+        try:
+            data = wechat.code2session(body.code, wechat_config.app_id, wechat_config.app_secret)
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=400, detail=str(exc)) from None
+        openid = data["openid"]
+        user = db.get_user_by_openid(openid)
+        if user is None:
+            base = f"wx_{openid[:10]}"
+            username, i = base, 1
+            while db.get_user_by_username(username) is not None:
+                username = f"{base}{i}"
+                i += 1
+            uid = db.add_user(
+                username,
+                auth.hash_password(""),
+                wechat_openid=openid,
+            )
+            user = db.get_user(uid)
         return {"token": auth.create_token(user["id"], user["username"], secret), "user": public_user(user)}
 
     # ---- 我的 ----
@@ -249,5 +283,16 @@ def create_api_router(db: DB, secret: str, allow_register: bool = True) -> APIRo
     @router.get("/users", dependencies=[Depends(require_admin)])
     def list_users():
         return [public_user(u) for u in db.list_users()]
+
+    @router.put("/users/{user_id}", dependencies=[Depends(require_admin)])
+    def update_user(user_id: int, body: UserUpdate, admin: dict = Depends(require_admin)):
+        target = db.get_user(user_id)
+        if target is None:
+            raise HTTPException(status_code=404, detail="用户不存在")
+        if "is_admin" in body.model_fields_set:
+            if user_id == admin["id"] and not body.is_admin:
+                raise HTTPException(status_code=400, detail="不能取消自己的管理员权限")
+            db.update_user(user_id, is_admin=body.is_admin)
+        return public_user(db.get_user(user_id))
 
     return router

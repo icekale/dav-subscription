@@ -1,0 +1,33 @@
+<view class="page">
+  <view class="card hero">
+    <view class="eyebrow">Timeline</view>
+    <view class="hero-title">动态</view>
+    <view class="hero-sub">你订阅大V的最新动态，按时间倒序。</view>
+  </view>
+  <view class="card">
+    <view class="card-title">最新动态</view>
+    <view wx:if="{{loading}}" class="empty">加载中…</view>
+    <view wx:elif="{{posts.length === 0}}" class="empty">
+      还没有订阅任何大V
+      <view><button class="btn btn-primary" bindtap="goHome">去订阅</button></view>
+    </view>
+    <view wx:else>
+      <view class="post-item" wx:for="{{posts}}" wx:key="id">
+        <view class="post-header">
+          <view class="avatar sm">{{item.kol_name[0]}}</view>
+          <view style="margin-left:20rpx">
+            <view class="post-name">{{item.kol_name}}</view>
+            <view class="post-time">{{item.published_at}}</view>
+          </view>
+        </view>
+        <view wx:if="{{item.title}}" class="post-title">{{item.title}}</view>
+        <view class="post-content">{{item.content || '（无正文）'}}</view>
+        <view class="post-meta">
+          <text wx:if="{{item.category_name}}" class="tag">{{item.category_name}}</text>
+          <text style="margin-left:12rpx">{{platformLabel(item.platform)}}</text>
+          <text class="post-link" data-url="{{item.url}}" bindtap="copyLink">查看原文 →</text>
+        </view>
+      </view>
+    </view>
+  </view>
+</view>

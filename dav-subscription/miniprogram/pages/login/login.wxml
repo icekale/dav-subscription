@@ -1,0 +1,35 @@
+<view class="login-page">
+  <view class="login-head">
+    <view class="brand-mark">V</view>
+    <view class="login-title">大V订阅</view>
+    <view class="login-sub">关注大V公开动态 · 新帖实时推送</view>
+  </view>
+
+  <view wx:if="{{loading}}" class="card loading-card">
+    <view class="loading-text">正在微信登录…</view>
+  </view>
+
+  <view wx:elif="{{accountMode}}" class="card">
+    <view class="auth-switch">
+      <view class="switch-item {{!isRegister ? 'active' : ''}}" bindtap="switchMode" data-register="{{false}}">登录</view>
+      <view class="switch-item {{isRegister ? 'active' : ''}}" bindtap="switchMode" data-register="{{true}}">注册</view>
+    </view>
+    <view class="form-item">
+      <view class="form-label">用户名</view>
+      <input class="input" placeholder="输入用户名" value="{{username}}" bindinput="onUsername" />
+    </view>
+    <view class="form-item">
+      <view class="form-label">密码</view>
+      <input class="input" password placeholder="输入密码" value="{{password}}" bindinput="onPassword" />
+    </view>
+    <view class="error-text">{{error}}</view>
+    <button class="btn btn-primary btn-block" bindtap="submitAccount">{{isRegister ? '创建账号' : '登 录'}}</button>
+  </view>
+
+  <view wx:else class="card">
+    <view class="login-brief">
+      微信登录不可用（后端未配置小程序凭据），可改用账号登录。
+    </view>
+    <button class="btn btn-primary btn-block" bindtap="showAccount">使用账号登录</button>
+  </view>
+</view>

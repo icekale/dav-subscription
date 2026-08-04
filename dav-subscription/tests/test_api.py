@@ -4,6 +4,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from app.config import Config, WeChatConfig
 from app.db import DB
 from app.main import create_app
 
@@ -24,6 +25,14 @@ def register(client, username="admin", password="secret123", expect=200):
 
 
 def auth_headers(client, username="admin", password="secret123"):
+    data = register(client, username, password).json()
+    # 测试辅助：注册后通过 DB 提升为管理员（生产环境只能由管理员指定）
+    client.app.state.db.update_user(data["user"]["id"], is_admin=True)
+    token = data["token"]
+    return {"Authorization": f"Bearer {token}"}
+
+
+def user_headers(client, username, password="pass123456"):
     token = register(client, username, password).json()["token"]
     return {"Authorization": f"Bearer {token}"}
 
@@ -101,10 +110,10 @@ def test_category_crud_and_kol_assignment():
 
 def test_auth_flow():
     client = make_client()
-    # 首个注册用户是管理员
-    headers = auth_headers(client)
+    # 注册用户默认不是管理员
+    headers = user_headers(client, "admin")
     me = client.get("/api/me", headers=headers).json()
-    assert me["username"] == "admin" and me["is_admin"] is True
+    assert me["username"] == "admin" and me["is_admin"] is False
 
     # 弱密码 / 重复用户名
     assert client.post("/api/auth/register", json={"username": "u2", "password": "123"}).status_code == 400
@@ -114,13 +123,21 @@ def test_auth_flow():
 
     # 登录失败/成功
     assert client.post("/api/auth/login", json={"username": "admin", "password": "wrong"}).status_code == 401
-    token = client.post("/api/auth/login", json={"username": "admin", "password": "secret123"}).json()["token"]
+    token = client.post("/api/auth/login", json={"username": "admin", "password": "pass123456"}).json()["token"]
     assert client.get("/api/me", headers={"Authorization": f"Bearer {token}"}).status_code == 200
 
     # 普通用户不能访问管理接口
-    user_headers = auth_headers(client, "normal", "pass123456")
-    assert client.get("/api/kols", headers=user_headers).status_code == 403
-    assert client.get("/api/posts", headers=user_headers).status_code == 403
+    assert client.get("/api/kols", headers=headers).status_code == 403
+    assert client.get("/api/posts", headers=headers).status_code == 403
+
+    # 管理员在后台指定另一个用户为管理员
+    admin_headers = auth_headers(client, "boss", "secret123")
+    target_id = client.get("/api/users", headers=admin_headers).json()[0]["id"]
+    resp = client.put(f"/api/users/{target_id}", headers=admin_headers, json={"is_admin": True})
+    assert resp.status_code == 200 and resp.json()["is_admin"] is True
+    # 不能取消自己的管理员权限
+    self_id = client.get("/api/me", headers=admin_headers).json()["id"]
+    assert client.put(f"/api/users/{self_id}", headers=admin_headers, json={"is_admin": False}).status_code == 400
 
 
 def test_subscription_flow():
@@ -130,37 +147,66 @@ def test_subscription_flow():
         "/api/kols", headers=admin_headers, json={"platform": "xueqiu", "name": "超级鹿鼎公", "external_id": "8790885129"}
     ).json()["id"]
 
-    user_headers = auth_headers(client, "customer", "pass123456")
-    catalog = client.get("/api/catalog", headers=user_headers).json()
+    customer_headers = user_headers(client, "customer")
+    catalog = client.get("/api/catalog", headers=customer_headers).json()
     assert catalog[0]["subscribed"] is False
 
-    assert client.post("/api/subscriptions", headers=user_headers, json={"kol_id": kid}).status_code == 200
-    assert client.get("/api/catalog", headers=user_headers).json()[0]["subscribed"] is True
-    assert client.get("/api/my/subscriptions", headers=user_headers).json()[0]["id"] == kid
+    assert client.post("/api/subscriptions", headers=customer_headers, json={"kol_id": kid}).status_code == 200
+    assert client.get("/api/catalog", headers=customer_headers).json()[0]["subscribed"] is True
+    assert client.get("/api/my/subscriptions", headers=customer_headers).json()[0]["id"] == kid
 
     # 订阅后能看到该大V的动态
     client.app.state.db.insert_post("xueqiu", kid, "p1", "t", "c", "u", "")
-    feed = client.get("/api/my/feed", headers=user_headers).json()
+    feed = client.get("/api/my/feed", headers=customer_headers).json()
     assert len(feed) == 1 and feed[0]["kol_name"] == "超级鹿鼎公"
 
     # 取消订阅后动态清空
-    assert client.delete(f"/api/subscriptions/{kid}", headers=user_headers).status_code == 200
-    assert client.get("/api/my/feed", headers=user_headers).json() == []
+    assert client.delete(f"/api/subscriptions/{kid}", headers=customer_headers).status_code == 200
+    assert client.get("/api/my/feed", headers=customer_headers).json() == []
 
     # 大V详情与动态（未订阅也可查看）
-    detail = client.get(f"/api/kols/{kid}", headers=user_headers).json()
+    detail = client.get(f"/api/kols/{kid}", headers=customer_headers).json()
     assert detail["name"] == "超级鹿鼎公" and detail["subscribed"] is False
-    posts = client.get(f"/api/kols/{kid}/posts", headers=user_headers).json()
+    posts = client.get(f"/api/kols/{kid}/posts", headers=customer_headers).json()
     assert len(posts) == 1
 
     # 资料绑定
     resp = client.put(
         "/api/me",
-        headers=user_headers,
+        headers=customer_headers,
         json={"telegram_chat_id": "tg123", "feishu_open_id": "open456", "notify_enabled": True},
     )
     assert resp.status_code == 200
     assert resp.json()["telegram_chat_id"] == "tg123"
+
+
+def test_wechat_login(monkeypatch):
+    cfg = Config()
+    cfg.wechat.app_id = "wx_app"
+    cfg.wechat.app_secret = "wx_secret"
+    tmp = tempfile.mkdtemp()
+    app = create_app(config=cfg, db_path=Path(tmp) / "wx.db")
+    client = TestClient(app)
+
+    # 未配置时返回明确错误
+    app2 = create_app(db_path=Path(tmp) / "wx2.db")
+    assert (
+        TestClient(app2).post("/api/auth/wechat", json={"code": "c"}).status_code == 400
+    )
+
+    monkeypatch.setattr(
+        "app.wechat.code2session",
+        lambda code, app_id, app_secret: {"openid": "openid_abc", "session_key": "k"},
+    )
+    resp = client.post("/api/auth/wechat", json={"code": "c1"})
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["user"]["username"].startswith("wx_")
+    assert data["user"]["is_admin"] is False  # 小程序用户不会自动成为管理员
+
+    # 再次登录返回同一用户
+    resp2 = client.post("/api/auth/wechat", json={"code": "c2"})
+    assert resp2.json()["user"]["id"] == data["user"]["id"]
 
 
 def test_old_db_migrates_category_column():

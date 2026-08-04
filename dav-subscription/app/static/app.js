@@ -578,7 +578,7 @@ async function loadAdminUsers() {
       <header class="section-head"><div><p class="section-eyebrow">Users</p><h3 class="section-title">注册用户</h3></div></header>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>ID</th><th>用户名</th><th>角色</th><th>Telegram</th><th>飞书</th><th>推送</th><th>注册时间</th></tr></thead>
+          <thead><tr><th>ID</th><th>用户名</th><th>角色</th><th>Telegram</th><th>飞书</th><th>推送</th><th>注册时间</th><th>操作</th></tr></thead>
           <tbody>${users.map((u) => `
             <tr>
               <td>${u.id}</td><td>${escapeHtml(u.username)}</td>
@@ -587,10 +587,27 @@ async function loadAdminUsers() {
               <td>${escapeHtml(u.feishu_open_id || "-")}</td>
               <td>${u.notify_enabled ? "开启" : "关闭"}</td>
               <td>${escapeHtml(u.created_at)}</td>
+              <td>
+                ${u.id === state.user.id
+                  ? '<span class="muted">本人</span>'
+                  : `<button class="btn-sm" onclick="adminToggleAdmin(${u.id}, ${!u.is_admin})">${u.is_admin ? "取消管理员" : "设为管理员"}</button>`}
+              </td>
             </tr>`).join("")}</tbody>
         </table>
       </div>
     </section>`;
+}
+
+async function adminToggleAdmin(userId, makeAdmin) {
+  try {
+    await api(`/api/users/${userId}`, {
+      method: "PUT",
+      body: JSON.stringify({ is_admin: makeAdmin }),
+    });
+    loadAdminUsers();
+  } catch (err) {
+    alert("操作失败: " + err.message);
+  }
 }
 
 // ---------- 路由 ----------

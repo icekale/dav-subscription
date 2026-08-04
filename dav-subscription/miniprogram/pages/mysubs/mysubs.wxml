@@ -1,0 +1,23 @@
+<view class="page">
+  <view class="card">
+    <view class="card-title">已订阅大V</view>
+    <view wx:if="{{loading}}" class="empty">加载中…</view>
+    <view wx:elif="{{kols.length === 0}}" class="empty">
+      还没有订阅任何大V
+      <view><button class="btn btn-primary" bindtap="goHome">去发现大V</button></view>
+    </view>
+    <view wx:else>
+      <view class="kol-item" wx:for="{{kols}}" wx:key="id">
+        <view class="avatar">{{item.name[0]}}</view>
+        <view class="kol-info" data-id="{{item.id}}" bindtap="goKol">
+          <view class="row">
+            <text class="kol-name">{{item.name}}</text>
+            <text class="tag">{{platformLabel(item.platform)}}</text>
+          </view>
+          <view class="kol-desc">{{item.category_name || '未分类'}}</view>
+        </view>
+        <button class="btn-sub subscribed" data-id="{{item.id}}" bindtap="unsubscribe">取消</button>
+      </view>
+    </view>
+  </view>
+</view>
