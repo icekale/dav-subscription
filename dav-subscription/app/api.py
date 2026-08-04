@@ -5,6 +5,7 @@ import re
 import secrets
 import time
 
+import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 
@@ -12,6 +13,7 @@ from . import auth
 from . import wechat
 from .bot_core import BIND_CODE_TTL
 from .db import ALLOWED_PLATFORMS, DB
+from .fetchers.weibo import WEIBO_COOKIE_KEY
 
 
 class RegisterIn(BaseModel):
@@ -107,6 +109,8 @@ def create_api_router(
     login_attempts: dict[str, list[float]] = {}
     LOGIN_MAX_FAILURES = 8
     LOGIN_WINDOW = 300
+    # 微博扫码登录会话：qrid -> {gen_time, client, created_at}
+    weibo_qr_sessions: dict[str, dict] = {}
 
     def _check_login_limit(ip: str) -> None:
         now = time.time()
@@ -529,5 +533,72 @@ def create_api_router(
         if not results:
             raise HTTPException(status_code=400, detail="该用户未绑定任何推送渠道")
         return {"results": results}
+
+    @router.post("/admin/weibo-qr/start", dependencies=[Depends(require_admin)])
+    def weibo_qr_start():
+        """生成微博扫码登录二维码，返回 qrid 与二维码图片地址。"""
+        now = time.time()
+        # 清理超过 5 分钟的旧会话
+        for qrid, session in list(weibo_qr_sessions.items()):
+            if now - session["created_at"] > 300:
+                session["client"].close()
+                weibo_qr_sessions.pop(qrid, None)
+        client = httpx.Client(
+            timeout=15,
+            follow_redirects=True,
+            headers={
+                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) "
+                "AppleWebKit/605.1.15 Mobile/15E148",
+                "Referer": "https://weibo.com/",
+            },
+        )
+        gen_time = str(int(now * 1000))
+        resp = client.get(
+            f"https://login.sina.com.cn/sso/qrcode/image/info/{gen_time}",
+            params={"entry": "weibo"},
+        )
+        data = (resp.json() or {}).get("data") or {}
+        qrid = data.get("qrid")
+        qrurl = data.get("qrurl")
+        if not qrid:
+            client.close()
+            raise HTTPException(status_code=400, detail="获取微博二维码失败，请稍后重试")
+        weibo_qr_sessions[qrid] = {
+            "gen_time": gen_time,
+            "client": client,
+            "created_at": now,
+        }
+        return {"qrid": qrid, "qrurl": qrurl}
+
+    @router.get("/admin/weibo-qr/status", dependencies=[Depends(require_admin)])
+    def weibo_qr_status(qrid: str):
+        """轮询扫码状态；确认后自动完成登录并保存 Cookie。"""
+        session = weibo_qr_sessions.get(qrid)
+        if session is None:
+            raise HTTPException(status_code=404, detail="二维码已过期，请重新生成")
+        client = session["client"]
+        resp = client.get(
+            f"https://login.sina.com.cn/sso/qrcode/scan/{session['gen_time']}",
+            params={"entry": "weibo", "qrid": qrid},
+        )
+        data = resp.json()
+        code = data.get("retcode")
+        if code == 20000000:
+            return {"status": "pending"}
+        if code == 20000001:
+            return {"status": "scanned"}
+        if code == 20000002:
+            url = (data.get("data") or {}).get("url") or ""
+            if not url:
+                raise HTTPException(status_code=400, detail="微博登录确认失败")
+            client.get(url)
+            if not client.cookies.get("SUB"):
+                raise HTTPException(status_code=400, detail="登录后未获取到微博会话，请重试")
+            cookie = "; ".join(f"{k}={v}" for k, v in client.cookies.items())
+            db.set_setting(WEIBO_COOKIE_KEY, cookie)
+            client.close()
+            weibo_qr_sessions.pop(qrid, None)
+            return {"status": "ok"}
+        raise HTTPException(status_code=400, detail=f"微博登录异常: {data}")
 
     return router

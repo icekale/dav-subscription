@@ -539,7 +539,53 @@ async function loadAdminStats() {
         ${statCard("帖子", s.posts)}
       </div>
       ${s.last_poll_error ? `<div class="notice" style="margin-top:16px">最近轮询异常：${escapeHtml(s.last_poll_error)}</div>` : ""}
+      <div style="margin-top:16px">
+        <button class="btn-normal" onclick="startWeiboQr()">微博扫码登录</button>
+        <span class="muted" style="margin-left:10px">用微博 App 扫码后自动保存 Cookie，无需手动复制</span>
+      </div>
+      <div id="wb-qr-box" style="margin-top:16px"></div>
     </section>`;
+}
+
+let wbQrTimer = null;
+
+async function startWeiboQr() {
+  try {
+    const data = await api("/api/admin/weibo-qr/start", { method: "POST" });
+    $("#wb-qr-box").innerHTML = `
+      <div style="display:inline-block;padding:16px;background:#fff;border-radius:var(--radius-control)">
+        <img src="${escapeHtml(data.qrurl)}" alt="微博登录二维码" style="width:220px;height:220px">
+      </div>
+      <p class="muted" id="wb-qr-status" style="margin-top:10px">等待扫码…</p>`;
+    if (wbQrTimer) clearInterval(wbQrTimer);
+    wbQrTimer = setInterval(() => pollWeiboQr(data.qrid), 2000);
+  } catch (err) {
+    alert("获取二维码失败: " + err.message);
+  }
+}
+
+async function pollWeiboQr(qrid) {
+  try {
+    const data = await api(`/api/admin/weibo-qr/status?qrid=${encodeURIComponent(qrid)}`);
+    const statusEl = $("#wb-qr-status");
+    if (!statusEl) {
+      if (wbQrTimer) clearInterval(wbQrTimer);
+      return;
+    }
+    if (data.status === "pending") {
+      statusEl.textContent = "等待扫码…";
+    } else if (data.status === "scanned") {
+      statusEl.textContent = "已扫描，请在手机上确认登录";
+    } else if (data.status === "ok") {
+      if (wbQrTimer) clearInterval(wbQrTimer);
+      statusEl.textContent = "✅ 登录成功，微博 Cookie 已自动保存";
+      alert("微博登录成功，Cookie 已保存，可直接添加微博大V了");
+    }
+  } catch (err) {
+    if (wbQrTimer) clearInterval(wbQrTimer);
+    const statusEl = $("#wb-qr-status");
+    if (statusEl) statusEl.textContent = "登录失败：" + err.message;
+  }
 }
 
 function statCard(label, value) {

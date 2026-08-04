@@ -276,6 +276,52 @@ def test_admin_test_push(monkeypatch):
     assert sent == [("tg", "111", "【测试推送】hi"), ("fs", "【测试推送】hi")]
 
 
+def test_weibo_qr_login(monkeypatch):
+    class FakeResp:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+    class FakeCookies:
+        def __init__(self, items):
+            self._items = items
+
+        def get(self, key, default=None):
+            return self._items.get(key, default)
+
+        def items(self):
+            return self._items.items()
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            self.cookies = FakeCookies({})
+            self.headers = {}
+
+        def get(self, url, params=None):
+            if "qrcode/image/info" in url:
+                return FakeResp({"data": {"qrid": "Q1", "qrurl": "http://qr.example/q"}})
+            if "qrcode/scan" in url:
+                return FakeResp({"retcode": 20000002, "data": {"url": "http://ticket.example/login"}})
+            if "ticket.example" in url:
+                self.cookies = FakeCookies({"SUB": "s1", "SUBP": "p1"})
+            return FakeResp({})
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr("app.api.httpx.Client", FakeClient)
+    client = make_client()
+    headers = auth_headers(client)
+    start = client.post("/api/admin/weibo-qr/start", headers=headers)
+    assert start.status_code == 200
+    qrid = start.json()["qrid"]
+    status = client.get(f"/api/admin/weibo-qr/status?qrid={qrid}", headers=headers)
+    assert status.status_code == 200 and status.json()["status"] == "ok"
+    assert client.app.state.db.get_setting("weibo_cookie") == "SUB=s1; SUBP=p1"
+
+
 def test_batch_import_kols():
     client = make_client()
     headers = auth_headers(client)
