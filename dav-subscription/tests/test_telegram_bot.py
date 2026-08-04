@@ -53,6 +53,18 @@ def test_bot_command_flow():
     assert "未知命令" in sent[-1][1]
 
 
+def test_bot_list_marks_priority_kol():
+    db = DB(Path(tempfile.mkdtemp()) / "bot.db")
+    db.add_kol("xueqiu", "普通大V", "1")
+    db.add_kol("xueqiu", "重点大V", "2", priority=True)
+    bot = TelegramBot(db, "test_token", "secret")
+    sent = []
+    bot._send = lambda chat_id, text: sent.append((chat_id, text))
+    bot.handle_update(update(777, "/list"))
+    assert "🔥" in sent[-1][1]
+    assert "优先大V" in sent[-1][1]
+
+
 def test_bot_sub_resolve_by_external_id():
     db, bot, kid, sent = make_env()
     bot.handle_update(update(222, "/sub 8790885129"))

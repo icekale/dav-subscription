@@ -100,9 +100,11 @@ class TelegramBot:
             subscribed = self.db.subscribed_kol_ids(user["id"])
             lines = ["📋 可订阅的大V："]
             lines.extend(
-                f"{'✅' if k['id'] in subscribed else '⬜'} {k['id']}. {k['name']}（{k['platform']}）"
+                f"{'✅' if k['id'] in subscribed else '⬜'} {k['id']}. {k['name']}（{k['platform']}）{'🔥' if k.get('priority') else ''}"
                 for k in kols
             )
+            if any(k.get("priority") for k in kols):
+                lines.append("（🔥 优先大V，抓取更及时）")
             self._send(chat_id, "\n".join(lines) if kols else "暂无大V")
             return
 
