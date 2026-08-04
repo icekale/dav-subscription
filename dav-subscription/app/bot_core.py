@@ -3,12 +3,13 @@ from __future__ import annotations
 
 import re
 import time
+from math import ceil
 
 from . import auth
 
 HELP_TEXT = (
     "📌 大V订阅机器人\n"
-    "/list — 查看可订阅的大V\n"
+    "/list — 查看可订阅的大V（/list 2 翻页）\n"
     "/sub 1 / 雪球主页链接 / 雪球UID — 订阅大V\n"
     "/unsub 1 / 雪球主页链接 / 雪球UID — 取消订阅\n"
     "/mysubs — 我的订阅\n"
@@ -17,6 +18,7 @@ HELP_TEXT = (
 )
 
 BIND_CODE_TTL = 600
+LIST_PAGE_SIZE = 20
 
 
 class SubscriptionBot:
@@ -56,7 +58,7 @@ class SubscriptionBot:
         if cmd in ("/start", "/help"):
             self.send(reply_type or identity_type, reply_id or identity, HELP_TEXT)
         elif cmd == "/list":
-            self._list(user, reply_type or identity_type, reply_id or identity)
+            self._list(user, reply_type or identity_type, reply_id or identity, arg)
         elif cmd == "/sub":
             self._sub(user, reply_type or identity_type, reply_id or identity, arg)
         elif cmd == "/unsub":
@@ -99,17 +101,25 @@ class SubscriptionBot:
             f"已绑定到账号 {target['username']} ✅ 之后新帖会推送到这里",
         )
 
-    def _list(self, user, identity_type: str, identity: str) -> None:
-        kols = self.db.list_kols()[:30]
+    def _list(self, user, identity_type: str, identity: str, arg: str = "") -> None:
+        kols = self.db.list_kols()
         subscribed = self.db.subscribed_kol_ids(user["id"])
+        page = int(arg.strip()) if arg.strip().isdigit() else 1
+        total = len(kols)
+        pages = max(1, ceil(total / LIST_PAGE_SIZE))
+        page = min(max(1, page), pages)
+        start = (page - 1) * LIST_PAGE_SIZE
+        page_kols = kols[start : start + LIST_PAGE_SIZE]
         lines = ["📋 可订阅的大V："]
         lines.extend(
             f"{'✅' if k['id'] in subscribed else '⬜'} {k['id']}. {k['name']}（{k['platform']}）{'🔥' if k.get('priority') else ''}"
-            for k in kols
+            for k in page_kols
         )
-        if any(k.get("priority") for k in kols):
+        if any(k.get("priority") for k in page_kols):
             lines.append("（🔥 优先大V，抓取更及时）")
-        self.send(identity_type, identity, "\n".join(lines) if kols else "暂无大V")
+        if pages > 1:
+            lines.append(f"第 {page}/{pages} 页，共 {total} 个（发 /list {page + 1} 看下一页）")
+        self.send(identity_type, identity, "\n".join(lines) if page_kols else "暂无大V")
 
     def _sub(self, user, identity_type: str, identity: str, arg: str) -> None:
         kol = self._resolve_kol(arg)

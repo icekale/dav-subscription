@@ -13,6 +13,7 @@ from .notifiers.base import Notifier
 logger = logging.getLogger(__name__)
 
 WEIBO_WARNING_KEY = "weibo_warning_date"
+XUEQIU_WARNING_KEY = "xueqiu_warning_date"
 
 
 class PlatformState:
@@ -38,6 +39,20 @@ def maybe_warn_weibo_login(db: DB, notifiers: list[Notifier], detail: str) -> No
             logger.warning("微博告警发送失败 channel=%s err=%s", notifier.channel, exc)
 
 
+def maybe_warn_xueqiu_cookie(db: DB, notifiers: list[Notifier], detail: str) -> None:
+    """雪球 cookie/WAF 失效时向各渠道推告警，每天最多一次。"""
+    today = time.strftime("%Y-%m-%d")
+    if db.get_setting(XUEQIU_WARNING_KEY) == today:
+        return
+    db.set_setting(XUEQIU_WARNING_KEY, today)
+    message = f"⚠️ 雪球 cookie 自动续期失败（可能被 WAF 拦截），请手动更新 sources.xueqiu.cookie。详情：{detail[:200]}"
+    for notifier in notifiers:
+        try:
+            notifier.send_text(message)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("雪球告警发送失败 channel=%s err=%s", notifier.channel, exc)
+
+
 def notify_post(db: DB, post_id: int, post: Post, notifiers: list[Notifier]) -> None:
     """向所有通知器推送，失败记录日志并重试一次。"""
     for notifier in notifiers:
@@ -59,34 +74,47 @@ def notify_subscribers(db: DB, post_id: int, post: Post, notifiers_config) -> No
     """把新帖推送给订阅了该大V的用户（各自绑定的渠道）。"""
     if notifiers_config is None:
         return
+    import httpx
+
     from .notifiers.feishu import FeishuNotifier
     from .notifiers.telegram import TelegramNotifier
 
-    for user in db.subscribers_of_kol(post.kol_id):
-        if user["telegram_chat_id"] and notifiers_config.telegram.bot_token:
-            notifier = TelegramNotifier(
-                notifiers_config.telegram,
-                chat_id=user["telegram_chat_id"],
-            )
-            try:
-                notifier.notify(post)
-                db.add_push_log(post_id, "telegram", "success", user_id=user["id"])
-            except Exception as exc:  # noqa: BLE001
-                db.add_push_log(post_id, "telegram", "failed", str(exc), user_id=user["id"])
-                logger.warning("用户推送失败 user=%s channel=telegram err=%s", user["username"], exc)
-        if user["feishu_open_id"]:
-            # 优先用 p2p 会话 chat_id 发送（open_id 直发可能被飞书 230101 拦截）
-            notifier = FeishuNotifier(
-                notifiers_config.feishu,
-                open_id=user["feishu_open_id"] if not user.get("feishu_chat_id") else None,
-                chat_id=user.get("feishu_chat_id") or None,
-            )
-            try:
-                notifier.notify(post)
-                db.add_push_log(post_id, "feishu", "success", user_id=user["id"])
-            except Exception as exc:  # noqa: BLE001
-                db.add_push_log(post_id, "feishu", "failed", str(exc), user_id=user["id"])
-                logger.warning("用户推送失败 user=%s channel=feishu err=%s", user["username"], exc)
+    # 全局 TG 通知（config.chat_id）已覆盖的接收者，避免同一条帖子推两次
+    global_tg_chat = notifiers_config.telegram.chat_id
+    global_tg_active = bool(notifiers_config.telegram.bot_token and global_tg_chat)
+    client = httpx.Client(timeout=15)
+    try:
+        for user in db.subscribers_of_kol(post.kol_id):
+            if user["telegram_chat_id"] and notifiers_config.telegram.bot_token:
+                if global_tg_active and user["telegram_chat_id"] == global_tg_chat:
+                    continue  # 已由全局推送覆盖
+                notifier = TelegramNotifier(
+                    notifiers_config.telegram,
+                    client=client,
+                    chat_id=user["telegram_chat_id"],
+                )
+                try:
+                    notifier.notify(post)
+                    db.add_push_log(post_id, "telegram", "success", user_id=user["id"])
+                except Exception as exc:  # noqa: BLE001
+                    db.add_push_log(post_id, "telegram", "failed", str(exc), user_id=user["id"])
+                    logger.warning("用户推送失败 user=%s channel=telegram err=%s", user["username"], exc)
+            if user["feishu_open_id"]:
+                # 优先用 p2p 会话 chat_id 发送（open_id 直发可能被飞书 230101 拦截）
+                notifier = FeishuNotifier(
+                    notifiers_config.feishu,
+                    client=client,
+                    open_id=user["feishu_open_id"] if not user.get("feishu_chat_id") else None,
+                    chat_id=user.get("feishu_chat_id") or None,
+                )
+                try:
+                    notifier.notify(post)
+                    db.add_push_log(post_id, "feishu", "success", user_id=user["id"])
+                except Exception as exc:  # noqa: BLE001
+                    db.add_push_log(post_id, "feishu", "failed", str(exc), user_id=user["id"])
+                    logger.warning("用户推送失败 user=%s channel=feishu err=%s", user["username"], exc)
+    finally:
+        client.close()
 
 
 def poll_once(
@@ -129,6 +157,10 @@ def poll_once(
             )
             if kol["platform"] == "weibo" and ("登录" in str(exc) or "login" in str(exc).lower()):
                 maybe_warn_weibo_login(db, notifiers, str(exc))
+            if kol["platform"] == "xueqiu" and any(
+                kw in str(exc) for kw in ("cookie", "WAF", "反爬")
+            ):
+                maybe_warn_xueqiu_cookie(db, notifiers, str(exc))
             continue
         state.fail_count = 0
         state.last_fetched[kol["id"]] = now
@@ -192,6 +224,7 @@ class Scheduler:
                     "stats_last_poll_duration_ms",
                     str(int((time.monotonic() - started) * 1000)),
                 )
+                self.db.set_setting("stats_last_poll_error", "")
             except Exception:  # noqa: BLE001 - 任何异常都不能终止循环
                 logger.exception("轮询周期异常")
                 self.db.set_setting("stats_last_poll_error", "轮询周期异常")

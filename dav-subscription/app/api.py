@@ -5,7 +5,7 @@ import re
 import secrets
 import time
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 
 from . import auth
@@ -83,6 +83,20 @@ def public_user(user: dict) -> dict:
 
 def create_api_router(db: DB, secret: str, allow_register: bool = True, wechat_config=None) -> APIRouter:
     router = APIRouter(prefix="/api")
+    # 登录/注册限流（内存版，单实例够用）：每 IP 窗口内失败次数超限后 429
+    login_attempts: dict[str, list[float]] = {}
+    LOGIN_MAX_FAILURES = 8
+    LOGIN_WINDOW = 300
+
+    def _check_login_limit(ip: str) -> None:
+        now = time.time()
+        recent = [t for t in login_attempts.get(ip, []) if now - t < LOGIN_WINDOW]
+        login_attempts[ip] = recent
+        if len(recent) >= LOGIN_MAX_FAILURES:
+            raise HTTPException(status_code=429, detail="尝试次数过多，请 5 分钟后再试")
+
+    def _record_login_failure(ip: str) -> None:
+        login_attempts.setdefault(ip, []).append(time.time())
 
     def get_current_user(authorization: str | None = Header(None)):
         token = ""
@@ -103,12 +117,15 @@ def create_api_router(db: DB, secret: str, allow_register: bool = True, wechat_c
 
     # ---- 认证 ----
     @router.post("/auth/register")
-    def register(body: RegisterIn):
+    def register(body: RegisterIn, request: Request):
         if not allow_register:
             raise HTTPException(status_code=403, detail="暂未开放注册")
+        _check_login_limit(request.client.host if request.client else "unknown")
         username = body.username.strip()
         if len(username) < 2 or len(body.password) < 6:
             raise HTTPException(status_code=400, detail="用户名至少2位，密码至少6位")
+        if len(username) > 30:
+            raise HTTPException(status_code=400, detail="用户名最长30位")
         try:
             # 管理员只能在网页后台指定，注册用户一律为普通用户
             uid = db.add_user(username, auth.hash_password(body.password))
@@ -118,9 +135,16 @@ def create_api_router(db: DB, secret: str, allow_register: bool = True, wechat_c
         return {"token": auth.create_token(uid, username, secret), "user": public_user(user)}
 
     @router.post("/auth/login")
-    def login(body: LoginIn):
+    def login(body: LoginIn, request: Request):
+        ip = request.client.host if request.client else "unknown"
+        _check_login_limit(ip)
         user = db.get_user_by_username(body.username.strip())
-        if user is None or not auth.verify_password(body.password, user["password_hash"]):
+        if user is None:
+            auth.verify_password(body.password, auth.DUMMY_HASH)
+            _record_login_failure(ip)
+            raise HTTPException(status_code=401, detail="用户名或密码错误")
+        if not auth.verify_password(body.password, user["password_hash"]):
+            _record_login_failure(ip)
             raise HTTPException(status_code=401, detail="用户名或密码错误")
         return {"token": auth.create_token(user["id"], user["username"], secret), "user": public_user(user)}
 
@@ -158,11 +182,26 @@ def create_api_router(db: DB, secret: str, allow_register: bool = True, wechat_c
     @router.put("/me")
     def update_me(body: MeUpdate, user: dict = Depends(get_current_user)):
         if "telegram_chat_id" in body.model_fields_set:
-            db.update_user(user["id"], telegram_chat_id=body.telegram_chat_id or "")
+            value = (body.telegram_chat_id or "").strip()
+            if value:
+                owner = db.get_user_by_telegram(value)
+                if owner is not None and owner["id"] != user["id"]:
+                    raise HTTPException(status_code=400, detail="该 Telegram 已绑定其他账号")
+            db.update_user(user["id"], telegram_chat_id=value)
         if "feishu_open_id" in body.model_fields_set:
-            db.update_user(user["id"], feishu_open_id=body.feishu_open_id or "")
+            value = (body.feishu_open_id or "").strip()
+            if value:
+                owner = db.get_user_by_feishu(value)
+                if owner is not None and owner["id"] != user["id"]:
+                    raise HTTPException(status_code=400, detail="该飞书账号已绑定其他账号")
+            db.update_user(user["id"], feishu_open_id=value)
         if "feishu_chat_id" in body.model_fields_set:
-            db.update_user(user["id"], feishu_chat_id=body.feishu_chat_id or "")
+            value = (body.feishu_chat_id or "").strip()
+            if value:
+                owner = db.get_user_by_feishu_chat(value)
+                if owner is not None and owner["id"] != user["id"]:
+                    raise HTTPException(status_code=400, detail="该飞书会话已绑定其他账号")
+            db.update_user(user["id"], feishu_chat_id=value)
         if "notify_enabled" in body.model_fields_set:
             db.update_user(user["id"], notify_enabled=body.notify_enabled)
         return public_user(db.get_user(user["id"]))
@@ -260,10 +299,14 @@ def create_api_router(db: DB, secret: str, allow_register: bool = True, wechat_c
         if "category_id" in body.model_fields_set and body.category_id is not None:
             if db.get_category(body.category_id) is None:
                 raise HTTPException(status_code=400, detail="分类不存在")
+        name = body.name.strip() if body.name is not None else None
+        external_id = body.external_id.strip() if body.external_id is not None else None
+        if name == "" or external_id == "":
+            raise HTTPException(status_code=400, detail="昵称与外部ID不能为空")
         db.update_kol(
             kol_id,
-            name=body.name.strip() if body.name is not None else None,
-            external_id=body.external_id.strip() if body.external_id is not None else None,
+            name=name,
+            external_id=external_id,
             enabled=body.enabled,
             category_id=body.category_id if "category_id" in body.model_fields_set else None,
             priority=body.priority if "priority" in body.model_fields_set else None,

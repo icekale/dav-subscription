@@ -10,13 +10,16 @@ import time
 
 TOKEN_TTL_SECONDS = 30 * 24 * 3600
 
-
 def hash_password(password: str, salt: str | None = None) -> str:
     salt = salt or os.urandom(16).hex()
     digest = hashlib.pbkdf2_hmac(
         "sha256", password.encode(), bytes.fromhex(salt), 200_000
     ).hex()
     return f"{salt}${digest}"
+
+
+# 用户不存在时也执行一次同样的哈希校验，避免通过响应时间探测用户名是否存在
+DUMMY_HASH = hash_password("__dummy__")
 
 
 def verify_password(password: str, stored: str) -> bool:

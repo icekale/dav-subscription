@@ -149,6 +149,30 @@ def test_change_password_api():
     assert client.post("/api/auth/login", json={"username": "pwuser", "password": "newpass123"}).status_code == 200
 
 
+def test_channel_claim_conflict():
+    client = make_client()
+    headers_a = user_headers(client, "user_a")
+    headers_b = user_headers(client, "user_b")
+
+    assert client.put("/api/me", headers=headers_a, json={"telegram_chat_id": "111"}).status_code == 200
+    resp = client.put("/api/me", headers=headers_b, json={"telegram_chat_id": "111"})
+    assert resp.status_code == 400 and "已绑定" in resp.json()["detail"]
+
+    assert client.put("/api/me", headers=headers_a, json={"feishu_open_id": "ou_1"}).status_code == 200
+    resp = client.put("/api/me", headers=headers_b, json={"feishu_open_id": "ou_1"})
+    assert resp.status_code == 400
+
+    # 解绑自己的渠道不受影响
+    assert client.put("/api/me", headers=headers_a, json={"telegram_chat_id": ""}).status_code == 200
+
+
+def test_login_rate_limit():
+    client = make_client()
+    for _ in range(8):
+        assert client.post("/api/auth/login", json={"username": "nobody", "password": "wrong123"}).status_code == 401
+    assert client.post("/api/auth/login", json={"username": "nobody", "password": "wrong123"}).status_code == 429
+
+
 def test_posts_and_push_logs_api():
     client = make_client()
     headers = auth_headers(client)

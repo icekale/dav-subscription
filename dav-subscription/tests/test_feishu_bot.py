@@ -30,6 +30,16 @@ def test_feishu_p2p_commands():
     assert "大V" in sent[-1][2]
 
 
+def test_list_pagination():
+    db, bot, sent = make_bot()
+    for i in range(21):
+        db.add_kol("xueqiu", f"大V{i}", str(i))
+    bot.handle_message("oc_p2p", "p2p", "ou_1", "Kale", "/list")
+    assert "第 1/2 页" in sent[-1][2]
+    bot.handle_message("oc_p2p", "p2p", "ou_1", "Kale", "/list 2")
+    assert "第 2/2 页" in sent[-1][2]
+
+
 def test_feishu_group_replies_to_chat():
     db, bot, sent = make_bot()
     bot.handle_message("oc_grp", "group", "ou_2", "Kale", "/list")

@@ -169,14 +169,14 @@ def test_subscriber_push_uses_user_channels(monkeypatch):
     calls = []
 
     class FakeTelegram:
-        def __init__(self, config, chat_id=None):
+        def __init__(self, config, chat_id=None, client=None):
             calls.append(("telegram", chat_id))
 
         def notify(self, post):
             pass
 
     class FakeFeishu:
-        def __init__(self, config, open_id=None, chat_id=None):
+        def __init__(self, config, open_id=None, chat_id=None, client=None):
             calls.append(("feishu", chat_id or open_id))
 
         def notify(self, post):
@@ -209,6 +209,58 @@ def test_subscriber_push_uses_user_channels(monkeypatch):
     logs = db.list_push_logs()
     assert len(logs) == 3
     assert all(log["status"] == "success" for log in logs)
+
+
+def test_global_tg_chat_not_pushed_twice(monkeypatch):
+    calls = []
+
+    class FakeTelegram:
+        def __init__(self, config, chat_id=None, client=None):
+            calls.append(("telegram", chat_id))
+
+        def notify(self, post):
+            pass
+
+    class FailFeishu:
+        def __init__(self, config, open_id=None, chat_id=None, client=None):
+            raise AssertionError("本测试不应推送飞书")
+
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FakeTelegram)
+    monkeypatch.setattr("app.notifiers.feishu.FeishuNotifier", FailFeishu)
+
+    class GlobalNotifier:
+        channel = "telegram"
+
+        def __init__(self):
+            self.calls = []
+
+        def notify(self, post):
+            self.calls.append(post)
+
+        def send_text(self, text):
+            pass
+
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    uid = db.add_user("u1", "hash", telegram_chat_id="777000")
+    db.add_subscription(uid, kid)
+    ncfg = NotifiersConfig(
+        telegram=TelegramConfig(bot_token="t", chat_id="777000"),
+        feishu=FeishuConfig(app_id="a", app_secret="s"),
+    )
+
+    # 全局 TG 通知目标与订阅者相同：只推一次（全局），不重复按用户推
+    global_notifier = GlobalNotifier()
+    poll_once(
+        db,
+        {"xueqiu": FakeFetcher([make_post(kid)])},
+        [global_notifier],
+        notifiers_config=ncfg,
+    )
+    assert len(global_notifier.calls) == 1
+    assert calls == []  # 订阅者与全局目标相同，不再按用户重复推
+    logs = db.list_push_logs()
+    assert len(logs) == 1 and logs[0]["status"] == "success"
 
 
 def test_no_channel_no_user_push(monkeypatch):

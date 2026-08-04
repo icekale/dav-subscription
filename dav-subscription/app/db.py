@@ -108,6 +108,23 @@ class DB:
         kol_cols = {row["name"] for row in self._rows("PRAGMA table_info(kols)")}
         if "priority" not in kol_cols:
             self._conn.execute("ALTER TABLE kols ADD COLUMN priority INTEGER NOT NULL DEFAULT 0")
+        # 渠道绑定唯一化：先清理重复（保留最早注册的用户），再建唯一索引，
+        # 避免两个账号绑定同一个 chat_id/open_id 导致重复推送或 /bind 合并错账号。
+        for column in ("telegram_chat_id", "feishu_open_id", "feishu_chat_id", "wechat_openid"):
+            seen = set()
+            for row in self._rows(
+                f"SELECT id, {column} AS v FROM users WHERE {column} != '' ORDER BY id"
+            ):
+                if row["v"] in seen:
+                    self._conn.execute(
+                        f"UPDATE users SET {column} = '' WHERE id = ?", (row["id"],)
+                    )
+                else:
+                    seen.add(row["v"])
+            self._conn.execute(
+                f"CREATE UNIQUE INDEX IF NOT EXISTS uq_users_{column} "
+                f"ON users({column}) WHERE {column} != ''"
+            )
 
     def close(self):
         with self._lock:
@@ -185,6 +202,8 @@ class DB:
         self._execute(f"UPDATE kols SET {', '.join(sets)} WHERE id = ?", params)
 
     def delete_kol(self, kol_id: int):
+        # 级联清理该大V的订阅关系，避免残留
+        self._execute("DELETE FROM subscriptions WHERE kol_id = ?", (kol_id,))
         self._execute("DELETE FROM kols WHERE id = ?", (kol_id,))
 
     # ---- Category ----
@@ -229,6 +248,10 @@ class DB:
 
     def get_user_by_feishu(self, open_id: str) -> dict | None:
         rows = self._rows("SELECT * FROM users WHERE feishu_open_id = ?", (open_id,))
+        return rows[0] if rows else None
+
+    def get_user_by_feishu_chat(self, chat_id: str) -> dict | None:
+        rows = self._rows("SELECT * FROM users WHERE feishu_chat_id = ?", (chat_id,))
         return rows[0] if rows else None
 
     def get_user_by_openid(self, openid: str) -> dict | None:

@@ -12,7 +12,7 @@
 
 配置 `notifiers.telegram.bot_token` 后，用户可直接在 Telegram 里给机器人发命令订阅大V（首次使用自动创建账号并绑定 chat_id）：
 
-- `/list` — 查看可订阅的大V（含 ID 与订阅状态）
+- `/list` — 查看可订阅的大V（含 ID 与订阅状态，`/list 2` 翻页）
 - `/sub 1` / `/sub https://xueqiu.com/8790885129` / `/sub 8790885129` — 订阅（支持按 ID、雪球主页链接或 UID）
 - `/unsub 1` / `/unsub https://xueqiu.com/8790885129` / `/unsub 8790885129` — 取消订阅
 - `/mysubs` — 我的订阅
