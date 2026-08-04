@@ -5,6 +5,7 @@ import asyncio
 import email.utils
 import logging
 import random
+import threading
 import time
 from datetime import datetime
 
@@ -27,6 +28,54 @@ SOURCE_FAILS_KEY = "source_fails_{platform}"
 XUEQIU_PROBE_ALERT_KEY = "xueqiu_probe_alert_at"
 COOKIE_KEEPALIVE_ALERT_KEY = "cookie_keepalive_alert_at"
 WEIBO_COOKIE_TIME_KEY = "weibo_cookie_updated_at"
+WEIBO_QR_RENEWAL_KEY = "weibo_qr_renewal_at"
+WEIBO_QR_RENEWAL_COOLDOWN = 15 * 60
+
+
+class PushRetryQueue:
+    """推送失败重试队列：指数退避（1m/5m/15m），超过次数放弃。"""
+
+    RETRY_DELAYS = (60, 300, 900)
+
+    def __init__(self):
+        self._items: dict[tuple, dict] = {}
+        self._lock = threading.Lock()
+
+    def add(self, post: Post, channel: str, user_id: int | None = None) -> None:
+        key = (channel, user_id, post.external_id)
+        with self._lock:
+            if key not in self._items:
+                self._items[key] = {
+                    "post": post,
+                    "channel": channel,
+                    "user_id": user_id,
+                    "attempts": 0,
+                    "next_at": time.monotonic() + self.RETRY_DELAYS[0],
+                    "key": key,
+                }
+
+    def due(self) -> list[dict]:
+        now = time.monotonic()
+        with self._lock:
+            return [item for item in list(self._items.values()) if item["next_at"] <= now]
+
+    def pending(self) -> int:
+        with self._lock:
+            return len(self._items)
+
+    def fail(self, item: dict) -> bool:
+        """记录一次重试失败；超过次数上限则移除，返回是否继续保留。"""
+        with self._lock:
+            item["attempts"] += 1
+            if item["attempts"] >= len(self.RETRY_DELAYS):
+                self._items.pop(item["key"], None)
+                return False
+            item["next_at"] = time.monotonic() + self.RETRY_DELAYS[item["attempts"]]
+            return True
+
+    def drop(self, item: dict) -> None:
+        with self._lock:
+            self._items.pop(item["key"], None)
 
 
 def _post_sort_key(post: Post) -> float:
@@ -147,7 +196,13 @@ def maybe_alert_push_failure(db: DB, notifiers: list[Notifier], detail: str) -> 
             logger.warning("推送告警发送失败 channel=%s err=%s", notifier.channel, exc)
 
 
-def notify_post(db: DB, post_id: int, post: Post, notifiers: list[Notifier]) -> None:
+def notify_post(
+    db: DB,
+    post_id: int,
+    post: Post,
+    notifiers: list[Notifier],
+    retry_queue: PushRetryQueue | None = None,
+) -> None:
     """向所有通知器推送，失败记录日志并重试一次。"""
     for notifier in notifiers:
         try:
@@ -162,9 +217,18 @@ def notify_post(db: DB, post_id: int, post: Post, notifiers: list[Notifier]) -> 
             except Exception as exc2:  # noqa: BLE001
                 logger.error("推送重试失败 channel=%s post=%s err=%s", notifier.channel, post.external_id, exc2)
                 db.add_push_log(post_id, notifier.channel, "failed", str(exc2))
+                if retry_queue is not None:
+                    retry_queue.add(post, notifier.channel)
 
 
-def notify_subscribers(db: DB, post_id: int, post: Post, notifiers_config, notifiers=None) -> None:
+def notify_subscribers(
+    db: DB,
+    post_id: int,
+    post: Post,
+    notifiers_config,
+    notifiers=None,
+    retry_queue: PushRetryQueue | None = None,
+) -> None:
     """把新帖推送给订阅了该大V的用户（各自绑定的渠道）。"""
     if notifiers_config is None:
         return
@@ -193,6 +257,8 @@ def notify_subscribers(db: DB, post_id: int, post: Post, notifiers_config, notif
                 except Exception as exc:  # noqa: BLE001
                     db.add_push_log(post_id, "telegram", "failed", str(exc), user_id=user["id"])
                     logger.warning("用户推送失败 user=%s channel=telegram err=%s", user["username"], exc)
+                    if retry_queue is not None:
+                        retry_queue.add(post, "telegram", user["id"])
                     maybe_alert_push_failure(
                         db, notifiers or [], f"user={user['username']} channel=telegram err={exc}"
                     )
@@ -210,6 +276,8 @@ def notify_subscribers(db: DB, post_id: int, post: Post, notifiers_config, notif
                 except Exception as exc:  # noqa: BLE001
                     db.add_push_log(post_id, "feishu", "failed", str(exc), user_id=user["id"])
                     logger.warning("用户推送失败 user=%s channel=feishu err=%s", user["username"], exc)
+                    if retry_queue is not None:
+                        retry_queue.add(post, "feishu", user["id"])
                     maybe_alert_push_failure(
                         db, notifiers or [], f"user={user['username']} channel=feishu err={exc}"
                     )
@@ -226,6 +294,7 @@ def poll_once(
     interval_seconds: int = 180,
     priority_interval_seconds: int = 60,
     digest: dict[int, list[Post]] | None = None,
+    retry_queue: PushRetryQueue | None = None,
 ) -> None:
     """执行一轮：遍历启用 KOL → 抓取 → 去重 → 推送。"""
     states = states if states is not None else {}
@@ -298,12 +367,17 @@ def poll_once(
                 # 普通大V进入合并摘要缓冲，按 digest_interval 周期统一推送
                 digest.setdefault(kol["id"], []).append(post)
             else:
-                notify_post(db, post_id, post, notifiers)
-                notify_subscribers(db, post_id, post, notifiers_config, notifiers)
+                notify_post(db, post_id, post, notifiers, retry_queue)
+                notify_subscribers(db, post_id, post, notifiers_config, notifiers, retry_queue)
 
 
 def notify_digest_subscribers(
-    db: DB, posts: list[Post], kol: dict, notifiers_config, notifiers=None
+    db: DB,
+    posts: list[Post],
+    kol: dict,
+    notifiers_config,
+    notifiers=None,
+    retry_queue: PushRetryQueue | None = None,
 ) -> None:
     """把合并摘要推送给订阅了该大V的用户（各自绑定的渠道，带退订按钮）。"""
     if notifiers_config is None or not posts:
@@ -338,6 +412,9 @@ def notify_digest_subscribers(
                         )
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("摘要推送失败 user=%s channel=telegram err=%s", user["username"], exc)
+                    if retry_queue is not None:
+                        for post in posts:
+                            retry_queue.add(post, "telegram", user["id"])
                     for post in posts:
                         db.add_push_log(
                             db.get_post_id(post.platform, post.external_id),
@@ -365,6 +442,9 @@ def notify_digest_subscribers(
                         )
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("摘要推送失败 user=%s channel=feishu err=%s", user["username"], exc)
+                    if retry_queue is not None:
+                        for post in posts:
+                            retry_queue.add(post, "feishu", user["id"])
                     for post in posts:
                         db.add_push_log(
                             db.get_post_id(post.platform, post.external_id),
@@ -377,7 +457,13 @@ def notify_digest_subscribers(
         client.close()
 
 
-def flush_digest(db: DB, digest: dict[int, list[Post]], notifiers: list[Notifier], notifiers_config) -> None:
+def flush_digest(
+    db: DB,
+    digest: dict[int, list[Post]],
+    notifiers: list[Notifier],
+    notifiers_config,
+    retry_queue: PushRetryQueue | None = None,
+) -> None:
     """到点把缓冲的摘要统一推送：全局通知器 + 订阅者。"""
     if not digest:
         return
@@ -391,9 +477,9 @@ def flush_digest(db: DB, digest: dict[int, list[Post]], notifiers: list[Notifier
             send = getattr(notifier, "send_digest", None)
             if send is None:
                 for post in posts:
-                    post_id = db.insert_post_id(post.platform, post.external_id)
+                    post_id = db.get_post_id(post.platform, post.external_id)
                     if post_id:
-                        notify_post(db, post_id, post, [notifier])
+                        notify_post(db, post_id, post, [notifier], retry_queue)
                 continue
             try:
                 send(posts, kol["name"], kol["platform"])
@@ -405,6 +491,9 @@ def flush_digest(db: DB, digest: dict[int, list[Post]], notifiers: list[Notifier
                     )
             except Exception as exc:  # noqa: BLE001
                 logger.warning("全局摘要推送失败 channel=%s err=%s", notifier.channel, exc)
+                if retry_queue is not None:
+                    for post in posts:
+                        retry_queue.add(post, notifier.channel)
                 for post in posts:
                     db.add_push_log(
                         db.get_post_id(post.platform, post.external_id),
@@ -412,7 +501,7 @@ def flush_digest(db: DB, digest: dict[int, list[Post]], notifiers: list[Notifier
                         "failed",
                         str(exc),
                     )
-        notify_digest_subscribers(db, posts, kol, notifiers_config, notifiers)
+        notify_digest_subscribers(db, posts, kol, notifiers_config, notifiers, retry_queue)
 
 
 def probe_xueqiu(db: DB, notifiers: list[Notifier], source_config) -> None:
@@ -588,10 +677,68 @@ def keepalive_weibo_cookie(db: DB, notifiers: list[Notifier], weibo_config, clie
                 _alert_cookie_keepalive(db, notifiers, "微博", str(exc))
                 db.set_setting(SOURCE_ERR_KEY.format(platform="weibo"), f"保活登录失败: {exc}"[:300])
         else:
-            _alert_cookie_keepalive(db, notifiers, "微博")
+            # 没有账号密码：直接把二维码发到管理员 TG，扫码后自动保存
+            if not _start_weibo_qr_renewal(db, notifiers):
+                _alert_cookie_keepalive(db, notifiers, "微博")
     finally:
         if owns_client:
             client.close()
+
+
+def _start_weibo_qr_renewal(db: DB, notifiers: list[Notifier]) -> bool:
+    """把微博扫码二维码发到管理员 TG，后台线程轮询并自动保存 cookie。"""
+    import threading
+
+    from .fetchers.weibo import WEIBO_COOKIE_KEY
+    from .weibo_qr import create_qr, poll_qr
+
+    now = int(time.time())
+    last = db.get_setting(WEIBO_QR_RENEWAL_KEY)
+    if last and now - int(last) < WEIBO_QR_RENEWAL_COOLDOWN:
+        return False  # 冷却期内不重复发码
+    tg = next((n for n in notifiers if n.channel == "telegram"), None)
+    if tg is None or not getattr(tg, "chat_id", None):
+        return False
+    try:
+        client, qrid, image_url = create_qr()
+        image = client.get(image_url).content
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("微博续期二维码生成失败: %s", exc)
+        return False
+    db.set_setting(WEIBO_QR_RENEWAL_KEY, str(now))
+    try:
+        tg.send_photo(image, "⚠️ 微博会话已过期，请用微博 App 扫码登录（10 分钟内有效）")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("微博二维码发送失败: %s", exc)
+        client.close()
+        return False
+
+    def _poll():
+        try:
+            for _ in range(200):  # 每 3 秒，最长 10 分钟
+                time.sleep(3)
+                result = poll_qr(client, qrid)
+                if result["status"] in ("pending", "scanned"):
+                    continue
+                if result["status"] == "ok" and result.get("cookie"):
+                    db.set_setting(WEIBO_COOKIE_KEY, result["cookie"])
+                    db.set_setting(WEIBO_COOKIE_TIME_KEY, str(int(time.time())))
+                    tg.send_text("✅ 微博 cookie 已更新，抓取恢复")
+                else:
+                    tg.send_text(
+                        f"微博扫码未完成：{result.get('detail') or result['status']}，"
+                        "可到后台「数据源」页重新扫码"
+                    )
+                break
+            else:
+                tg.send_text("微博二维码已过期，可到后台「数据源」页重新扫码")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("微博续期轮询异常: %s", exc)
+        finally:
+            client.close()
+
+    threading.Thread(target=_poll, daemon=True).start()
+    return True
 
 
 class Scheduler:
@@ -614,11 +761,13 @@ class Scheduler:
         self.weibo_config = weibo_config
         self.states: dict[str, PlatformState] = {}
         self._digest: dict[int, list[Post]] = {}
+        self.retry_queue = PushRetryQueue()
         self._stop = asyncio.Event()
         self._last_cleanup = 0.0
         self._last_digest_flush = time.monotonic()
         self._last_xueqiu_probe = time.monotonic()
         self._last_cookie_keepalive = time.monotonic()
+        self._last_retry = 0.0
 
     def stop(self):
         self._stop.set()
@@ -638,6 +787,7 @@ class Scheduler:
     async def run(self):
         if self.polling_config.notify_on_start:
             await self._send_startup_message()
+        self._recover_failed_pushes()
         while not self._stop.is_set():
             started = time.monotonic()
             try:
@@ -651,6 +801,7 @@ class Scheduler:
                     self.polling_config.interval_seconds,
                     self.polling_config.priority_interval_seconds,
                     self._digest if self.polling_config.digest_interval_seconds > 0 else None,
+                    self.retry_queue,
                 )
                 self.db.set_setting("stats_last_poll_at", str(int(time.time())))
                 self.db.set_setting(
@@ -662,6 +813,15 @@ class Scheduler:
                 logger.exception("轮询周期异常")
                 self.db.set_setting("stats_last_poll_error", "轮询周期异常")
             now_mono = time.monotonic()
+            # 推送失败重试（每 60 秒检查一次）
+            if now_mono - self._last_retry >= 60:
+                self._last_retry = now_mono
+                for item in self.retry_queue.due():
+                    try:
+                        self._retry_push(item)
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning("重试推送失败 channel=%s err=%s", item["channel"], exc)
+                        self.retry_queue.fail(item)
             # 合并摘要到点统一推送（普通大V，优先大V保持实时）
             digest_interval = self.polling_config.digest_interval_seconds
             if (
@@ -712,6 +872,13 @@ class Scheduler:
                     )
                 except Exception:  # noqa: BLE001
                     logger.exception("cookie 保活异常")
+            # 每日精选：每天到达设定小时且当天未发过时推送
+            if self._daily_report_due():
+                self.db.set_setting("daily_report_last_date", time.strftime("%Y-%m-%d"))
+                try:
+                    await asyncio.to_thread(self._send_daily_report)
+                except Exception:  # noqa: BLE001
+                    logger.exception("每日精选推送异常")
             # 定期清理过期帖子（默认每 6 小时检查一次）
             if now_mono - self._last_cleanup > 6 * 3600:
                 self._last_cleanup = now_mono
@@ -736,3 +903,139 @@ class Scheduler:
                 0, self.polling_config.jitter_seconds
             )
             await asyncio.sleep(max(0.0, delay - elapsed))
+
+    def _recover_failed_pushes(self) -> None:
+        """重启后把最近 24 小时失败的推送重新入队。"""
+        if self.notifiers_config is None:
+            return
+        from .fetchers.base import Post
+
+        rows = self.db.list_failed_push_logs(since_hours=24, limit=200)
+        recovered = 0
+        for row in rows:
+            post_row = self.db.get_post(row["post_id"])
+            if post_row is None:
+                continue
+            user_id = row["user_id"]
+            if user_id is not None:
+                user = self.db.get_user(user_id)
+                if user is None:
+                    continue
+                if row["channel"] == "telegram" and not user.get("telegram_chat_id"):
+                    continue
+                if row["channel"] == "feishu" and not user.get("feishu_open_id"):
+                    continue
+            post = Post(
+                platform=post_row["platform"],
+                kol_id=post_row["kol_id"],
+                kol_name=post_row["kol_name"] or "",
+                external_id=post_row["external_id"],
+                title=post_row["title"],
+                content=post_row["content"],
+                url=post_row["url"],
+                published_at=post_row["published_at"],
+            )
+            self.retry_queue.add(post, row["channel"], user_id)
+            recovered += 1
+        if recovered:
+            logger.info("重启恢复待重试推送 %d 条", recovered)
+
+    def _retry_push(self, item: dict) -> None:
+        post = item["post"]
+        notifier = self._build_retry_notifier(item["channel"], item["user_id"])
+        notifier.notify(post)
+        post_id = self.db.get_post_id(post.platform, post.external_id)
+        if post_id:
+            self.db.mark_failed_push_success(post_id, item["channel"], item["user_id"])
+        self.retry_queue.drop(item)
+
+    def _build_retry_notifier(self, channel: str, user_id: int | None):
+        from .notifiers.feishu import FeishuNotifier
+        from .notifiers.telegram import TelegramNotifier
+
+        if user_id is None:
+            for notifier in self.notifiers:
+                if notifier.channel == channel:
+                    return notifier
+            raise RuntimeError(f"无全局通知器: {channel}")
+        user = self.db.get_user(user_id)
+        if user is None:
+            raise RuntimeError("用户不存在")
+        if channel == "telegram":
+            if not user.get("telegram_chat_id"):
+                raise RuntimeError("用户未绑定 Telegram")
+            return TelegramNotifier(self.notifiers_config.telegram, chat_id=user["telegram_chat_id"])
+        if channel == "feishu":
+            if not user.get("feishu_open_id"):
+                raise RuntimeError("用户未绑定飞书")
+            return FeishuNotifier(
+                self.notifiers_config.feishu,
+                open_id=user["feishu_open_id"] if not user.get("feishu_chat_id") else None,
+                chat_id=user.get("feishu_chat_id") or None,
+            )
+        raise RuntimeError(f"未知渠道: {channel}")
+
+    def _daily_report_due(self) -> bool:
+        hour_cfg = self.polling_config.daily_report_hour
+        now = datetime.now()
+        if now.hour < hour_cfg:
+            return False
+        return self.db.get_setting("daily_report_last_date") != now.strftime("%Y-%m-%d")
+
+    def _send_daily_report(self) -> None:
+        """给开启每日精选的用户推送今日订阅总览。"""
+        if self.notifiers_config is None:
+            return
+        from .fetchers.base import Post
+        from .notifiers.feishu import FeishuNotifier
+        from .notifiers.telegram import TelegramNotifier
+
+        since = int(datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
+        for user in self.db.daily_report_users():
+            kol_ids = sorted(self.db.subscribed_kol_ids(user["id"]))
+            rows = self.db.list_daily_posts(kol_ids, since, 15)
+            if not rows:
+                continue
+            posts = [
+                Post(
+                    platform=r["platform"],
+                    kol_id=r["kol_id"],
+                    kol_name=r["kol_name"] or "",
+                    external_id=r["external_id"],
+                    title=r["title"],
+                    content=r["content"],
+                    url=r["url"],
+                    published_at=r["published_at"],
+                )
+                for r in rows
+            ]
+            if user.get("telegram_chat_id") and self.notifiers_config.telegram.bot_token:
+                notifier = TelegramNotifier(
+                    self.notifiers_config.telegram, chat_id=user["telegram_chat_id"]
+                )
+                try:
+                    notifier.send_daily(posts)
+                    for post in posts:
+                        post_id = self.db.get_post_id(post.platform, post.external_id)
+                        if post_id:
+                            self.db.add_push_log(post_id, "telegram", "success", user_id=user["id"])
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("每日精选推送失败 user=%s channel=telegram err=%s", user["username"], exc)
+                finally:
+                    notifier.client.close()
+            if user.get("feishu_open_id"):
+                notifier = FeishuNotifier(
+                    self.notifiers_config.feishu,
+                    open_id=user["feishu_open_id"] if not user.get("feishu_chat_id") else None,
+                    chat_id=user.get("feishu_chat_id") or None,
+                )
+                try:
+                    notifier.send_daily(posts)
+                    for post in posts:
+                        post_id = self.db.get_post_id(post.platform, post.external_id)
+                        if post_id:
+                            self.db.add_push_log(post_id, "feishu", "success", user_id=user["id"])
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("每日精选推送失败 user=%s channel=feishu err=%s", user["username"], exc)
+                finally:
+                    notifier.client.close()

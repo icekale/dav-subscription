@@ -8,6 +8,7 @@ Page({
     fsBound: false,
     fsIncomplete: false,
     notify: true,
+    dailyReport: false,
     bindCode: "",
     bindMinutes: 0,
     tgBot: "",
@@ -49,6 +50,7 @@ Page({
         fsBound: !!(user.feishu_open_id && user.feishu_chat_id),
         fsIncomplete: !!user.feishu_open_id && !user.feishu_chat_id,
         notify: user.notify_enabled,
+        dailyReport: !!user.daily_report_enabled,
         tgBot: guide.telegram_bot_username || "",
         fsBotName: guide.feishu_bot_name || "",
       });
@@ -62,12 +64,13 @@ Page({
   },
 
   onNotify(e) { this.setData({ notify: e.detail.value }); },
+  onDaily(e) { this.setData({ dailyReport: e.detail.value }); },
 
   async save() {
     try {
       await request("/api/me", {
         method: "PUT",
-        data: { notify_enabled: this.data.notify },
+        data: { notify_enabled: this.data.notify, daily_report_enabled: this.data.dailyReport },
       });
       wx.showToast({ title: "已保存", icon: "success" });
     } catch (err) {

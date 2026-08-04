@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS kols (
     avatar_url TEXT NOT NULL DEFAULT '',
     enabled INTEGER NOT NULL DEFAULT 1,
     is_private INTEGER NOT NULL DEFAULT 0,
+    original_only INTEGER NOT NULL DEFAULT 0,
     category_id INTEGER,
     priority INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -76,6 +77,7 @@ CREATE TABLE IF NOT EXISTS users (
     feishu_open_id TEXT NOT NULL DEFAULT '',
     feishu_chat_id TEXT NOT NULL DEFAULT '',
     notify_enabled INTEGER NOT NULL DEFAULT 1,
+    daily_report INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE TABLE IF NOT EXISTS subscriptions (
@@ -96,6 +98,14 @@ CREATE TABLE IF NOT EXISTS register_codes (
     note TEXT NOT NULL DEFAULT '',
     used_by INTEGER,
     used_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS admin_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER,
+    action TEXT NOT NULL,
+    target TEXT NOT NULL DEFAULT '',
+    detail TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 """
@@ -129,6 +139,8 @@ class DB:
             self._conn.execute("ALTER TABLE users ADD COLUMN wechat_openid TEXT NOT NULL DEFAULT ''")
         if "feishu_chat_id" not in user_cols:
             self._conn.execute("ALTER TABLE users ADD COLUMN feishu_chat_id TEXT NOT NULL DEFAULT ''")
+        if "daily_report" not in user_cols:
+            self._conn.execute("ALTER TABLE users ADD COLUMN daily_report INTEGER NOT NULL DEFAULT 0")
         kol_cols = {row["name"] for row in self._rows("PRAGMA table_info(kols)")}
         if "priority" not in kol_cols:
             self._conn.execute("ALTER TABLE kols ADD COLUMN priority INTEGER NOT NULL DEFAULT 0")
@@ -136,6 +148,8 @@ class DB:
             self._conn.execute("ALTER TABLE kols ADD COLUMN is_private INTEGER NOT NULL DEFAULT 0")
         if "avatar_url" not in kol_cols:
             self._conn.execute("ALTER TABLE kols ADD COLUMN avatar_url TEXT NOT NULL DEFAULT ''")
+        if "original_only" not in kol_cols:
+            self._conn.execute("ALTER TABLE kols ADD COLUMN original_only INTEGER NOT NULL DEFAULT 0")
         # 渠道绑定唯一化：先清理重复（保留最早注册的用户），再建唯一索引，
         # 避免两个账号绑定同一个 chat_id/open_id 导致重复推送或 /bind 合并错账号。
         for column in ("telegram_chat_id", "feishu_open_id", "feishu_chat_id", "wechat_openid"):
@@ -177,6 +191,7 @@ class DB:
         external_id: str,
         category_id: int | None = None,
         priority: bool = False,
+        original_only: bool = False,
     ) -> int:
         if platform not in ALLOWED_PLATFORMS:
             raise ValueError(f"不支持的平台: {platform}")
@@ -186,8 +201,9 @@ class DB:
         ):
             raise ValueError("该大V已存在")
         return self._execute(
-            "INSERT INTO kols (platform, name, external_id, category_id, priority) VALUES (?, ?, ?, ?, ?)",
-            (platform, name, external_id, category_id, 1 if priority else 0),
+            "INSERT INTO kols (platform, name, external_id, category_id, priority, original_only) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (platform, name, external_id, category_id, 1 if priority else 0, 1 if original_only else 0),
         )
 
     def get_kol(self, kol_id: int) -> dict | None:
@@ -231,6 +247,7 @@ class DB:
         name=None,
         external_id=None,
         enabled=None,
+        original_only=_UNSET,
         category_id=_UNSET,
         priority=_UNSET,
         is_private=_UNSET,
@@ -245,6 +262,9 @@ class DB:
         if enabled is not None:
             sets.append("enabled = ?")
             params.append(1 if enabled else 0)
+        if original_only is not _UNSET:
+            sets.append("original_only = ?")
+            params.append(1 if original_only else 0)
         if category_id is not _UNSET:
             sets.append("category_id = ?")
             params.append(category_id)
@@ -428,6 +448,19 @@ class DB:
         return self._rows("SELECT * FROM users ORDER BY id")
 
     # ---- 注册码 ----
+    def log_admin_action(self, user_id: int | None, action: str, target: str = "", detail: str = "") -> None:
+        self._execute(
+            "INSERT INTO admin_logs (user_id, action, target, detail) VALUES (?, ?, ?, ?)",
+            (user_id, action, target, detail),
+        )
+
+    def list_admin_logs(self, limit: int = 100) -> list[dict]:
+        return self._rows(
+            "SELECT l.*, u.username FROM admin_logs l LEFT JOIN users u ON u.id = l.user_id "
+            "ORDER BY l.id DESC LIMIT ?",
+            (limit,),
+        )
+
     def add_register_code(self, code: str, note: str = "") -> None:
         try:
             self._execute(
@@ -580,6 +613,14 @@ class DB:
         )
         return rows[0]["id"] if rows else None
 
+    def get_post(self, post_id: int) -> dict | None:
+        rows = self._rows(
+            "SELECT p.*, k.name AS kol_name, k.platform AS kol_platform "
+            "FROM posts p JOIN kols k ON k.id = p.kol_id WHERE p.id = ?",
+            (post_id,),
+        )
+        return rows[0] if rows else None
+
     def insert_post(self, platform, kol_id, external_id, title, content, url, published_at) -> int | None:
         if self.post_exists(platform, external_id):
             return None
@@ -668,6 +709,28 @@ class DB:
             (*kol_ids, limit),
         )
 
+    def list_daily_posts(self, kol_ids: list[int], since_ts: int, limit: int = 15) -> list[dict]:
+        """用户订阅大V在 since_ts（本地零点）之后的帖子，用于每日精选。"""
+        if not kol_ids:
+            return []
+        placeholders = ", ".join("?" * len(kol_ids))
+        return self._rows(
+            "SELECT p.*, k.name AS kol_name, k.avatar_url AS avatar_url, "
+            "c.name AS category_name FROM posts p "
+            "JOIN kols k ON k.id = p.kol_id "
+            "LEFT JOIN categories c ON c.id = k.category_id "
+            f"WHERE p.kol_id IN ({placeholders}) AND strftime('%s', p.fetched_at) >= ? "
+            "ORDER BY p.id DESC LIMIT ?",
+            (*kol_ids, since_ts, limit),
+        )
+
+    def daily_report_users(self) -> list[dict]:
+        """开启每日精选、启用通知且绑定过渠道的用户。"""
+        return self._rows(
+            "SELECT * FROM users WHERE notify_enabled = 1 AND daily_report = 1 "
+            "AND (telegram_chat_id != '' OR feishu_open_id != '')"
+        )
+
     # ---- Push log ----
     def add_push_log(self, post_id: int, channel: str, status: str, error: str = "", user_id: int | None = None) -> int:
         return self._execute(
@@ -701,6 +764,32 @@ class DB:
             f"{where} ORDER BY l.id DESC LIMIT ?",
             (*params, limit),
         )
+
+    def list_failed_push_logs(self, since_hours: int = 24, limit: int = 200) -> list[dict]:
+        """最近 N 小时内失败的推送记录（用于重启后恢复重推）。"""
+        return self._rows(
+            "SELECT post_id, channel, user_id FROM push_logs "
+            "WHERE status = 'failed' AND created_at >= datetime('now', ?) "
+            "ORDER BY id DESC LIMIT ?",
+            (f"-{since_hours} hours", limit),
+        )
+
+    def mark_failed_push_success(self, post_id: int, channel: str, user_id: int | None) -> None:
+        """把最近一条失败推送标记为成功（重试成功后）。"""
+        if user_id is not None:
+            self._execute(
+                "UPDATE push_logs SET status = 'success', error = '' WHERE id = ("
+                "SELECT id FROM push_logs WHERE post_id = ? AND channel = ? "
+                "AND user_id = ? AND status = 'failed' ORDER BY id DESC LIMIT 1)",
+                (post_id, channel, user_id),
+            )
+        else:
+            self._execute(
+                "UPDATE push_logs SET status = 'success', error = '' WHERE id = ("
+                "SELECT id FROM push_logs WHERE post_id = ? AND channel = ? "
+                "AND user_id IS NULL AND status = 'failed' ORDER BY id DESC LIMIT 1)",
+                (post_id, channel),
+            )
 
     # ---- Settings ----
     def get_setting(self, key: str) -> str | None:

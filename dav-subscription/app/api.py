@@ -4,10 +4,8 @@ from __future__ import annotations
 import re
 import secrets
 import time
-import json
 import os
 
-import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 
@@ -20,15 +18,8 @@ from .fetchers.xueqiu import (
     XUEQIU_COOKIE_TIME_KEY,
     resolve_profile,
 )
-from .fetchers.weibo import WEIBO_COOKIE_KEY, cookie_header
-
-
-def _parse_sina_jsonp(text: str) -> dict:
-    """解析新浪 SSO 的 JSONP 响应，如 window.CB && CB({...});。"""
-    body = text.strip()
-    start = body.index("(")
-    end = body.rindex(")")
-    return json.loads(body[start + 1 : end])
+from .fetchers.weibo import WEIBO_COOKIE_KEY
+from .weibo_qr import create_qr, poll_qr
 
 
 def _normalize_weibo_id(external_id: str) -> str:
@@ -57,6 +48,7 @@ class MeUpdate(BaseModel):
     feishu_open_id: str | None = None
     feishu_chat_id: str | None = None
     notify_enabled: bool | None = None
+    daily_report_enabled: bool | None = None
 
 
 class PasswordChangeIn(BaseModel):
@@ -70,6 +62,7 @@ class KolIn(BaseModel):
     external_id: str
     category_id: int | None = None
     priority: bool = False
+    original_only: bool = False
 
 
 class KolBatchIn(BaseModel):
@@ -77,6 +70,7 @@ class KolBatchIn(BaseModel):
     lines: str
     category_id: int | None = None
     priority: bool = False
+    original_only: bool = False
 
 
 class KolUpdate(BaseModel):
@@ -87,6 +81,7 @@ class KolUpdate(BaseModel):
     priority: bool | None = None
     is_private: bool | None = None
     visible_users: list[str] | None = None
+    original_only: bool | None = None
 
 
 class CategoryIn(BaseModel):
@@ -132,6 +127,7 @@ def public_user(user: dict) -> dict:
         "feishu_open_id": user["feishu_open_id"],
         "feishu_chat_id": user["feishu_chat_id"],
         "notify_enabled": bool(user["notify_enabled"]),
+        "daily_report_enabled": bool(user.get("daily_report")),
         "created_at": user["created_at"],
     }
 
@@ -170,6 +166,9 @@ def create_api_router(
 
     def _record_login_failure(ip: str) -> None:
         login_attempts.setdefault(ip, []).append(time.time())
+
+    def _audit(admin: dict, action: str, target: str = "", detail: str = "") -> None:
+        db.log_admin_action(admin["id"], action, target, detail)
 
     def get_current_user(authorization: str | None = Header(None)):
         token = ""
@@ -294,6 +293,8 @@ def create_api_router(
             db.update_user(user["id"], feishu_chat_id=value)
         if "notify_enabled" in body.model_fields_set:
             db.update_user(user["id"], notify_enabled=body.notify_enabled)
+        if "daily_report_enabled" in body.model_fields_set and body.daily_report_enabled is not None:
+            db.update_user(user["id"], daily_report=body.daily_report_enabled)
         return public_user(db.get_user(user["id"]))
 
     @router.post("/me/bind-code")
@@ -405,7 +406,7 @@ def create_api_router(
         return db.list_kol_requests(status)
 
     @router.post("/admin/kol-requests/{request_id}/approve", dependencies=[Depends(require_admin)])
-    def approve_kol_request(request_id: int):
+    def approve_kol_request(request_id: int, admin: dict = Depends(require_admin)):
         req = db.get_kol_request(request_id)
         if req is None or req["status"] != "pending":
             raise HTTPException(status_code=404, detail="申请不存在或已处理")
@@ -415,6 +416,7 @@ def create_api_router(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from None
         db.set_kol_request_status(request_id, "approved")
+        _audit(admin, "approve_kol_request", str(request_id), f"{name} {req['external_id']}")
         try:
             db.add_subscription(req["user_id"], kid)
         except Exception:  # noqa: BLE001 - 自动订阅失败不阻塞审批
@@ -448,15 +450,16 @@ def create_api_router(
         return db.get_kol(kid)
 
     @router.post("/admin/kol-requests/{request_id}/reject", dependencies=[Depends(require_admin)])
-    def reject_kol_request(request_id: int):
+    def reject_kol_request(request_id: int, admin: dict = Depends(require_admin)):
         req = db.get_kol_request(request_id)
         if req is None or req["status"] != "pending":
             raise HTTPException(status_code=404, detail="申请不存在或已处理")
         db.set_kol_request_status(request_id, "rejected")
+        _audit(admin, "reject_kol_request", str(request_id), req["external_id"])
         return {"ok": True}
 
     @router.post("/admin/register-codes", dependencies=[Depends(require_admin)])
-    def generate_register_codes(body: RegisterCodeGenIn):
+    def generate_register_codes(body: RegisterCodeGenIn, admin: dict = Depends(require_admin)):
         """批量生成一次性注册码。"""
         count = max(1, min(body.count, 100))
         alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
@@ -469,6 +472,7 @@ def create_api_router(
             existing.add(code)
             db.add_register_code(code, note=body.note)
             codes.append(code)
+        _audit(admin, "generate_register_codes", "", f"count={len(codes)} note={body.note}")
         return {"codes": codes, "count": len(codes)}
 
     @router.get("/admin/register-codes", dependencies=[Depends(require_admin)])
@@ -485,23 +489,29 @@ def create_api_router(
         }
 
     @router.post("/admin/xueqiu-cookie", dependencies=[Depends(require_admin)])
-    def set_xueqiu_cookie(body: CookieIn):
+    def set_xueqiu_cookie(body: CookieIn, admin: dict = Depends(require_admin)):
         cookie = body.cookie.strip()
         if not cookie:
             raise HTTPException(status_code=400, detail="cookie 不能为空")
         db.set_setting(XUEQIU_COOKIE_KEY, cookie)
         db.set_setting(XUEQIU_COOKIE_TIME_KEY, str(int(time.time())))
+        _audit(admin, "set_xueqiu_cookie", "", "len=%d" % len(cookie))
         return {"ok": True}
 
     @router.delete("/admin/register-codes/{code}", dependencies=[Depends(require_admin)])
-    def revoke_register_code(code: str):
+    def revoke_register_code(code: str, admin: dict = Depends(require_admin)):
         row = db.get_register_code(code)
         if row is None:
             raise HTTPException(status_code=404, detail="注册码不存在")
         if row["used_by"]:
             raise HTTPException(status_code=400, detail="该注册码已被使用，不能删除")
         db.delete_register_code(code)
+        _audit(admin, "revoke_register_code", code)
         return {"ok": True}
+
+    @router.get("/admin/logs", dependencies=[Depends(require_admin)])
+    def list_audit_logs(limit: int = 100):
+        return db.list_admin_logs(limit=min(limit, 500))
 
     # ---- 管理（管理员）----
     @router.get("/kols", dependencies=[Depends(require_admin)])
@@ -509,7 +519,7 @@ def create_api_router(
         return db.list_kols(platform, category_id)
 
     @router.post("/kols", dependencies=[Depends(require_admin)])
-    def add_kol(body: KolIn):
+    def add_kol(body: KolIn, admin: dict = Depends(require_admin)):
         if body.platform not in ALLOWED_PLATFORMS:
             raise HTTPException(status_code=400, detail=f"不支持的平台: {body.platform}")
         external_id = body.external_id.strip()
@@ -531,11 +541,13 @@ def create_api_router(
             external_id,
             category_id=body.category_id,
             priority=body.priority,
+            original_only=body.original_only,
         )
+        _audit(admin, "add_kol", str(kid), f"{body.platform} {body.name.strip()} {external_id}")
         return db.get_kol(kid)
 
     @router.post("/kols/batch", dependencies=[Depends(require_admin)])
-    def batch_add_kols(body: KolBatchIn):
+    def batch_add_kols(body: KolBatchIn, admin: dict = Depends(require_admin)):
         """批量导入：每行一个「昵称 链接/UID」或「链接/UID」，支持雪球主页链接。"""
         if body.platform not in ALLOWED_PLATFORMS:
             raise HTTPException(status_code=400, detail=f"不支持的平台: {body.platform}")
@@ -580,20 +592,23 @@ def create_api_router(
                     external_id,
                     category_id=body.category_id,
                     priority=body.priority,
+                    original_only=body.original_only,
                 )
                 if avatar_url:
                     db.update_kol_avatar(kid, avatar_url)
                 results.append({"ok": True, "id": kid, "name": name, "external_id": external_id})
             except ValueError as exc:
                 results.append({"ok": False, "line": line[:80], "error": str(exc)})
+        ok_count = sum(1 for r in results if r["ok"])
+        _audit(admin, "batch_add_kols", "", f"ok={ok_count}/{len(results)}")
         return {
             "total": len(results),
-            "ok": sum(1 for r in results if r["ok"]),
+            "ok": ok_count,
             "failed": [r for r in results if not r["ok"]],
         }
 
     @router.put("/kols/{kol_id}", dependencies=[Depends(require_admin)])
-    def update_kol(kol_id: int, body: KolUpdate):
+    def update_kol(kol_id: int, body: KolUpdate, admin: dict = Depends(require_admin)):
         if db.get_kol(kol_id) is None:
             raise HTTPException(status_code=404, detail="KOL 不存在")
         if "category_id" in body.model_fields_set and body.category_id is not None:
@@ -616,6 +631,8 @@ def create_api_router(
         )
         if "is_private" in body.model_fields_set and body.is_private is not None:
             db.update_kol(kol_id, is_private=body.is_private)
+        if "original_only" in body.model_fields_set and body.original_only is not None:
+            db.update_kol(kol_id, original_only=body.original_only)
         if "visible_users" in body.model_fields_set and body.visible_users is not None:
             user_ids = []
             for username in body.visible_users:
@@ -624,13 +641,15 @@ def create_api_router(
                     raise HTTPException(status_code=400, detail=f"用户不存在: {username}")
                 user_ids.append(target["id"])
             db.set_kol_acl(kol_id, user_ids)
+        _audit(admin, "update_kol", str(kol_id), f"name={name} enabled={body.enabled}")
         return db.get_kol(kol_id)
 
     @router.delete("/kols/{kol_id}", dependencies=[Depends(require_admin)])
-    def delete_kol(kol_id: int):
+    def delete_kol(kol_id: int, admin: dict = Depends(require_admin)):
         if db.get_kol(kol_id) is None:
             raise HTTPException(status_code=404, detail="KOL 不存在")
         db.delete_kol(kol_id)
+        _audit(admin, "delete_kol", str(kol_id))
         return {"ok": True}
 
     @router.get("/categories", dependencies=[Depends(require_admin)])
@@ -638,7 +657,7 @@ def create_api_router(
         return db.list_categories()
 
     @router.post("/categories", dependencies=[Depends(require_admin)])
-    def add_category(body: CategoryIn):
+    def add_category(body: CategoryIn, admin: dict = Depends(require_admin)):
         name = body.name.strip()
         if not name:
             raise HTTPException(status_code=400, detail="分类名不能为空")
@@ -646,10 +665,11 @@ def create_api_router(
             cid = db.add_category(name)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from None
+        _audit(admin, "add_category", name)
         return db.get_category(cid)
 
     @router.put("/categories/{category_id}", dependencies=[Depends(require_admin)])
-    def rename_category(category_id: int, body: CategoryIn):
+    def rename_category(category_id: int, body: CategoryIn, admin: dict = Depends(require_admin)):
         if db.get_category(category_id) is None:
             raise HTTPException(status_code=404, detail="分类不存在")
         name = body.name.strip()
@@ -659,13 +679,15 @@ def create_api_router(
             db.rename_category(category_id, name)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from None
+        _audit(admin, "rename_category", str(category_id), name)
         return db.get_category(category_id)
 
     @router.delete("/categories/{category_id}", dependencies=[Depends(require_admin)])
-    def delete_category(category_id: int):
+    def delete_category(category_id: int, admin: dict = Depends(require_admin)):
         if db.get_category(category_id) is None:
             raise HTTPException(status_code=404, detail="分类不存在")
         db.delete_category(category_id)
+        _audit(admin, "delete_category", str(category_id))
         return {"ok": True}
 
     @router.get("/posts", dependencies=[Depends(require_admin)])
@@ -760,6 +782,12 @@ def create_api_router(
             if existing is not None and existing["id"] != user_id:
                 raise HTTPException(status_code=400, detail="用户名已存在")
             db.update_user(user_id, username=username)
+        _audit(
+            admin,
+            "update_user",
+            str(user_id),
+            f"is_admin={body.is_admin} password={'*' if body.password else ''} username={body.username}",
+        )
         return public_user(db.get_user(user_id))
 
     @router.delete("/users/{user_id}", dependencies=[Depends(require_admin)])
@@ -770,6 +798,7 @@ def create_api_router(
         if target is None:
             raise HTTPException(status_code=404, detail="用户不存在")
         db.delete_user(user_id)
+        _audit(admin, "delete_user", str(user_id), target["username"])
         return {"ok": True}
 
     @router.post("/admin/test-push", dependencies=[Depends(require_admin)])
@@ -821,29 +850,9 @@ def create_api_router(
             if now - session["created_at"] > 300:
                 session["client"].close()
                 weibo_qr_sessions.pop(qrid, None)
-        client = httpx.Client(
-            timeout=15,
-            follow_redirects=True,
-            headers={
-                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
-                "Referer": "https://weibo.com/",
-            },
-        )
         try:
-            resp = client.get(
-                "https://login.sina.com.cn/sso/qrcode/image",
-                params={"entry": "weibo", "size": "180", "callback": str(int(now * 1000))},
-            )
-            data = (_parse_sina_jsonp(resp.text) or {}).get("data") or {}
+            client, qrid, qrurl = create_qr()
         except Exception:  # noqa: BLE001
-            client.close()
-            raise HTTPException(status_code=400, detail="获取微博二维码失败，请稍后重试")
-        qrid = data.get("qrid")
-        image = data.get("image")
-        qrurl = f"https:{image}" if image else ""
-        if not qrid:
-            client.close()
             raise HTTPException(status_code=400, detail="获取微博二维码失败，请稍后重试")
         weibo_qr_sessions[qrid] = {
             "client": client,
@@ -859,57 +868,25 @@ def create_api_router(
             raise HTTPException(status_code=404, detail="二维码已过期，请重新生成")
         client = session["client"]
         try:
-            resp = client.get(
-                "https://login.sina.com.cn/sso/qrcode/check",
-                params={
-                    "entry": "weibo",
-                    "qrid": qrid,
-                    "callback": f"STK_{int(time.time() * 10000)}",
-                },
-            )
-            data = _parse_sina_jsonp(resp.text)
+            result = poll_qr(client, qrid)
         except Exception:  # noqa: BLE001
             raise HTTPException(status_code=400, detail="微博登录状态获取失败，请重试") from None
-        code = data.get("retcode")
-        if code == 50114001:
+        status = result.get("status")
+        if status == "pending":
             return {"status": "pending"}
-        if code == 50114002:
+        if status == "scanned":
             return {"status": "scanned"}
-        if code == 50114004:
+        if status == "expired":
             raise HTTPException(status_code=400, detail="二维码已失效，请重新生成")
-        if code == 20000000:
-            alt = (data.get("data") or {}).get("alt") or ""
-            if not alt:
-                raise HTTPException(status_code=400, detail="微博登录确认失败，请重试")
-            try:
-                login_resp = client.get(
-                    "https://login.sina.com.cn/sso/login.php",
-                    params={
-                        "entry": "weibo",
-                        "returntype": "TEXT",
-                        "crossdomain": "1",
-                        "cdult": "3",
-                        "domain": "weibo.com",
-                        "alt": alt,
-                        "savestate": "30",
-                        "callback": f"STK_{int(time.time() * 1000)}",
-                    },
-                )
-                login_data = _parse_sina_jsonp(login_resp.text)
-                cross_domains = list(login_data.get("crossDomainUrlList", []))
-                if cross_domains:
-                    cross_domains[0] = f"{cross_domains[0]}&action=login"
-                for url in cross_domains:
-                    client.get(url)
-            except Exception:  # noqa: BLE001
-                raise HTTPException(status_code=400, detail="微博登录确认失败，请重新扫码") from None
-            if not any(c.name == "SUB" for c in client.cookies.jar):
-                raise HTTPException(status_code=400, detail="登录后未获取到微博会话，请重试")
-            cookie = cookie_header(client.cookies)
+        if status == "ok" and result.get("cookie"):
+            cookie = result["cookie"]
             db.set_setting(WEIBO_COOKIE_KEY, cookie)
             client.close()
             weibo_qr_sessions.pop(qrid, None)
             return {"status": "ok"}
-        raise HTTPException(status_code=400, detail=f"微博登录异常: {data}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"微博登录异常: {result.get('detail') or status}",
+        )
 
     return router

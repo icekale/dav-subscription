@@ -60,6 +60,7 @@ class PollingConfig:
     digest_interval_seconds: int = 600
     source_probe_interval_seconds: int = 600
     cookie_keepalive_interval_seconds: int = 21600
+    daily_report_hour: int = 20
 
 
 @dataclass
@@ -109,6 +110,7 @@ _ENV_MAP = {
     "POLLING_DIGEST_INTERVAL_SECONDS": ("polling", "digest_interval_seconds"),
     "POLLING_SOURCE_PROBE_INTERVAL_SECONDS": ("polling", "source_probe_interval_seconds"),
     "POLLING_COOKIE_KEEPALIVE_INTERVAL_SECONDS": ("polling", "cookie_keepalive_interval_seconds"),
+    "POLLING_DAILY_REPORT_HOUR": ("polling", "daily_report_hour"),
     "NOTIFY_ON_START": ("polling", "notify_on_start"),
     "WEB_PASSWORD": ("web", "password"),
     "WEB_ALLOW_REGISTER": ("web", "allow_register"),
@@ -150,6 +152,7 @@ def _validate(config: Config) -> None:
         ("polling.digest_interval_seconds", config.polling, "digest_interval_seconds", int),
         ("polling.source_probe_interval_seconds", config.polling, "source_probe_interval_seconds", int),
         ("polling.cookie_keepalive_interval_seconds", config.polling, "cookie_keepalive_interval_seconds", int),
+        ("polling.daily_report_hour", config.polling, "daily_report_hour", int),
         ("polling.notify_on_start", config.polling, "notify_on_start", bool),
         ("web.allow_register", config.web, "allow_register", bool),
     )
@@ -189,6 +192,8 @@ def _validate(config: Config) -> None:
         raise ValueError("配置项 polling.source_probe_interval_seconds 必须 >= 0")
     if config.polling.cookie_keepalive_interval_seconds < 0:
         raise ValueError("配置项 polling.cookie_keepalive_interval_seconds 必须 >= 0")
+    if not 0 <= config.polling.daily_report_hour <= 23:
+        raise ValueError("配置项 polling.daily_report_hour 需在 0-23 之间")
 
 
 def load_config(path: str | Path | None = None) -> Config:
@@ -212,6 +217,7 @@ def load_config(path: str | Path | None = None) -> Config:
                 "POLLING_DIGEST_INTERVAL_SECONDS",
                 "POLLING_SOURCE_PROBE_INTERVAL_SECONDS",
                 "POLLING_COOKIE_KEEPALIVE_INTERVAL_SECONDS",
+                "POLLING_DAILY_REPORT_HOUR",
             ):
                 value = int(value)
             elif env_name in ("NOTIFY_ON_START", "WEB_ALLOW_REGISTER"):

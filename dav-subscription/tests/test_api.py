@@ -335,7 +335,7 @@ def test_weibo_qr_login(monkeypatch):
         def close(self):
             pass
 
-    monkeypatch.setattr("app.api.httpx.Client", FakeClient)
+    monkeypatch.setattr("app.weibo_qr.httpx.Client", FakeClient)
     client = make_client()
     headers = auth_headers(client)
     start = client.post("/api/admin/weibo-qr/start", headers=headers)

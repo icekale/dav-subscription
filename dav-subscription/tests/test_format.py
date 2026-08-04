@@ -1,6 +1,8 @@
 from app.fetchers.base import Post
 from app.notifiers.feishu import build_feishu_card
+from app.notifiers.feishu import build_feishu_daily_card
 from app.notifiers.telegram import build_telegram_text
+from app.notifiers.telegram import build_telegram_daily
 
 
 def make_post() -> Post:
@@ -36,3 +38,11 @@ def test_telegram_text_escapes_html():
     empty = make_post()
     empty.content = ""
     assert "看多" in build_telegram_text(empty)
+
+
+def test_daily_builders():
+    posts = [make_post(), make_post()]
+    text = build_telegram_daily(posts)
+    assert "今日大V精选" in text and "张三" in text
+    card = build_feishu_daily_card(posts)
+    assert "今日大V精选" in card["header"]["title"]["content"]

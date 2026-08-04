@@ -33,6 +33,10 @@
       <view class="form-label">新帖推送开关</view>
       <switch checked="{{notify}}" color="#1677ff" bindchange="onNotify" />
     </view>
+    <view class="form-item">
+      <view class="form-label">每日精选摘要（每天 20:00 推一次今日总览）</view>
+      <switch checked="{{dailyReport}}" color="#1677ff" bindchange="onDaily" />
+    </view>
     <button class="btn btn-primary btn-block" bindtap="save">保存设置</button>
   </view>
   <view class="card">

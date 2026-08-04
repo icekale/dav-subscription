@@ -124,6 +124,47 @@ def build_feishu_digest_card(posts: list[Post], kol_name: str, platform: str) ->
     }
 
 
+def build_feishu_daily_card(posts: list[Post]) -> dict:
+    elements = []
+    for i, post in enumerate(posts[:DIGEST_MAX_ITEMS], 1):
+        body = (post.content[:100] or post.title or "（无正文）").replace("\n", " ")
+        text = f"{i}. **{post.kol_name}**：{body}"
+        if post.published_at:
+            text += f"\n🕐 {post.published_at}"
+        elements.append({"tag": "div", "text": {"tag": "lark_md", "content": text}})
+        if post.url:
+            elements.append(
+                {
+                    "tag": "action",
+                    "actions": [
+                        {
+                            "tag": "button",
+                            "text": {"tag": "plain_text", "content": "查看原文"},
+                            "type": "default",
+                            "url": post.url,
+                        }
+                    ],
+                }
+            )
+    if len(posts) > DIGEST_MAX_ITEMS:
+        elements.append(
+            {
+                "tag": "note",
+                "elements": [
+                    {"tag": "plain_text", "content": f"… 还有 {len(posts) - DIGEST_MAX_ITEMS} 条未展示"}
+                ],
+            }
+        )
+    return {
+        "config": {"wide_screen_mode": True},
+        "header": {
+            "title": {"tag": "plain_text", "content": "📊 今日大V精选"},
+            "template": "orange",
+        },
+        "elements": elements,
+    }
+
+
 class FeishuNotifier(Notifier):
     channel = "feishu"
 
@@ -196,6 +237,9 @@ class FeishuNotifier(Notifier):
 
     def send_digest(self, posts: list[Post], kol_name: str, platform: str) -> None:
         self._send_card(build_feishu_digest_card(posts, kol_name, platform))
+
+    def send_daily(self, posts: list[Post]) -> None:
+        self._send_card(build_feishu_daily_card(posts))
 
     def send_text(self, text: str) -> None:
         if self.open_id or self.chat_id:

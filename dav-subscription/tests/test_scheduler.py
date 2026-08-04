@@ -8,11 +8,13 @@ from app.config import FeishuConfig, NotifiersConfig, TelegramConfig
 from app.db import DB
 from app.fetchers.base import Post
 from app.scheduler import (
+    PushRetryQueue,
     flush_digest,
     keepalive_weibo_cookie,
     keepalive_xueqiu_cookie,
     poll_once,
 )
+from app.scheduler import Scheduler
 
 
 class FakeFetcher:
@@ -51,6 +53,25 @@ class FakeDigestNotifier(FakeNotifier):
 
     def send_digest(self, posts, kol_name, platform):
         self.digests.append((posts, kol_name, platform))
+
+
+class FailAlwaysNotifier(FakeNotifier):
+    channel = "test"
+
+    def notify(self, post):
+        raise RuntimeError("boom")
+
+
+class FakeDailyNotifier(FakeNotifier):
+    channel = "telegram"
+
+    def __init__(self):
+        super().__init__()
+        self.daily = []
+        self.client = SimpleNamespace(close=lambda: None)
+
+    def send_daily(self, posts):
+        self.daily.append(posts)
 
 
 def make_db() -> DB:
@@ -227,6 +248,116 @@ def test_push_logs_retention():
     db._execute("UPDATE push_logs SET created_at = datetime('now', '-10 days') WHERE id = ?", (1,))
     assert db.delete_push_logs_older_than(7) == 1
     assert db.delete_push_logs_older_than(7) == 0
+
+
+def test_push_retry_queue_enqueued_on_failure_and_backoff_drops(monkeypatch):
+    clock = {"t": 1000.0}
+    monkeypatch.setattr("app.scheduler.time.monotonic", lambda: clock["t"])
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    notifier = FailAlwaysNotifier()
+    q = PushRetryQueue()
+    poll_once(
+        db,
+        {"xueqiu": FakeFetcher([make_post(kid)])},
+        [notifier],
+        interval_seconds=0,
+        retry_queue=q,
+    )
+    assert q.pending() == 1
+    clock["t"] = 2000  # 越过 60 秒退避
+    item = q.due()[0]
+    assert q.fail(item) is True
+    assert q.fail(item) is True
+    assert q.fail(item) is False  # 3 次后放弃
+    assert q.due() == []
+
+
+def test_retry_recovery_from_failed_logs():
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    pid = db.insert_post("xueqiu", kid, "p1", "t", "c", "u", "")
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.add_push_log(pid, "telegram", "failed", "boom", user_id=uid)
+    db._execute("UPDATE push_logs SET created_at = datetime('now', '-1 hours') WHERE id = 1")
+
+    scheduler = Scheduler(
+        db,
+        {},
+        [],
+        SimpleNamespace(),
+        notifiers_config=SimpleNamespace(telegram=SimpleNamespace(bot_token="t", chat_id="111")),
+        xueqiu_config=SimpleNamespace(cookie=""),
+        weibo_config=SimpleNamespace(cookie="", username="", password=""),
+    )
+    scheduler._recover_failed_pushes()
+    assert scheduler.retry_queue.pending() == 1
+
+
+def test_flush_digest_fallback_notify_without_send_digest():
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    notifier = FakeNotifier()  # 没有 send_digest，走逐条推送兜底
+    digest: dict[int, list] = {}
+    poll_once(
+        db,
+        {"xueqiu": FakeFetcher([make_post(kid)])},
+        [notifier],
+        interval_seconds=0,
+        digest=digest,
+    )
+    flush_digest(db, digest, [notifier], None)
+    assert len(notifier.calls) == 1
+
+
+def test_daily_report_sent_to_enabled_user(monkeypatch):
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    db.insert_post("xueqiu", kid, "p1", "t", "今日内容", "u", "")
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.update_user(uid, daily_report=True)
+    db.add_subscription(uid, kid)
+
+    fake = FakeDailyNotifier()
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", lambda *a, **k: fake)
+    scheduler = Scheduler(
+        db,
+        {},
+        [],
+        SimpleNamespace(daily_report_hour=20),
+        notifiers_config=SimpleNamespace(
+            telegram=SimpleNamespace(bot_token="t", chat_id="111"),
+            feishu=SimpleNamespace(app_id="", app_secret=""),
+        ),
+        xueqiu_config=SimpleNamespace(cookie=""),
+        weibo_config=SimpleNamespace(cookie="", username="", password=""),
+    )
+    scheduler._send_daily_report()
+    assert len(fake.daily) == 1 and fake.daily[0][0].kol_name == "A"
+    assert len(db.list_push_logs(channel="telegram")) == 1
+
+
+def test_daily_report_skips_user_without_posts():
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.update_user(uid, daily_report=True)
+    db.add_subscription(uid, kid)
+    fake = FakeDailyNotifier()
+    scheduler = Scheduler(
+        db,
+        {},
+        [],
+        SimpleNamespace(daily_report_hour=20),
+        notifiers_config=SimpleNamespace(
+            telegram=SimpleNamespace(bot_token="t", chat_id="111"),
+            feishu=SimpleNamespace(app_id="", app_secret=""),
+        ),
+        xueqiu_config=SimpleNamespace(cookie=""),
+        weibo_config=SimpleNamespace(cookie="", username="", password=""),
+    )
+    scheduler._send_daily_report()
+    assert fake.daily == []
 
 
 def test_xueqiu_cookie_keepalive():

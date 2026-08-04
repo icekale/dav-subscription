@@ -154,7 +154,7 @@ class WeiboFetcher(Fetcher):
     def fetch(self, kol: dict) -> list[Post]:
         self._apply_cookie()
         uid = kol["external_id"]
-        params = {"uid": uid, "feature": "0"}
+        params = {"uid": uid, "feature": "1" if kol.get("original_only") else "0"}
         resp = self.client.get(TIMELINE_URL, params=params)
         if resp.status_code == 432:
             raise RuntimeError("微博反爬拦截（HTTP 432），请检查 cookie/账号配置或降低抓取频率后重试")

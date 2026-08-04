@@ -53,6 +53,25 @@ def build_telegram_digest(posts: list[Post], kol_name: str, platform: str) -> st
     return "\n".join(lines).rstrip()
 
 
+def build_telegram_daily(posts: list[Post]) -> str:
+    """每日精选：把用户订阅的所有大V今日动态汇总成一条。"""
+    lines = ["<b>📊 今日大V精选</b>", ""]
+    for i, post in enumerate(posts[:DIGEST_MAX_ITEMS], 1):
+        body = (post.content[:100] or post.title or "（无正文）").replace("\n", " ")
+        lines.append(f"{i}. <b>{escape(post.kol_name)}</b>：{escape(body)}")
+        meta_parts = []
+        if post.published_at:
+            meta_parts.append(f"🕐 {escape(post.published_at)}")
+        if post.url:
+            meta_parts.append(f'🔗 <a href="{escape(post.url)}">查看原文</a>')
+        if meta_parts:
+            lines.append(f"　{' · '.join(meta_parts)}")
+        lines.append("")
+    if len(posts) > DIGEST_MAX_ITEMS:
+        lines.append(f"… 还有 {len(posts) - DIGEST_MAX_ITEMS} 条未展示")
+    return "\n".join(lines).rstrip()
+
+
 class TelegramNotifier(Notifier):
     channel = "telegram"
 
@@ -112,5 +131,28 @@ class TelegramNotifier(Notifier):
             data["reply_markup"] = keyboard
         self._send(data)
 
+    def send_daily(self, posts: list[Post]) -> None:
+        self._send(
+            {
+                "text": build_telegram_daily(posts),
+                "parse_mode": "HTML",
+                "disable_web_page_preview": True,
+            }
+        )
+
     def send_text(self, text: str) -> None:
         self._send({"text": text})
+
+    def send_photo(self, photo: bytes, caption: str = "") -> None:
+        if not self.bot_token or not self.chat_id:
+            raise RuntimeError("未配置 telegram bot_token/chat_id")
+        url = f"https://api.telegram.org/bot{self.bot_token}/sendPhoto"
+        resp = self.client.post(
+            url,
+            data={"chat_id": self.chat_id, "caption": caption},
+            files={"photo": ("qr.png", photo, "image/png")},
+        )
+        resp.raise_for_status()
+        result = resp.json()
+        if not result.get("ok"):
+            raise RuntimeError(f"Telegram 返回错误: {result}")

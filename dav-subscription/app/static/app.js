@@ -62,6 +62,7 @@ const NAV = [
     { route: "admin/categories", icon: "▣", label: "分类管理" },
     { route: "admin/posts", icon: "▤", label: "帖子" },
     { route: "admin/logs", icon: "☰", label: "推送记录" },
+    { route: "admin/audit", icon: "◈", label: "操作日志" },
     { route: "admin/users", icon: "◉", label: "用户" },
   ]},
 ];
@@ -568,6 +569,14 @@ async function renderSettings() {
           </select>
         </div>
         <p class="muted">关闭后不会向任何渠道推送新帖，订阅关系保留。</p>
+        <div class="form-row" style="margin-top:16px">
+          <label for="set-daily">每日精选摘要</label>
+          <select id="set-daily" class="form-control" onchange="saveDailyReport()">
+            <option value="1" ${state.user.daily_report_enabled ? "selected" : ""}>开启（每天 20:00 推送一次今日订阅总览）</option>
+            <option value="0" ${!state.user.daily_report_enabled ? "selected" : ""}>关闭</option>
+          </select>
+        </div>
+        <p class="muted">开启后，每天 20:00 把你订阅大V当天的新动态汇总成一条推送。</p>
       </section>
       <section class="section-panel">
         <header class="section-head">
@@ -604,6 +613,17 @@ async function saveNotify() {
     await api("/api/me", {
       method: "PUT",
       body: JSON.stringify({ notify_enabled: $("#set-notify").value === "1" }),
+    });
+  } catch (err) {
+    alert("保存失败: " + err.message);
+  }
+}
+
+async function saveDailyReport() {
+  try {
+    await api("/api/me", {
+      method: "PUT",
+      body: JSON.stringify({ daily_report_enabled: $("#set-daily").value === "1" }),
     });
   } catch (err) {
     alert("保存失败: " + err.message);
@@ -669,6 +689,7 @@ const ADMIN_TABS = [
   ["categories", "分类管理"],
   ["posts", "帖子"],
   ["logs", "推送记录"],
+  ["audit", "操作日志"],
   ["users", "用户"],
 ];
 
@@ -681,7 +702,7 @@ async function renderAdmin(tab) {
         <button class="module-tab ${key === tab ? "active" : ""}" onclick="location.hash='#/admin/${key}'">${label}</button>`).join("")}
     </div>
     <div id="admin-body"></div>`;
-  const loaders = { stats: loadAdminStats, kols: loadAdminKols, requests: loadAdminRequests, codes: loadAdminCodes, categories: loadAdminCategories, posts: loadAdminPosts, logs: loadAdminLogs, users: loadAdminUsers };
+  const loaders = { stats: loadAdminStats, kols: loadAdminKols, requests: loadAdminRequests, codes: loadAdminCodes, categories: loadAdminCategories, posts: loadAdminPosts, logs: loadAdminLogs, audit: loadAdminAudit, users: loadAdminUsers };
   await loaders[tab]();
 }
 
@@ -848,13 +869,14 @@ async function loadAdminKols() {
       <header class="section-head"><div><p class="section-eyebrow">List</p><h3 class="section-title">大V列表</h3></div></header>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>ID</th><th>平台</th><th>昵称</th><th>分类</th><th>外部ID</th><th>优先</th><th>可见性</th><th>状态</th><th>操作</th></tr></thead>
+          <thead><tr><th>ID</th><th>平台</th><th>昵称</th><th>分类</th><th>外部ID</th><th>优先</th><th>原创</th><th>可见性</th><th>状态</th><th>操作</th></tr></thead>
           <tbody>${kols.map((k) => `
             <tr>
               <td>${k.id}</td><td>${PLATFORM_LABELS[k.platform] || k.platform}</td>
               <td>${escapeHtml(k.name)}</td><td>${escapeHtml(k.category_name || "")}</td>
               <td>${escapeHtml(k.external_id)}</td>
               <td>${k.priority ? '<span class="status-ok">是</span>' : "否"}</td>
+              <td>${k.original_only ? '<span class="status-ok">是</span>' : "否"}</td>
               <td>${k.is_private ? '<span class="status-ok">私有</span>' : "公开"}</td>
               <td class="${k.enabled ? "status-ok" : "status-fail"}">${k.enabled ? "启用" : "停用"}</td>
               <td>
@@ -944,6 +966,9 @@ async function adminEditKol(id) {
       <label class="form-label" style="display:flex;align-items:center;gap:8px">
         <input id="ek-private" type="checkbox" ${kol.is_private ? "checked" : ""}> 私有大V（仅白名单用户可见/可订阅）
       </label>
+      <label class="form-label" style="display:flex;align-items:center;gap:8px">
+        <input id="ek-original" type="checkbox" ${kol.original_only ? "checked" : ""}> 只看原创（微博跳过转发，适合转发刷屏的大V）
+      </label>
       <label class="form-label">白名单用户（逗号分隔用户名，仅对私有大V生效）
         <input id="ek-users" class="form-control" value="${escapeHtml((kol.visible_users || []).join(", "))}" placeholder="user1, user2">
       </label>
@@ -967,6 +992,7 @@ async function saveKolEdit(id) {
         name: $("#ek-name").value.trim(),
         category_id: $("#ek-category").value ? Number($("#ek-category").value) : null,
         is_private: $("#ek-private").checked,
+        original_only: $("#ek-original").checked,
         visible_users: $("#ek-users").value.split(",").map((s) => s.trim()).filter(Boolean),
       }),
     });
@@ -1239,6 +1265,28 @@ async function loadAdminLogs() {
               <td>${l.channel}</td>
               <td class="${l.status === "success" ? "status-ok" : "status-fail"}">${l.status}</td>
               <td>${escapeHtml(l.error || "")}</td>
+            </tr>`).join("")}</tbody>
+        </table>
+      </div>
+    </section>`;
+}
+
+async function loadAdminAudit() {
+  const logs = await api("/api/admin/logs?limit=100");
+  $("#admin-body").innerHTML = `
+    <section class="section-panel">
+      <header class="section-head"><div><p class="section-eyebrow">Audit</p><h3 class="section-title">操作日志</h3>
+      <p class="section-meta">管理员关键操作记录（改权限/删用户/增删大V/注册码/cookie）。</p></div></header>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>时间</th><th>管理员</th><th>操作</th><th>目标</th><th>详情</th></tr></thead>
+          <tbody>${logs.length === 0 ? `<tr><td colspan="5" class="muted">暂无记录</td></tr>` : logs.map((l) => `
+            <tr>
+              <td>${escapeHtml(l.created_at)}</td>
+              <td>${escapeHtml(l.username || "")}</td>
+              <td>${escapeHtml(l.action)}</td>
+              <td>${escapeHtml(l.target)}</td>
+              <td class="muted">${escapeHtml(l.detail)}</td>
             </tr>`).join("")}</tbody>
         </table>
       </div>

@@ -26,6 +26,7 @@ polling:
   digest_interval_seconds: 600   # 普通大V合并推送周期；0 = 关闭合并（实时推）
   source_probe_interval_seconds: 600  # 雪球 cookie 主动探测周期；0 = 关闭
   cookie_keepalive_interval_seconds: 21600  # 雪球/微博 cookie 保活周期；0 = 关闭
+  daily_report_hour: 20   # 每日精选推送小时（0-23），用户需在推送设置里开启
 
 web:
   password: ""        # 可选：管理界面 Basic Auth 密码
