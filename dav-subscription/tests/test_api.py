@@ -1,3 +1,4 @@
+import json
 import sqlite3
 import tempfile
 from pathlib import Path
@@ -279,10 +280,8 @@ def test_admin_test_push(monkeypatch):
 def test_weibo_qr_login(monkeypatch):
     class FakeResp:
         def __init__(self, payload):
-            self._payload = payload
-
-        def json(self):
-            return self._payload
+            # 模拟新浪 SSO 的 JSONP 响应
+            self.text = f"window.CB && CB({json.dumps(payload, ensure_ascii=False)});"
 
     class FakeCookies:
         def __init__(self, items):
@@ -298,13 +297,19 @@ def test_weibo_qr_login(monkeypatch):
         def __init__(self, **kwargs):
             self.cookies = FakeCookies({})
             self.headers = {}
+            self._check_calls = 0
 
         def get(self, url, params=None):
-            if "qrcode/image/info" in url:
-                return FakeResp({"data": {"qrid": "Q1", "qrurl": "http://qr.example/q"}})
-            if "qrcode/scan" in url:
-                return FakeResp({"retcode": 20000002, "data": {"url": "http://ticket.example/login"}})
-            if "ticket.example" in url:
+            if "qrcode/image" in url:
+                return FakeResp({"retcode": 20000000, "data": {"qrid": "Q1", "image": "//qr.example/q.png"}})
+            if "qrcode/check" in url:
+                self._check_calls += 1
+                if self._check_calls == 1:
+                    return FakeResp({"retcode": 50114001, "data": None})
+                return FakeResp({"retcode": 20000000, "data": {"alt": "ALT"}})
+            if "login.php" in url:
+                return FakeResp({"crossDomainUrlList": ["http://cross.example/1"]})
+            if "cross.example" in url:
                 self.cookies = FakeCookies({"SUB": "s1", "SUBP": "p1"})
             return FakeResp({})
 
@@ -316,7 +321,10 @@ def test_weibo_qr_login(monkeypatch):
     headers = auth_headers(client)
     start = client.post("/api/admin/weibo-qr/start", headers=headers)
     assert start.status_code == 200
+    assert start.json()["qrurl"] == "https://qr.example/q.png"
     qrid = start.json()["qrid"]
+    pending = client.get(f"/api/admin/weibo-qr/status?qrid={qrid}", headers=headers)
+    assert pending.status_code == 200 and pending.json()["status"] == "pending"
     status = client.get(f"/api/admin/weibo-qr/status?qrid={qrid}", headers=headers)
     assert status.status_code == 200 and status.json()["status"] == "ok"
     assert client.app.state.db.get_setting("weibo_cookie") == "SUB=s1; SUBP=p1"

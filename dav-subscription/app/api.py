@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 import secrets
 import time
+import json
 
 import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
@@ -14,6 +15,14 @@ from . import wechat
 from .bot_core import BIND_CODE_TTL
 from .db import ALLOWED_PLATFORMS, DB
 from .fetchers.weibo import WEIBO_COOKIE_KEY
+
+
+def _parse_sina_jsonp(text: str) -> dict:
+    """解析新浪 SSO 的 JSONP 响应，如 window.CB && CB({...});。"""
+    body = text.strip()
+    start = body.index("(")
+    end = body.rindex(")")
+    return json.loads(body[start + 1 : end])
 
 
 class RegisterIn(BaseModel):
@@ -109,7 +118,7 @@ def create_api_router(
     login_attempts: dict[str, list[float]] = {}
     LOGIN_MAX_FAILURES = 8
     LOGIN_WINDOW = 300
-    # 微博扫码登录会话：qrid -> {gen_time, client, created_at}
+    # 微博扫码登录会话：qrid -> {client, created_at}
     weibo_qr_sessions: dict[str, dict] = {}
 
     def _check_login_limit(ip: str) -> None:
@@ -547,24 +556,27 @@ def create_api_router(
             timeout=15,
             follow_redirects=True,
             headers={
-                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) "
-                "AppleWebKit/605.1.15 Mobile/15E148",
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
                 "Referer": "https://weibo.com/",
             },
         )
-        gen_time = str(int(now * 1000))
-        resp = client.get(
-            f"https://login.sina.com.cn/sso/qrcode/image/info/{gen_time}",
-            params={"entry": "weibo"},
-        )
-        data = (resp.json() or {}).get("data") or {}
+        try:
+            resp = client.get(
+                "https://login.sina.com.cn/sso/qrcode/image",
+                params={"entry": "weibo", "size": "180", "callback": str(int(now * 1000))},
+            )
+            data = (_parse_sina_jsonp(resp.text) or {}).get("data") or {}
+        except Exception:  # noqa: BLE001
+            client.close()
+            raise HTTPException(status_code=400, detail="获取微博二维码失败，请稍后重试")
         qrid = data.get("qrid")
-        qrurl = data.get("qrurl")
+        image = data.get("image")
+        qrurl = f"https:{image}" if image else ""
         if not qrid:
             client.close()
             raise HTTPException(status_code=400, detail="获取微博二维码失败，请稍后重试")
         weibo_qr_sessions[qrid] = {
-            "gen_time": gen_time,
             "client": client,
             "created_at": now,
         }
@@ -577,21 +589,51 @@ def create_api_router(
         if session is None:
             raise HTTPException(status_code=404, detail="二维码已过期，请重新生成")
         client = session["client"]
-        resp = client.get(
-            f"https://login.sina.com.cn/sso/qrcode/scan/{session['gen_time']}",
-            params={"entry": "weibo", "qrid": qrid},
-        )
-        data = resp.json()
+        try:
+            resp = client.get(
+                "https://login.sina.com.cn/sso/qrcode/check",
+                params={
+                    "entry": "weibo",
+                    "qrid": qrid,
+                    "callback": f"STK_{int(time.time() * 10000)}",
+                },
+            )
+            data = _parse_sina_jsonp(resp.text)
+        except Exception:  # noqa: BLE001
+            raise HTTPException(status_code=400, detail="微博登录状态获取失败，请重试") from None
         code = data.get("retcode")
-        if code == 20000000:
+        if code == 50114001:
             return {"status": "pending"}
-        if code == 20000001:
+        if code == 50114002:
             return {"status": "scanned"}
-        if code == 20000002:
-            url = (data.get("data") or {}).get("url") or ""
-            if not url:
-                raise HTTPException(status_code=400, detail="微博登录确认失败")
-            client.get(url)
+        if code == 50114004:
+            raise HTTPException(status_code=400, detail="二维码已失效，请重新生成")
+        if code == 20000000:
+            alt = (data.get("data") or {}).get("alt") or ""
+            if not alt:
+                raise HTTPException(status_code=400, detail="微博登录确认失败，请重试")
+            try:
+                login_resp = client.get(
+                    "https://login.sina.com.cn/sso/login.php",
+                    params={
+                        "entry": "weibo",
+                        "returntype": "TEXT",
+                        "crossdomain": "1",
+                        "cdult": "3",
+                        "domain": "weibo.com",
+                        "alt": alt,
+                        "savestate": "30",
+                        "callback": f"STK_{int(time.time() * 1000)}",
+                    },
+                )
+                login_data = _parse_sina_jsonp(login_resp.text)
+                cross_domains = list(login_data.get("crossDomainUrlList", []))
+                if cross_domains:
+                    cross_domains[0] = f"{cross_domains[0]}&action=login"
+                for url in cross_domains:
+                    client.get(url)
+            except Exception:  # noqa: BLE001
+                raise HTTPException(status_code=400, detail="微博登录确认失败，请重新扫码") from None
             if not client.cookies.get("SUB"):
                 raise HTTPException(status_code=400, detail="登录后未获取到微博会话，请重试")
             cookie = "; ".join(f"{k}={v}" for k, v in client.cookies.items())
