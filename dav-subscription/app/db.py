@@ -90,6 +90,13 @@ CREATE TABLE IF NOT EXISTS bind_codes (
     expires_at INTEGER NOT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE TABLE IF NOT EXISTS register_codes (
+    code TEXT PRIMARY KEY,
+    note TEXT NOT NULL DEFAULT '',
+    used_by INTEGER,
+    used_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 """
 
 ALLOWED_PLATFORMS = {"xueqiu", "weibo", "twitter"}
@@ -398,6 +405,52 @@ class DB:
 
     def list_users(self) -> list[dict]:
         return self._rows("SELECT * FROM users ORDER BY id")
+
+    # ---- 注册码 ----
+    def add_register_code(self, code: str, note: str = "") -> None:
+        try:
+            self._execute(
+                "INSERT INTO register_codes (code, note) VALUES (?, ?)",
+                (code.strip().upper(), note.strip()),
+            )
+        except sqlite3.IntegrityError:
+            raise ValueError(f"注册码已存在: {code}") from None
+
+    def list_register_codes(self) -> list[dict]:
+        return self._rows(
+            "SELECT rc.*, u.username AS used_by_name FROM register_codes rc "
+            "LEFT JOIN users u ON u.id = rc.used_by ORDER BY rc.created_at DESC"
+        )
+
+    def register_with_code(self, code: str, username: str, password_hash: str) -> int:
+        """凭注册码注册：原子消费注册码 + 创建用户，任一失败整体回滚。"""
+        with self._lock:
+            try:
+                self._conn.execute("BEGIN")
+                cur = self._conn.execute(
+                    "UPDATE register_codes SET used_at = datetime('now') "
+                    "WHERE code = ? AND used_by IS NULL",
+                    (code.strip().upper(),),
+                )
+                if cur.rowcount == 0:
+                    raise ValueError("注册码无效或已被使用")
+                try:
+                    insert = self._conn.execute(
+                        "INSERT INTO users (username, password_hash, is_admin) VALUES (?, ?, 0)",
+                        (username, password_hash),
+                    )
+                except sqlite3.IntegrityError:
+                    raise ValueError(f"用户名已存在: {username}") from None
+                uid = insert.lastrowid
+                self._conn.execute(
+                    "UPDATE register_codes SET used_by = ? WHERE code = ?",
+                    (uid, code.strip().upper()),
+                )
+                self._conn.commit()
+                return uid
+            except Exception:
+                self._conn.rollback()
+                raise
 
     # ---- Subscription ----
     def add_subscription(self, user_id: int, kol_id: int) -> bool:

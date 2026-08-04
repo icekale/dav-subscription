@@ -34,6 +34,7 @@ def _normalize_weibo_id(external_id: str) -> str:
 class RegisterIn(BaseModel):
     username: str
     password: str
+    code: str = ""
 
 
 class LoginIn(BaseModel):
@@ -90,6 +91,11 @@ class KolRequestIn(BaseModel):
     platform: str
     external_id: str
     name: str = ""
+
+
+class RegisterCodeGenIn(BaseModel):
+    count: int = 5
+    note: str = ""
 
 
 class SubscriptionIn(BaseModel):
@@ -173,9 +179,11 @@ def create_api_router(
             raise HTTPException(status_code=400, detail="用户名至少2位，密码至少6位")
         if len(username) > 30:
             raise HTTPException(status_code=400, detail="用户名最长30位")
+        if not body.code.strip():
+            raise HTTPException(status_code=400, detail="注册需要邀请码，请向管理员索取")
         try:
             # 管理员只能在网页后台指定，注册用户一律为普通用户
-            uid = db.add_user(username, auth.hash_password(body.password))
+            uid = db.register_with_code(body.code, username, auth.hash_password(body.password))
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from None
         user = db.get_user(uid)
@@ -373,6 +381,26 @@ def create_api_router(
             raise HTTPException(status_code=404, detail="申请不存在或已处理")
         db.set_kol_request_status(request_id, "rejected")
         return {"ok": True}
+
+    @router.post("/admin/register-codes", dependencies=[Depends(require_admin)])
+    def generate_register_codes(body: RegisterCodeGenIn):
+        """批量生成一次性注册码。"""
+        count = max(1, min(body.count, 100))
+        alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+        existing = {r["code"] for r in db.list_register_codes()}
+        codes = []
+        while len(codes) < count:
+            code = "".join(secrets.choice(alphabet) for _ in range(8))
+            if code in existing:
+                continue
+            existing.add(code)
+            db.add_register_code(code, note=body.note)
+            codes.append(code)
+        return {"codes": codes, "count": len(codes)}
+
+    @router.get("/admin/register-codes", dependencies=[Depends(require_admin)])
+    def list_register_codes():
+        return db.list_register_codes()
 
     # ---- 管理（管理员）----
     @router.get("/kols", dependencies=[Depends(require_admin)])

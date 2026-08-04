@@ -63,11 +63,11 @@ function loginWithWechat() {
   });
 }
 
-function accountLogin(username, password, register) {
+function accountLogin(username, password, register, code) {
   const path = register ? "/api/auth/register" : "/api/auth/login";
   return request(path, {
     method: "POST",
-    data: { username, password },
+    data: register ? { username, password, code } : { username, password },
   }).then((data) => {
     wx.setStorageSync("dav_token", data.token);
     wx.setStorageSync("dav_user", data.user);

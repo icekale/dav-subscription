@@ -52,6 +52,7 @@ const NAV = [
   { group: "管理", admin: true, items: [
     { route: "admin/kols", icon: "◇", label: "大V管理" },
     { route: "admin/requests", icon: "✚", label: "求添加" },
+    { route: "admin/codes", icon: "✉", label: "注册码" },
     { route: "admin/categories", icon: "▣", label: "分类管理" },
     { route: "admin/posts", icon: "▤", label: "帖子" },
     { route: "admin/logs", icon: "☰", label: "推送记录" },
@@ -505,6 +506,7 @@ const ADMIN_TABS = [
   ["stats", "状态"],
   ["kols", "大V管理"],
   ["requests", "求添加"],
+  ["codes", "注册码"],
   ["categories", "分类管理"],
   ["posts", "帖子"],
   ["logs", "推送记录"],
@@ -520,7 +522,7 @@ async function renderAdmin(tab) {
         <button class="module-tab ${key === tab ? "active" : ""}" onclick="location.hash='#/admin/${key}'">${label}</button>`).join("")}
     </div>
     <div id="admin-body"></div>`;
-  const loaders = { stats: loadAdminStats, kols: loadAdminKols, requests: loadAdminRequests, categories: loadAdminCategories, posts: loadAdminPosts, logs: loadAdminLogs, users: loadAdminUsers };
+  const loaders = { stats: loadAdminStats, kols: loadAdminKols, requests: loadAdminRequests, codes: loadAdminCodes, categories: loadAdminCategories, posts: loadAdminPosts, logs: loadAdminLogs, users: loadAdminUsers };
   await loaders[tab]();
 }
 
@@ -827,6 +829,61 @@ async function adminRejectRequest(id) {
   if (!confirm("确认拒绝该申请？")) return;
   await api(`/api/admin/kol-requests/${id}/reject`, { method: "POST" });
   loadAdminRequests();
+}
+
+async function loadAdminCodes() {
+  const codes = await api("/api/admin/register-codes");
+  const used = codes.filter((c) => c.used_by).length;
+  $("#admin-body").innerHTML = `
+    <section class="section-panel">
+      <header class="section-head">
+        <div><p class="section-eyebrow">Invite Codes</p><h3 class="section-title">生成注册邀请码</h3>
+        <p class="section-meta">一次性注册码，用户注册后自动作废；共 ${codes.length} 个，已用 ${used} 个。</p></div>
+      </header>
+      <div class="toolbar" style="margin-top:12px">
+        <select id="rc-note" class="form-control" style="margin:0;width:auto">
+          <option value="">无备注</option>
+          <option value="内部">内部</option>
+          <option value="朋友">朋友</option>
+        </select>
+        <input id="rc-count" class="form-control" style="margin:0;width:80px" type="number" min="1" max="100" value="5">
+        <button class="btn-normal" onclick="adminGenerateCodes()">生成</button>
+        <span id="rc-result" class="muted"></span>
+      </div>
+    </section>
+    <section class="section-panel">
+      <header class="section-head"><div><p class="section-eyebrow">List</p><h3 class="section-title">注册码列表</h3></div></header>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>邀请码</th><th>备注</th><th>状态</th><th>使用者</th><th>生成时间</th><th>使用时间</th></tr></thead>
+          <tbody>${codes.length === 0 ? `<tr><td colspan="6" class="muted">暂无注册码</td></tr>` : codes.map((c) => `
+            <tr>
+              <td><code>${escapeHtml(c.code)}</code></td>
+              <td>${escapeHtml(c.note || "")}</td>
+              <td class="${c.used_by ? "status-fail" : "status-ok"}">${c.used_by ? "已使用" : "可用"}</td>
+              <td>${escapeHtml(c.used_by_name || "")}</td>
+              <td>${escapeHtml(c.created_at)}</td>
+              <td>${escapeHtml(c.used_at || "")}</td>
+            </tr>`).join("")}</tbody>
+        </table>
+      </div>
+    </section>`;
+}
+
+async function adminGenerateCodes() {
+  try {
+    const data = await api("/api/admin/register-codes", {
+      method: "POST",
+      body: JSON.stringify({
+        count: Number($("#rc-count").value) || 5,
+        note: $("#rc-note").value,
+      }),
+    });
+    $("#rc-result").textContent = `已生成 ${data.count} 个：${data.codes.join("  ")}`;
+    loadAdminCodes();
+  } catch (err) {
+    alert("生成失败: " + err.message);
+  }
 }
 
 async function loadAdminCategories() {
@@ -1170,7 +1227,11 @@ async function doRegister(e) {
   try {
     const data = await api("/api/auth/register", {
       method: "POST",
-      body: JSON.stringify({ username: $("#reg-username").value.trim(), password: $("#reg-password").value }),
+      body: JSON.stringify({
+        username: $("#reg-username").value.trim(),
+        password: $("#reg-password").value,
+        code: $("#reg-code").value.trim(),
+      }),
     });
     state.token = data.token;
     localStorage.setItem("dav_token", data.token);

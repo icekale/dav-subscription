@@ -9,6 +9,8 @@ from app.config import Config, WeChatConfig
 from app.db import DB
 from app.main import create_app
 
+_reg_code_seq = 0
+
 
 def make_client(name="test.db", config=None):
     tmp = tempfile.mkdtemp()
@@ -16,10 +18,15 @@ def make_client(name="test.db", config=None):
     return TestClient(app)
 
 
-def register(client, username="admin", password="secret123", expect=200):
+def register(client, username="admin", password="secret123", expect=200, code=None):
+    global _reg_code_seq
+    if code is None:
+        _reg_code_seq += 1
+        code = f"TEST{_reg_code_seq:04d}"
+        client.app.state.db.add_register_code(code)
     resp = client.post(
         "/api/auth/register",
-        json={"username": username, "password": password},
+        json={"username": username, "password": password, "code": code},
     )
     assert resp.status_code == expect, resp.text
     return resp
@@ -503,6 +510,54 @@ def test_kol_visibility_acl():
     client.put(f"/api/kols/{private_id}", headers=admin_headers, json={"is_private": False})
     assert private_id in {k["id"] for k in client.get("/api/catalog", headers=user1_headers).json()}
     assert private_id in {k["id"] for k in client.get("/api/catalog", headers=user2_headers).json()}
+
+
+def test_register_requires_invite_code():
+    client = make_client()
+    admin_headers = auth_headers(client)
+
+    # 不带注册码
+    resp = client.post(
+        "/api/auth/register",
+        json={"username": "nocode", "password": "secret123"},
+    )
+    assert resp.status_code == 400 and "邀请码" in resp.json()["detail"]
+
+    # 无效注册码
+    resp = client.post(
+        "/api/auth/register",
+        json={"username": "badcode", "password": "secret123", "code": "NOPE1234"},
+    )
+    assert resp.status_code == 400 and "无效或已被使用" in resp.json()["detail"]
+
+    # 管理员生成 3 个注册码
+    resp = client.post(
+        "/api/admin/register-codes",
+        headers=admin_headers,
+        json={"count": 3, "note": "测试"},
+    )
+    assert resp.status_code == 200
+    codes = resp.json()["codes"]
+    assert len(codes) == 3 and len(set(codes)) == 3
+
+    codes_list = client.get("/api/admin/register-codes", headers=admin_headers).json()
+    assert all(c["code"] in codes or c["note"] == "测试" for c in codes_list if c["note"] == "测试")
+
+    # 用生成码注册成功，且码被消费
+    resp = client.post(
+        "/api/auth/register",
+        json={"username": "invited", "password": "secret123", "code": codes[0]},
+    )
+    assert resp.status_code == 200
+    row = [c for c in client.get("/api/admin/register-codes", headers=admin_headers).json() if c["code"] == codes[0]][0]
+    assert row["used_by"] and row["used_by_name"] == "invited"
+
+    # 同一注册码不能再用
+    resp = client.post(
+        "/api/auth/register",
+        json={"username": "invited2", "password": "secret123", "code": codes[0]},
+    )
+    assert resp.status_code == 400 and "无效或已被使用" in resp.json()["detail"]
 
 
 def test_posts_search_and_push_log_filters():

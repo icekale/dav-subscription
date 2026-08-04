@@ -22,6 +22,10 @@
       <view class="form-label">密码</view>
       <input class="input" password placeholder="输入密码" value="{{password}}" bindinput="onPassword" />
     </view>
+    <view wx:if="{{isRegister}}" class="form-item">
+      <view class="form-label">邀请码</view>
+      <input class="input" placeholder="向管理员索取注册邀请码" value="{{code}}" bindinput="onCode" />
+    </view>
     <view class="error-text">{{error}}</view>
     <button class="btn btn-primary btn-block" bindtap="submitAccount">{{isRegister ? '创建账号' : '登 录'}}</button>
   </view>

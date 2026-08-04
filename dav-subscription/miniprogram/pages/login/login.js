@@ -8,6 +8,7 @@ Page({
     isRegister: false,
     username: "",
     password: "",
+    code: "",
     error: "",
   },
 
@@ -36,6 +37,7 @@ Page({
 
   onUsername(e) { this.setData({ username: e.detail.value }); },
   onPassword(e) { this.setData({ password: e.detail.value }); },
+  onCode(e) { this.setData({ code: e.detail.value }); },
 
   async submitAccount() {
     const { username, password, isRegister } = this.data;
@@ -45,7 +47,12 @@ Page({
     }
     this.setData({ error: "" });
     try {
-      await accountLogin(username.trim(), password, isRegister);
+      const code = isRegister ? this.data.code.trim() : "";
+      if (isRegister && !code) {
+        this.setData({ error: "请填写邀请码" });
+        return;
+      }
+      await accountLogin(username.trim(), password, isRegister, code);
       wx.reLaunch({ url: "/pages/index/index" });
     } catch (err) {
       this.setData({ error: err.message });
