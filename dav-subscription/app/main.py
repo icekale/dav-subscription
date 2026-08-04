@@ -83,6 +83,7 @@ def create_app(config=None, db_path: str | Path | None = None) -> FastAPI:
             secret,
             allow_register=config.web.allow_register,
             wechat_config=config.wechat,
+            notifiers_config=config.notifiers,
         )
     )
     app.mount("/", StaticFiles(directory=Path(__file__).parent / "static", html=True), name="static")

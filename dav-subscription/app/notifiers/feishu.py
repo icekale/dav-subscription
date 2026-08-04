@@ -108,6 +108,23 @@ class FeishuNotifier(Notifier):
         self._post(build_feishu_card(post))
 
     def send_text(self, text: str) -> None:
+        if self.open_id or self.chat_id:
+            token = self._tenant_access_token()
+            receive_id_type = "open_id" if self.open_id else "chat_id"
+            receive_id = self.open_id or self.chat_id
+            resp = self.client.post(
+                f"https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type={receive_id_type}",
+                headers={"Authorization": f"Bearer {token}"},
+                json={
+                    "receive_id": receive_id,
+                    "msg_type": "text",
+                    "content": json.dumps({"text": text}, ensure_ascii=False),
+                },
+            )
+            data = resp.json()
+            if data.get("code") != 0:
+                raise RuntimeError(f"飞书发送失败: {data.get('msg', data)}")
+            return
         if not self.webhook_url:
             raise RuntimeError("未配置飞书 webhook_url")
         payload = {

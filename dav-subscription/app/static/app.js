@@ -744,16 +744,40 @@ async function loadAdminUsers() {
               <td>${escapeHtml(u.created_at)}</td>
               <td>
                 ${u.id === state.user.id
-                  ? '<span class="muted">本人</span>'
+                  ? `<span class="muted">本人</span>
+                     <button class="btn-sm" onclick="adminTestPush(${u.id})">测试推送</button>`
                   : `<button class="btn-sm" onclick="adminRenameUser(${u.id})">改用户名</button>
                      <button class="btn-sm" onclick="adminToggleAdmin(${u.id}, ${!u.is_admin})">${u.is_admin ? "取消管理员" : "设为管理员"}</button>
                      <button class="btn-sm" onclick="adminResetPassword(${u.id})">重置密码</button>
-                     <button class="btn-sm danger" onclick="adminDeleteUser(${u.id})">删除</button>`}
+                     <button class="btn-sm danger" onclick="adminDeleteUser(${u.id})">删除</button>
+                     <button class="btn-sm" onclick="adminTestPush(${u.id})">测试推送</button>`}
               </td>
             </tr>`).join("")}</tbody>
         </table>
       </div>
     </section>`;
+}
+
+async function adminTestPush(userId) {
+  const user = (state.adminUsers || []).find((u) => u.id === userId);
+  const msg = prompt(
+    `给「${user ? user.username : userId}」发一条测试推送：`,
+    "这是一条测试推送 ✅"
+  );
+  if (msg === null) return;
+  try {
+    const data = await api("/api/admin/test-push", {
+      method: "POST",
+      body: JSON.stringify({ user_id: userId, message: msg }),
+    });
+    const lines = data.results.map((r) => {
+      const label = r.channel === "telegram" ? "Telegram" : "飞书";
+      return `${label}：${r.ok ? "✅ 成功" : "❌ 失败：" + r.error}`;
+    });
+    alert(lines.join("\n"));
+  } catch (err) {
+    alert("测试失败: " + err.message);
+  }
 }
 
 async function adminRenameUser(userId) {

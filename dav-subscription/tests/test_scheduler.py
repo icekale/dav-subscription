@@ -263,6 +263,50 @@ def test_global_tg_chat_not_pushed_twice(monkeypatch):
     assert len(logs) == 1 and logs[0]["status"] == "success"
 
 
+def test_push_failure_alert_throttled(monkeypatch):
+    class FailingTelegram:
+        def __init__(self, config, chat_id=None, client=None):
+            pass
+
+        def notify(self, post):
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FailingTelegram)
+
+    alerts = []
+
+    class GlobalNotifier:
+        channel = "telegram"
+
+        def notify(self, post):
+            pass
+
+        def send_text(self, text):
+            alerts.append(text)
+
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    uid = db.add_user("u1", "hash", telegram_chat_id="123")
+    db.add_subscription(uid, kid)
+    ncfg = NotifiersConfig(telegram=TelegramConfig(bot_token="t"))
+
+    post1 = make_post(kid)
+    post2 = Post(
+        platform="xueqiu",
+        kol_id=kid,
+        kol_name="A",
+        external_id="p2",
+        title="t2",
+        content="c2",
+        url="u2",
+        published_at="",
+    )
+    global_notifier = GlobalNotifier()
+    poll_once(db, {"xueqiu": FakeFetcher([post1])}, [global_notifier], notifiers_config=ncfg)
+    poll_once(db, {"xueqiu": FakeFetcher([post2])}, [global_notifier], notifiers_config=ncfg)
+    assert len(alerts) == 1  # 每小时最多告警一次
+
+
 def test_no_channel_no_user_push(monkeypatch):
     def fail(*args, **kwargs):
         raise AssertionError("未绑定渠道不应调用通知器")

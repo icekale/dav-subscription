@@ -14,6 +14,8 @@ logger = logging.getLogger(__name__)
 
 WEIBO_WARNING_KEY = "weibo_warning_date"
 XUEQIU_WARNING_KEY = "xueqiu_warning_date"
+PUSH_ALERT_KEY = "push_alert_last_at"
+PUSH_ALERT_INTERVAL = 3600
 
 
 class PlatformState:
@@ -53,6 +55,21 @@ def maybe_warn_xueqiu_cookie(db: DB, notifiers: list[Notifier], detail: str) -> 
             logger.warning("雪球告警发送失败 channel=%s err=%s", notifier.channel, exc)
 
 
+def maybe_alert_push_failure(db: DB, notifiers: list[Notifier], detail: str) -> None:
+    """用户推送失败时向管理员告警，每小时最多一次避免刷屏。"""
+    now = int(time.time())
+    last = db.get_setting(PUSH_ALERT_KEY)
+    if last and now - int(last) < PUSH_ALERT_INTERVAL:
+        return
+    db.set_setting(PUSH_ALERT_KEY, str(now))
+    message = f"⚠️ 用户推送失败（每小时最多提醒一次）：{detail[:200]}"
+    for notifier in notifiers:
+        try:
+            notifier.send_text(message)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("推送告警发送失败 channel=%s err=%s", notifier.channel, exc)
+
+
 def notify_post(db: DB, post_id: int, post: Post, notifiers: list[Notifier]) -> None:
     """向所有通知器推送，失败记录日志并重试一次。"""
     for notifier in notifiers:
@@ -70,7 +87,7 @@ def notify_post(db: DB, post_id: int, post: Post, notifiers: list[Notifier]) -> 
                 db.add_push_log(post_id, notifier.channel, "failed", str(exc2))
 
 
-def notify_subscribers(db: DB, post_id: int, post: Post, notifiers_config) -> None:
+def notify_subscribers(db: DB, post_id: int, post: Post, notifiers_config, notifiers=None) -> None:
     """把新帖推送给订阅了该大V的用户（各自绑定的渠道）。"""
     if notifiers_config is None:
         return
@@ -99,6 +116,9 @@ def notify_subscribers(db: DB, post_id: int, post: Post, notifiers_config) -> No
                 except Exception as exc:  # noqa: BLE001
                     db.add_push_log(post_id, "telegram", "failed", str(exc), user_id=user["id"])
                     logger.warning("用户推送失败 user=%s channel=telegram err=%s", user["username"], exc)
+                    maybe_alert_push_failure(
+                        db, notifiers or [], f"user={user['username']} channel=telegram err={exc}"
+                    )
             if user["feishu_open_id"]:
                 # 优先用 p2p 会话 chat_id 发送（open_id 直发可能被飞书 230101 拦截）
                 notifier = FeishuNotifier(
@@ -113,6 +133,9 @@ def notify_subscribers(db: DB, post_id: int, post: Post, notifiers_config) -> No
                 except Exception as exc:  # noqa: BLE001
                     db.add_push_log(post_id, "feishu", "failed", str(exc), user_id=user["id"])
                     logger.warning("用户推送失败 user=%s channel=feishu err=%s", user["username"], exc)
+                    maybe_alert_push_failure(
+                        db, notifiers or [], f"user={user['username']} channel=feishu err={exc}"
+                    )
     finally:
         client.close()
 
@@ -179,7 +202,7 @@ def poll_once(
                 continue
             logger.info("新帖 platform=%s kol=%s id=%s", post.platform, post.kol_name, post.external_id)
             notify_post(db, post_id, post, notifiers)
-            notify_subscribers(db, post_id, post, notifiers_config)
+            notify_subscribers(db, post_id, post, notifiers_config, notifiers)
 
 
 class Scheduler:

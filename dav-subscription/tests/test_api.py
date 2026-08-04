@@ -9,9 +9,9 @@ from app.db import DB
 from app.main import create_app
 
 
-def make_client(name="test.db"):
+def make_client(name="test.db", config=None):
     tmp = tempfile.mkdtemp()
-    app = create_app(db_path=Path(tmp) / name)
+    app = create_app(config=config, db_path=Path(tmp) / name)
     return TestClient(app)
 
 
@@ -225,6 +225,55 @@ def test_admin_rename_username():
     assert client.put(f"/api/users/{uid}", headers=admin_headers, json={"username": "renamed"}).status_code == 200
     assert client.post("/api/auth/login", json={"username": "victim", "password": "pass123456"}).status_code == 401
     assert client.post("/api/auth/login", json={"username": "renamed", "password": "pass123456"}).status_code == 200
+
+
+def test_admin_test_push(monkeypatch):
+    sent = []
+
+    class FakeTelegram:
+        def __init__(self, config, chat_id=None, client=None):
+            self.chat_id = chat_id
+            self.client = type("C", (), {"close": lambda self: None})()
+
+        def send_text(self, text):
+            sent.append(("tg", self.chat_id, text))
+
+    class FakeFeishu:
+        def __init__(self, config, open_id=None, chat_id=None, client=None):
+            self.client = type("C", (), {"close": lambda self: None})()
+
+        def send_text(self, text):
+            sent.append(("fs", text))
+
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FakeTelegram)
+    monkeypatch.setattr("app.notifiers.feishu.FeishuNotifier", FakeFeishu)
+
+    cfg = Config()
+    cfg.notifiers.telegram.bot_token = "t"
+    cfg.notifiers.feishu.app_id = "a"
+    cfg.notifiers.feishu.app_secret = "s"
+    client = make_client(config=cfg)
+    admin_headers = auth_headers(client, "boss")
+    reg = register(client, "victim")
+    uid = reg.json()["user"]["id"]
+    victim_headers = {"Authorization": f"Bearer {reg.json()['token']}"}
+    client.put(
+        "/api/me",
+        headers=victim_headers,
+        json={"telegram_chat_id": "111", "feishu_open_id": "ou_1", "feishu_chat_id": "oc_1"},
+    )
+
+    resp = client.post(
+        "/api/admin/test-push",
+        headers=admin_headers,
+        json={"user_id": uid, "message": "hi"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["results"] == [
+        {"channel": "telegram", "ok": True},
+        {"channel": "feishu", "ok": True},
+    ]
+    assert sent == [("tg", "111", "【测试推送】hi"), ("fs", "【测试推送】hi")]
 
 
 def test_posts_and_push_logs_api():

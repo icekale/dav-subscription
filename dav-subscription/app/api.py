@@ -70,6 +70,11 @@ class UserUpdate(BaseModel):
     username: str | None = None
 
 
+class TestPushIn(BaseModel):
+    user_id: int
+    message: str = "这是一条测试推送 ✅"
+
+
 def public_user(user: dict) -> dict:
     return {
         "id": user["id"],
@@ -83,7 +88,13 @@ def public_user(user: dict) -> dict:
     }
 
 
-def create_api_router(db: DB, secret: str, allow_register: bool = True, wechat_config=None) -> APIRouter:
+def create_api_router(
+    db: DB,
+    secret: str,
+    allow_register: bool = True,
+    wechat_config=None,
+    notifiers_config=None,
+) -> APIRouter:
     router = APIRouter(prefix="/api")
     # 登录/注册限流（内存版，单实例够用）：每 IP 窗口内失败次数超限后 429
     login_attempts: dict[str, list[float]] = {}
@@ -418,5 +429,45 @@ def create_api_router(db: DB, secret: str, allow_register: bool = True, wechat_c
             raise HTTPException(status_code=404, detail="用户不存在")
         db.delete_user(user_id)
         return {"ok": True}
+
+    @router.post("/admin/test-push", dependencies=[Depends(require_admin)])
+    def test_push(body: TestPushIn):
+        user = db.get_user(body.user_id)
+        if user is None:
+            raise HTTPException(status_code=404, detail="用户不存在")
+        if notifiers_config is None:
+            raise HTTPException(status_code=400, detail="未配置推送渠道")
+        from .notifiers.feishu import FeishuNotifier
+        from .notifiers.telegram import TelegramNotifier
+
+        results = []
+        if user["telegram_chat_id"] and notifiers_config.telegram.bot_token:
+            notifier = TelegramNotifier(
+                notifiers_config.telegram,
+                chat_id=user["telegram_chat_id"],
+            )
+            try:
+                notifier.send_text(f"【测试推送】{body.message}")
+                results.append({"channel": "telegram", "ok": True})
+            except Exception as exc:  # noqa: BLE001
+                results.append({"channel": "telegram", "ok": False, "error": str(exc)})
+            finally:
+                notifier.client.close()
+        if user["feishu_open_id"]:
+            notifier = FeishuNotifier(
+                notifiers_config.feishu,
+                open_id=user["feishu_open_id"] if not user.get("feishu_chat_id") else None,
+                chat_id=user.get("feishu_chat_id") or None,
+            )
+            try:
+                notifier.send_text(f"【测试推送】{body.message}")
+                results.append({"channel": "feishu", "ok": True})
+            except Exception as exc:  # noqa: BLE001
+                results.append({"channel": "feishu", "ok": False, "error": str(exc)})
+            finally:
+                notifier.client.close()
+        if not results:
+            raise HTTPException(status_code=400, detail="该用户未绑定任何推送渠道")
+        return {"results": results}
 
     return router
