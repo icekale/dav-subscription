@@ -5,6 +5,7 @@ import re
 import secrets
 import time
 import json
+import os
 
 import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
@@ -14,7 +15,11 @@ from . import auth
 from . import wechat
 from .bot_core import BIND_CODE_TTL
 from .db import ALLOWED_PLATFORMS, DB
-from .fetchers.xueqiu import XUEQIU_COOKIE_KEY, XUEQIU_COOKIE_TIME_KEY
+from .fetchers.xueqiu import (
+    XUEQIU_COOKIE_KEY,
+    XUEQIU_COOKIE_TIME_KEY,
+    resolve_screen_name,
+)
 from .fetchers.weibo import WEIBO_COOKIE_KEY, cookie_header
 
 
@@ -560,6 +565,12 @@ def create_api_router(
                 results.append({"ok": False, "line": line[:80], "error": "未识别到链接或ID"})
                 continue
             name = nickname or f"{body.platform}_{external_id}"
+            if not nickname and body.platform == "xueqiu" and external_id.isdigit():
+                # 没填昵称时自动查雪球昵称（失败则退回 xueqiu_uid）
+                cookie = db.get_setting(XUEQIU_COOKIE_KEY) or os.environ.get("XUEQIU_COOKIE", "")
+                resolved = resolve_screen_name(external_id, cookie)
+                if resolved:
+                    name = resolved
             try:
                 kid = db.add_kol(
                     body.platform,

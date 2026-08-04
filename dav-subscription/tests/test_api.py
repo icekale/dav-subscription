@@ -375,6 +375,32 @@ def test_batch_import_kols():
     assert any(k["external_id"] == "8790885129" for k in kols)
 
 
+def test_batch_import_auto_fills_xueqiu_nickname(monkeypatch):
+    client = make_client()
+    headers = auth_headers(client)
+    monkeypatch.setattr(
+        "app.api.resolve_screen_name",
+        lambda uid, cookie="": "自动昵称" if uid == "55555" else None,
+    )
+    resp = client.post(
+        "/api/kols/batch",
+        headers=headers,
+        json={
+            "platform": "xueqiu",
+            "lines": (
+                "https://xueqiu.com/u/55555\n"
+                "https://xueqiu.com/u/66666\n"
+                "段永平 77777"
+            ),
+        },
+    )
+    assert resp.status_code == 200 and resp.json()["ok"] == 3
+    names = {k["external_id"]: k["name"] for k in client.get("/api/kols", headers=headers).json()}
+    assert names["55555"] == "自动昵称"
+    assert names["66666"] == "xueqiu_66666"  # 解析失败退回兜底名
+    assert names["77777"] == "段永平"  # 已填昵称不覆盖
+
+
 def test_weibo_kol_link_normalized():
     client = make_client()
     headers = auth_headers(client)

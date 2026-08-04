@@ -20,6 +20,40 @@ def _is_waf_html(resp: httpx.Response) -> bool:
     )
 
 
+def resolve_screen_name(external_id: str, cookie: str = "") -> str | None:
+    """查询雪球用户昵称（取最新一条动态里的 user.screen_name），失败返回 None。"""
+    import httpx
+
+    client = httpx.Client(
+        timeout=15,
+        follow_redirects=True,
+        headers={
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X)",
+            "Accept": "application/json, text/plain, */*",
+            "X-Requested-With": "XMLHttpRequest",
+            "Referer": f"https://xueqiu.com/u/{external_id}",
+            **({"Cookie": cookie} if cookie else {}),
+        },
+    )
+    try:
+        resp = client.get(
+            XUEQIU_TIMELINE_URL,
+            params={"user_id": external_id, "page": 1, "count": 1},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        statuses = (data or {}).get("statuses") or []
+        if statuses:
+            screen_name = (statuses[0].get("user") or {}).get("screen_name")
+            if screen_name:
+                return str(screen_name).strip()
+    except Exception:  # noqa: BLE001 - 昵称解析失败不阻断导入
+        return None
+    finally:
+        client.close()
+    return None
+
+
 class XueqiuFetcher(Fetcher):
     platform = "xueqiu"
 
