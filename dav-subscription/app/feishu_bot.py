@@ -6,7 +6,7 @@ import logging
 import threading
 
 from . import auth
-from .bot_core import SubscriptionBot
+from .bot_core import LIST_PAGE_SIZE, SubscriptionBot
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +21,7 @@ class FeishuBot:
         self._thread = None
         self.core = SubscriptionBot(
             db,
-            lambda identity_type, identity, text: self._send(identity_type, identity, text),
+            lambda identity_type, identity, text, **kwargs: self._send(identity_type, identity, text),
             lambda identity_type, identity, display_name: self._get_or_create_user(
                 identity_type, identity, display_name
             ),
@@ -74,6 +74,10 @@ class FeishuBot:
             user = self._get_or_create_user("feishu_open_id", open_id, sender_name)
             if user.get("feishu_chat_id") != chat_id:
                 self.db.update_user(user["id"], feishu_chat_id=chat_id)
+        if chat_type != "group" and (text or "").strip().lower().startswith("/list"):
+            # 单聊里的 /list 用卡片交互（带订阅/翻页按钮），群聊保持文本
+            self._send_list_card(chat_id, open_id, sender_name, (text or "").partition(" ")[2])
+            return
         self.core.handle(
             "feishu_open_id",
             open_id,
@@ -87,6 +91,119 @@ class FeishuBot:
             user = self.db.get_user_by_feishu(open_id)
             if user is not None and user.get("feishu_chat_id") != chat_id:
                 self.db.update_user(user["id"], feishu_chat_id=chat_id)
+
+    def _send_card(self, chat_id: str, card: dict) -> None:
+        from lark_oapi.api.im.v1 import CreateMessageRequest, CreateMessageRequestBody
+
+        request = (
+            CreateMessageRequest.builder()
+            .receive_id_type("chat_id")
+            .request_body(
+                CreateMessageRequestBody.builder()
+                .receive_id(chat_id)
+                .msg_type("interactive")
+                .content(json.dumps(card, ensure_ascii=False))
+                .build()
+            )
+            .build()
+        )
+        resp = self._get_api_client().im.v1.message.create(request)
+        if not resp.success():
+            raise RuntimeError(f"飞书卡片发送失败: {resp.code} {resp.msg}")
+
+    def _send_list_card(self, chat_id: str, open_id: str, sender_name: str, arg: str) -> None:
+        user = self._get_or_create_user("feishu_open_id", open_id, sender_name)
+        text, page, pages = self.core.list_payload(user, arg)
+        self._send_card(chat_id, self._build_list_card(user, page, pages))
+
+    def _build_list_card(self, user: dict, page: int, pages: int) -> dict:
+        kols = self.db.list_kols()
+        subscribed = self.db.subscribed_kol_ids(user["id"])
+        text, _, _ = self.core.list_payload(user, str(page))
+        start = (page - 1) * LIST_PAGE_SIZE
+        page_kols = kols[start : start + LIST_PAGE_SIZE]
+        elements = [{"tag": "div", "text": {"tag": "lark_md", "content": text}}]
+        actions = []
+        for k in page_kols[:4]:
+            is_sub = k["id"] in subscribed
+            actions.append(
+                [
+                    {
+                        "tag": "button",
+                        "text": {"tag": "plain_text", "content": f"{'取消订阅' if is_sub else '订阅'} {k['name']}"},
+                        "type": "default" if is_sub else "primary",
+                        "value": {"action": "unsub" if is_sub else "sub", "kol_id": k["id"]},
+                    }
+                ]
+            )
+        if pages > 1:
+            actions.append(
+                [
+                    {
+                        "tag": "button",
+                        "text": {"tag": "plain_text", "content": "◀️ 上一页"},
+                        "type": "default",
+                        "value": {"action": "page", "page": max(1, page - 1)},
+                    },
+                    {
+                        "tag": "button",
+                        "text": {"tag": "plain_text", "content": "下一页 ▶️"},
+                        "type": "default",
+                        "value": {"action": "page", "page": min(pages, page + 1)},
+                    },
+                ]
+            )
+        if actions:
+            elements.extend(actions)
+        card = {
+            "config": {"wide_screen_mode": True},
+            "header": {
+                "title": {"tag": "plain_text", "content": f"大V列表（第 {page}/{pages} 页）"},
+                "template": "blue",
+            },
+            "elements": elements,
+        }
+        return card
+
+    def _on_card_action(self, event):
+        from lark_oapi.event.callback.model.p2_card_action_trigger import (
+            CallBackCard,
+            CallBackToast,
+            P2CardActionTriggerResponse,
+        )
+
+        resp = P2CardActionTriggerResponse()
+        try:
+            action = event.event.action
+            value = action.value or {}
+            operator = event.event.operator
+            open_id = (operator or {}).open_id or ""
+            act = value.get("action")
+            if not open_id or not act:
+                return resp
+            if act == "page":
+                user = self._get_or_create_user("feishu_open_id", open_id, open_id)
+                text, page, pages = self.core.list_payload(user, str(value.get("page", 1)))
+                resp.card = CallBackCard({"type": "raw", "data": self._build_list_card(user, page, pages)})
+                resp.toast = CallBackToast({"type": "info", "content": f"第 {page}/{pages} 页"})
+                return resp
+            if act in ("sub", "unsub"):
+                kol = self.db.get_kol(int(value.get("kol_id", 0) or 0))
+                user = self._get_or_create_user("feishu_open_id", open_id, open_id)
+                if kol is None:
+                    resp.toast = CallBackToast({"type": "error", "content": "大V不存在"})
+                    return resp
+                if act == "sub":
+                    self.db.add_subscription(user["id"], kol["id"])
+                    content = f"已订阅 {kol['name']} ✅"
+                else:
+                    self.db.remove_subscription(user["id"], kol["id"])
+                    content = f"已取消订阅 {kol['name']}"
+                resp.toast = CallBackToast({"type": "info", "content": content})
+                return resp
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("卡片回调处理失败: %s", exc, exc_info=True)
+        return resp
 
     def _on_message(self, event):
         try:
@@ -121,6 +238,7 @@ class FeishuBot:
         handler = (
             EventDispatcherHandler.builder("", "")
             .register_p2_im_message_receive_v1(self._on_message)
+            .register_p2_card_action_trigger(self._on_card_action)
             .build()
         )
         self._ws_client = lark_oapi.ws.Client(

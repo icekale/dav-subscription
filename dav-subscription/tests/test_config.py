@@ -11,6 +11,7 @@ ALL_ENV = [
     "FEISHU_APP_SECRET",
     "TELEGRAM_BOT_TOKEN",
     "TELEGRAM_CHAT_ID",
+    "TELEGRAM_PROXY",
     "XUEQIU_COOKIE",
     "WEIBO_COOKIE",
     "WEIBO_TOKEN",
@@ -47,6 +48,12 @@ def test_yaml_and_env_overrides(tmp_path, monkeypatch):
     config = load_config(tmp_path / "config.yaml")
     assert config.polling.interval_seconds == 90
     assert config.web.password == "secret"
+
+
+def test_telegram_proxy_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("TELEGRAM_PROXY", "http://127.0.0.1:7890")
+    config = load_config(tmp_path / "nope.yaml")
+    assert config.notifiers.telegram.proxy == "http://127.0.0.1:7890"
 
 
 def test_quoted_yaml_types_normalized(tmp_path):

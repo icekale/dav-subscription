@@ -49,7 +49,12 @@ def create_app(config=None, db_path: str | Path | None = None) -> FastAPI:
         if config.notifiers.telegram.bot_token:
             from .telegram_bot import TelegramBot
 
-            bot = TelegramBot(db, config.notifiers.telegram.bot_token, secret)
+            bot = TelegramBot(
+                db,
+                config.notifiers.telegram.bot_token,
+                secret,
+                proxy=config.notifiers.telegram.proxy,
+            )
             bot_task = asyncio.create_task(bot.run())
         if config.notifiers.feishu.app_id and config.notifiers.feishu.app_secret:
             from .feishu_bot import FeishuBot

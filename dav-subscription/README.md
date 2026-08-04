@@ -71,6 +71,7 @@ docker compose up -d --build
 | `notifiers.feishu.app_id` / `app_secret` | 飞书自建应用凭据（逐人直聊推送需要，未配置则跳过） |
 | `notifiers.telegram.bot_token` | Telegram Bot token |
 | `notifiers.telegram.chat_id` | 接收消息的会话 ID |
+| `notifiers.telegram.proxy` | 可选：Telegram API 代理地址（如 `http://127.0.0.1:7890`，被墙网络建议配置） |
 | `sources.xueqiu.cookie` | 可选，雪球 Cookie 初始值；过期后需手动更新（自动续期会尝试，但受 WAF 限制通常需要浏览器） |
 | `sources.weibo.cookie` | 可选，微博 Cookie 初始值（未配置账号密码时的兜底） |
 | `sources.weibo.token` | 可选，x-xsrf-token |

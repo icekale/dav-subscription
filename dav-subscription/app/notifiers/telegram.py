@@ -39,7 +39,7 @@ class TelegramNotifier(Notifier):
     def __init__(self, config, client: httpx.Client | None = None, chat_id: str | None = None):
         self.bot_token = config.bot_token
         self.chat_id = chat_id or config.chat_id
-        self.client = client or httpx.Client(timeout=15)
+        self.client = client or httpx.Client(timeout=15, proxy=config.proxy or None)
 
     def _send(self, data: dict) -> None:
         if not self.bot_token or not self.chat_id:

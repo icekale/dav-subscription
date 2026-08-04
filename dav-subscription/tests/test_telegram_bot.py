@@ -1,5 +1,6 @@
 import tempfile
 import time
+import json
 from pathlib import Path
 
 from app.db import DB
@@ -11,7 +12,7 @@ def make_env():
     kid = db.add_kol("xueqiu", "超级鹿鼎公", "8790885129")
     bot = TelegramBot(db, "test_token", "secret")
     sent = []
-    bot._send = lambda chat_id, text: sent.append((chat_id, text))
+    bot._send = lambda chat_id, text, **kw: sent.append((chat_id, text, kw))
     return db, bot, kid, sent
 
 
@@ -29,7 +30,7 @@ def test_bot_command_flow():
     db, bot, kid, sent = make_env()
 
     bot.handle_update(update(111, "/start"))
-    assert "帮助" in sent[-1][1]
+    assert "欢迎" in sent[-1][1]
     # 首次命令自动建号并绑定 chat_id
     user = db.get_user_by_telegram("111")
     assert user is not None and user["username"] == "icekale"
@@ -37,6 +38,7 @@ def test_bot_command_flow():
     bot.handle_update(update(111, "/list"))
     assert "超级鹿鼎公" in sent[-1][1]
     assert "⬜" in sent[-1][1]
+    assert sent[-1][2].get("kind") == "list"
 
     bot.handle_update(update(111, f"/sub {kid}"))
     assert db.subscribed_kol_ids(user["id"]) == {kid}
@@ -60,7 +62,7 @@ def test_bot_list_marks_priority_kol():
     db.add_kol("xueqiu", "重点大V", "2", priority=True)
     bot = TelegramBot(db, "test_token", "secret")
     sent = []
-    bot._send = lambda chat_id, text: sent.append((chat_id, text))
+    bot._send = lambda chat_id, text, **kw: sent.append((chat_id, text, kw))
     bot.handle_update(update(777, "/list"))
     assert "🔥" in sent[-1][1]
     assert "优先大V" in sent[-1][1]
@@ -99,7 +101,7 @@ def test_bot_bind_merges_subscriptions():
     target_id = db.add_user("kale", "hash")
     bot = TelegramBot(db, "t", "s")
     sent = []
-    bot._send = lambda chat_id, text: sent.append((chat_id, text))
+    bot._send = lambda chat_id, text, **kw: sent.append((chat_id, text, kw))
 
     # bot 用户先订阅大V
     bot.handle_update(update(111, f"/sub {kid}"))
@@ -120,6 +122,36 @@ def test_bot_bind_invalid_code():
     db = DB(Path(tempfile.mkdtemp()) / "bot.db")
     bot = TelegramBot(db, "t", "s")
     sent = []
-    bot._send = lambda chat_id, text: sent.append((chat_id, text))
+    bot._send = lambda chat_id, text, **kw: sent.append((chat_id, text, kw))
     bot.handle_update(update(222, "/bind 000000"))
     assert "无效" in sent[-1][1]
+
+
+def test_bot_list_keyboard_and_callback():
+    db = DB(Path(tempfile.mkdtemp()) / "bot.db")
+    db.add_kol("xueqiu", "超级鹿鼎公", "8790885129")
+    bot = TelegramBot(db, "test_token", "secret")
+    calls = []
+    bot._call = lambda method, **params: calls.append((method, params))
+    bot.handle_update(update(111, "/list"))
+    method, params = calls[-1]
+    assert method == "sendMessage"
+    kb = json.loads(params["reply_markup"])
+    assert kb["inline_keyboard"][0][0]["text"] == "📋 我的订阅"
+
+    # 模拟点击「我的订阅」回调：应答 + 编辑原消息
+    bot.handle_update(
+        {
+            "callback_query": {
+                "id": "cq1",
+                "from": {"username": "icekale"},
+                "data": "mysubs",
+                "message": {"chat": {"id": 111}, "message_id": 9},
+            }
+        }
+    )
+    methods = [c[0] for c in calls]
+    assert "answerCallbackQuery" in methods
+    edit_call = calls[-1]
+    assert edit_call[0] == "editMessageText"
+    assert edit_call[1]["message_id"] == 9

@@ -19,6 +19,7 @@ class FeishuConfig:
 class TelegramConfig:
     bot_token: str = ""
     chat_id: str = ""
+    proxy: str = ""
 
 
 @dataclass
@@ -86,6 +87,7 @@ _ENV_MAP = {
     "FEISHU_APP_SECRET": ("notifiers", "feishu", "app_secret"),
     "TELEGRAM_BOT_TOKEN": ("notifiers", "telegram", "bot_token"),
     "TELEGRAM_CHAT_ID": ("notifiers", "telegram", "chat_id"),
+    "TELEGRAM_PROXY": ("notifiers", "telegram", "proxy"),
     "XUEQIU_COOKIE": ("sources", "xueqiu", "cookie"),
     "WEIBO_COOKIE": ("sources", "weibo", "cookie"),
     "WEIBO_TOKEN": ("sources", "weibo", "token"),

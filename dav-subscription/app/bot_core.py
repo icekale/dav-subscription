@@ -17,6 +17,15 @@ HELP_TEXT = (
     "/help — 帮助"
 )
 
+WELCOME_TEXT = (
+    "👋 欢迎使用大V订阅机器人！\n\n"
+    "📋 发 /list 查看可订阅的大V，发 /sub 大VID 订阅\n"
+    "📌 /mysubs 查看我的订阅，/unsub 大VID 取消订阅\n\n"
+    "💡 想和网页/小程序账号同步？\n"
+    "1. 网页「推送设置」点生成绑定码\n"
+    "2. 把 /bind 6位码 发给我，账号即合并，一处订阅处处同步"
+)
+
 BIND_CODE_TTL = 600
 LIST_PAGE_SIZE = 20
 
@@ -55,10 +64,20 @@ class SubscriptionBot:
 
         user = self.get_or_create_user(identity_type, identity, display_name)
 
-        if cmd in ("/start", "/help"):
+        if cmd == "/start":
+            self.send(reply_type or identity_type, reply_id or identity, WELCOME_TEXT, kind="start")
+        elif cmd == "/help":
             self.send(reply_type or identity_type, reply_id or identity, HELP_TEXT)
         elif cmd == "/list":
-            self._list(user, reply_type or identity_type, reply_id or identity, arg)
+            text, page, pages = self.list_payload(user, arg)
+            self.send(
+                reply_type or identity_type,
+                reply_id or identity,
+                text,
+                kind="list",
+                page=page,
+                pages=pages,
+            )
         elif cmd == "/sub":
             self._sub(user, reply_type or identity_type, reply_id or identity, arg)
         elif cmd == "/unsub":
@@ -101,7 +120,8 @@ class SubscriptionBot:
             f"已绑定到账号 {target['username']} ✅ 之后新帖会推送到这里",
         )
 
-    def _list(self, user, identity_type: str, identity: str, arg: str = "") -> None:
+    def list_payload(self, user: dict, arg: str = "") -> tuple[str, int, int]:
+        """构造 /list 文案与分页信息，供文本/键盘/卡片复用。"""
         kols = self.db.list_kols()
         subscribed = self.db.subscribed_kol_ids(user["id"])
         page = int(arg.strip()) if arg.strip().isdigit() else 1
@@ -119,7 +139,7 @@ class SubscriptionBot:
             lines.append("（🔥 优先大V，抓取更及时）")
         if pages > 1:
             lines.append(f"第 {page}/{pages} 页，共 {total} 个（发 /list {page + 1} 看下一页）")
-        self.send(identity_type, identity, "\n".join(lines) if page_kols else "暂无大V")
+        return ("\n".join(lines) if page_kols else "暂无大V", page, pages)
 
     def _sub(self, user, identity_type: str, identity: str, arg: str) -> None:
         kol = self._resolve_kol(arg)
@@ -138,13 +158,15 @@ class SubscriptionBot:
             self.send(identity_type, identity, f"已取消订阅 {kol['name']}")
 
     def _mysubs(self, user, identity_type: str, identity: str) -> None:
+        self.send(identity_type, identity, self.mysubs_payload(user))
+
+    def mysubs_payload(self, user: dict) -> str:
         subs = self.db.list_subscriptions(user["id"])
         if subs:
             lines = ["📌 我的订阅："]
             lines.extend(f"{s['id']}. {s['name']}" for s in subs)
-            self.send(identity_type, identity, "\n".join(lines))
-        else:
-            self.send(identity_type, identity, "还没有订阅任何大V，试试 /list")
+            return "\n".join(lines)
+        return "还没有订阅任何大V，试试 /list"
 
     def _resolve_kol(self, arg: str):
         arg = arg.strip()
