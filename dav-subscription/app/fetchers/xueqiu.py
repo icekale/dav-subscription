@@ -5,7 +5,7 @@ import time
 
 import httpx
 
-from .base import Fetcher, Post, strip_html
+from .base import Fetcher, Post, format_published_at, strip_html
 
 XUEQIU_COOKIE_KEY = "xueqiu_cookie"
 XUEQIU_COOKIE_TIME_KEY = "xueqiu_cookie_updated_at"
@@ -106,7 +106,7 @@ class XueqiuFetcher(Fetcher):
                     title=s.get("title") or "",
                     content=strip_html(s.get("description") or ""),
                     url=url,
-                    published_at=str(s.get("created_at") or ""),
+                    published_at=format_published_at(str(s.get("created_at") or "")),
                 )
             )
         return posts

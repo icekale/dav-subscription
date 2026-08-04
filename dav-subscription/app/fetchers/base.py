@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import datetime
 
 
 @dataclass
@@ -32,6 +33,19 @@ def strip_html(text: str) -> str:
     ):
         text = text.replace(old, new)
     return text.strip()
+
+
+def format_published_at(raw: str) -> str:
+    """把时间戳（毫秒/秒）格式化为可读时间，其他格式原样返回。"""
+    raw = (raw or "").strip()
+    if raw.isdigit():
+        ts = int(raw)
+        ts = ts / 1000 if ts > 1e12 else ts
+        try:
+            return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
+        except (ValueError, OSError):
+            return raw
+    return raw
 
 
 class Fetcher:

@@ -37,6 +37,7 @@ def _post_sort_key(post: Post) -> float:
     for fmt in (
         "%a %b %d %H:%M:%S %z %Y",  # 微博
         "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M",
         "%Y-%m-%d %H:%M:%S%z",
         "%Y-%m-%dT%H:%M:%S",
         "%Y-%m-%dT%H:%M:%S%z",

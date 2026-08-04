@@ -117,7 +117,15 @@ def test_xueqiu_waf_html_raises_clear_error():
 
 
 from app.config import WeiboConfig
+from app.fetchers.base import format_published_at
 from app.fetchers.weibo import WeiboFetcher
+
+
+def test_format_published_at():
+    assert format_published_at("1785840071000") == "2026-08-04 18:41"
+    assert format_published_at("1785840071") == "2026-08-04 18:41"
+    assert format_published_at("Tue Aug 04 21:00:00 +0800 2026") == "Tue Aug 04 21:00:00 +0800 2026"
+    assert format_published_at("") == ""
 
 
 def test_weibo_parse_fixture():
