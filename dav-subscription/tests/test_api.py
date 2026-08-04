@@ -173,6 +173,41 @@ def test_login_rate_limit():
     assert client.post("/api/auth/login", json={"username": "nobody", "password": "wrong123"}).status_code == 429
 
 
+def test_admin_delete_user_cascades():
+    client = make_client()
+    admin_headers = auth_headers(client, "boss")
+    reg = register(client, "doomed")
+    uid = reg.json()["user"]["id"]
+    doomed_headers = {"Authorization": f"Bearer {reg.json()['token']}"}
+    kid = client.post("/api/kols", headers=admin_headers, json={"platform": "xueqiu", "name": "A", "external_id": "1"}).json()["id"]
+    client.post("/api/subscriptions", headers=doomed_headers, json={"kol_id": kid})
+
+    # 不能删除自己
+    self_id = client.get("/api/me", headers=admin_headers).json()["id"]
+    assert client.delete(f"/api/users/{self_id}", headers=admin_headers).status_code == 400
+
+    resp = client.delete(f"/api/users/{uid}", headers=admin_headers)
+    assert resp.status_code == 200
+    remaining = client.get("/api/users", headers=admin_headers).json()
+    assert all(u["id"] != uid for u in remaining)
+    # 订阅关系一并清除
+    assert client.app.state.db.list_subscriptions(uid) == []
+
+
+def test_admin_reset_password():
+    client = make_client()
+    admin_headers = auth_headers(client, "boss")
+    user_headers(client, "victim", "oldpass123")
+
+    users = client.get("/api/users", headers=admin_headers).json()
+    uid = next(u["id"] for u in users if u["username"] == "victim")
+    # 新密码太短
+    assert client.put(f"/api/users/{uid}", headers=admin_headers, json={"password": "123"}).status_code == 400
+    assert client.put(f"/api/users/{uid}", headers=admin_headers, json={"password": "newpass456"}).status_code == 200
+    assert client.post("/api/auth/login", json={"username": "victim", "password": "oldpass123"}).status_code == 401
+    assert client.post("/api/auth/login", json={"username": "victim", "password": "newpass456"}).status_code == 200
+
+
 def test_posts_and_push_logs_api():
     client = make_client()
     headers = auth_headers(client)

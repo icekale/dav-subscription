@@ -66,6 +66,7 @@ class SubscriptionIn(BaseModel):
 
 class UserUpdate(BaseModel):
     is_admin: bool | None = None
+    password: str | None = None
 
 
 def public_user(user: dict) -> dict:
@@ -392,6 +393,21 @@ def create_api_router(db: DB, secret: str, allow_register: bool = True, wechat_c
             if user_id == admin["id"] and not body.is_admin:
                 raise HTTPException(status_code=400, detail="不能取消自己的管理员权限")
             db.update_user(user_id, is_admin=body.is_admin)
+        if "password" in body.model_fields_set:
+            password = body.password or ""
+            if len(password) < 6:
+                raise HTTPException(status_code=400, detail="密码至少6位")
+            db.update_user(user_id, password_hash=auth.hash_password(password))
         return public_user(db.get_user(user_id))
+
+    @router.delete("/users/{user_id}", dependencies=[Depends(require_admin)])
+    def delete_user(user_id: int, admin: dict = Depends(require_admin)):
+        if user_id == admin["id"]:
+            raise HTTPException(status_code=400, detail="不能删除自己的账号")
+        target = db.get_user(user_id)
+        if target is None:
+            raise HTTPException(status_code=404, detail="用户不存在")
+        db.delete_user(user_id)
+        return {"ok": True}
 
     return router

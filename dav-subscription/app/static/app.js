@@ -727,6 +727,7 @@ async function loadAdminLogs() {
 
 async function loadAdminUsers() {
   const users = await api("/api/users");
+  state.adminUsers = users;
   $("#admin-body").innerHTML = `
     <section class="section-panel">
       <header class="section-head"><div><p class="section-eyebrow">Users</p><h3 class="section-title">注册用户</h3></div></header>
@@ -744,12 +745,45 @@ async function loadAdminUsers() {
               <td>
                 ${u.id === state.user.id
                   ? '<span class="muted">本人</span>'
-                  : `<button class="btn-sm" onclick="adminToggleAdmin(${u.id}, ${!u.is_admin})">${u.is_admin ? "取消管理员" : "设为管理员"}</button>`}
+                  : `<button class="btn-sm" onclick="adminToggleAdmin(${u.id}, ${!u.is_admin})">${u.is_admin ? "取消管理员" : "设为管理员"}</button>
+                     <button class="btn-sm" onclick="adminResetPassword(${u.id})">重置密码</button>
+                     <button class="btn-sm danger" onclick="adminDeleteUser(${u.id})">删除</button>`}
               </td>
             </tr>`).join("")}</tbody>
         </table>
       </div>
     </section>`;
+}
+
+async function adminResetPassword(userId) {
+  const user = (state.adminUsers || []).find((u) => u.id === userId);
+  const pw = prompt(`为「${user ? user.username : userId}」设置新密码（至少 6 位）：`);
+  if (pw === null) return;
+  if (pw.length < 6) {
+    alert("密码至少 6 位");
+    return;
+  }
+  try {
+    await api(`/api/users/${userId}`, {
+      method: "PUT",
+      body: JSON.stringify({ password: pw }),
+    });
+    alert("密码已重置");
+    loadAdminUsers();
+  } catch (err) {
+    alert("操作失败: " + err.message);
+  }
+}
+
+async function adminDeleteUser(userId) {
+  const user = (state.adminUsers || []).find((u) => u.id === userId);
+  if (!confirm(`确认删除用户「${user ? user.username : userId}」？其订阅关系将一并删除，不可恢复。`)) return;
+  try {
+    await api(`/api/users/${userId}`, { method: "DELETE" });
+    loadAdminUsers();
+  } catch (err) {
+    alert("删除失败: " + err.message);
+  }
 }
 
 async function adminToggleAdmin(userId, makeAdmin) {
