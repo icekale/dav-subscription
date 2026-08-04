@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>dav-subscription</Name>
+  <Repository>YOUR_DOCKERHUB_USER/dav-subscription:latest</Repository>
+  <Registry>https://hub.docker.com/r/YOUR_DOCKERHUB_USER/dav-subscription</Registry>
+  <Support>https://github.com/YOUR_GITHUB_USER/dav-subscription</Support>
+  <Overview>大V订阅：聚合订阅雪球/微博/X 大V公开动态，新帖按订阅关系推送到 Telegram 与飞书。多用户、自助订阅、网页后台管理。</Overview>
+  <Category>Finance:Other</Category>
+  <WebUI>http://[IP]:[PORT:18084]</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/YOUR_GITHUB_USER/dav-subscription/main/deploy/template.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/YOUR_GITHUB_USER/dav-subscription/main/docs/icon.png</Icon>
+  <Requires></Requires>
+  <Config Name="网页端口" Target="18084" Default="18084" Mode="tcp" Description="网页后台访问端口（宿主机 8000 常被占用，默认 18084）" Type="Port" Display="always" Required="true" Mask="false">18084</Config>
+  <Config Name="数据目录" Target="/data" Default="/mnt/user/appdata/dav-subscription/data" Description="SQLite 数据库持久化目录，备份此目录即可" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/dav-subscription/data</Config>
+  <Config Name="飞书 App ID" Target="FEISHU_APP_ID" Default="" Mode="" Description="飞书自建应用 App ID（机器人命令订阅与推送）" Type="Variable" Display="always" Required="false" Mask="false"></Config>
+  <Config Name="飞书 App Secret" Target="FEISHU_APP_SECRET" Default="" Mode="" Description="飞书自建应用 App Secret" Type="Variable" Display="always" Required="false" Mask="true"></Config>
+  <Config Name="Telegram Bot Token" Target="TELEGRAM_BOT_TOKEN" Default="" Mode="" Description="@BotFather 创建的机器人 token" Type="Variable" Display="always" Required="false" Mask="true"></Config>
+  <Config Name="Telegram Chat ID" Target="TELEGRAM_CHAT_ID" Default="" Mode="" Description="接收推送的会话 ID（用 @userinfobot 查询）" Type="Variable" Display="always" Required="false" Mask="false"></Config>
+  <Config Name="Telegram 代理" Target="TELEGRAM_PROXY" Default="" Mode="" Description="可选：Telegram API 被墙时填 http://host:port 代理" Type="Variable" Display="always" Required="false" Mask="false"></Config>
+  <Config Name="雪球 Cookie" Target="XUEQIU_COOKIE" Default="" Mode="" Description="可选：浏览器登录雪球后复制的 Cookie" Type="Variable" Display="always" Required="false" Mask="true"></Config>
+  <Config Name="管理员密码" Target="WEB_ADMIN_PASSWORD" Default="" Mode="" Description="首次启动创建 admin 账号的密码（至少 6 位）" Type="Variable" Display="always" Required="true" Mask="true"></Config>
+  <Config Name="Token 密钥" Target="WEB_TOKEN_SECRET" Default="" Mode="" Description="登录 token 签名密钥，留空自动生成" Type="Variable" Display="always" Required="false" Mask="true"></Config>
+  <Config Name="允许注册" Target="WEB_ALLOW_REGISTER" Default="true" Mode="" Description="是否开放网页注册（false 则只能通过机器人自动建号）" Type="Variable" Display="always" Required="false" Mask="false">true</Config>
+  <Config Name="帖子保留天数" Target="POLLING_POSTS_RETENTION_DAYS" Default="30" Mode="" Description="帖子与推送记录保留天数，0 表示永久" Type="Variable" Display="always" Required="false" Mask="false">30</Config>
+  <Config Name="时区" Target="TZ" Default="Asia/Shanghai" Mode="" Description="容器时区" Type="Variable" Display="always" Required="false" Mask="false">Asia/Shanghai</Config>
+</Container>

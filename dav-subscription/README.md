@@ -8,6 +8,11 @@
 - **Docker 服务**：后端 API + 网页后台管理（大V目录、分类、推送记录、用户与管理员指定）
 - **推送**：飞书（群 webhook + 自建应用直聊）与 Telegram bot 双通道，按订阅关系逐人推送
 
+## 文档
+
+- [用户指南](docs/用户指南.md)：在 Telegram / 飞书里怎么订阅大V、怎么绑定账号
+- [管理员手册](docs/管理员手册.md)：部署、大V/用户管理、配置项、常见问题
+
 ## Telegram bot 订阅命令
 
 配置 `notifiers.telegram.bot_token` 后，用户可直接在 Telegram 里给机器人发命令订阅大V（首次使用自动创建账号并绑定 chat_id）：
