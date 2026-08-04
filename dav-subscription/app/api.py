@@ -18,7 +18,7 @@ from .db import ALLOWED_PLATFORMS, DB
 from .fetchers.xueqiu import (
     XUEQIU_COOKIE_KEY,
     XUEQIU_COOKIE_TIME_KEY,
-    resolve_screen_name,
+    resolve_profile,
 )
 from .fetchers.weibo import WEIBO_COOKIE_KEY, cookie_header
 
@@ -565,12 +565,14 @@ def create_api_router(
                 results.append({"ok": False, "line": line[:80], "error": "未识别到链接或ID"})
                 continue
             name = nickname or f"{body.platform}_{external_id}"
+            avatar_url = ""
             if not nickname and body.platform == "xueqiu" and external_id.isdigit():
-                # 没填昵称时自动查雪球昵称（失败则退回 xueqiu_uid）
+                # 没填昵称时自动查雪球昵称与头像（失败则退回 xueqiu_uid）
                 cookie = db.get_setting(XUEQIU_COOKIE_KEY) or os.environ.get("XUEQIU_COOKIE", "")
-                resolved = resolve_screen_name(external_id, cookie)
-                if resolved:
-                    name = resolved
+                profile = resolve_profile(external_id, cookie)
+                if profile.get("screen_name"):
+                    name = profile["screen_name"]
+                avatar_url = profile.get("avatar_url") or ""
             try:
                 kid = db.add_kol(
                     body.platform,
@@ -579,6 +581,8 @@ def create_api_router(
                     category_id=body.category_id,
                     priority=body.priority,
                 )
+                if avatar_url:
+                    db.update_kol_avatar(kid, avatar_url)
                 results.append({"ok": True, "id": kid, "name": name, "external_id": external_id})
             except ValueError as exc:
                 results.append({"ok": False, "line": line[:80], "error": str(exc)})

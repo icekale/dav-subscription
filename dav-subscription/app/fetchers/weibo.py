@@ -164,7 +164,8 @@ class WeiboFetcher(Fetcher):
         if data.get("ok") != 1:
             raise RuntimeError(f"微博接口异常: {(data.get('msg') or data)[:200]}")
         posts = []
-        for mblog in ((data.get("data") or {}).get("list") or []):
+        mblogs = (data.get("data") or {}).get("list") or []
+        for mblog in mblogs:
             mid = mblog.get("id")
             if not mid:
                 continue
@@ -182,4 +183,9 @@ class WeiboFetcher(Fetcher):
                     published_at=str(mblog.get("created_at") or ""),
                 )
             )
+        if mblogs:
+            user = (mblogs[0].get("user") or {})
+            avatar = user.get("avatar_large") or user.get("profile_image_url") or ""
+            if avatar and avatar != (self.db.get_kol(kol["id"]) or {}).get("avatar_url"):
+                self.db.update_kol_avatar(kol["id"], avatar)
         return posts

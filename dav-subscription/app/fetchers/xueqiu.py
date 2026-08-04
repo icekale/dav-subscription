@@ -20,8 +20,22 @@ def _is_waf_html(resp: httpx.Response) -> bool:
     )
 
 
-def resolve_screen_name(external_id: str, cookie: str = "") -> str | None:
-    """查询雪球用户昵称（取最新一条动态里的 user.screen_name），失败返回 None。"""
+def _avatar_url(user: dict) -> str:
+    """从雪球 user 对象拼头像地址（photo_domain + profile_image_url 180x180 变体）。"""
+    photo_domain = user.get("photo_domain") or ""
+    variants = (user.get("profile_image_url") or "").split(",")
+    if not variants or not variants[0]:
+        return ""
+    first = variants[1] if len(variants) > 1 and variants[1] else variants[0]
+    if photo_domain.startswith("//"):
+        return f"https:{photo_domain}{first}"
+    if photo_domain.startswith("http"):
+        return f"{photo_domain}{first}"
+    return ""
+
+
+def resolve_profile(external_id: str, cookie: str = "") -> dict:
+    """查询雪球用户昵称与头像（取最新一条动态里的 user 信息），失败返回空 dict。"""
     import httpx
 
     client = httpx.Client(
@@ -44,14 +58,16 @@ def resolve_screen_name(external_id: str, cookie: str = "") -> str | None:
         data = resp.json()
         statuses = (data or {}).get("statuses") or []
         if statuses:
-            screen_name = (statuses[0].get("user") or {}).get("screen_name")
+            user = statuses[0].get("user") or {}
+            screen_name = user.get("screen_name")
+            avatar = _avatar_url(user)
             if screen_name:
-                return str(screen_name).strip()
+                return {"screen_name": str(screen_name).strip(), "avatar_url": avatar}
     except Exception:  # noqa: BLE001 - 昵称解析失败不阻断导入
-        return None
+        return {}
     finally:
         client.close()
-    return None
+    return {}
 
 
 class XueqiuFetcher(Fetcher):
@@ -143,4 +159,9 @@ class XueqiuFetcher(Fetcher):
                     published_at=format_published_at(str(s.get("created_at") or "")),
                 )
             )
+        if statuses:
+            user = statuses[0].get("user") or {}
+            avatar = _avatar_url(user)
+            if avatar and avatar != (self.db.get_kol(kol["id"]) or {}).get("avatar_url"):
+                self.db.update_kol_avatar(kol["id"], avatar)
         return posts

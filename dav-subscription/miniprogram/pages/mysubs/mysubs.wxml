@@ -8,7 +8,8 @@
     </view>
     <view wx:else>
       <view class="kol-item" wx:for="{{kols}}" wx:key="id">
-        <view class="avatar">{{item.name[0]}}</view>
+        <image wx:if="{{item.avatar_url}}" class="avatar" src="{{item.avatar_url}}" mode="aspectFill"></image>
+        <view wx:else class="avatar">{{item.name[0]}}</view>
         <view class="kol-info" data-id="{{item.id}}" bindtap="goKol">
           <view class="row">
             <text class="kol-name">{{item.name}}</text>

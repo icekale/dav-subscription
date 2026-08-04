@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS kols (
     platform TEXT NOT NULL,
     name TEXT NOT NULL,
     external_id TEXT NOT NULL,
+    avatar_url TEXT NOT NULL DEFAULT '',
     enabled INTEGER NOT NULL DEFAULT 1,
     is_private INTEGER NOT NULL DEFAULT 0,
     category_id INTEGER,
@@ -133,6 +134,8 @@ class DB:
             self._conn.execute("ALTER TABLE kols ADD COLUMN priority INTEGER NOT NULL DEFAULT 0")
         if "is_private" not in kol_cols:
             self._conn.execute("ALTER TABLE kols ADD COLUMN is_private INTEGER NOT NULL DEFAULT 0")
+        if "avatar_url" not in kol_cols:
+            self._conn.execute("ALTER TABLE kols ADD COLUMN avatar_url TEXT NOT NULL DEFAULT ''")
         # 渠道绑定唯一化：先清理重复（保留最早注册的用户），再建唯一索引，
         # 避免两个账号绑定同一个 chat_id/open_id 导致重复推送或 /bind 合并错账号。
         for column in ("telegram_chat_id", "feishu_open_id", "feishu_chat_id", "wechat_openid"):
@@ -194,6 +197,12 @@ class DB:
             (kol_id,),
         )
         return rows[0] if rows else None
+
+    def update_kol_avatar(self, kol_id: int, avatar_url: str) -> None:
+        self._execute(
+            "UPDATE kols SET avatar_url = ? WHERE id = ?",
+            (avatar_url or "", kol_id),
+        )
 
     def list_kols(self, platform: str | None = None, category_id: int | None = None) -> list[dict]:
         sql = "SELECT k.*, c.name AS category_name FROM kols k LEFT JOIN categories c ON c.id = k.category_id"
@@ -592,7 +601,7 @@ class DB:
     ) -> list[dict]:
         sql = (
             "SELECT p.*, k.name AS kol_name, k.category_id AS category_id, "
-            "c.name AS category_name FROM posts p "
+            "k.avatar_url AS avatar_url, c.name AS category_name FROM posts p "
             "JOIN kols k ON k.id = p.kol_id "
             "LEFT JOIN categories c ON c.id = k.category_id"
         )
@@ -652,7 +661,7 @@ class DB:
         placeholders = ", ".join("?" * len(kol_ids))
         return self._rows(
             "SELECT p.*, k.name AS kol_name, k.category_id AS category_id, "
-            "c.name AS category_name FROM posts p "
+            "k.avatar_url AS avatar_url, c.name AS category_name FROM posts p "
             "JOIN kols k ON k.id = p.kol_id "
             "LEFT JOIN categories c ON c.id = k.category_id "
             f"WHERE p.kol_id IN ({placeholders}) ORDER BY p.id DESC LIMIT ?",

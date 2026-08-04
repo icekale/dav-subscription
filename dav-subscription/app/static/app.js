@@ -41,6 +41,11 @@ function avatarText(name) {
   return (name || "?").trim().slice(0, 1).toUpperCase();
 }
 
+function avatarHtml(name, url) {
+  if (url) return `<img class="kol-avatar" src="${escapeHtml(url)}" alt="" loading="lazy">`;
+  return `<div class="kol-avatar">${escapeHtml(avatarText(name))}</div>`;
+}
+
 // ---------- 壳 ----------
 const NAV = [
   { group: "订阅", items: [
@@ -180,7 +185,7 @@ async function switchPlatform(platform) {
 function kolCard(kol) {
   return `
     <div class="kol-item">
-      <div class="kol-avatar">${escapeHtml(avatarText(kol.name))}</div>
+      ${avatarHtml(kol.name, kol.avatar_url)}
       <div class="kol-info" onclick="location.hash='#/kol/${kol.id}'">
         <div class="base">
           <span class="name">${escapeHtml(kol.name)}</span>
@@ -276,7 +281,7 @@ function postCard(post) {
   return `
     <div class="post-item">
       <div class="p-header">
-        <div class="kol-avatar">${escapeHtml(avatarText(post.kol_name))}</div>
+        ${avatarHtml(post.kol_name, post.avatar_url)}
         <div>
           <div class="p-name">${escapeHtml(post.kol_name)}</div>
           <div class="p-time">${escapeHtml(post.published_at)}</div>

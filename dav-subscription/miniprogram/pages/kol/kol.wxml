@@ -1,8 +1,9 @@
 <view class="page">
   <view class="card" wx:if="{{kol}}">
-    <view class="row" style="justify-content:space-between">
+      <view class="row" style="justify-content:space-between">
       <view class="row">
-        <view class="avatar">{{kol.name[0]}}</view>
+        <image wx:if="{{kol.avatar_url}}" class="avatar" src="{{kol.avatar_url}}" mode="aspectFill"></image>
+        <view wx:else class="avatar">{{kol.name[0]}}</view>
         <view style="margin-left:24rpx">
           <view class="row">
             <text class="kol-name">{{kol.name}}</text>
@@ -23,7 +24,8 @@
     <view wx:else>
       <view class="post-item" wx:for="{{posts}}" wx:key="id">
         <view class="post-header">
-          <view class="avatar sm">{{item.kol_name[0]}}</view>
+          <image wx:if="{{item.avatar_url}}" class="avatar sm" src="{{item.avatar_url}}" mode="aspectFill"></image>
+          <view wx:else class="avatar sm">{{item.kol_name[0]}}</view>
           <view style="margin-left:20rpx">
             <view class="post-name">{{item.kol_name}}</view>
             <view class="post-time">{{item.published_at}}</view>

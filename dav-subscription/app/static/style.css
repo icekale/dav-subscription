@@ -318,6 +318,13 @@ textarea.form-control {
   display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;
 }
+.kol-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+  display: block;
+}
 .kol-info { flex: 1; min-width: 0; cursor: pointer; }
 .kol-info .base { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .kol-info .name { font-size: var(--text-body); font-weight: var(--font-weight-semibold); color: var(--color-text-strong); }

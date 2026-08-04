@@ -379,8 +379,12 @@ def test_batch_import_auto_fills_xueqiu_nickname(monkeypatch):
     client = make_client()
     headers = auth_headers(client)
     monkeypatch.setattr(
-        "app.api.resolve_screen_name",
-        lambda uid, cookie="": "自动昵称" if uid == "55555" else None,
+        "app.api.resolve_profile",
+        lambda uid, cookie="": (
+            {"screen_name": "自动昵称", "avatar_url": "https://x/avatar.png"}
+            if uid == "55555"
+            else {}
+        ),
     )
     resp = client.post(
         "/api/kols/batch",
@@ -395,8 +399,10 @@ def test_batch_import_auto_fills_xueqiu_nickname(monkeypatch):
         },
     )
     assert resp.status_code == 200 and resp.json()["ok"] == 3
-    names = {k["external_id"]: k["name"] for k in client.get("/api/kols", headers=headers).json()}
+    kols = client.get("/api/kols", headers=headers).json()
+    names = {k["external_id"]: k["name"] for k in kols}
     assert names["55555"] == "自动昵称"
+    assert [k for k in kols if k["external_id"] == "55555"][0]["avatar_url"] == "https://x/avatar.png"
     assert names["66666"] == "xueqiu_66666"  # 解析失败退回兜底名
     assert names["77777"] == "段永平"  # 已填昵称不覆盖
 
