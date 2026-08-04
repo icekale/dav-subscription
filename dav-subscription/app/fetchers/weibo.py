@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import base64
+import html
 import json
+import re
 import time
 
 import httpx
@@ -106,6 +108,16 @@ class WeiboFetcher(Fetcher):
         text = resp.text
         if "retcode=0" not in text:
             raise RuntimeError(f"微博登录失败（可能需要验证码或凭据错误）: {text[:200]}")
+        # returntype=META 的响应里带 meta refresh 跳转（ticket 交换），
+        # httpx 不会自动跟随 meta refresh，需手动 GET 才能拿到 SUB 等会话 cookie。
+        if not self.client.cookies.get("SUB"):
+            match = re.search(r"url\s*=\s*['\"]([^'\"]+)['\"]", text)
+            if match:
+                redirect_url = html.unescape(match.group(1))
+                try:
+                    self.client.get(redirect_url)
+                except Exception as exc:  # noqa: BLE001
+                    raise RuntimeError(f"微博登录票据交换失败: {exc}") from None
         if not self.client.cookies.get("SUB"):
             raise RuntimeError("微博登录后未获取到 SUB cookie")
         cookie = "; ".join(f"{k}={v}" for k, v in self.client.cookies.items())
