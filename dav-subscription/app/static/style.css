@@ -97,6 +97,14 @@ a { color: var(--color-accent); text-decoration: none; }
 }
 .form-control::placeholder { color: var(--color-text-faint); }
 .form-control:focus { border-color: var(--color-accent); box-shadow: var(--shadow-focus-ring); }
+textarea.form-control {
+  height: auto;
+  width: 100%;
+  min-height: 150px;
+  padding: 12px 14px;
+  line-height: 1.6;
+  resize: vertical;
+}
 .form-error { color: var(--color-danger); font-size: var(--text-sm); min-height: 18px; margin: 0 0 12px; }
 .btn-normal {
   height: var(--control-height-2xl);
