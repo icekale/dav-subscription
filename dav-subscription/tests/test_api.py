@@ -650,6 +650,36 @@ def test_revoke_register_code():
     assert client.delete(f"/api/admin/register-codes/{codes[1]}", headers=admin_headers).status_code == 400
 
 
+def test_catalog_sorted_by_priority_and_activity():
+    client = make_client()
+    headers = auth_headers(client)
+    db = client.app.state.db
+    normal_id = db.add_kol("xueqiu", "普通A", "1")
+    priority_id = db.add_kol("xueqiu", "优先P", "2", priority=True)
+    old_post_id = db.insert_post("xueqiu", normal_id, "p1", "t", "c", "u", "")
+    db._execute("UPDATE posts SET fetched_at = datetime('now', '-1 day') WHERE id = ?", (old_post_id,))
+    active_id = db.add_kol("xueqiu", "活跃B", "3")
+    db.insert_post("xueqiu", active_id, "p2", "t2", "c2", "u", "")
+
+    ids = [k["id"] for k in client.get("/api/catalog", headers=headers).json()]
+    assert ids[0] == priority_id
+    assert ids.index(active_id) < ids.index(normal_id)
+
+
+def test_stats_include_source_health():
+    client = make_client()
+    headers = auth_headers(client)
+    db = client.app.state.db
+    db.set_setting("source_ok_xueqiu", str(1785840071))
+    db.set_setting("source_err_weibo", "登录失败")
+    db.set_setting("source_fails_weibo", "3")
+    stats = client.get("/api/stats", headers=headers).json()
+    sources = {s["platform"]: s for s in stats["sources"]}
+    assert sources["xueqiu"]["ok"] is True
+    assert sources["weibo"]["ok"] is False and sources["weibo"]["consecutive_fails"] == 3
+    assert sources["weibo"]["last_error"] == "登录失败"
+
+
 def test_posts_search_and_push_log_filters():
     client = make_client()
     headers = auth_headers(client)

@@ -21,6 +21,10 @@ polling:
   interval_seconds: 180
   jitter_seconds: 30
   notify_on_start: true
+  posts_retention_days: 30
+  push_logs_retention_days: 90
+  digest_interval_seconds: 600   # 普通大V合并推送周期；0 = 关闭合并（实时推）
+  source_probe_interval_seconds: 600  # 雪球 cookie 主动探测周期；0 = 关闭
 
 web:
   password: ""        # 可选：管理界面 Basic Auth 密码

@@ -316,6 +316,12 @@ def create_api_router(
         if not user["is_admin"]:
             visible = db.visible_kol_ids(user["id"])
             kols = [k for k in kols if k["id"] in visible]
+        # 按优先级 + 最近活跃排序：优先大V在前，组内最近活跃的靠前
+        last_post_at = db.last_post_time_by_kol()
+        kols.sort(
+            key=lambda k: (bool(k.get("priority")), last_post_at.get(k["id"]) or ""),
+            reverse=True,
+        )
         subscribed = db.subscribed_kol_ids(user["id"])
         return [{**kol, "subscribed": kol["id"] in subscribed} for kol in kols]
 
@@ -672,6 +678,22 @@ def create_api_router(
     @router.get("/stats", dependencies=[Depends(require_admin)])
     def stats():
         kols = db.list_kols()
+        sources = []
+        for platform in sorted(ALLOWED_PLATFORMS):
+            ok_at = db.get_setting(f"source_ok_{platform}")
+            err = db.get_setting(f"source_err_{platform}") or ""
+            fails = db.get_setting(f"source_fails_{platform}") or "0"
+            sources.append(
+                {
+                    "platform": platform,
+                    "ok": bool(ok_at),
+                    "last_ok_at": ok_at,
+                    "last_error": err,
+                    "consecutive_fails": int(fails),
+                }
+            )
+        xueqiu_cookie = db.get_setting("xueqiu_cookie") or ""
+        xueqiu_updated = db.get_setting("xueqiu_cookie_updated_at") or ""
         return {
             "polling_interval_seconds": int(db.get_setting("stats_polling_interval") or 0),
             "posts_retention_days": int(db.get_setting("stats_posts_retention_days") or 0),
@@ -683,6 +705,12 @@ def create_api_router(
             "priority_kols": sum(1 for k in kols if k.get("priority")),
             "users": db.count_users(),
             "posts": db.count_posts(),
+            "sources": sources,
+            "xueqiu_cookie": {
+                "set": bool(xueqiu_cookie),
+                "updated_at": xueqiu_updated,
+                "preview": (xueqiu_cookie[:40] + "…") if len(xueqiu_cookie) > 40 else xueqiu_cookie,
+            },
         }
 
     @router.put("/users/{user_id}", dependencies=[Depends(require_admin)])

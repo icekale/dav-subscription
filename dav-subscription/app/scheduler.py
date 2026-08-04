@@ -21,6 +21,10 @@ PUSH_ALERT_INTERVAL = 3600
 SOURCE_ALERT_INTERVAL = 6 * 3600
 SOURCE_FAIL_THRESHOLD = 3
 PLATFORM_LABELS = {"xueqiu": "雪球", "weibo": "微博", "twitter": "X"}
+SOURCE_OK_KEY = "source_ok_{platform}"
+SOURCE_ERR_KEY = "source_err_{platform}"
+SOURCE_FAILS_KEY = "source_fails_{platform}"
+XUEQIU_PROBE_ALERT_KEY = "xueqiu_probe_alert_at"
 
 
 def _post_sort_key(post: Post) -> float:
@@ -219,6 +223,7 @@ def poll_once(
     notifiers_config=None,
     interval_seconds: int = 180,
     priority_interval_seconds: int = 60,
+    digest: dict[int, list[Post]] | None = None,
 ) -> None:
     """执行一轮：遍历启用 KOL → 抓取 → 去重 → 推送。"""
     states = states if states is not None else {}
@@ -260,11 +265,15 @@ def poll_once(
                 kw in str(exc) for kw in ("cookie", "WAF", "反爬")
             ):
                 maybe_warn_xueqiu_cookie(db, notifiers, str(exc))
+            db.set_setting(SOURCE_ERR_KEY.format(platform=kol["platform"]), str(exc)[:300])
+            db.set_setting(SOURCE_FAILS_KEY.format(platform=kol["platform"]), str(state.fail_count))
             continue
         if state.alerted:
             maybe_alert_source_recovered(db, notifiers, kol["platform"], kol["name"])
             state.alerted = False
         state.fail_count = 0
+        db.set_setting(SOURCE_OK_KEY.format(platform=kol["platform"]), str(int(time.time())))
+        db.set_setting(SOURCE_FAILS_KEY.format(platform=kol["platform"]), "0")
         state.last_fetched[kol["id"]] = now
         # 按发布时间升序推送，避免各平台返回顺序（置顶/反爬兜底）导致乱序
         posts = sorted(posts, key=_post_sort_key)
@@ -282,20 +291,192 @@ def poll_once(
             if post_id is None:
                 continue
             logger.info("新帖 platform=%s kol=%s id=%s", post.platform, post.kol_name, post.external_id)
-            notify_post(db, post_id, post, notifiers)
-            notify_subscribers(db, post_id, post, notifiers_config, notifiers)
+            if digest is not None and not kol.get("priority"):
+                # 普通大V进入合并摘要缓冲，按 digest_interval 周期统一推送
+                digest.setdefault(kol["id"], []).append(post)
+            else:
+                notify_post(db, post_id, post, notifiers)
+                notify_subscribers(db, post_id, post, notifiers_config, notifiers)
+
+
+def notify_digest_subscribers(
+    db: DB, posts: list[Post], kol: dict, notifiers_config, notifiers=None
+) -> None:
+    """把合并摘要推送给订阅了该大V的用户（各自绑定的渠道，带退订按钮）。"""
+    if notifiers_config is None or not posts:
+        return
+    import httpx
+
+    from .notifiers.feishu import FeishuNotifier
+    from .notifiers.telegram import TelegramNotifier
+
+    global_tg_chat = notifiers_config.telegram.chat_id
+    global_tg_active = bool(notifiers_config.telegram.bot_token and global_tg_chat)
+    client = httpx.Client(timeout=15)
+    try:
+        for user in db.subscribers_of_kol(kol["id"]):
+            if user["telegram_chat_id"] and notifiers_config.telegram.bot_token:
+                if global_tg_active and user["telegram_chat_id"] == global_tg_chat:
+                    continue
+                notifier = TelegramNotifier(
+                    notifiers_config.telegram,
+                    client=client,
+                    chat_id=user["telegram_chat_id"],
+                    unsub_kol_id=kol["id"],
+                )
+                try:
+                    notifier.send_digest(posts, kol["name"], kol["platform"])
+                    for post in posts:
+                        db.add_push_log(
+                            db.get_post_id(post.platform, post.external_id),
+                            "telegram",
+                            "success",
+                            user_id=user["id"],
+                        )
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("摘要推送失败 user=%s channel=telegram err=%s", user["username"], exc)
+                    for post in posts:
+                        db.add_push_log(
+                            db.get_post_id(post.platform, post.external_id),
+                            "telegram",
+                            "failed",
+                            str(exc),
+                            user_id=user["id"],
+                        )
+            if user["feishu_open_id"]:
+                notifier = FeishuNotifier(
+                    notifiers_config.feishu,
+                    client=client,
+                    open_id=user["feishu_open_id"] if not user.get("feishu_chat_id") else None,
+                    chat_id=user.get("feishu_chat_id") or None,
+                    unsub_kol_id=kol["id"],
+                )
+                try:
+                    notifier.send_digest(posts, kol["name"], kol["platform"])
+                    for post in posts:
+                        db.add_push_log(
+                            db.get_post_id(post.platform, post.external_id),
+                            "feishu",
+                            "success",
+                            user_id=user["id"],
+                        )
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("摘要推送失败 user=%s channel=feishu err=%s", user["username"], exc)
+                    for post in posts:
+                        db.add_push_log(
+                            db.get_post_id(post.platform, post.external_id),
+                            "feishu",
+                            "failed",
+                            str(exc),
+                            user_id=user["id"],
+                        )
+    finally:
+        client.close()
+
+
+def flush_digest(db: DB, digest: dict[int, list[Post]], notifiers: list[Notifier], notifiers_config) -> None:
+    """到点把缓冲的摘要统一推送：全局通知器 + 订阅者。"""
+    if not digest:
+        return
+    items = list(digest.items())
+    digest.clear()
+    for kol_id, posts in items:
+        kol = db.get_kol(kol_id)
+        if kol is None or not posts:
+            continue
+        for notifier in notifiers:
+            send = getattr(notifier, "send_digest", None)
+            if send is None:
+                for post in posts:
+                    post_id = db.insert_post_id(post.platform, post.external_id)
+                    if post_id:
+                        notify_post(db, post_id, post, [notifier])
+                continue
+            try:
+                send(posts, kol["name"], kol["platform"])
+                for post in posts:
+                    db.add_push_log(
+                        db.get_post_id(post.platform, post.external_id),
+                        notifier.channel,
+                        "success",
+                    )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("全局摘要推送失败 channel=%s err=%s", notifier.channel, exc)
+                for post in posts:
+                    db.add_push_log(
+                        db.get_post_id(post.platform, post.external_id),
+                        notifier.channel,
+                        "failed",
+                        str(exc),
+                    )
+        notify_digest_subscribers(db, posts, kol, notifiers_config, notifiers)
+
+
+def probe_xueqiu(db: DB, notifiers: list[Notifier], source_config) -> None:
+    """主动探测雪球 cookie/反爬状态，WAF 拦截时提前告警。"""
+    import httpx
+
+    from .fetchers.xueqiu import XUEQIU_COOKIE_KEY, _is_waf_html
+
+    cookie = db.get_setting(XUEQIU_COOKIE_KEY) or source_config.cookie
+    client = httpx.Client(
+        timeout=15,
+        follow_redirects=True,
+        headers={
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X)",
+            "Referer": "https://xueqiu.com/",
+            **({"Cookie": cookie} if cookie else {}),
+        },
+    )
+    try:
+        resp = client.get("https://xueqiu.com/")
+        blocked = _is_waf_html(resp) or resp.status_code in (401, 403)
+        if blocked:
+            db.set_setting(SOURCE_ERR_KEY.format(platform="xueqiu"), "WAF/反爬拦截（探测）")
+            now = int(time.time())
+            last = db.get_setting(XUEQIU_PROBE_ALERT_KEY)
+            if not last or now - int(last) >= SOURCE_ALERT_INTERVAL:
+                db.set_setting(XUEQIU_PROBE_ALERT_KEY, str(now))
+                message = (
+                    "⚠️ 雪球探测异常：访问 xueqiu.com 被反爬拦截或返回异常状态，"
+                    "cookie 可能失效。请到后台「数据源」页更新雪球 cookie。"
+                )
+                for notifier in notifiers:
+                    try:
+                        notifier.send_text(message)
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning("雪球探测告警发送失败 channel=%s err=%s", notifier.channel, exc)
+            return
+        db.set_setting(SOURCE_OK_KEY.format(platform="xueqiu"), str(int(time.time())))
+    except Exception as exc:  # noqa: BLE001
+        db.set_setting(SOURCE_ERR_KEY.format(platform="xueqiu"), str(exc)[:300])
+        logger.warning("雪球探测失败: %s", exc)
+    finally:
+        client.close()
 
 
 class Scheduler:
-    def __init__(self, db, fetchers, notifiers, polling_config, notifiers_config=None):
+    def __init__(
+        self,
+        db,
+        fetchers,
+        notifiers,
+        polling_config,
+        notifiers_config=None,
+        xueqiu_config=None,
+    ):
         self.db = db
         self.fetchers = fetchers
         self.notifiers = notifiers
         self.polling_config = polling_config
         self.notifiers_config = notifiers_config
+        self.xueqiu_config = xueqiu_config
         self.states: dict[str, PlatformState] = {}
+        self._digest: dict[int, list[Post]] = {}
         self._stop = asyncio.Event()
         self._last_cleanup = 0.0
+        self._last_digest_flush = 0.0
+        self._last_xueqiu_probe = 0.0
 
     def stop(self):
         self._stop.set()
@@ -322,6 +503,7 @@ class Scheduler:
                     self.notifiers_config,
                     self.polling_config.interval_seconds,
                     self.polling_config.priority_interval_seconds,
+                    self._digest if self.polling_config.digest_interval_seconds > 0 else None,
                 )
                 self.db.set_setting("stats_last_poll_at", str(int(time.time())))
                 self.db.set_setting(
@@ -332,8 +514,39 @@ class Scheduler:
             except Exception:  # noqa: BLE001 - 任何异常都不能终止循环
                 logger.exception("轮询周期异常")
                 self.db.set_setting("stats_last_poll_error", "轮询周期异常")
-            # 定期清理过期帖子（默认每 6 小时检查一次）
             now_mono = time.monotonic()
+            # 合并摘要到点统一推送（普通大V，优先大V保持实时）
+            digest_interval = self.polling_config.digest_interval_seconds
+            if (
+                digest_interval > 0
+                and self._digest
+                and now_mono - self._last_digest_flush >= digest_interval
+            ):
+                self._last_digest_flush = now_mono
+                try:
+                    await asyncio.to_thread(
+                        flush_digest,
+                        self.db,
+                        self._digest,
+                        self.notifiers,
+                        self.notifiers_config,
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.exception("摘要推送失败")
+            # 雪球 cookie 主动探测
+            probe_interval = self.polling_config.source_probe_interval_seconds
+            if probe_interval > 0 and now_mono - self._last_xueqiu_probe >= probe_interval:
+                self._last_xueqiu_probe = now_mono
+                try:
+                    await asyncio.to_thread(
+                        probe_xueqiu,
+                        self.db,
+                        self.notifiers,
+                        self.xueqiu_config,
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.exception("雪球探测异常")
+            # 定期清理过期帖子（默认每 6 小时检查一次）
             if now_mono - self._last_cleanup > 6 * 3600:
                 self._last_cleanup = now_mono
                 retention = self.polling_config.posts_retention_days
@@ -344,6 +557,14 @@ class Scheduler:
                             logger.info("清理过期帖子 %d 条（保留 %d 天）", removed, retention)
                     except Exception:  # noqa: BLE001
                         logger.exception("帖子清理失败")
+                log_retention = self.polling_config.push_logs_retention_days
+                if log_retention > 0:
+                    try:
+                        removed_logs = self.db.delete_push_logs_older_than(log_retention)
+                        if removed_logs:
+                            logger.info("清理推送日志 %d 条（保留 %d 天）", removed_logs, log_retention)
+                    except Exception:  # noqa: BLE001
+                        logger.exception("推送日志清理失败")
             elapsed = time.monotonic() - started
             delay = self.polling_config.interval_seconds + random.uniform(
                 0, self.polling_config.jitter_seconds

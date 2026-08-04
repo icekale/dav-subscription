@@ -4,7 +4,7 @@ from pathlib import Path
 from app.config import FeishuConfig, NotifiersConfig, TelegramConfig
 from app.db import DB
 from app.fetchers.base import Post
-from app.scheduler import poll_once
+from app.scheduler import flush_digest, poll_once
 
 
 class FakeFetcher:
@@ -32,6 +32,17 @@ class FakeNotifier:
 
     def send_text(self, text):
         self.texts.append(text)
+
+
+class FakeDigestNotifier(FakeNotifier):
+    channel = "digest"
+
+    def __init__(self):
+        super().__init__()
+        self.digests = []
+
+    def send_digest(self, posts, kol_name, platform):
+        self.digests.append((posts, kol_name, platform))
 
 
 def make_db() -> DB:
@@ -147,6 +158,67 @@ def test_source_failure_alert_and_recovery(monkeypatch):
     clock["t"] += 3600
     poll_once(db, {"xueqiu": FakeFetcher([make_post(kid)])}, [notifier], states, interval_seconds=0)
     assert any("数据源已恢复" in t for t in notifier.texts)
+
+
+def test_digest_buffers_non_priority_and_flushes():
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")  # 普通大V
+    notifier = FakeDigestNotifier()
+    digest: dict[int, list] = {}
+    posts = [make_post(kid), make_post(kid)]
+    posts[1].external_id = "p2"
+    poll_once(
+        db,
+        {"xueqiu": FakeFetcher(posts)},
+        [notifier],
+        interval_seconds=0,
+        digest=digest,
+    )
+    # 普通大V不立即推送，进入摘要缓冲
+    assert notifier.calls == [] and notifier.digests == []
+    assert len(digest.get(kid, [])) == 2
+
+    flush_digest(db, digest, [notifier], None)
+    assert len(notifier.digests) == 1
+    assert notifier.digests[0][1] == "A" and len(notifier.digests[0][0]) == 2
+    assert digest == {}
+
+
+def test_priority_kol_bypasses_digest():
+    db = make_db()
+    kid = db.add_kol("xueqiu", "P", "1", priority=True)
+    notifier = FakeNotifier()
+    digest: dict[int, list] = {}
+    poll_once(
+        db,
+        {"xueqiu": FakeFetcher([make_post(kid)])},
+        [notifier],
+        interval_seconds=0,
+        digest=digest,
+    )
+    assert len(notifier.calls) == 1
+    assert digest == {}
+
+
+def test_source_health_recorded():
+    db = make_db()
+    db.add_kol("xueqiu", "A", "1")
+    poll_once(db, {"xueqiu": FakeFetcherError()}, [FakeNotifier()], interval_seconds=0)
+    assert db.get_setting("source_fails_xueqiu") == "1"
+    assert db.get_setting("source_err_xueqiu") == "boom"
+    poll_once(db, {"xueqiu": FakeFetcher([make_post(1)])}, [FakeNotifier()], interval_seconds=0)
+    assert db.get_setting("source_fails_xueqiu") == "0"
+    assert db.get_setting("source_ok_xueqiu") is not None
+
+
+def test_push_logs_retention():
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    pid = db.insert_post("xueqiu", kid, "p1", "t", "c", "u", "")
+    db.add_push_log(pid, "telegram", "success")
+    db._execute("UPDATE push_logs SET created_at = datetime('now', '-10 days') WHERE id = ?", (1,))
+    assert db.delete_push_logs_older_than(7) == 1
+    assert db.delete_push_logs_older_than(7) == 0
 
 
 def test_push_failure_logged():

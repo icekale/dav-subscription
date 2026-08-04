@@ -128,6 +128,16 @@ class TelegramBot:
             str(chat_id),
             (cb.get("from") or {}).get("username") or "",
         )
+        if data.startswith("unsub:"):
+            try:
+                kol_id = int(data.split(":", 1)[1])
+            except ValueError:
+                kol_id = 0
+            kol = self.db.get_kol(kol_id)
+            if kol is not None:
+                self.db.remove_subscription(user["id"], kol_id)
+                self._edit(chat_id, message_id, f"已取消订阅「{kol['name']}」")
+            return
         if data.startswith("list:"):
             parts = data.split(":")
             if len(parts) == 3:

@@ -629,6 +629,19 @@ async function loadAdminStats() {
         ${statCard("帖子", s.posts)}
       </div>
       ${s.last_poll_error ? `<div class="notice" style="margin-top:16px">最近轮询异常：${escapeHtml(s.last_poll_error)}</div>` : ""}
+      <div class="table-wrap" style="margin-top:16px">
+        <table>
+          <thead><tr><th>平台</th><th>状态</th><th>最近成功</th><th>最近失败</th><th>连续失败</th></tr></thead>
+          <tbody>${(s.sources || []).map((src) => `
+            <tr>
+              <td>${PLATFORM_LABELS[src.platform] || src.platform}</td>
+              <td class="${src.ok ? "status-ok" : "status-fail"}">${src.ok ? "正常" : "无成功记录"}</td>
+              <td>${src.last_ok_at ? fmtTime(src.last_ok_at) : "-"}</td>
+              <td class="muted">${src.last_error ? escapeHtml(src.last_error.slice(0, 60)) : "-"}</td>
+              <td class="${src.consecutive_fails >= 3 ? "status-fail" : ""}">${src.consecutive_fails}</td>
+            </tr>`).join("")}</tbody>
+        </table>
+      </div>
       <div style="margin-top:16px">
         <button class="btn-normal" onclick="startWeiboQr()">微博扫码登录</button>
         <span class="muted" style="margin-left:10px">用微博 App 扫码后自动保存 Cookie，无需手动复制</span>

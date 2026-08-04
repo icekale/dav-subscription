@@ -7,7 +7,9 @@ import pytest
 from app.config import FeishuConfig, TelegramConfig
 from app.fetchers.base import Post
 from app.notifiers.feishu import FeishuNotifier
+from app.notifiers.feishu import build_feishu_digest_card
 from app.notifiers.telegram import TelegramNotifier
+from app.notifiers.telegram import build_telegram_digest
 
 
 def make_post() -> Post:
@@ -110,3 +112,57 @@ def test_telegram_unconfigured_raises():
     notifier = TelegramNotifier(TelegramConfig())
     with pytest.raises(RuntimeError):
         notifier.notify(make_post())
+
+
+def test_telegram_unsub_button():
+    sent = {}
+
+    def handler(request):
+        form = parse_qs(request.read().decode("utf-8"))
+        sent.update(form)
+        return httpx.Response(200, json={"ok": True})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    notifier = TelegramNotifier(
+        TelegramConfig(bot_token="123:abc", chat_id="456"),
+        client=client,
+        unsub_kol_id=7,
+    )
+    notifier.notify(make_post())
+    markup = sent["reply_markup"][0]
+    assert "退订" in markup and '"callback_data": "unsub:7"' in markup
+
+
+def test_feishu_unsub_button():
+    sent = {}
+
+    def handler(request):
+        sent.setdefault("calls", []).append(request.read().decode("utf-8"))
+        if "tenant_access_token" in str(request.url):
+            return httpx.Response(200, json={"code": 0, "tenant_access_token": "tok"})
+        return httpx.Response(200, json={"code": 0, "msg": "success"})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    notifier = FeishuNotifier(
+        FeishuConfig(app_id="a", app_secret="s"),
+        client=client,
+        open_id="ou_1",
+        unsub_kol_id=7,
+    )
+    notifier.notify(make_post())
+    body = sent["calls"][-1]
+    assert "退订" in body and '"kol_id\\": 7' in body
+
+
+def test_digest_builders():
+    posts = [make_post(), make_post()]
+    posts[0].external_id = "w1"
+    posts[1].external_id = "w2"
+    posts[1].content = "d"
+
+    text = build_telegram_digest(posts, "李四", "weibo")
+    assert "📌 李四 · 微博" in text and "2 条新动态" in text and "1." in text and "2." in text
+
+    card = build_feishu_digest_card(posts, "李四", "weibo")
+    assert "2 条新动态" in card["header"]["title"]["content"]
+    assert len(card["elements"]) >= 2

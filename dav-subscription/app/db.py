@@ -209,6 +209,13 @@ class DB:
         sql += " ORDER BY k.id"
         return self._rows(sql, params)
 
+    def last_post_time_by_kol(self) -> dict[int, str]:
+        """每个大V最近一次抓到帖子的时间（fetched_at），用于活跃度排序。"""
+        rows = self._rows(
+            "SELECT kol_id, MAX(fetched_at) AS last_at FROM posts GROUP BY kol_id"
+        )
+        return {r["kol_id"]: r["last_at"] for r in rows}
+
     def update_kol(
         self,
         kol_id: int,
@@ -557,6 +564,13 @@ class DB:
         )
         return bool(rows)
 
+    def get_post_id(self, platform: str, external_id: str) -> int | None:
+        rows = self._rows(
+            "SELECT id FROM posts WHERE platform = ? AND external_id = ?",
+            (platform, external_id),
+        )
+        return rows[0]["id"] if rows else None
+
     def insert_post(self, platform, kol_id, external_id, title, content, url, published_at) -> int | None:
         if self.post_exists(platform, external_id):
             return None
@@ -603,6 +617,18 @@ class DB:
     def count_posts(self) -> int:
         rows = self._rows("SELECT COUNT(*) AS n FROM posts")
         return rows[0]["n"]
+
+    def delete_push_logs_older_than(self, days: int) -> int:
+        """删除超过 N 天的推送日志，返回删除条数（帖子保留期之外的独立清理）。"""
+        if days <= 0:
+            return 0
+        with self._lock:
+            cur = self._conn.execute(
+                "DELETE FROM push_logs WHERE created_at < datetime('now', ?)",
+                (f"-{days} days",),
+            )
+            self._conn.commit()
+            return cur.rowcount
 
     def delete_posts_older_than(self, days: int) -> int:
         """删除超过 N 天的帖子及其推送记录，返回删除条数。"""

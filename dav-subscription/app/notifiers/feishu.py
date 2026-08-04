@@ -11,6 +11,7 @@ from ..fetchers.base import Post
 from .base import Notifier
 
 PLATFORM_LABELS = {"xueqiu": "雪球", "weibo": "微博", "twitter": "X/Twitter"}
+DIGEST_MAX_ITEMS = 5
 
 _token_cache: dict[tuple[str, str], tuple[str, float]] = {}
 _token_lock = threading.Lock()
@@ -77,15 +78,69 @@ def build_feishu_card(post: Post) -> dict:
     }
 
 
+def build_feishu_digest_card(posts: list[Post], kol_name: str, platform: str) -> dict:
+    platform_label = PLATFORM_LABELS.get(platform, platform)
+    elements = []
+    for i, post in enumerate(posts[:DIGEST_MAX_ITEMS], 1):
+        body = (post.content[:120] or post.title or "（无正文）").replace("\n", " ")
+        time_line = f"🕐 {post.published_at}" if post.published_at else ""
+        text = f"{i}. {body}"
+        if time_line:
+            text += f"\n{time_line}"
+        elements.append({"tag": "div", "text": {"tag": "lark_md", "content": text}})
+        if post.url:
+            elements.append(
+                {
+                    "tag": "action",
+                    "actions": [
+                        {
+                            "tag": "button",
+                            "text": {"tag": "plain_text", "content": f"查看原文 {i}"},
+                            "type": "default",
+                            "url": post.url,
+                        }
+                    ],
+                }
+            )
+    if len(posts) > DIGEST_MAX_ITEMS:
+        elements.append(
+            {
+                "tag": "note",
+                "elements": [
+                    {"tag": "plain_text", "content": f"… 还有 {len(posts) - DIGEST_MAX_ITEMS} 条未展示"}
+                ],
+            }
+        )
+    return {
+        "config": {"wide_screen_mode": True},
+        "header": {
+            "title": {
+                "tag": "plain_text",
+                "content": f"📌 {kol_name} · {platform_label}（{len(posts)} 条新动态）",
+            },
+            "template": "blue",
+        },
+        "elements": elements,
+    }
+
+
 class FeishuNotifier(Notifier):
     channel = "feishu"
 
-    def __init__(self, config, client: httpx.Client | None = None, open_id: str | None = None, chat_id: str | None = None):
+    def __init__(
+        self,
+        config,
+        client: httpx.Client | None = None,
+        open_id: str | None = None,
+        chat_id: str | None = None,
+        unsub_kol_id: int | None = None,
+    ):
         self.webhook_url = config.webhook_url
         self.app_id = config.app_id
         self.app_secret = config.app_secret
         self.open_id = open_id
         self.chat_id = chat_id
+        self.unsub_kol_id = unsub_kol_id
         self.client = client or httpx.Client(timeout=15)
 
     def _tenant_access_token(self) -> str:
@@ -98,13 +153,12 @@ class FeishuNotifier(Notifier):
         if data.get("code") not in (None, 0):
             raise RuntimeError(f"飞书返回错误: {data.get('msg', data)}")
 
-    def notify(self, post: Post) -> None:
+    def _send_card(self, card: dict) -> None:
         if self.open_id or self.chat_id:
             token = self._tenant_access_token()
             receive_id_type = "open_id" if self.open_id else "chat_id"
             receive_id = self.open_id or self.chat_id
             # 应用消息 API 的 content 只需要 card 本体（不含 msg_type/card 外层）
-            card = build_feishu_card(post)["card"]
             resp = self.client.post(
                 f"https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type={receive_id_type}",
                 headers={"Authorization": f"Bearer {token}"},
@@ -120,7 +174,28 @@ class FeishuNotifier(Notifier):
             return
         if not self.webhook_url:
             raise RuntimeError("未配置飞书 webhook_url 或应用凭据")
-        self._post(build_feishu_card(post))
+        self._post({"msg_type": "interactive", "card": card})
+
+    def notify(self, post: Post) -> None:
+        card = build_feishu_card(post)["card"]
+        if self.unsub_kol_id is not None:
+            card["elements"].append(
+                {
+                    "tag": "action",
+                    "actions": [
+                        {
+                            "tag": "button",
+                            "text": {"tag": "plain_text", "content": "退订"},
+                            "type": "default",
+                            "value": {"action": "unsub", "kol_id": self.unsub_kol_id},
+                        }
+                    ],
+                }
+            )
+        self._send_card(card)
+
+    def send_digest(self, posts: list[Post], kol_name: str, platform: str) -> None:
+        self._send_card(build_feishu_digest_card(posts, kol_name, platform))
 
     def send_text(self, text: str) -> None:
         if self.open_id or self.chat_id:

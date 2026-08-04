@@ -56,6 +56,9 @@ class PollingConfig:
     jitter_seconds: int = 30
     notify_on_start: bool = True
     posts_retention_days: int = 30
+    push_logs_retention_days: int = 90
+    digest_interval_seconds: int = 600
+    source_probe_interval_seconds: int = 600
 
 
 @dataclass
@@ -101,6 +104,9 @@ _ENV_MAP = {
     "POLLING_PRIORITY_INTERVAL_SECONDS": ("polling", "priority_interval_seconds"),
     "POLLING_JITTER_SECONDS": ("polling", "jitter_seconds"),
     "POLLING_POSTS_RETENTION_DAYS": ("polling", "posts_retention_days"),
+    "POLLING_PUSH_LOGS_RETENTION_DAYS": ("polling", "push_logs_retention_days"),
+    "POLLING_DIGEST_INTERVAL_SECONDS": ("polling", "digest_interval_seconds"),
+    "POLLING_SOURCE_PROBE_INTERVAL_SECONDS": ("polling", "source_probe_interval_seconds"),
     "NOTIFY_ON_START": ("polling", "notify_on_start"),
     "WEB_PASSWORD": ("web", "password"),
     "WEB_ALLOW_REGISTER": ("web", "allow_register"),
@@ -138,6 +144,9 @@ def _validate(config: Config) -> None:
         ("polling.priority_interval_seconds", config.polling, "priority_interval_seconds", int),
         ("polling.jitter_seconds", config.polling, "jitter_seconds", int),
         ("polling.posts_retention_days", config.polling, "posts_retention_days", int),
+        ("polling.push_logs_retention_days", config.polling, "push_logs_retention_days", int),
+        ("polling.digest_interval_seconds", config.polling, "digest_interval_seconds", int),
+        ("polling.source_probe_interval_seconds", config.polling, "source_probe_interval_seconds", int),
         ("polling.notify_on_start", config.polling, "notify_on_start", bool),
         ("web.allow_register", config.web, "allow_register", bool),
     )
@@ -169,6 +178,12 @@ def _validate(config: Config) -> None:
         raise ValueError("配置项 polling.jitter_seconds 必须 >= 0")
     if config.polling.posts_retention_days < 0:
         raise ValueError("配置项 polling.posts_retention_days 必须 >= 0")
+    if config.polling.push_logs_retention_days < 0:
+        raise ValueError("配置项 polling.push_logs_retention_days 必须 >= 0")
+    if config.polling.digest_interval_seconds < 0:
+        raise ValueError("配置项 polling.digest_interval_seconds 必须 >= 0")
+    if config.polling.source_probe_interval_seconds < 0:
+        raise ValueError("配置项 polling.source_probe_interval_seconds 必须 >= 0")
 
 
 def load_config(path: str | Path | None = None) -> Config:
@@ -188,6 +203,9 @@ def load_config(path: str | Path | None = None) -> Config:
                 "POLLING_PRIORITY_INTERVAL_SECONDS",
                 "POLLING_JITTER_SECONDS",
                 "POLLING_POSTS_RETENTION_DAYS",
+                "POLLING_PUSH_LOGS_RETENTION_DAYS",
+                "POLLING_DIGEST_INTERVAL_SECONDS",
+                "POLLING_SOURCE_PROBE_INTERVAL_SECONDS",
             ):
                 value = int(value)
             elif env_name in ("NOTIFY_ON_START", "WEB_ALLOW_REGISTER"):

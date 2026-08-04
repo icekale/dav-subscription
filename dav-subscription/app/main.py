@@ -40,7 +40,9 @@ def create_app(config=None, db_path: str | Path | None = None) -> FastAPI:
             )
     fetchers = build_fetchers(config, db)
     notifiers = build_notifiers(config)
-    scheduler = Scheduler(db, fetchers, notifiers, config.polling, config.notifiers)
+    scheduler = Scheduler(
+        db, fetchers, notifiers, config.polling, config.notifiers, config.sources.xueqiu
+    )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):

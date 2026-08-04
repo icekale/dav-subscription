@@ -85,6 +85,9 @@ docker compose up -d --build
 | `polling.interval_seconds` | 轮询间隔（默认 180） |
 | `polling.jitter_seconds` | 随机抖动（默认 30） |
 | `polling.notify_on_start` | 启动时发上线消息（默认 true） |
+| `polling.digest_interval_seconds` | 普通大V合并推送周期（默认 600；0 = 关闭合并，实时推） |
+| `polling.push_logs_retention_days` | 推送日志保留天数（默认 90，独立于帖子保留期） |
+| `polling.source_probe_interval_seconds` | 雪球 cookie 主动探测周期（默认 600；0 = 关闭） |
 | `web.allow_register` | 是否开放自助注册（默认 true） |
 | `web.admin_password` | 可选，启动时创建 `admin` 管理员账号（密码） |
 | `web.token_secret` | 可选，token 签名密钥，留空自动生成并持久化 |
@@ -160,7 +163,18 @@ RSS 源不稳定时该平台会暂时抓不到，建议自建 RSSHub 保证可�
 
 ## 数据保留
 
-帖子与推送记录默认保留 30 天（`polling.posts_retention_days`，0 表示永久保留），调度器每 6 小时自动清理超期数据，避免 SQLite 无限膨胀。
+帖子默认保留 30 天（`polling.posts_retention_days`，0 表示永久保留），推送日志默认保留 90 天
+（`polling.push_logs_retention_days`），调度器每 6 小时自动清理超期数据，避免 SQLite 无限膨胀。
+
+## 数据源健康与备份
+
+- 后台「数据源」页展示每个平台最近成功/失败时间、连续失败次数与雪球 cookie 状态；平台连续失败 3 次会通过
+  Telegram 告警，恢复后自动通知。
+- 雪球 cookie 支持后台直接写入（数据源页），调度器会按 `source_probe_interval_seconds` 主动探测反爬状态。
+- Unraid 定时备份：在 User Scripts 里配置 daily，命令
+  `bash /mnt/user/appdata/dav-subscription/scripts/backup_unraid.sh`（保留最近 14 份，可设 `KEEP`）。
+- 自建 RSSHub：`docker compose -f deploy/docker-compose.rsshub.yml up -d`，X 大V的地址换成
+  `http://<Unraid IP>:1200/twitter/user/用户名` 更稳定。
 
 ## 安全提示
 
