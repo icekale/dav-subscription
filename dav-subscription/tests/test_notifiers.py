@@ -52,6 +52,34 @@ def test_feishu_business_error_raises():
         notifier.notify(make_post())
 
 
+def test_feishu_app_send_open_id_and_chat_id():
+    calls = []
+
+    def handler(request):
+        calls.append(str(request.url))
+        if "tenant_access_token" in str(request.url):
+            return httpx.Response(200, json={"code": 0, "tenant_access_token": "tok"})
+        return httpx.Response(200, json={"code": 0, "msg": "success"})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    cfg = FeishuConfig(app_id="a", app_secret="s")
+
+    FeishuNotifier(cfg, client=client, open_id="ou_test").notify(make_post())
+    assert any("receive_id_type=open_id" in u for u in calls)
+
+    calls.clear()
+    FeishuNotifier(cfg, client=client, chat_id="oc_test").notify(make_post())
+    assert any("receive_id_type=chat_id" in u for u in calls)
+
+    # 未配置凭据时报错
+    try:
+        FeishuNotifier(FeishuConfig(), client=client, open_id="ou_test").notify(make_post())
+    except RuntimeError as exc:
+        assert "凭据" in str(exc)
+        return
+    raise AssertionError("未配置凭据应报错")
+
+
 def test_telegram_success():
     def handler(request):
         assert "api.telegram.org" in str(request.url)

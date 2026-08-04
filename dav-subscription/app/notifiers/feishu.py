@@ -55,11 +55,12 @@ def build_feishu_card(post: Post) -> dict:
 class FeishuNotifier(Notifier):
     channel = "feishu"
 
-    def __init__(self, config, client: httpx.Client | None = None, open_id: str | None = None):
+    def __init__(self, config, client: httpx.Client | None = None, open_id: str | None = None, chat_id: str | None = None):
         self.webhook_url = config.webhook_url
         self.app_id = config.app_id
         self.app_secret = config.app_secret
         self.open_id = open_id
+        self.chat_id = chat_id
         self.client = client or httpx.Client(timeout=15)
 
     def _tenant_access_token(self) -> str:
@@ -83,18 +84,21 @@ class FeishuNotifier(Notifier):
             raise RuntimeError(f"飞书返回错误: {data.get('msg', data)}")
 
     def notify(self, post: Post) -> None:
-        if self.open_id:
+        if self.open_id or self.chat_id:
             token = self._tenant_access_token()
+            receive_id_type = "open_id" if self.open_id else "chat_id"
+            receive_id = self.open_id or self.chat_id
+            # 应用消息 API 的 content 只需要 card 本体（不含 msg_type/card 外层）
+            card = build_feishu_card(post)["card"]
             resp = self.client.post(
-                "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=open_id",
+                f"https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type={receive_id_type}",
                 headers={"Authorization": f"Bearer {token}"},
                 json={
-                    "receive_id": self.open_id,
+                    "receive_id": receive_id,
                     "msg_type": "interactive",
-                    "content": json.dumps(build_feishu_card(post), ensure_ascii=False),
+                    "content": json.dumps(card, ensure_ascii=False),
                 },
             )
-            resp.raise_for_status()
             data = resp.json()
             if data.get("code") != 0:
                 raise RuntimeError(f"飞书发送失败: {data.get('msg', data)}")
