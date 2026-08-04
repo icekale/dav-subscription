@@ -4,7 +4,8 @@ services:
     container_name: dav-subscription
     network_mode: bridge
     ports:
-      - "8000:8000"
+      # 宿主机 8000 常被其他服务占用，Unraid 部署用 18084 对外
+      - "18084:8000"
     environment:
       TZ: Asia/Shanghai
       CONFIG_PATH: /app/config.yaml

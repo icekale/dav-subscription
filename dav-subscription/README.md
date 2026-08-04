@@ -147,7 +147,7 @@ RSS 源不稳定时该平台会暂时抓不到，建议自建 RSSHub 保证可�
 
 1. 在 Unraid 里装好 Docker Compose（或使用 Docker Compose Manager 插件），添加项目 `/mnt/user/appdata/dav-subscription/docker-compose.unraid.yml`
 2. 在 compose 的「环境变量」里填好密钥：`FEISHU_APP_ID/SECRET`、`TELEGRAM_BOT_TOKEN`、`WECHAT_APP_ID/SECRET`（暂无微信可留空）、`XUEQIU_COOKIE`、`WEB_ADMIN_PASSWORD`、`WEB_TOKEN_SECRET`；或在该目录建一个 `.env` 文件
-3. 启动后访问 `http://<Unraid IP>:8000`，第一个页面注册管理员
+3. 启动后访问 `http://<Unraid IP>:18084`（宿主机 8000 常被占用，Unraid 用 18084 对外）
 4. 数据保存在 `/mnt/user/appdata/dav-subscription/data/dav.db`，备份用 `python3 scripts/backup.py`（或在 Unraid 上定期复制该目录）
 
 > 局域网 HTTP 部署即可，不需要 HTTPS；如要对外提供小程序服务再走生产 compose（Caddy + 域名）。
