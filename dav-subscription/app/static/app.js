@@ -576,7 +576,7 @@ async function doLogin(e) {
 
 async function doRegister(e) {
   e.preventDefault();
-  $("#auth-error").textContent = "";
+  $("#reg-error").textContent = "";
   try {
     const data = await api("/api/auth/register", {
       method: "POST",
@@ -592,14 +592,24 @@ async function doRegister(e) {
 }
 
 // ---------- 事件绑定 ----------
+function switchAuthMode(mode) {
+  const isLogin = mode === "login";
+  $("#login-form").classList.toggle("hidden", !isLogin);
+  $("#register-form").classList.toggle("hidden", isLogin);
+  $("#auth-heading").textContent = isLogin ? "欢迎回来" : "创建账号";
+  $("#auth-sub").textContent = isLogin ? "登录后继续关注你的大V" : "注册后即可自选订阅大V";
+  $("#auth-error").textContent = "";
+  $("#reg-error").textContent = "";
+  document.querySelectorAll(".switch-btn").forEach((btn) =>
+    btn.classList.toggle("active", btn.dataset.mode === mode)
+  );
+}
+
 $("#login-form").addEventListener("submit", doLogin);
 $("#register-form").addEventListener("submit", doRegister);
-$("#toggle-auth").addEventListener("click", () => {
-  const register = !$("#register-form").classList.contains("hidden");
-  $("#login-form").classList.toggle("hidden", register);
-  $("#register-form").classList.toggle("hidden", !register);
-  $("#toggle-auth").textContent = register ? "还没有账号？去注册" : "已有账号？去登录";
-});
+document.querySelectorAll(".switch-btn").forEach((btn) =>
+  btn.addEventListener("click", () => switchAuthMode(btn.dataset.mode))
+);
 $("#btn-back").addEventListener("click", () => history.back());
 document.querySelectorAll(".tab-item").forEach((btn) =>
   btn.addEventListener("click", () => { location.hash = `#/${btn.dataset.tab}`; })

@@ -8,22 +8,56 @@
 </head>
 <body>
   <div id="auth-view" class="auth-view hidden">
-    <div class="auth-card">
-      <div class="auth-logo"><span>V</span></div>
-      <h1>大V订阅</h1>
-      <p class="auth-desc">盯大V公开动态 · 新帖推送</p>
-      <form id="login-form" class="auth-form">
-        <input id="login-username" placeholder="用户名" autocomplete="username" required>
-        <input id="login-password" type="password" placeholder="密码" autocomplete="current-password" required>
-        <button type="submit" class="btn-dark">登 录</button>
-      </form>
-      <form id="register-form" class="auth-form hidden">
-        <input id="reg-username" placeholder="用户名（至少2位）" autocomplete="username" required>
-        <input id="reg-password" type="password" placeholder="密码（至少6位）" autocomplete="new-password" required>
-        <button type="submit" class="btn-dark">注 册</button>
-      </form>
-      <button id="toggle-auth" class="link-btn">还没有账号？去注册</button>
-      <p id="auth-error" class="auth-error"></p>
+    <div class="auth-shell">
+      <section class="auth-brand">
+        <div class="brand-head">
+          <div class="brand-mark">V</div>
+          <div class="brand-name">大V订阅</div>
+        </div>
+        <div class="brand-copy">
+          <h2>关注大V公开动态<br>新帖实时推送到你手上</h2>
+          <p>雪球 · 微博 · X 聚合订阅，分类管理，按自己的节奏关注。</p>
+        </div>
+        <ul class="brand-features">
+          <li>雪球 / 微博 / X 多平台聚合</li>
+          <li>大V分类 · 自选订阅</li>
+          <li>Telegram / 飞书逐人推送</li>
+        </ul>
+      </section>
+      <section class="auth-form-panel">
+        <div class="auth-form-box">
+          <h2 id="auth-heading">欢迎回来</h2>
+          <p id="auth-sub" class="auth-sub">登录后继续关注你的大V</p>
+          <div class="auth-switch" role="tablist">
+            <button type="button" class="switch-btn active" data-mode="login" role="tab">登录</button>
+            <button type="button" class="switch-btn" data-mode="register" role="tab">注册</button>
+          </div>
+          <form id="login-form" class="auth-form">
+            <div class="field">
+              <label for="login-username">用户名</label>
+              <input id="login-username" placeholder="输入用户名" autocomplete="username" required>
+            </div>
+            <div class="field">
+              <label for="login-password">密码</label>
+              <input id="login-password" type="password" placeholder="输入密码" autocomplete="current-password" required>
+            </div>
+            <p id="auth-error" class="auth-error" role="alert"></p>
+            <button type="submit" class="btn-dark">登 录</button>
+          </form>
+          <form id="register-form" class="auth-form hidden">
+            <div class="field">
+              <label for="reg-username">用户名</label>
+              <input id="reg-username" placeholder="至少 2 位字符" autocomplete="username" required>
+            </div>
+            <div class="field">
+              <label for="reg-password">密码</label>
+              <input id="reg-password" type="password" placeholder="至少 6 位字符" autocomplete="new-password" required>
+            </div>
+            <p id="reg-error" class="auth-error" role="alert"></p>
+            <button type="submit" class="btn-dark">创建账号</button>
+          </form>
+        </div>
+      </section>
     </div>
   </div>
 
