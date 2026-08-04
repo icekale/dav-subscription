@@ -448,6 +448,49 @@ def test_translate_text_falls_back_to_mymemory():
     assert len(calls) == 2
 
 
+def test_translate_text_uses_grok_when_key_provided():
+    calls = []
+
+    def handler(request):
+        calls.append(str(request.url))
+        assert request.headers.get("authorization") == "Bearer xai-test-key"
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {"message": {"content": "我们相信这款芯片是第一款"}}
+                ]
+            },
+        )
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    result = translate_text(
+        "We believe this chip is the first",
+        client=client,
+        xai_key="xai-test-key",
+        model="grok-2-latest",
+    )
+    assert result == "我们相信这款芯片是第一款"
+    assert len(calls) == 1  # 不触发 google/mymemory 降级
+
+
+def test_translate_text_grok_failure_falls_back():
+    calls = []
+
+    def handler(request):
+        calls.append(str(request.url))
+        if "api.x.ai" in str(request.url):
+            return httpx.Response(401)  # Key 无效
+        return httpx.Response(
+            200,
+            json={"responseData": {"translatedText": "回退译文"}},
+        )
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    assert translate_text("hello", client=client, xai_key="bad") == "回退译文"
+    assert len(calls) >= 2
+
+
 def test_xueqiu_cookie_keepalive():
     db = make_db()
     db.set_setting("xueqiu_cookie", "xq_a_token=old; u=1")

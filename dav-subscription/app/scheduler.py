@@ -50,17 +50,51 @@ def _polling_bool(db: DB, key: str, default: bool = False) -> bool:
     return value.strip().lower() in ("1", "true", "yes", "on")
 
 
-def translate_text(text: str, target: str = "zh-CN", client=None) -> str:
-    """把 X 内容转成中文：优先 Google 免费接口，不可用时降级 MyMemory。"""
+def translate_text(text: str, target: str = "zh-CN", client=None, xai_key: str | None = None, model: str | None = None) -> str:
+    """把 X 内容转成中文：配了 XAI_API_KEY 优先用 Grok，否则 Google → MyMemory 降级。"""
+    import os
+
     import httpx
 
     text = (text or "").strip()
     if not text:
         return text
+    xai_key = xai_key or os.environ.get("XAI_API_KEY", "")
+    model = model or os.environ.get("XAI_MODEL", "") or "grok-2-latest"
     owns_client = client is None
     client = client or httpx.Client(timeout=15)
     errors = []
     try:
+        # 1) Grok（质量最好，需 xAI API Key）
+        if xai_key:
+            try:
+                resp = client.post(
+                    "https://api.x.ai/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {xai_key}"},
+                    json={
+                        "model": model,
+                        "messages": [
+                            {
+                                "role": "system",
+                                "content": "你是专业译者。把用户提供的文本翻译成简体中文，"
+                                "只输出译文本身，不要解释、不要额外内容。",
+                            },
+                            {"role": "user", "content": text[:4000]},
+                        ],
+                        "temperature": 0.3,
+                    },
+                )
+                resp.raise_for_status()
+                content = (
+                    ((resp.json() or {}).get("choices") or [{}])[0]
+                    .get("message", {})
+                    .get("content")
+                    or ""
+                )
+                if content.strip():
+                    return content.strip()
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"grok: {exc}")
         # 1) Google translate（海外网络可用）
         try:
             resp = client.get(
