@@ -407,7 +407,8 @@ def test_weibo_kol_link_normalized():
 def test_kol_request_flow():
     client = make_client()
     admin_headers = auth_headers(client)
-    u_headers = user_headers(client, "user1")
+    u1 = register(client, "user1", "pass123456")
+    u_headers = {"Authorization": f"Bearer {u1.json()['token']}"}
 
     # 用户提交申请（雪球主页链接自动提取 UID）
     resp = client.post(
@@ -442,6 +443,8 @@ def test_kol_request_flow():
     approved = client.post(f"/api/admin/kol-requests/{req_id}/approve", headers=admin_headers)
     assert approved.status_code == 200
     assert approved.json()["platform"] == "xueqiu" and approved.json()["external_id"] == "55555"
+    # 审批通过后自动订阅申请人
+    assert approved.json()["id"] in client.app.state.db.subscribed_kol_ids(u1.json()["user"]["id"])
 
     done = client.get("/api/admin/kol-requests", headers=admin_headers).json()
     assert done[0]["status"] == "approved" and done[0]["handled_at"]
@@ -568,6 +571,50 @@ def test_me_includes_push_guide():
     headers = auth_headers(client)
     me = client.get("/api/me", headers=headers).json()
     assert me["push_guide"] == {"telegram_bot_username": "dav_bot", "feishu_bot_name": "大V订阅机器人"}
+
+
+def test_empty_password_login_rejected():
+    client = make_client()
+    # 机器人/微信自动创建的账号没有密码
+    client.app.state.db.add_user("tg_bot_user", "", telegram_chat_id="111")
+    resp = client.post(
+        "/api/auth/login",
+        json={"username": "tg_bot_user", "password": ""},
+    )
+    assert resp.status_code == 401
+    resp = client.post(
+        "/api/auth/login",
+        json={"username": "tg_bot_user", "password": "guess"},
+    )
+    assert resp.status_code == 401
+
+
+def test_register_password_too_long_rejected():
+    client = make_client()
+    client.app.state.db.add_register_code("LONG1")
+    resp = client.post(
+        "/api/auth/register",
+        json={"username": "longpw", "password": "x" * 200, "code": "LONG1"},
+    )
+    assert resp.status_code == 400 and "密码最长" in resp.json()["detail"]
+
+
+def test_revoke_register_code():
+    client = make_client()
+    admin_headers = auth_headers(client)
+    codes = client.post(
+        "/api/admin/register-codes",
+        headers=admin_headers,
+        json={"count": 2, "note": "revoke"},
+    ).json()["codes"]
+    resp = client.delete(f"/api/admin/register-codes/{codes[0]}", headers=admin_headers)
+    assert resp.status_code == 200
+    remaining = client.get("/api/admin/register-codes", headers=admin_headers).json()
+    assert all(c["code"] != codes[0] for c in remaining)
+    assert client.delete(f"/api/admin/register-codes/{codes[0]}", headers=admin_headers).status_code == 404
+    # 已使用的注册码不能作废
+    register(client, "usedit", code=codes[1])
+    assert client.delete(f"/api/admin/register-codes/{codes[1]}", headers=admin_headers).status_code == 400
 
 
 def test_posts_search_and_push_log_filters():

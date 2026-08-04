@@ -10,8 +10,8 @@ from . import auth
 HELP_TEXT = (
     "📌 大V订阅机器人\n"
     "/list — 查看可订阅的大V（/list 2 翻页）\n"
-    "/sub 1 / 雪球主页链接 / 雪球UID — 订阅大V\n"
-    "/unsub 1 / 雪球主页链接 / 雪球UID — 取消订阅\n"
+    "/sub 1 / 雪球/微博主页链接 / UID — 订阅大V\n"
+    "/unsub 1 / 雪球/微博主页链接 / UID — 取消订阅\n"
     "/ask 主页链接/UID — 申请添加大V，管理员审批\n"
     "/mysubs — 我的订阅\n"
     "/bind 6位绑定码 — 绑定网页/小程序账号\n"
@@ -212,6 +212,13 @@ class SubscriptionBot:
             uid = match.group(1)
             for kol in self.db.list_kols():
                 if kol["platform"] == "xueqiu" and kol["external_id"] == uid:
+                    return kol if self._visible_to(user, kol["id"]) else None
+            return None
+        weibo_match = re.search(r"weibo\.com/u/(\d+)", arg)
+        if weibo_match:
+            uid = weibo_match.group(1)
+            for kol in self.db.list_kols():
+                if kol["platform"] == "weibo" and kol["external_id"] == uid:
                     return kol if self._visible_to(user, kol["id"]) else None
             return None
         if arg.isdigit():

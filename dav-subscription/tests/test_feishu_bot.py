@@ -34,7 +34,7 @@ def test_feishu_p2p_commands():
 
 def test_list_pagination():
     db, bot, sent = make_bot()
-    for i in range(21):
+    for i in range(2, 23):  # make_bot 已有一个 external_id=1 的大V
         db.add_kol("xueqiu", f"大V{i}", str(i))
     bot.handle_message("oc_p2p", "p2p", "ou_1", "Kale", "/list")
     assert "第 1/2 页" in json.dumps(sent[-1][2], ensure_ascii=False)
@@ -86,3 +86,30 @@ def test_feishu_bind():
     bot.handle_message("", "p2p", "ou_9", "Kale", "/bind 111222")
     assert "已绑定" in sent[-1][2]
     assert db.get_user(target)["feishu_open_id"] == "ou_9"
+
+
+def test_feishu_card_hides_private_kol_and_denies_sub():
+    db, bot, sent = make_bot()
+    private_id = db.add_kol("xueqiu", "私有大V", "99")
+    db.update_kol(private_id, is_private=True)
+
+    # 新用户打开 /list 卡片，私有大V不应出现在按钮里
+    bot.handle_message("oc_p2p", "p2p", "ou_1", "Kale", "/list")
+    card_text = json.dumps(sent[-1][2], ensure_ascii=False)
+    assert "私有大V" not in card_text
+    assert "大V" in card_text  # 公开大V仍在
+
+    # 直接触发私有大V的订阅回调应被拒绝
+    from lark_oapi.event.callback.model.p2_card_action_trigger import P2CardActionTrigger
+
+    event = P2CardActionTrigger(
+        {
+            "event": {
+                "operator": {"open_id": "ou_9"},
+                "action": {"value": {"action": "sub", "kol_id": private_id}},
+            }
+        }
+    )
+    resp = bot._on_card_action(event)
+    assert resp.toast is not None and "无权订阅" in resp.toast.content
+    assert db.subscribed_kol_ids(db.get_user_by_feishu("ou_9")["id"]) == set()

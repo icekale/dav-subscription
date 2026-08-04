@@ -106,6 +106,18 @@ def test_posts_pushed_in_time_order():
     assert [p.external_id for p in notifier.calls] == ["p1", "p2", "p3"]
 
 
+def test_private_kol_subscribers_acl_filtered():
+    db = make_db()
+    kid = db.add_kol("xueqiu", "私有大V", "1")
+    db.update_kol(kid, is_private=True)
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.add_subscription(uid, kid)
+    # 不在白名单的订阅者不会收到推送
+    assert db.subscribers_of_kol(kid) == []
+    db.set_kol_acl(kid, [uid])
+    assert [u["id"] for u in db.subscribers_of_kol(kid)] == [uid]
+
+
 def test_push_failure_logged():
     db = make_db()
     kid = db.add_kol("xueqiu", "A", "1")

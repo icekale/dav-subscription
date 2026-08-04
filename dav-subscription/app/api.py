@@ -138,8 +138,18 @@ def create_api_router(
     login_attempts: dict[str, list[float]] = {}
     LOGIN_MAX_FAILURES = 8
     LOGIN_WINDOW = 300
+    MAX_PASSWORD_LEN = 128
     # 微博扫码登录会话：qrid -> {client, created_at}
     weibo_qr_sessions: dict[str, dict] = {}
+
+    def _client_ip(request: Request) -> str:
+        """优先取 X-Forwarded-For 首段（反代场景），否则用直连 IP。"""
+        forwarded = request.headers.get("x-forwarded-for")
+        if forwarded:
+            first = forwarded.split(",")[0].strip()
+            if first:
+                return first
+        return request.client.host if request.client else "unknown"
 
     def _check_login_limit(ip: str) -> None:
         now = time.time()
@@ -173,12 +183,14 @@ def create_api_router(
     def register(body: RegisterIn, request: Request):
         if not allow_register:
             raise HTTPException(status_code=403, detail="暂未开放注册")
-        _check_login_limit(request.client.host if request.client else "unknown")
+        _check_login_limit(_client_ip(request))
         username = body.username.strip()
         if len(username) < 2 or len(body.password) < 6:
             raise HTTPException(status_code=400, detail="用户名至少2位，密码至少6位")
         if len(username) > 30:
             raise HTTPException(status_code=400, detail="用户名最长30位")
+        if len(body.password) > MAX_PASSWORD_LEN:
+            raise HTTPException(status_code=400, detail=f"密码最长{MAX_PASSWORD_LEN}位")
         if not body.code.strip():
             raise HTTPException(status_code=400, detail="注册需要邀请码，请向管理员索取")
         try:
@@ -191,13 +203,21 @@ def create_api_router(
 
     @router.post("/auth/login")
     def login(body: LoginIn, request: Request):
-        ip = request.client.host if request.client else "unknown"
+        ip = _client_ip(request)
         _check_login_limit(ip)
         user = db.get_user_by_username(body.username.strip())
         if user is None:
             auth.verify_password(body.password, auth.DUMMY_HASH)
             _record_login_failure(ip)
             raise HTTPException(status_code=401, detail="用户名或密码错误")
+        if not user["password_hash"]:
+            # 机器人/微信自动创建的账号没有密码，不能通过账号密码登录
+            auth.verify_password(body.password, auth.DUMMY_HASH)
+            _record_login_failure(ip)
+            raise HTTPException(status_code=401, detail="用户名或密码错误")
+        if not body.password or len(body.password) > MAX_PASSWORD_LEN:
+            _record_login_failure(ip)
+            raise HTTPException(status_code=400, detail=f"密码长度需在 1-{MAX_PASSWORD_LEN} 位之间")
         if not auth.verify_password(body.password, user["password_hash"]):
             _record_login_failure(ip)
             raise HTTPException(status_code=401, detail="用户名或密码错误")
@@ -221,7 +241,7 @@ def create_api_router(
                 i += 1
             uid = db.add_user(
                 username,
-                auth.hash_password(""),
+                "",
                 wechat_openid=openid,
             )
             user = db.get_user(uid)
@@ -277,6 +297,8 @@ def create_api_router(
     def change_password(body: PasswordChangeIn, user: dict = Depends(get_current_user)):
         if len(body.new_password) < 6:
             raise HTTPException(status_code=400, detail="新密码至少6位")
+        if len(body.new_password) > MAX_PASSWORD_LEN:
+            raise HTTPException(status_code=400, detail=f"新密码最长{MAX_PASSWORD_LEN}位")
         if not auth.verify_password(body.old_password, user["password_hash"]):
             raise HTTPException(status_code=400, detail="原密码错误")
         db.update_user(user["id"], password_hash=auth.hash_password(body.new_password))
@@ -377,6 +399,36 @@ def create_api_router(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from None
         db.set_kol_request_status(request_id, "approved")
+        try:
+            db.add_subscription(req["user_id"], kid)
+        except Exception:  # noqa: BLE001 - 自动订阅失败不阻塞审批
+            pass
+        if notifiers_config is not None:
+            from .notifiers.feishu import FeishuNotifier
+            from .notifiers.telegram import TelegramNotifier
+
+            requester = db.get_user(req["user_id"])
+            message = f"✅ 你申请的大V「{name}」已通过审批，已自动为你订阅"
+            if requester and requester["telegram_chat_id"] and notifiers_config.telegram.bot_token:
+                try:
+                    notifier = TelegramNotifier(
+                        notifiers_config.telegram, chat_id=requester["telegram_chat_id"]
+                    )
+                    notifier.send_text(message)
+                    notifier.client.close()
+                except Exception:  # noqa: BLE001
+                    pass
+            if requester and requester["feishu_open_id"]:
+                try:
+                    notifier = FeishuNotifier(
+                        notifiers_config.feishu,
+                        open_id=requester["feishu_open_id"] if not requester.get("feishu_chat_id") else None,
+                        chat_id=requester.get("feishu_chat_id") or None,
+                    )
+                    notifier.send_text(message)
+                    notifier.client.close()
+                except Exception:  # noqa: BLE001
+                    pass
         return db.get_kol(kid)
 
     @router.post("/admin/kol-requests/{request_id}/reject", dependencies=[Depends(require_admin)])
@@ -406,6 +458,16 @@ def create_api_router(
     @router.get("/admin/register-codes", dependencies=[Depends(require_admin)])
     def list_register_codes():
         return db.list_register_codes()
+
+    @router.delete("/admin/register-codes/{code}", dependencies=[Depends(require_admin)])
+    def revoke_register_code(code: str):
+        row = db.get_register_code(code)
+        if row is None:
+            raise HTTPException(status_code=404, detail="注册码不存在")
+        if row["used_by"]:
+            raise HTTPException(status_code=400, detail="该注册码已被使用，不能删除")
+        db.delete_register_code(code)
+        return {"ok": True}
 
     # ---- 管理（管理员）----
     @router.get("/kols", dependencies=[Depends(require_admin)])
@@ -611,6 +673,8 @@ def create_api_router(
             password = body.password or ""
             if len(password) < 6:
                 raise HTTPException(status_code=400, detail="密码至少6位")
+            if len(password) > MAX_PASSWORD_LEN:
+                raise HTTPException(status_code=400, detail=f"密码最长{MAX_PASSWORD_LEN}位")
             db.update_user(user_id, password_hash=auth.hash_password(password))
         if "username" in body.model_fields_set:
             username = (body.username or "").strip()

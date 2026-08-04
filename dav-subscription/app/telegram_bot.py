@@ -7,7 +7,6 @@ import logging
 
 import httpx
 
-from . import auth
 from .bot_core import SubscriptionBot
 
 logger = logging.getLogger(__name__)
@@ -89,7 +88,7 @@ class TelegramBot:
         user = self.db.get_user_by_telegram(identity)
         if user is None:
             username = (display_name or f"tg_{identity}")[:30]
-            uid = self.db.add_user(username, auth.hash_password(""), telegram_chat_id=identity)
+            uid = self.db.add_user(username, "", telegram_chat_id=identity)
             user = self.db.get_user(uid)
         return user
 
@@ -136,6 +135,8 @@ class TelegramBot:
                 page = max(1, int(cur))
                 if direction == "prev":
                     page -= 1
+                elif direction == "next":
+                    page += 1
             else:
                 page = max(1, int(parts[1]))
             text, page, pages = self.core.list_payload(user, str(page))

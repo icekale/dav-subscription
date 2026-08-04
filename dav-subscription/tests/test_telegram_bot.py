@@ -155,3 +155,32 @@ def test_bot_list_keyboard_and_callback():
     edit_call = calls[-1]
     assert edit_call[0] == "editMessageText"
     assert edit_call[1]["message_id"] == 9
+
+
+def test_bot_list_next_page():
+    db = DB(Path(tempfile.mkdtemp()) / "bot.db")
+    for i in range(2, 23):
+        db.add_kol("xueqiu", f"大V{i}", str(i))
+    bot = TelegramBot(db, "test_token", "secret")
+    calls = []
+    bot._call = lambda method, **params: calls.append((method, params))
+    bot.handle_update(update(111, "/list"))
+    send_call = calls[-1]
+    kb = json.loads(send_call[1]["reply_markup"])
+    next_data = kb["inline_keyboard"][0][1]["callback_data"]
+    assert next_data.startswith("list:next:")
+
+    # 点击「下一页」应翻到第 2 页
+    bot.handle_update(
+        {
+            "callback_query": {
+                "id": "cq2",
+                "from": {"username": "icekale"},
+                "data": next_data,
+                "message": {"chat": {"id": 111}, "message_id": 9},
+            }
+        }
+    )
+    edit_call = calls[-1]
+    assert edit_call[0] == "editMessageText"
+    assert "第 2/2 页" in edit_call[1]["text"]

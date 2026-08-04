@@ -5,7 +5,6 @@ import json
 import logging
 import threading
 
-from . import auth
 from .bot_core import LIST_PAGE_SIZE, SubscriptionBot
 
 logger = logging.getLogger(__name__)
@@ -63,7 +62,7 @@ class FeishuBot:
         user = self.db.get_user_by_feishu(identity)
         if user is None:
             username = (display_name or f"fs_{identity[:8]}")[:30]
-            uid = self.db.add_user(username, auth.hash_password(""), feishu_open_id=identity)
+            uid = self.db.add_user(username, "", feishu_open_id=identity)
             user = self.db.get_user(uid)
         return user
 
@@ -132,6 +131,9 @@ class FeishuBot:
 
     def _build_list_card(self, user: dict, page: int, pages: int) -> dict:
         kols = self.db.list_kols()
+        if not user.get("is_admin"):
+            visible = self.db.visible_kol_ids(user["id"])
+            kols = [k for k in kols if k["id"] in visible]
         subscribed = self.db.subscribed_kol_ids(user["id"])
         text, _, _ = self.core.list_payload(user, str(page))
         start = (page - 1) * LIST_PAGE_SIZE
@@ -208,6 +210,9 @@ class FeishuBot:
                     resp.toast = CallBackToast({"type": "error", "content": "大V不存在"})
                     return resp
                 if act == "sub":
+                    if not user.get("is_admin") and kol["id"] not in self.db.visible_kol_ids(user["id"]):
+                        resp.toast = CallBackToast({"type": "error", "content": "无权订阅该大V"})
+                        return resp
                     self.db.add_subscription(user["id"], kol["id"])
                     content = f"已订阅 {kol['name']} ✅"
                 else:

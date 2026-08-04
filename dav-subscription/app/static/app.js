@@ -147,11 +147,27 @@ async function loadHomeKols() {
     state.catalog = await api(`/api/catalog${params}`);
     $("#catalog-meta").textContent = `共 ${state.catalog.length} 个大V`;
     $("#kol-list").innerHTML = state.catalog.length
-      ? state.catalog.map(kolCard).join("")
+      ? groupedKolCards(state.catalog)
       : emptyState("暂无大V，管理员可在管理后台添加");
   } catch (err) {
     $("#kol-list").innerHTML = emptyState("加载失败: " + err.message);
   }
+}
+
+function groupedKolCards(kols) {
+  const groups = {};
+  for (const kol of kols) {
+    const key = kol.category_name || "未分类";
+    (groups[key] = groups[key] || []).push(kol);
+  }
+  return Object.entries(groups)
+    .map(([name, items]) => `
+      <div class="group-head" style="display:flex;justify-content:space-between;align-items:baseline;margin:18px 2px 8px">
+        <span style="font-weight:600;color:var(--color-text-strong)">${escapeHtml(name)}</span>
+        <span class="muted">${items.length} 位</span>
+      </div>
+      ${items.map(kolCard).join("")}`)
+    .join("");
 }
 
 async function switchPlatform(platform) {
@@ -924,8 +940,8 @@ async function loadAdminCodes() {
       <header class="section-head"><div><p class="section-eyebrow">List</p><h3 class="section-title">注册码列表</h3></div></header>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>邀请码</th><th>备注</th><th>状态</th><th>使用者</th><th>生成时间</th><th>使用时间</th></tr></thead>
-          <tbody>${codes.length === 0 ? `<tr><td colspan="6" class="muted">暂无注册码</td></tr>` : codes.map((c) => `
+          <thead><tr><th>邀请码</th><th>备注</th><th>状态</th><th>使用者</th><th>生成时间</th><th>使用时间</th><th>操作</th></tr></thead>
+          <tbody>${codes.length === 0 ? `<tr><td colspan="7" class="muted">暂无注册码</td></tr>` : codes.map((c) => `
             <tr>
               <td><code>${escapeHtml(c.code)}</code></td>
               <td>${escapeHtml(c.note || "")}</td>
@@ -933,10 +949,21 @@ async function loadAdminCodes() {
               <td>${escapeHtml(c.used_by_name || "")}</td>
               <td>${escapeHtml(c.created_at)}</td>
               <td>${escapeHtml(c.used_at || "")}</td>
+              <td>${c.used_by ? "" : `<button class="btn-sm danger" onclick="adminRevokeCode('${escapeHtml(c.code)}')">作废</button>`}</td>
             </tr>`).join("")}</tbody>
         </table>
       </div>
     </section>`;
+}
+
+async function adminRevokeCode(code) {
+  if (!confirm(`确认作废注册码 ${code}？作废后无法再使用。`)) return;
+  try {
+    await api(`/api/admin/register-codes/${encodeURIComponent(code)}`, { method: "DELETE" });
+    loadAdminCodes();
+  } catch (err) {
+    alert("作废失败: " + err.message);
+  }
 }
 
 async function adminGenerateCodes() {

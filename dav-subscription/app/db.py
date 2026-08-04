@@ -177,6 +177,11 @@ class DB:
     ) -> int:
         if platform not in ALLOWED_PLATFORMS:
             raise ValueError(f"不支持的平台: {platform}")
+        if self._rows(
+            "SELECT id FROM kols WHERE platform = ? AND external_id = ?",
+            (platform, external_id),
+        ):
+            raise ValueError("该大V已存在")
         return self._execute(
             "INSERT INTO kols (platform, name, external_id, category_id, priority) VALUES (?, ?, ?, ?, ?)",
             (platform, name, external_id, category_id, 1 if priority else 0),
@@ -422,6 +427,22 @@ class DB:
             "LEFT JOIN users u ON u.id = rc.used_by ORDER BY rc.created_at DESC"
         )
 
+    def get_register_code(self, code: str) -> dict | None:
+        rows = self._rows(
+            "SELECT * FROM register_codes WHERE code = ?", (code.strip().upper(),)
+        )
+        return rows[0] if rows else None
+
+    def delete_register_code(self, code: str) -> bool:
+        """删除一个未使用的注册码；已使用的不可删除。"""
+        with self._lock:
+            cur = self._conn.execute(
+                "DELETE FROM register_codes WHERE code = ? AND used_by IS NULL",
+                (code.strip().upper(),),
+            )
+            self._conn.commit()
+            return cur.rowcount > 0
+
     def register_with_code(self, code: str, username: str, password_hash: str) -> int:
         """凭注册码注册：原子消费注册码 + 创建用户，任一失败整体回滚。"""
         with self._lock:
@@ -486,8 +507,11 @@ class DB:
         """该大V的订阅者（启用通知且绑定了渠道的用户）。"""
         return self._rows(
             "SELECT u.* FROM subscriptions s JOIN users u ON u.id = s.user_id "
+            "JOIN kols k ON k.id = s.kol_id "
             "WHERE s.kol_id = ? AND u.notify_enabled = 1 "
-            "AND (u.telegram_chat_id != '' OR u.feishu_open_id != '')",
+            "AND (u.telegram_chat_id != '' OR u.feishu_open_id != '') "
+            "AND (k.is_private = 0 OR EXISTS "
+            "(SELECT 1 FROM kol_acl a WHERE a.kol_id = k.id AND a.user_id = u.id))",
             (kol_id,),
         )
 
@@ -536,11 +560,14 @@ class DB:
     def insert_post(self, platform, kol_id, external_id, title, content, url, published_at) -> int | None:
         if self.post_exists(platform, external_id):
             return None
-        return self._execute(
-            "INSERT INTO posts (platform, kol_id, external_id, title, content, url, published_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (platform, kol_id, external_id, title, content, url, published_at),
-        )
+        try:
+            return self._execute(
+                "INSERT INTO posts (platform, kol_id, external_id, title, content, url, published_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (platform, kol_id, external_id, title, content, url, published_at),
+            )
+        except sqlite3.IntegrityError:
+            return None  # 并发下重复插入，视为已存在
 
     def list_posts(
         self,
@@ -563,8 +590,9 @@ class DB:
             conds.append("p.kol_id = ?")
             params.append(kol_id)
         if q:
-            conds.append("(p.title LIKE ? OR p.content LIKE ?)")
-            like = f"%{q}%"
+            escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            conds.append("(p.title LIKE ? ESCAPE '\\' OR p.content LIKE ? ESCAPE '\\')")
+            like = f"%{escaped}%"
             params.extend([like, like])
         if conds:
             sql += " WHERE " + " AND ".join(conds)

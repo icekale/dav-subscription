@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import threading
+import time
 
 import httpx
 
@@ -9,6 +11,33 @@ from ..fetchers.base import Post
 from .base import Notifier
 
 PLATFORM_LABELS = {"xueqiu": "雪球", "weibo": "微博", "twitter": "X/Twitter"}
+
+_token_cache: dict[tuple[str, str], tuple[str, float]] = {}
+_token_lock = threading.Lock()
+
+
+def _tenant_access_token(app_id: str, app_secret: str, client: httpx.Client) -> str:
+    """获取并缓存 tenant_access_token（2 小时有效，提前 60 秒过期）。"""
+    key = (app_id, app_secret)
+    with _token_lock:
+        cached = _token_cache.get(key)
+        if cached and cached[1] > time.time() + 60:
+            return cached[0]
+    if not app_id or not app_secret:
+        raise RuntimeError("未配置飞书应用凭据（feishu.app_id / app_secret）")
+    resp = client.post(
+        "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
+        json={"app_id": app_id, "app_secret": app_secret},
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    if data.get("code") != 0:
+        raise RuntimeError(f"飞书获取 token 失败: {data.get('msg', data)}")
+    token = data["tenant_access_token"]
+    expire_in = int(data.get("expire", 7200))
+    with _token_lock:
+        _token_cache[key] = (token, time.time() + expire_in)
+    return token
 
 
 def build_feishu_card(post: Post) -> dict:
@@ -64,17 +93,7 @@ class FeishuNotifier(Notifier):
         self.client = client or httpx.Client(timeout=15)
 
     def _tenant_access_token(self) -> str:
-        if not self.app_id or not self.app_secret:
-            raise RuntimeError("未配置飞书应用凭据（feishu.app_id / app_secret）")
-        resp = self.client.post(
-            "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
-            json={"app_id": self.app_id, "app_secret": self.app_secret},
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        if data.get("code") != 0:
-            raise RuntimeError(f"飞书获取 token 失败: {data.get('msg', data)}")
-        return data["tenant_access_token"]
+        return _tenant_access_token(self.app_id, self.app_secret, self.client)
 
     def _post(self, payload: dict) -> None:
         resp = self.client.post(self.webhook_url, json=payload)
