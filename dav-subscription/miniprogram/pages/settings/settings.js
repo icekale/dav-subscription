@@ -1,7 +1,7 @@
 const { request } = require("../../utils/api");
 
 Page({
-  data: { tg: "", fs: "", notify: true },
+  data: { tg: "", fs: "", notify: true, bindCode: "", bindMinutes: 0 },
 
   onLoad() {
     this.load();
@@ -27,6 +27,15 @@ Page({
         data: { telegram_chat_id: this.data.tg.trim(), feishu_open_id: this.data.fs.trim(), notify_enabled: this.data.notify },
       });
       wx.showToast({ title: "已保存", icon: "success" });
+    } catch (err) {
+      wx.showToast({ title: err.message, icon: "none" });
+    }
+  },
+
+  async genBindCode() {
+    try {
+      const data = await request("/api/me/bind-code", { method: "POST" });
+      this.setData({ bindCode: data.code, bindMinutes: Math.floor(data.expires_in_seconds / 60) });
     } catch (err) {
       wx.showToast({ title: err.message, icon: "none" });
     }

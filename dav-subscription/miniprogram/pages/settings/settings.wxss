@@ -2,3 +2,5 @@
 .notice-title { font-size: 28rpx; font-weight: 600; color: var(--accent-strong); margin-bottom: 12rpx; }
 .notice-line { font-size: 24rpx; color: var(--accent-strong); line-height: 1.8; }
 .btn-block { width: 100%; }
+.bind-code-box { margin-top: 20rpx; background: var(--accent-soft); border-radius: var(--radius-control); padding: 24rpx; }
+.bind-code { font-size: 44rpx; font-weight: 700; letter-spacing: 4rpx; color: var(--accent-strong); }

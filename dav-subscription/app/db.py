@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import sqlite3
 import threading
+import time
 from pathlib import Path
 
 _UNSET = object()
@@ -65,6 +66,12 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     kol_id INTEGER NOT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE (user_id, kol_id)
+);
+CREATE TABLE IF NOT EXISTS bind_codes (
+    code TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 """
 
@@ -215,6 +222,10 @@ class DB:
         rows = self._rows("SELECT * FROM users WHERE telegram_chat_id = ?", (chat_id,))
         return rows[0] if rows else None
 
+    def get_user_by_feishu(self, open_id: str) -> dict | None:
+        rows = self._rows("SELECT * FROM users WHERE feishu_open_id = ?", (open_id,))
+        return rows[0] if rows else None
+
     def get_user_by_openid(self, openid: str) -> dict | None:
         rows = self._rows("SELECT * FROM users WHERE wechat_openid = ?", (openid,))
         return rows[0] if rows else None
@@ -298,6 +309,39 @@ class DB:
             "AND (u.telegram_chat_id != '' OR u.feishu_open_id != '')",
             (kol_id,),
         )
+
+    # ---- 绑定码 ----
+    def create_bind_code(self, code: str, user_id: int, expires_at: int) -> None:
+        self._execute(
+            "INSERT INTO bind_codes (code, user_id, expires_at) VALUES (?, ?, ?)",
+            (code, user_id, expires_at),
+        )
+
+    def get_bind_code(self, code: str) -> dict | None:
+        rows = self._rows("SELECT * FROM bind_codes WHERE code = ?", (code,))
+        return rows[0] if rows else None
+
+    def delete_bind_code(self, code: str) -> None:
+        self._execute("DELETE FROM bind_codes WHERE code = ?", (code,))
+
+    def delete_expired_bind_codes(self) -> None:
+        self._execute("DELETE FROM bind_codes WHERE expires_at < ?", (int(time.time()),))
+
+    # ---- 账号合并 ----
+    def transfer_subscriptions(self, from_user_id: int, to_user_id: int) -> None:
+        self._execute(
+            "INSERT OR IGNORE INTO subscriptions (user_id, kol_id) "
+            "SELECT ?, kol_id FROM subscriptions WHERE user_id = ?",
+            (to_user_id, from_user_id),
+        )
+        self._execute(
+            "DELETE FROM subscriptions WHERE user_id = ?",
+            (from_user_id,),
+        )
+
+    def delete_user(self, user_id: int) -> None:
+        self._execute("DELETE FROM bind_codes WHERE user_id = ?", (user_id,))
+        self._execute("DELETE FROM users WHERE id = ?", (user_id,))
 
     # ---- Post ----
     def post_exists(self, platform: str, external_id: str) -> bool:

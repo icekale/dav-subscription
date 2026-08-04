@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 import re
+import secrets
+import time
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 
 from . import auth
 from . import wechat
+from .bot_core import BIND_CODE_TTL
 from .db import ALLOWED_PLATFORMS, DB
 
 
@@ -154,6 +157,13 @@ def create_api_router(db: DB, secret: str, allow_register: bool = True, wechat_c
         if "notify_enabled" in body.model_fields_set:
             db.update_user(user["id"], notify_enabled=body.notify_enabled)
         return public_user(db.get_user(user["id"]))
+
+    @router.post("/me/bind-code")
+    def create_bind_code(user: dict = Depends(get_current_user)):
+        db.delete_expired_bind_codes()
+        code = f"{secrets.randbelow(1_000_000):06d}"
+        db.create_bind_code(code, user["id"], int(time.time()) + BIND_CODE_TTL)
+        return {"code": code, "expires_in_seconds": BIND_CODE_TTL}
 
     # ---- 目录与订阅 ----
     @router.get("/catalog")

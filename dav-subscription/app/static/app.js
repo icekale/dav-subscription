@@ -359,9 +359,34 @@ async function renderSettings() {
           </select>
         </div>
         <button class="btn-normal" onclick="saveSettings()">保存设置</button>
+      </section>
+      <section class="section-panel">
+        <header class="section-head">
+          <div>
+            <p class="section-eyebrow">Bind</p>
+            <h3 class="section-title">账号绑定</h3>
+            <p class="section-meta">生成绑定码，发给 Telegram / 飞书机器人（/bind 6位码），即可把该渠道绑到当前账号，一处订阅处处同步。</p>
+          </div>
+        </header>
+        <div class="row">
+          <button class="btn-ghost" onclick="genBindCode()">生成绑定码</button>
+        </div>
+        <div id="bind-result" class="muted" style="margin-top:14px"></div>
       </section>`;
   } catch (err) {
     $("#main").innerHTML = emptyState(err.message);
+  }
+}
+
+async function genBindCode() {
+  try {
+    const data = await api("/api/me/bind-code", { method: "POST" });
+    $("#bind-result").innerHTML =
+      `绑定码：<b style="font-size:20px;letter-spacing:3px">${escapeHtml(data.code)}</b>` +
+      `（${Math.floor(data.expires_in_seconds / 60)} 分钟内有效）<br>` +
+      `发给机器人：<code>/bind ${escapeHtml(data.code)}</code>`;
+  } catch (err) {
+    alert("生成失败: " + err.message);
   }
 }
 

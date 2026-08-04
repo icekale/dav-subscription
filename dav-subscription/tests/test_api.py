@@ -105,6 +105,19 @@ def test_kol_priority_toggle():
     assert resp.json()["priority"] == 0
 
 
+def test_bind_code_api():
+    client = make_client()
+    headers = user_headers(client, "someone")
+    me = client.get("/api/me", headers=headers).json()
+    resp = client.post("/api/me/bind-code", headers=headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["code"]) == 6
+    assert data["expires_in_seconds"] == 600
+    row = client.app.state.db.get_bind_code(data["code"])
+    assert row["user_id"] == me["id"]
+
+
 def test_posts_and_push_logs_api():
     client = make_client()
     headers = auth_headers(client)

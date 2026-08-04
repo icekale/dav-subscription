@@ -19,4 +19,17 @@
     </view>
     <button class="btn btn-primary btn-block" bindtap="save">保存设置</button>
   </view>
+  <view class="card">
+    <view class="card-title">账号绑定</view>
+    <view class="notice-line" style="color:var(--text-muted);font-size:24rpx;line-height:1.8">
+      生成绑定码后，发给 Telegram / 飞书机器人（/bind 6位码），即可把该渠道绑到当前账号。
+    </view>
+    <view style="margin-top:20rpx">
+      <button class="btn btn-ghost" bindtap="genBindCode">生成绑定码</button>
+    </view>
+    <view wx:if="{{bindCode}}" class="bind-code-box">
+      <view class="bind-code">{{bindCode}}</view>
+      <view class="muted" style="font-size:24rpx;margin-top:8rpx">发给机器人：/bind {{bindCode}}（{{bindMinutes}} 分钟内有效）</view>
+    </view>
+  </view>
 </view>

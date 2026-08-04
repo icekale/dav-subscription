@@ -1,4 +1,5 @@
 import tempfile
+import time
 from pathlib import Path
 
 from app.db import DB
@@ -90,3 +91,35 @@ def test_bot_unknown_sub():
     db, bot, _, sent = make_env()
     bot.handle_update(update(333, "/sub 不存在的大V"))
     assert "没找到" in sent[-1][1]
+
+
+def test_bot_bind_merges_subscriptions():
+    db = DB(Path(tempfile.mkdtemp()) / "bot.db")
+    kid = db.add_kol("xueqiu", "大V", "1")
+    target_id = db.add_user("kale", "hash")
+    bot = TelegramBot(db, "t", "s")
+    sent = []
+    bot._send = lambda chat_id, text: sent.append((chat_id, text))
+
+    # bot 用户先订阅大V
+    bot.handle_update(update(111, f"/sub {kid}"))
+    bot_user = db.get_user_by_telegram("111")
+    assert bot_user is not None
+    assert db.subscribed_kol_ids(bot_user["id"]) == {kid}
+
+    # 生成绑定码后 /bind，订阅合并到网页账号，自动账号删除
+    db.create_bind_code("654321", target_id, int(time.time()) + 600)
+    bot.handle_update(update(111, "/bind 654321"))
+    assert "已绑定" in sent[-1][1]
+    assert db.subscribed_kol_ids(target_id) == {kid}
+    assert db.get_user_by_telegram("111")["id"] == target_id
+    assert db.get_user(target_id)["telegram_chat_id"] == "111"
+
+
+def test_bot_bind_invalid_code():
+    db = DB(Path(tempfile.mkdtemp()) / "bot.db")
+    bot = TelegramBot(db, "t", "s")
+    sent = []
+    bot._send = lambda chat_id, text: sent.append((chat_id, text))
+    bot.handle_update(update(222, "/bind 000000"))
+    assert "无效" in sent[-1][1]
