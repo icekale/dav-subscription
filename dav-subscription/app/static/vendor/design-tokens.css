@@ -1,0 +1,290 @@
+:root {
+  color-scheme: light;
+
+  /* Typography */
+  --font-sans: "SF Pro SC", "SF Pro Display", "SF Pro Text", "PingFang SC", "Helvetica Neue", "Helvetica", "Arial", sans-serif;
+  --font-sans-data: "SF Pro SC", "SF Pro Display", "SF Pro Text", "PingFang SC", "Helvetica Neue", "Helvetica", "Arial", sans-serif;
+  --font-mono: "SFMono-Regular", "JetBrains Mono", "Menlo", "Consolas", monospace;
+
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-demi: 650;
+  --font-weight-bold: 700;
+
+  --text-2xs: 11px;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-md: 14px;
+  --text-body: 15px;
+  --text-lg: 16px;
+  --text-xl: 20px;
+  --text-2xl: 28px;
+  --text-title-sm: 17px;
+  --text-title-md: 1.08rem;
+  --text-caption: 0.78rem;
+  --text-caption-lg: 0.82rem;
+  --text-ui-sm: 0.84rem;
+  --text-ui-md: 0.87rem;
+  --text-ui-lg: 0.9rem;
+  --text-ui-xl: 0.95rem;
+  --text-display: clamp(2rem, 4vw, 3.2rem);
+  --text-section-title: clamp(1.16rem, 1.45vw, 1.34rem);
+  --text-section-meta: 14px;
+  --text-metric: clamp(1.26rem, 1.55vw, 1.44rem);
+  --text-metric-meta: 12px;
+  --text-table-head: 13.5px;
+  --text-table-cell: 14.5px;
+  --text-table-head-comfortable: 13.75px;
+  --text-table-cell-comfortable: 15px;
+
+  /* Core colors */
+  --color-white: #ffffff;
+  --color-black: #111111;
+
+  --color-bg: #f5f5f7;
+  --color-bg-soft: #fbfbfd;
+  --color-bg-elevated: #f7f8fb;
+  --color-bg-page-top: #f8f8fb;
+  --color-bg-page-mid: #f4f5f8;
+  --color-bg-page-bottom: #f1f3f7;
+  --color-bg-page-bottom-alt: #f2f2f5;
+  --color-bg-table-head: #f7f7fa;
+  --color-bg-table-head-soft: #f7f8fb;
+  --color-bg-table-endcap: #fbfbfd;
+  --color-bg-muted: #f3f4f7;
+  --color-bg-muted-soft: #f6f7fa;
+  --color-bg-disabled-top: #f6f7f9;
+  --color-bg-disabled-bottom: #f2f3f6;
+
+  --color-surface: #ffffff;
+  --color-surface-soft: rgba(255, 255, 255, 0.82);
+  --color-surface-subtle: rgba(255, 255, 255, 0.72);
+  --color-surface-hover: rgba(255, 255, 255, 0.96);
+  --color-surface-panel: rgba(255, 255, 255, 0.95);
+  --color-surface-panel-soft: rgba(255, 255, 255, 0.86);
+  --color-surface-card: rgba(255, 255, 255, 0.96);
+  --color-surface-card-soft: rgba(255, 255, 255, 0.88);
+  --color-surface-muted: #f4f7fb;
+  --color-surface-accent: #eef4ff;
+  --color-surface-control: rgba(255, 255, 255, 0.98);
+  --color-surface-control-hover: #ffffff;
+  --color-surface-control-readonly: rgba(246, 247, 249, 0.95);
+  --color-surface-button: rgba(255, 255, 255, 0.94);
+  --color-surface-button-hover: rgba(255, 255, 255, 0.99);
+  --color-surface-button-active: rgba(248, 250, 253, 0.98);
+  --color-surface-empty: rgba(248, 250, 253, 0.92);
+  --color-surface-empty-strong: rgba(245, 248, 252, 0.96);
+  --color-surface-accent-soft: rgba(0, 113, 227, 0.08);
+  --color-surface-accent-soft-strong: rgba(0, 113, 227, 0.1);
+  --color-surface-accent-soft-stronger: rgba(0, 113, 227, 0.12);
+  --color-surface-success-soft: rgba(31, 157, 85, 0.12);
+  --color-surface-warning-soft: rgba(201, 120, 0, 0.12);
+  --color-surface-danger-soft: rgba(216, 79, 95, 0.12);
+  --color-surface-danger-row: rgba(217, 40, 40, 0.06);
+  --color-surface-danger-row-hover: rgba(217, 40, 40, 0.1);
+  --color-surface-row-hover: rgba(255, 255, 255, 0.72);
+  --color-surface-row-alt: rgba(247, 250, 253, 0.72);
+  --color-surface-row-selected: rgba(0, 113, 227, 0.1);
+  --color-surface-row-selected-hover: rgba(0, 113, 227, 0.15);
+  --color-surface-row-dirty: rgba(0, 113, 227, 0.08);
+  --color-surface-row-dirty-hover: rgba(0, 113, 227, 0.12);
+  --color-surface-row-dirty-cell: rgba(233, 244, 255, 0.86);
+  --color-surface-nav: rgba(245, 245, 247, 0.78);
+  --color-surface-table-shell: rgba(255, 255, 255, 0.84);
+  --color-surface-table-shell-soft: rgba(255, 255, 255, 0.76);
+  --color-surface-table-head-top: rgba(249, 251, 254, 0.98);
+  --color-surface-table-head-bottom: rgba(242, 246, 251, 0.96);
+  --color-surface-table-group-top: rgba(245, 248, 252, 0.95);
+  --color-surface-table-group-bottom: rgba(240, 244, 249, 0.9);
+
+  --color-text: #1d1d1f;
+  --color-text-strong: #222c3c;
+  --color-text-heading: #2f394a;
+  --color-text-subtle-strong: #394252;
+  --color-text-subtle: #464a55;
+  --color-text-muted: #6e6e73;
+  --color-text-muted-2: #596273;
+  --color-text-muted-3: #6d7686;
+  --color-text-muted-4: #677083;
+  --color-text-faint: #8b92a1;
+  --color-text-faint-2: #7b8290;
+  --color-text-faint-3: #555b66;
+  --color-text-label: #4f535d;
+  --color-text-chip: #454a53;
+  --color-text-disabled: #646972;
+  --color-link: #0f8fdd;
+
+  --color-line: rgba(12, 18, 34, 0.1);
+  --color-line-strong: rgba(12, 18, 34, 0.16);
+  --color-line-soft: rgba(12, 18, 34, 0.06);
+  --color-line-softer: rgba(0, 0, 0, 0.05);
+  --color-line-subtle: rgba(0, 0, 0, 0.08);
+  --color-line-focus: rgba(22, 119, 255, 0.45);
+  --color-line-accent: rgba(22, 119, 255, 0.18);
+  --color-line-accent-soft: rgba(22, 119, 255, 0.16);
+  --color-line-success-soft: rgba(22, 163, 74, 0.18);
+  --color-line-warning-soft: rgba(217, 119, 6, 0.18);
+  --color-line-danger-soft: rgba(220, 38, 38, 0.18);
+
+  --color-accent: #1677ff;
+  --color-accent-strong: #155eef;
+  --color-accent-soft: rgba(22, 119, 255, 0.12);
+  --color-success: #16a34a;
+  --color-success-strong: #15803d;
+  --color-success-soft: rgba(22, 163, 74, 0.12);
+  --color-danger: #dc2626;
+  --color-danger-strong: #b91c1c;
+  --color-danger-soft: rgba(220, 38, 38, 0.12);
+  --color-warning: #d97706;
+  --color-warning-strong: #b45309;
+  --color-warning-soft: rgba(217, 119, 6, 0.12);
+  --color-data-number: #3c4656;
+  --color-data-number-strong: #273142;
+  --color-data-positive: #b05b63;
+  --color-data-negative: #23714a;
+  --color-data-neutral: #6f7888;
+
+  --color-badge-idle-bg: #eff1f4;
+  --color-badge-idle-text: #5d6372;
+  --color-badge-warning-bg: #fff3dc;
+  --color-badge-warning-text: #a95d00;
+  --color-badge-success-bg: #e5f8ed;
+  --color-badge-success-text: #1f8d51;
+  --color-badge-success-bg-alt: #e8f8ee;
+  --color-badge-neutral-bg: rgba(246, 247, 249, 0.95);
+  --color-login-tint-1: #e8f3ff;
+  --color-login-tint-2: #e9ecef;
+
+  /* Borders */
+  --border-soft: 1px solid var(--color-line-soft);
+  --border-default: 1px solid var(--color-line);
+  --border-subtle: 1px solid var(--color-line-subtle);
+  --border-strong: 1px solid var(--color-line-strong);
+  --border-accent: 1px solid var(--color-line-accent);
+  --border-accent-soft: 1px solid var(--color-line-accent-soft);
+  --border-success-soft: 1px solid var(--color-line-success-soft);
+  --border-warning-soft: 1px solid var(--color-line-warning-soft);
+  --border-danger-soft: 1px solid var(--color-line-danger-soft);
+
+  /* Radius */
+  --radius-3xs: 3px;
+  --radius-2xs: 6px;
+  --radius-xs: 10px;
+  --radius-sm: 14px;
+  --radius-md: 18px;
+  --radius-lg: 24px;
+  --radius-xl: 32px;
+  --radius-card: 20px;
+  --radius-control: 12px;
+  --radius-pill: 999px;
+
+  /* Shadow */
+  --shadow-xs: 0 2px 10px rgba(15, 23, 42, 0.04);
+  --shadow-sm: 0 8px 24px rgba(15, 23, 42, 0.06);
+  --shadow-md: 0 14px 36px rgba(15, 23, 42, 0.08);
+  --shadow-lg: 0 22px 56px rgba(15, 23, 42, 0.1);
+  --shadow-card-soft: 0 10px 26px rgba(15, 23, 42, 0.05);
+  --shadow-card-spot: 0 24px 60px rgba(11, 15, 26, 0.08);
+  --shadow-button-soft: 0 6px 16px rgba(15, 23, 42, 0.04);
+  --shadow-control-soft: inset 0 1px 0 rgba(255, 255, 255, 0.78);
+  --shadow-sticky-pane: -12px 0 18px rgba(15, 23, 42, 0.06);
+  --shadow-table-shell: inset 0 1px 0 rgba(255, 255, 255, 0.78);
+  --shadow-table-head: inset 0 -1px 0 rgba(15, 23, 42, 0.07), 0 10px 16px rgba(15, 23, 42, 0.03);
+  --shadow-focus-ring: 0 0 0 3px rgba(0, 113, 227, 0.08);
+  --shadow-panel-elevated: 0 12px 30px rgba(15, 23, 42, 0.05);
+  --shadow-card-elevated: 0 8px 22px rgba(15, 23, 42, 0.038);
+  --shadow-card-elevated-strong: 0 14px 32px rgba(15, 23, 42, 0.07);
+  --shadow-1: var(--shadow-md);
+  --shadow-2: var(--shadow-sm);
+
+  /* Spacing */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 40px;
+  --panel-gap: 20px;
+  --panel-padding-lg: 24px;
+  --panel-padding-md: 20px;
+  --section-gap-lg: 22px;
+  --section-padding-lg-y: 22px;
+  --section-padding-lg-x: 22px;
+  --card-gap: 14px;
+
+  /* Sizing */
+  --nav-height: 52px;
+  --control-height-xs: 26px;
+  --control-height-sm: 28px;
+  --control-height-md: 30px;
+  --control-height-lg: 34px;
+  --control-height-xl: 36px;
+  --control-height-2xl: 42px;
+  --footer-icon-size: 18px;
+  --footer-icon-glyph-size: 16px;
+  --floating-button-size: 42px;
+  --floating-button-size-sm: 40px;
+  --metric-card-min-height: 132px;
+  --toolbar-height: 38px;
+
+  /* Motion / effects */
+  --ease-standard: 160ms ease;
+  --ease-snappy: 0.2s ease;
+  --blur-nav: 18px;
+  --outline-focus: 2px solid rgba(0, 113, 227, 0.22);
+  --outline-focus-strong: 2px solid rgba(0, 113, 227, 0.24);
+
+  /* Shared surface recipes */
+  --gradient-page-home:
+    radial-gradient(circle at 10% -2%, rgba(0, 113, 227, 0.12), transparent 34%),
+    radial-gradient(circle at 100% 0%, rgba(255, 153, 102, 0.08), transparent 38%),
+    linear-gradient(180deg, var(--color-bg-page-top) 0%, var(--color-bg) 44%, var(--color-bg-page-bottom) 100%);
+
+  --gradient-page-admin:
+    radial-gradient(circle at 10% -5%, rgba(0, 113, 227, 0.12), transparent 36%),
+    radial-gradient(circle at 100% 0%, rgba(255, 128, 64, 0.09), transparent 42%),
+    linear-gradient(180deg, var(--color-bg-page-top) 0%, var(--bg) 45%, var(--color-bg-page-bottom-alt) 100%);
+
+  --gradient-page-admin-wide:
+    radial-gradient(circle at 12% -4%, rgba(0, 113, 227, 0.08), transparent 30%),
+    radial-gradient(circle at 100% 0%, rgba(255, 128, 64, 0.06), transparent 36%),
+    linear-gradient(180deg, var(--color-bg-page-top) 0%, var(--color-bg-page-mid) 52%, var(--color-bg-page-bottom-alt) 100%);
+
+  --gradient-card-base: linear-gradient(180deg, var(--color-surface-card), var(--color-surface-card-soft));
+  --gradient-panel-base: linear-gradient(180deg, var(--color-surface-panel), var(--color-surface-panel-soft));
+  --gradient-input: linear-gradient(180deg, var(--color-surface), var(--color-bg-soft));
+  --gradient-disabled: linear-gradient(180deg, var(--color-bg-disabled-top), var(--color-bg-disabled-bottom));
+  --gradient-config-panel: linear-gradient(180deg, var(--color-bg-page-top), var(--color-bg-page-mid));
+  --gradient-login-page:
+    radial-gradient(circle at 16% 20%, var(--color-login-tint-1) 0%, transparent 45%),
+    radial-gradient(circle at 85% 80%, var(--color-login-tint-2) 0%, transparent 45%),
+    var(--color-bg);
+
+  /* Legacy aliases */
+  --bg: var(--color-bg);
+  --bg-soft: var(--color-bg-soft);
+  --surface: var(--color-surface);
+  --surface-2: var(--color-bg-elevated);
+  --text: var(--color-text);
+  --muted: var(--color-text-muted);
+  --line: var(--color-line);
+  --line-soft: var(--color-line-soft);
+  --blue: var(--color-accent);
+  --blue-hover: var(--color-accent-strong);
+  --gain: var(--color-danger);
+  --loss: var(--color-success);
+  --warn: var(--color-warning);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
