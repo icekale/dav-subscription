@@ -80,7 +80,7 @@ class FeishuBot:
             reply_id=reply_id,
         )
 
-    def _on_message(self, ctx, event):
+    def _on_message(self, event):
         try:
             message = event.event.message
             content = json.loads(message.content or "{}")
@@ -112,6 +112,6 @@ class FeishuBot:
             self.app_id,
             self.app_secret,
             event_handler=handler,
-            log_level=lark_oapi.LogLevel.ERROR,
+            log_level=lark_oapi.LogLevel.INFO,
         )
         self._ws_client.start()
