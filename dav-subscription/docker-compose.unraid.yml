@@ -1,0 +1,28 @@
+services:
+  dav-subscription:
+    build: .
+    container_name: dav-subscription
+    network_mode: bridge
+    ports:
+      - "8000:8000"
+    environment:
+      TZ: Asia/Shanghai
+      CONFIG_PATH: /app/config.yaml
+      DB_PATH: /data/dav.db
+      # 密钥走环境变量（Unraid compose 里直接填，或放同目录 .env）
+      FEISHU_APP_ID: "${FEISHU_APP_ID}"
+      FEISHU_APP_SECRET: "${FEISHU_APP_SECRET}"
+      TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN}"
+      TELEGRAM_CHAT_ID: "${TELEGRAM_CHAT_ID}"
+      WECHAT_APP_ID: "${WECHAT_APP_ID}"
+      WECHAT_APP_SECRET: "${WECHAT_APP_SECRET}"
+      XUEQIU_COOKIE: "${XUEQIU_COOKIE}"
+      WEB_ALLOW_REGISTER: "true"
+      WEB_ADMIN_PASSWORD: "${WEB_ADMIN_PASSWORD}"
+      WEB_TOKEN_SECRET: "${WEB_TOKEN_SECRET}"
+      POLLING_POSTS_RETENTION_DAYS: "30"
+    volumes:
+      - /mnt/user/appdata/dav-subscription/data:/data
+      # 如需用配置文件（轮询间隔等），把 config.yaml 放到 appdata 目录再启用：
+      # - /mnt/user/appdata/dav-subscription/config.yaml:/app/config.yaml:ro
+    restart: unless-stopped
