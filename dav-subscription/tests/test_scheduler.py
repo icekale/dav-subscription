@@ -15,6 +15,7 @@ from app.scheduler import (
     keepalive_weibo_cookie,
     keepalive_xueqiu_cookie,
     poll_once,
+    translate_text,
 )
 from app.scheduler import Scheduler
 
@@ -417,6 +418,34 @@ def test_twitter_content_translated_once_for_new_posts(monkeypatch):
     )
     poll_once(db, {"twitter": FakeFetcher([post2])}, [FakeNotifier()], interval_seconds=0)
     assert db.list_posts(limit=10)[0]["title"] == "Stay hungry"
+
+
+def test_translate_text_google_first():
+    def handler(request):
+        return httpx.Response(
+            200,
+            json=[[["你好世界", "Hello world", None, None, 10]], None, "en"],
+        )
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    assert translate_text("Hello world", client=client) == "你好世界"
+
+
+def test_translate_text_falls_back_to_mymemory():
+    calls = []
+
+    def handler(request):
+        calls.append(str(request.url))
+        if "translate.googleapis.com" in str(request.url):
+            return httpx.Response(302)  # Google 不可用（302/被墙）
+        return httpx.Response(
+            200,
+            json={"responseData": {"translatedText": "我们相信这款芯片是第一款"}},
+        )
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    assert translate_text("We believe this chip is the first", client=client) == "我们相信这款芯片是第一款"
+    assert len(calls) == 2
 
 
 def test_xueqiu_cookie_keepalive():

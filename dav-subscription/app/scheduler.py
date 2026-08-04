@@ -50,21 +50,46 @@ def _polling_bool(db: DB, key: str, default: bool = False) -> bool:
     return value.strip().lower() in ("1", "true", "yes", "on")
 
 
-def translate_text(text: str, target: str = "zh-CN") -> str:
-    """用 Google 免费翻译接口把 X 内容转成中文；失败抛异常由调用方兜底。"""
+def translate_text(text: str, target: str = "zh-CN", client=None) -> str:
+    """把 X 内容转成中文：优先 Google 免费接口，不可用时降级 MyMemory。"""
     import httpx
 
     text = (text or "").strip()
     if not text:
         return text
-    resp = httpx.get(
-        "https://translate.googleapis.com/translate_a/single",
-        params={"client": "gtx", "sl": "auto", "tl": target, "dt": "t", "q": text[:2000]},
-        timeout=20,
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    return "".join(part[0] for part in data[0] if part and part[0]) or text
+    owns_client = client is None
+    client = client or httpx.Client(timeout=15)
+    errors = []
+    try:
+        # 1) Google translate（海外网络可用）
+        try:
+            resp = client.get(
+                "https://translate.googleapis.com/translate_a/single",
+                params={"client": "gtx", "sl": "auto", "tl": target, "dt": "t", "q": text[:2000]},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            translated = "".join(part[0] for part in data[0] if part and part[0])
+            if translated:
+                return translated
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"google: {exc}")
+        # 2) MyMemory（国内网络可用，单条限 500 字符）
+        try:
+            resp = client.get(
+                "https://api.mymemory.translated.net/get",
+                params={"q": text[:500], "langpair": "en|zh-CN"},
+            )
+            resp.raise_for_status()
+            translated = ((resp.json() or {}).get("responseData") or {}).get("translatedText") or ""
+            if translated:
+                return translated
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"mymemory: {exc}")
+    finally:
+        if owns_client:
+            client.close()
+    raise RuntimeError("; ".join(errors) or "无可用翻译源")
 
 
 class PushRetryQueue:
