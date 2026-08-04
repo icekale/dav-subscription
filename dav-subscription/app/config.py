@@ -13,6 +13,7 @@ class FeishuConfig:
     webhook_url: str = ""
     app_id: str = ""
     app_secret: str = ""
+    bot_name: str = ""
 
 
 @dataclass
@@ -20,6 +21,7 @@ class TelegramConfig:
     bot_token: str = ""
     chat_id: str = ""
     proxy: str = ""
+    bot_username: str = ""
 
 
 @dataclass
@@ -88,6 +90,8 @@ _ENV_MAP = {
     "TELEGRAM_BOT_TOKEN": ("notifiers", "telegram", "bot_token"),
     "TELEGRAM_CHAT_ID": ("notifiers", "telegram", "chat_id"),
     "TELEGRAM_PROXY": ("notifiers", "telegram", "proxy"),
+    "TELEGRAM_BOT_USERNAME": ("notifiers", "telegram", "bot_username"),
+    "FEISHU_BOT_NAME": ("notifiers", "feishu", "bot_name"),
     "XUEQIU_COOKIE": ("sources", "xueqiu", "cookie"),
     "WEIBO_COOKIE": ("sources", "weibo", "cookie"),
     "WEIBO_TOKEN": ("sources", "weibo", "token"),

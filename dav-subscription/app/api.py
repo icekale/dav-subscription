@@ -232,6 +232,11 @@ def create_api_router(
     def me(user: dict = Depends(get_current_user)):
         profile = public_user(user)
         profile["subscription_count"] = len(db.list_subscriptions(user["id"]))
+        if notifiers_config is not None:
+            profile["push_guide"] = {
+                "telegram_bot_username": notifiers_config.telegram.bot_username,
+                "feishu_bot_name": notifiers_config.feishu.bot_name,
+            }
         return profile
 
     @router.put("/me")

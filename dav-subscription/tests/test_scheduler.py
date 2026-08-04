@@ -80,6 +80,32 @@ def test_fetch_error_does_not_crash():
     assert len(notifier.calls) == 0
 
 
+def test_posts_pushed_in_time_order():
+    db = make_db()
+    kid = db.add_kol("weibo", "A", "1")
+    # 抓取返回乱序（置顶/接口顺序），发布时间为三种不同格式
+    posts = [
+        Post(
+            platform="weibo", kol_id=kid, kol_name="A",
+            external_id="p3", title="t3", content="c", url="u",
+            published_at="2026-08-04 21:00:00",
+        ),
+        Post(
+            platform="weibo", kol_id=kid, kol_name="A",
+            external_id="p1", title="t1", content="c", url="u",
+            published_at="Tue Aug 04 20:00:00 +0800 2026",
+        ),
+        Post(
+            platform="weibo", kol_id=kid, kol_name="A",
+            external_id="p2", title="t2", content="c", url="u",
+            published_at="Tue, 04 Aug 2026 20:30:00 +0800",
+        ),
+    ]
+    notifier = FakeNotifier()
+    poll_once(db, {"weibo": FakeFetcher(posts)}, [notifier])
+    assert [p.external_id for p in notifier.calls] == ["p1", "p2", "p3"]
+
+
 def test_push_failure_logged():
     db = make_db()
     kid = db.add_kol("xueqiu", "A", "1")

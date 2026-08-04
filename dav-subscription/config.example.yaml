@@ -1,10 +1,12 @@
 notifiers:
   feishu:
     webhook_url: ""   # 飞书群机器人 webhook：群设置 → 群机器人 → 自定义机器人
+    bot_name: ""      # 可选：飞书应用机器人名称，用于推送设置页的引导文案
   telegram:
     bot_token: ""     # @BotFather 创建 bot 获取
     chat_id: ""       # 接收推送的会话 ID（可用 @userinfobot 查询）
     proxy: ""         # 可选：Telegram 被墙时填 http://<host>:<port> 代理（支持认证）
+    bot_username: ""  # 可选：机器人 @username，用于推送设置页的引导链接
 
 sources:
   xueqiu:

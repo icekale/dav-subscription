@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import asyncio
+import email.utils
 import logging
 import random
 import time
+from datetime import datetime
 
 from .db import DB
 from .fetchers.base import Fetcher, Post
@@ -16,6 +18,35 @@ WEIBO_WARNING_KEY = "weibo_warning_date"
 XUEQIU_WARNING_KEY = "xueqiu_warning_date"
 PUSH_ALERT_KEY = "push_alert_last_at"
 PUSH_ALERT_INTERVAL = 3600
+
+
+def _post_sort_key(post: Post) -> float:
+    """帖子发布时间 → 时间戳；无法解析的排在最后（保持抓取顺序）。"""
+    raw = (post.published_at or "").strip()
+    if not raw:
+        return float("inf")
+    if raw.isdigit():
+        try:
+            ts = int(raw)
+            return ts / 1000 if ts > 1e12 else float(ts)
+        except ValueError:
+            pass
+    for fmt in (
+        "%a %b %d %H:%M:%S %z %Y",  # 微博
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M:%S%z",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%dT%H:%M:%S%z",
+    ):
+        try:
+            return datetime.strptime(raw, fmt).timestamp()
+        except ValueError:
+            continue
+    try:
+        # RFC 2822（RSS 源常用），如 "Tue, 04 Aug 2026 21:00:00 +0800"
+        return email.utils.parsedate_to_datetime(raw).timestamp()
+    except (TypeError, ValueError):
+        return float("inf")
 
 
 class PlatformState:
@@ -187,6 +218,8 @@ def poll_once(
             continue
         state.fail_count = 0
         state.last_fetched[kol["id"]] = now
+        # 按发布时间升序推送，避免各平台返回顺序（置顶/反爬兜底）导致乱序
+        posts = sorted(posts, key=_post_sort_key)
         for post in posts:
             post.category = kol.get("category_name") or ""
             post_id = db.insert_post(

@@ -10,15 +10,38 @@ Page({
     notify: true,
     bindCode: "",
     bindMinutes: 0,
+    tgBot: "",
+    fsBotName: "",
   },
 
   onLoad() {
     this.load();
   },
 
+  onShow() {
+    this._pollCount = 0;
+    if (this._pollTimer) clearInterval(this._pollTimer);
+    this._pollTimer = setInterval(() => {
+      this._pollCount += 1;
+      this.load();
+      if (this._pollCount >= 20) {
+        clearInterval(this._pollTimer);
+        this._pollTimer = null;
+      }
+    }, 5000);
+  },
+
+  onHide() {
+    if (this._pollTimer) {
+      clearInterval(this._pollTimer);
+      this._pollTimer = null;
+    }
+  },
+
   async load() {
     try {
       const user = await request("/api/me");
+      const guide = user.push_guide || {};
       this.setData({
         tg: user.telegram_chat_id,
         tgBound: !!user.telegram_chat_id,
@@ -26,7 +49,13 @@ Page({
         fsBound: !!(user.feishu_open_id && user.feishu_chat_id),
         fsIncomplete: !!user.feishu_open_id && !user.feishu_chat_id,
         notify: user.notify_enabled,
+        tgBot: guide.telegram_bot_username || "",
+        fsBotName: guide.feishu_bot_name || "",
       });
+      if (user.telegram_chat_id && user.feishu_open_id && user.feishu_chat_id && this._pollTimer) {
+        clearInterval(this._pollTimer);
+        this._pollTimer = null;
+      }
     } catch (err) {
       wx.showToast({ title: err.message, icon: "none" });
     }

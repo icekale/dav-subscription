@@ -1,5 +1,14 @@
 <view class="page">
   <view class="card">
+    <view class="card-title">如何接收推送</view>
+    <view class="step-line">1. 打开飞书，搜索「{{fsBotName || "机器人应用名"}}」并进入<b>私聊</b>（Telegram 同理，打开机器人即可）</view>
+    <view class="step-line">2. 给机器人发任意一条消息，如 /start —— 系统自动记录你的会话</view>
+    <view class="step-line">3. 回到本页，状态每 5 秒自动刷新为「已绑定」</view>
+    <view class="notice-line" style="color:var(--text-faint);font-size:22rpx;margin-top:8rpx">
+      💡 飞书群聊不会推送新帖，务必使用私聊；机器人订阅与网页账号可用绑定码合并。
+    </view>
+  </view>
+  <view class="card">
     <view class="card-title">推送渠道</view>
     <view class="form-item">
       <view class="form-label">Telegram</view>
@@ -16,7 +25,7 @@
       </view>
     </view>
     <view class="notice-line" style="color:var(--text-muted);font-size:24rpx;line-height:1.8;margin-top:8rpx">
-      给机器人发任意一条消息（如 /start），系统会自动记录会话；再用下方绑定码把渠道合并到当前账号。
+      状态自动刷新：去机器人发一条消息，回到本页稍等几秒即可看到已绑定。
     </view>
   </view>
   <view class="card">

@@ -68,6 +68,7 @@ class FeishuBot:
         return user
 
     def handle_message(self, chat_id: str, chat_type: str, open_id: str, sender_name: str, text: str) -> None:
+        is_new = self.db.get_user_by_feishu(open_id) is None
         # 单聊里记录用户的 p2p 会话 chat_id：飞书 open_id 直发可能被 230101 拦截，
         # 用 chat_id 发单聊消息是稳定可用的路径（群聊/单聊回复都走 chat_id）。
         if chat_type != "group":
@@ -91,6 +92,19 @@ class FeishuBot:
             user = self.db.get_user_by_feishu(open_id)
             if user is not None and user.get("feishu_chat_id") != chat_id:
                 self.db.update_user(user["id"], feishu_chat_id=chat_id)
+        if is_new:
+            if chat_type == "group":
+                self._send(
+                    "feishu_chat_id",
+                    chat_id,
+                    "💡 提示：群聊不会推送新帖。请在飞书里「私聊」本机器人并发送任意消息，之后新帖会发到私聊会话。",
+                )
+            elif not (text or "").strip().startswith("/"):
+                self._send(
+                    "feishu_chat_id",
+                    chat_id,
+                    "✅ 推送渠道已自动绑定：订阅大V后，新帖会直接发到这个私聊会话。发 /list 查看可订阅的大V。",
+                )
 
     def _send_card(self, chat_id: str, card: dict) -> None:
         from lark_oapi.api.im.v1 import CreateMessageRequest, CreateMessageRequestBody

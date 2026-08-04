@@ -560,6 +560,16 @@ def test_register_requires_invite_code():
     assert resp.status_code == 400 and "无效或已被使用" in resp.json()["detail"]
 
 
+def test_me_includes_push_guide():
+    cfg = Config()
+    cfg.notifiers.telegram.bot_username = "dav_bot"
+    cfg.notifiers.feishu.bot_name = "大V订阅机器人"
+    client = make_client(config=cfg)
+    headers = auth_headers(client)
+    me = client.get("/api/me", headers=headers).json()
+    assert me["push_guide"] == {"telegram_bot_username": "dav_bot", "feishu_bot_name": "大V订阅机器人"}
+
+
 def test_posts_search_and_push_log_filters():
     client = make_client()
     headers = auth_headers(client)
