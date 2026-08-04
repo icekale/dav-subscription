@@ -5,15 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#0d5cff">
   <title>大V订阅</title>
+  <link rel="icon" type="image/svg+xml" href="/logo.svg">
   <link rel="stylesheet" href="/vendor/design-tokens.css?v=10">
-  <link rel="stylesheet" href="/style.css?v=12">
+  <link rel="stylesheet" href="/style.css?v=13">
 </head>
 <body>
   <!-- 登录 / 注册 -->
   <div id="auth-view" class="auth-view hidden">
     <main class="login-shell">
       <div class="login-brand">
-        <div class="brand-mark">V</div>
+        <img class="brand-mark brand-logo" src="/logo.svg" alt="大V订阅">
         <p class="login-eyebrow">DaV Subscription</p>
         <h1 class="login-brand-title">大V订阅</h1>
         <p class="login-brand-copy">聚合订阅雪球 / 微博 / X 大V公开动态，新帖实时推送到 Telegram 与飞书。</p>
@@ -55,15 +56,15 @@
   <div id="app-view" class="app-view hidden">
     <aside class="sidebar">
       <div class="sidebar-brand">
-        <div class="brand-mark small">V</div>
+        <img class="brand-mark small brand-logo" src="/logo.svg" alt="大V订阅">
         <div class="sidebar-brand-text">
           <span class="sidebar-brand-name">大V订阅</span>
-          <span class="sidebar-brand-meta">DaV Subscription</span>
+          <span class="sidebar-brand-meta">DaV Subscription · v1.4.0</span>
         </div>
       </div>
       <nav id="sidebar-nav" class="sidebar-nav"></nav>
       <div class="sidebar-foot">
-        <span id="sidebar-user" class="sidebar-user"></span>
+        <div id="sidebar-user" class="sidebar-user"></div>
       </div>
     </aside>
     <div class="main-col">
@@ -77,6 +78,6 @@
       <main id="main" class="page-main"></main>
     </div>
   </div>
-  <script src="/app.js?v=16"></script>
+  <script src="/app.js?v=17"></script>
 </body>
 </html>

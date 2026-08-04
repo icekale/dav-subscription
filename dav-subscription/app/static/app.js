@@ -1,7 +1,7 @@
 const $ = (sel) => document.querySelector(sel);
 
 const PLATFORM_LABELS = { xueqiu: "雪球", weibo: "微博", twitter: "X" };
-const APP_VERSION = "v1.3 · 后台风格";
+const APP_VERSION = "1.4.0";
 const state = {
   token: localStorage.getItem("dav_token") || "",
   user: null,
@@ -78,7 +78,12 @@ function renderSidebar(user) {
         </button>`).join("")}
     `).join("");
   $("#sidebar-nav").innerHTML = html;
-  $("#sidebar-user").textContent = `${user.username}${user.is_admin ? " · 管理员" : ""} · ${APP_VERSION}`;
+  $("#sidebar-user").innerHTML = `
+    <div class="sidebar-user-row">
+      <span class="sidebar-user-name">${escapeHtml(user.username)}</span>
+      ${user.is_admin ? '<span class="sidebar-user-badge">管理员</span>' : ""}
+    </div>
+    <div class="sidebar-user-meta">大V订阅 v${APP_VERSION}</div>`;
 }
 
 function renderTopbar(user) {
