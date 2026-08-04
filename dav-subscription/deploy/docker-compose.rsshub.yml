@@ -12,6 +12,13 @@ services:
       NODE_ENV: production
       # 缓解反爬：给请求加真实浏览器 UA
       UA: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+      # X/Twitter 需要凭据才能启用 twitter 路由（免费 Developer API v2 即可）
+      # 在 Unraid 的 appdata/dav-subscription/.env 里填好后重启 rsshub 容器
+      TWITTER_APP_KEY: "${TWITTER_APP_KEY}"
+      TWITTER_APP_SECRET: "${TWITTER_APP_SECRET}"
+      TWITTER_ACCESS_TOKEN: "${TWITTER_ACCESS_TOKEN}"
+      TWITTER_ACCESS_TOKEN_SECRET: "${TWITTER_ACCESS_TOKEN_SECRET}"
+      TWITTER_COOKIE: "${TWITTER_COOKIE}"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:1200/healthz"]
       interval: 60s
