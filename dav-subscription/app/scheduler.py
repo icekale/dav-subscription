@@ -274,6 +274,7 @@ def poll_once(
         state.fail_count = 0
         db.set_setting(SOURCE_OK_KEY.format(platform=kol["platform"]), str(int(time.time())))
         db.set_setting(SOURCE_FAILS_KEY.format(platform=kol["platform"]), "0")
+        db.set_setting(SOURCE_ERR_KEY.format(platform=kol["platform"]), "")
         state.last_fetched[kol["id"]] = now
         # 按发布时间升序推送，避免各平台返回顺序（置顶/反爬兜底）导致乱序
         posts = sorted(posts, key=_post_sort_key)
@@ -413,32 +414,50 @@ def flush_digest(db: DB, digest: dict[int, list[Post]], notifiers: list[Notifier
 
 
 def probe_xueqiu(db: DB, notifiers: list[Notifier], source_config) -> None:
-    """主动探测雪球 cookie/反爬状态，WAF 拦截时提前告警。"""
+    """主动探测雪球抓取接口可用性（与抓取同路径，不用首页——首页对
+    数据中心 IP 常见 WAF，不能作为失效依据）。"""
     import httpx
 
-    from .fetchers.xueqiu import XUEQIU_COOKIE_KEY, _is_waf_html
+    from .fetchers.xueqiu import XUEQIU_COOKIE_KEY, XUEQIU_TIMELINE_URL, _is_waf_html
 
     cookie = db.get_setting(XUEQIU_COOKIE_KEY) or source_config.cookie
+    target = next((k for k in db.list_kols(platform="xueqiu") if k["enabled"]), None)
+    if target is None:
+        return  # 没有启用的雪球大V，无从探测
     client = httpx.Client(
         timeout=15,
         follow_redirects=True,
         headers={
             "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X)",
-            "Referer": "https://xueqiu.com/",
+            "Accept": "application/json, text/plain, */*",
+            "X-Requested-With": "XMLHttpRequest",
+            "Referer": f"https://xueqiu.com/u/{target['external_id']}",
             **({"Cookie": cookie} if cookie else {}),
         },
     )
     try:
-        resp = client.get("https://xueqiu.com/")
-        blocked = _is_waf_html(resp) or resp.status_code in (401, 403)
+        resp = client.get(
+            XUEQIU_TIMELINE_URL,
+            params={"user_id": target["external_id"], "page": 1, "count": 1},
+        )
+        blocked = (
+            _is_waf_html(resp)
+            or resp.status_code in (401, 403)
+            or resp.headers.get("content-type", "").startswith("text/html")
+        )
+        if resp.status_code == 200 and not blocked:
+            try:
+                resp.json()
+            except ValueError:
+                blocked = True
         if blocked:
-            db.set_setting(SOURCE_ERR_KEY.format(platform="xueqiu"), "WAF/反爬拦截（探测）")
+            db.set_setting(SOURCE_ERR_KEY.format(platform="xueqiu"), "接口异常/反爬拦截（探测）")
             now = int(time.time())
             last = db.get_setting(XUEQIU_PROBE_ALERT_KEY)
             if not last or now - int(last) >= SOURCE_ALERT_INTERVAL:
                 db.set_setting(XUEQIU_PROBE_ALERT_KEY, str(now))
                 message = (
-                    "⚠️ 雪球探测异常：访问 xueqiu.com 被反爬拦截或返回异常状态，"
+                    "⚠️ 雪球探测异常：抓取接口被反爬拦截或返回异常，"
                     "cookie 可能失效。请到后台「数据源」页更新雪球 cookie。"
                 )
                 for notifier in notifiers:
@@ -448,6 +467,7 @@ def probe_xueqiu(db: DB, notifiers: list[Notifier], source_config) -> None:
                         logger.warning("雪球探测告警发送失败 channel=%s err=%s", notifier.channel, exc)
             return
         db.set_setting(SOURCE_OK_KEY.format(platform="xueqiu"), str(int(time.time())))
+        db.set_setting(SOURCE_ERR_KEY.format(platform="xueqiu"), "")
     except Exception as exc:  # noqa: BLE001
         db.set_setting(SOURCE_ERR_KEY.format(platform="xueqiu"), str(exc)[:300])
         logger.warning("雪球探测失败: %s", exc)
@@ -475,8 +495,8 @@ class Scheduler:
         self._digest: dict[int, list[Post]] = {}
         self._stop = asyncio.Event()
         self._last_cleanup = 0.0
-        self._last_digest_flush = 0.0
-        self._last_xueqiu_probe = 0.0
+        self._last_digest_flush = time.monotonic()
+        self._last_xueqiu_probe = time.monotonic()
 
     def stop(self):
         self._stop.set()
