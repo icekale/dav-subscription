@@ -727,6 +727,13 @@ def test_polling_config_get_and_update():
     assert resp.json()["interval_seconds"] == 120
     assert resp.json()["digest_interval_seconds"] == 300
     assert resp.json()["daily_report_hour"] == 21
+    resp = client.put(
+        "/api/admin/polling-config",
+        headers=headers,
+        json={"translate_twitter_content": True},
+    )
+    assert resp.json()["translate_twitter_content"] is True
+    assert client.get("/api/admin/polling-config", headers=headers).json()["translate_twitter_content"] is True
 
     # 超范围被拒绝
     resp = client.put(

@@ -43,6 +43,30 @@ def _polling_setting(db: DB, key: str, default: int) -> int:
         return default
 
 
+def _polling_bool(db: DB, key: str, default: bool = False) -> bool:
+    value = db.get_setting(key)
+    if value is None:
+        return default
+    return value.strip().lower() in ("1", "true", "yes", "on")
+
+
+def translate_text(text: str, target: str = "zh-CN") -> str:
+    """用 Google 免费翻译接口把 X 内容转成中文；失败抛异常由调用方兜底。"""
+    import httpx
+
+    text = (text or "").strip()
+    if not text:
+        return text
+    resp = httpx.get(
+        "https://translate.googleapis.com/translate_a/single",
+        params={"client": "gtx", "sl": "auto", "tl": target, "dt": "t", "q": text[:2000]},
+        timeout=20,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    return "".join(part[0] for part in data[0] if part and part[0]) or text
+
+
 class PushRetryQueue:
     """推送失败重试队列：指数退避（1m/5m/15m），超过次数放弃。"""
 
@@ -362,6 +386,17 @@ def poll_once(
         posts = sorted(posts, key=_post_sort_key)
         for post in posts:
             post.category = kol.get("category_name") or ""
+            if (
+                post.platform == "twitter"
+                and _polling_bool(db, "config_translate_twitter_content", False)
+                and db.get_post_id(post.platform, post.external_id) is None
+            ):
+                # 仅翻译新帖，避免每轮重复调用翻译接口
+                try:
+                    post.title = translate_text(post.title or "")
+                    post.content = translate_text(post.content or "")
+                except Exception as exc:  # noqa: BLE001 - 翻译失败退回原文
+                    logger.warning("X 内容翻译失败 post=%s err=%s", post.external_id, exc)
             post_id = db.insert_post(
                 post.platform,
                 post.kol_id,

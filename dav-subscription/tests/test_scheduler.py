@@ -9,6 +9,7 @@ from app.db import DB
 from app.fetchers.base import Post
 from app.scheduler import (
     PushRetryQueue,
+    _polling_bool,
     _polling_setting,
     flush_digest,
     keepalive_weibo_cookie,
@@ -368,6 +369,54 @@ def test_polling_setting_db_override():
     assert _polling_setting(db, "config_interval_seconds", 180) == 60
     db.set_setting("config_interval_seconds", "abc")
     assert _polling_setting(db, "config_interval_seconds", 180) == 180
+
+
+def test_polling_bool_override():
+    db = make_db()
+    assert _polling_bool(db, "k", False) is False
+    db.set_setting("k", "1")
+    assert _polling_bool(db, "k") is True
+    db.set_setting("k", "no")
+    assert _polling_bool(db, "k", True) is False
+
+
+def test_twitter_content_translated_once_for_new_posts(monkeypatch):
+    db = make_db()
+    kid = db.add_kol("twitter", "Semi", "https://x.com/Semi")
+    db.set_setting("config_translate_twitter_content", "1")
+    post = Post(
+        platform="twitter", kol_id=kid, kol_name="Semi",
+        external_id="t1", title="Hello world", content="Hello world",
+        url="u", published_at="",
+    )
+    monkeypatch.setattr(
+        "app.scheduler.translate_text",
+        lambda text, target="zh-CN": "你好世界" if "Hello" in text else text,
+    )
+    poll_once(db, {"twitter": FakeFetcher([post])}, [FakeNotifier()], interval_seconds=0)
+    rows = db.list_posts(limit=5)
+    assert rows[0]["title"] == "你好世界" and rows[0]["content"] == "你好世界"
+
+    # 第二轮：帖子已存在，不应再调用翻译
+    calls = {"n": 0}
+
+    def counting(text, target="zh-CN"):
+        calls["n"] += 1
+        return text
+
+    monkeypatch.setattr("app.scheduler.translate_text", counting)
+    poll_once(db, {"twitter": FakeFetcher([post])}, [FakeNotifier()], interval_seconds=0)
+    assert calls["n"] == 0
+
+    # 关闭开关后不翻译
+    db.set_setting("config_translate_twitter_content", "0")
+    post2 = Post(
+        platform="twitter", kol_id=kid, kol_name="Semi",
+        external_id="t2", title="Stay hungry", content="Stay hungry",
+        url="u", published_at="",
+    )
+    poll_once(db, {"twitter": FakeFetcher([post2])}, [FakeNotifier()], interval_seconds=0)
+    assert db.list_posts(limit=10)[0]["title"] == "Stay hungry"
 
 
 def test_xueqiu_cookie_keepalive():

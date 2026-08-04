@@ -755,6 +755,9 @@ async function loadAdminStats() {
         <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)">每日精选小时
           <input id="pc-daily" type="number" class="form-control" style="margin:0;width:110px" min="0" max="23" value="${s.polling_config.daily_report_hour}">
         </label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--color-text-muted);height:36px">
+          <input id="pc-translate" type="checkbox" ${s.polling_config.translate_twitter_content ? "checked" : ""}> X 内容自动翻译成中文
+        </label>
         <button class="btn-normal" onclick="savePollingConfig()">保存抓取设置</button>
         <span id="pc-result" class="muted"></span>
       </div>
@@ -791,6 +794,7 @@ async function savePollingConfig() {
     source_probe_interval_seconds: Number($("#pc-probe").value),
     cookie_keepalive_interval_seconds: Number($("#pc-keepalive").value),
     daily_report_hour: Number($("#pc-daily").value),
+    translate_twitter_content: $("#pc-translate").checked,
   };
   try {
     await api("/api/admin/polling-config", { method: "PUT", body: JSON.stringify(body) });

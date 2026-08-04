@@ -106,6 +106,7 @@ class PollingConfigIn(BaseModel):
     source_probe_interval_seconds: int | None = None
     cookie_keepalive_interval_seconds: int | None = None
     daily_report_hour: int | None = None
+    translate_twitter_content: bool | None = None
 
 
 class CookieIn(BaseModel):
@@ -214,6 +215,9 @@ def create_api_router(
                 out[name] = int(raw)
             except (TypeError, ValueError):
                 out[name] = 0
+        out["translate_twitter_content"] = (
+            db.get_setting("config_translate_twitter_content") == "1"
+        )
         return out
 
     def get_current_user(authorization: str | None = Header(None)):
@@ -549,6 +553,12 @@ def create_api_router(
                 raise HTTPException(status_code=400, detail=f"{name} 需在 {lo}-{hi} 之间")
             db.set_setting(cfg_key, str(value))
             changed.append(name)
+        if body.translate_twitter_content is not None:
+            db.set_setting(
+                "config_translate_twitter_content",
+                "1" if body.translate_twitter_content else "0",
+            )
+            changed.append("translate_twitter_content")
         _audit(admin, "update_polling_config", "", ",".join(changed))
         return _effective_polling()
 
