@@ -27,6 +27,7 @@ def create_app(config=None, db_path: str | Path | None = None) -> FastAPI:
     if db_path is not None:
         config.db_path = str(db_path)
     db = DB(config.db_path)
+    db.set_setting("stats_polling_interval", str(config.polling.interval_seconds))
     secret = auth.get_or_create_secret(db, config.web.token_secret)
     if config.web.admin_password:
         admin = db.get_user_by_username("admin")

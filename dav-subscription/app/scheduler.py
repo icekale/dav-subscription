@@ -171,8 +171,14 @@ class Scheduler:
                     self.states,
                     self.notifiers_config,
                 )
+                self.db.set_setting("stats_last_poll_at", str(int(time.time())))
+                self.db.set_setting(
+                    "stats_last_poll_duration_ms",
+                    str(int((time.monotonic() - started) * 1000)),
+                )
             except Exception:  # noqa: BLE001 - 任何异常都不能终止循环
                 logger.exception("轮询周期异常")
+                self.db.set_setting("stats_last_poll_error", "轮询周期异常")
             elapsed = time.monotonic() - started
             delay = self.polling_config.interval_seconds + random.uniform(
                 0, self.polling_config.jitter_seconds

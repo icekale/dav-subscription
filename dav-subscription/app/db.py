@@ -322,6 +322,10 @@ class DB:
         params.append(limit)
         return self._rows(sql, params)
 
+    def count_posts(self) -> int:
+        rows = self._rows("SELECT COUNT(*) AS n FROM posts")
+        return rows[0]["n"]
+
     def list_feed_posts(self, kol_ids: list[int], limit: int = 100) -> list[dict]:
         if not kol_ids:
             return []

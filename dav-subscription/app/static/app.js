@@ -383,6 +383,7 @@ async function saveSettings() {
 
 // ---------- 管理后台 ----------
 const ADMIN_TABS = [
+  ["stats", "状态"],
   ["kols", "大V管理"],
   ["categories", "分类管理"],
   ["posts", "帖子"],
@@ -399,8 +400,35 @@ async function renderAdmin(tab) {
         <button class="module-tab ${key === tab ? "active" : ""}" onclick="location.hash='#/admin/${key}'">${label}</button>`).join("")}
     </div>
     <div id="admin-body"></div>`;
-  const loaders = { kols: loadAdminKols, categories: loadAdminCategories, posts: loadAdminPosts, logs: loadAdminLogs, users: loadAdminUsers };
+  const loaders = { stats: loadAdminStats, kols: loadAdminKols, categories: loadAdminCategories, posts: loadAdminPosts, logs: loadAdminLogs, users: loadAdminUsers };
   await loaders[tab]();
+}
+
+async function loadAdminStats() {
+  const s = await api("/api/stats");
+  const fmtTime = (ts) => (ts ? new Date(Number(ts) * 1000).toLocaleString() : "尚未抓取");
+  $("#admin-body").innerHTML = `
+    <section class="section-panel">
+      <header class="section-head"><div><p class="section-eyebrow">Runtime</p><h3 class="section-title">运行状态</h3>
+      <p class="section-meta">抓取频率与时效性一览</p></div></header>
+      <div class="row" style="gap:16px;flex-wrap:wrap">
+        ${statCard("轮询间隔", `${s.polling_interval_seconds} 秒`)}
+        ${statCard("最近抓取", fmtTime(s.last_poll_at))}
+        ${statCard("抓取耗时", s.last_poll_duration_ms ? `${(Number(s.last_poll_duration_ms) / 1000).toFixed(1)} 秒` : "-")}
+        ${statCard("大V / 启用", `${s.kols} / ${s.enabled_kols}`)}
+        ${statCard("用户", s.users)}
+        ${statCard("帖子", s.posts)}
+      </div>
+      ${s.last_poll_error ? `<div class="notice" style="margin-top:16px">最近轮询异常：${escapeHtml(s.last_poll_error)}</div>` : ""}
+    </section>`;
+}
+
+function statCard(label, value) {
+  return `
+    <div style="flex:1;min-width:150px;background:var(--color-bg-muted);border-radius:var(--radius-control);padding:16px 18px">
+      <div style="font-size:12px;color:var(--color-text-muted)">${escapeHtml(label)}</div>
+      <div style="font-size:20px;font-weight:700;color:var(--color-text-strong);margin-top:6px">${escapeHtml(String(value))}</div>
+    </div>`;
 }
 
 async function loadAdminKols() {
@@ -418,7 +446,7 @@ async function loadAdminKols() {
           </select>
           <select id="ad-category" class="form-control" style="margin:0;width:auto"><option value="">未分类</option>${catOptions}</select>
           <input id="ad-name" class="form-control" style="margin:0;width:200px" placeholder="昵称">
-          <input id="ad-external" class="form-control" style="margin:0;width:260px" placeholder="user_id / uid / RSS链接">
+          <input id="ad-external" class="form-control" style="margin:0;width:300px" placeholder="user_id / uid / RSS链接 / 雪球主页链接">
           <button class="btn-normal" onclick="adminAddKol()">添加</button>
         </div>
       </header>

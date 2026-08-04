@@ -76,6 +76,23 @@ def test_kol_add_with_xueqiu_homepage_link():
     assert resp.json()["external_id"] == "8790885129"
 
 
+def test_stats_api():
+    client = make_client()
+    headers = auth_headers(client)
+    client.post(
+        "/api/kols", headers=headers, json={"platform": "xueqiu", "name": "A", "external_id": "1"}
+    )
+    stats = client.get("/api/stats", headers=headers).json()
+    assert stats["kols"] == 1
+    assert stats["enabled_kols"] == 1
+    assert stats["users"] == 1
+    assert stats["posts"] == 0
+    assert "polling_interval_seconds" in stats
+    # 普通用户无权访问
+    normal = user_headers(client, "viewer")
+    assert client.get("/api/stats", headers=normal).status_code == 403
+
+
 def test_posts_and_push_logs_api():
     client = make_client()
     headers = auth_headers(client)

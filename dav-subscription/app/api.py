@@ -292,6 +292,20 @@ def create_api_router(db: DB, secret: str, allow_register: bool = True, wechat_c
     def list_users():
         return [public_user(u) for u in db.list_users()]
 
+    @router.get("/stats", dependencies=[Depends(require_admin)])
+    def stats():
+        kols = db.list_kols()
+        return {
+            "polling_interval_seconds": int(db.get_setting("stats_polling_interval") or 0),
+            "last_poll_at": db.get_setting("stats_last_poll_at"),
+            "last_poll_duration_ms": db.get_setting("stats_last_poll_duration_ms"),
+            "last_poll_error": db.get_setting("stats_last_poll_error") or "",
+            "kols": len(kols),
+            "enabled_kols": sum(1 for k in kols if k["enabled"]),
+            "users": db.count_users(),
+            "posts": db.count_posts(),
+        }
+
     @router.put("/users/{user_id}", dependencies=[Depends(require_admin)])
     def update_user(user_id: int, body: UserUpdate, admin: dict = Depends(require_admin)):
         target = db.get_user(user_id)
