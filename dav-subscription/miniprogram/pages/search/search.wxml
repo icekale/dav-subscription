@@ -4,10 +4,24 @@
       <input class="input search-input" placeholder="昵称或雪球UID" value="{{keyword}}" bindinput="onInput" confirm-type="search" bindconfirm="doSearch" />
       <button class="btn btn-primary" bindtap="doSearch">搜索</button>
     </view>
+    <view class="ask-link" bindtap="toggleAsk">
+      没找到想要的大V？{{showAsk ? '收起' : '申请添加'}} →
+    </view>
+  </view>
+  <view wx:if="{{showAsk}}" class="card" style="margin-top:20rpx">
+    <view class="card-title">申请添加大V</view>
+    <picker range="{{askPlatforms}}" range-key="label" bindchange="onAskPlatform" value="{{askPlatformIndex}}">
+      <view class="input picker">平台：{{askPlatforms[askPlatformIndex].label}}</view>
+    </picker>
+    <input class="input" style="margin-top:16rpx" placeholder="大V主页链接或UID" value="{{askLink}}" bindinput="onAskLink" />
+    <button class="btn btn-primary" style="margin-top:20rpx" bindtap="submitAsk">提交申请</button>
   </view>
   <view class="card">
     <view wx:if="{{loading}}" class="empty">搜索中…</view>
-    <view wx:elif="{{searched && results.length === 0}}" class="empty">没有找到匹配的大V，可联系管理员添加</view>
+    <view wx:elif="{{searched && results.length === 0}}" class="empty">
+      没有找到匹配的大V
+      <view><button class="btn btn-primary" bindtap="toggleAsk">申请添加</button></view>
+    </view>
     <view wx:else>
       <view class="kol-item" wx:for="{{results}}" wx:key="id">
         <view class="avatar">{{item.name[0]}}</view>

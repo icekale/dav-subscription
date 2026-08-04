@@ -397,6 +397,114 @@ def test_weibo_kol_link_normalized():
     assert resp.json()["failed"] == []
 
 
+def test_kol_request_flow():
+    client = make_client()
+    admin_headers = auth_headers(client)
+    u_headers = user_headers(client, "user1")
+
+    # 用户提交申请（雪球主页链接自动提取 UID）
+    resp = client.post(
+        "/api/kol-requests",
+        headers=u_headers,
+        json={"platform": "xueqiu", "external_id": "https://xueqiu.com/u/55555"},
+    )
+    assert resp.status_code == 200
+    # 重复申请被拦截
+    resp = client.post(
+        "/api/kol-requests",
+        headers=u_headers,
+        json={"platform": "xueqiu", "external_id": "55555"},
+    )
+    assert resp.status_code == 400 and "处理中" in resp.json()["detail"]
+    # 已存在的大V不允许申请
+    client.app.state.db.add_kol("weibo", "已有", "66666")
+    resp = client.post(
+        "/api/kol-requests",
+        headers=u_headers,
+        json={"platform": "weibo", "external_id": "66666"},
+    )
+    assert resp.status_code == 400 and "已在目录中" in resp.json()["detail"]
+
+    mine = client.get("/api/my/kol-requests", headers=u_headers).json()
+    assert len(mine) == 1 and mine[0]["status"] == "pending" and mine[0]["external_id"] == "55555"
+
+    pending = client.get("/api/admin/kol-requests?status=pending", headers=admin_headers).json()
+    assert len(pending) == 1 and pending[0]["requester"] == "user1"
+
+    req_id = pending[0]["id"]
+    approved = client.post(f"/api/admin/kol-requests/{req_id}/approve", headers=admin_headers)
+    assert approved.status_code == 200
+    assert approved.json()["platform"] == "xueqiu" and approved.json()["external_id"] == "55555"
+
+    done = client.get("/api/admin/kol-requests", headers=admin_headers).json()
+    assert done[0]["status"] == "approved" and done[0]["handled_at"]
+
+    # 再次审批同一申请会 404
+    assert (
+        client.post(f"/api/admin/kol-requests/{req_id}/approve", headers=admin_headers).status_code
+        == 404
+    )
+
+
+def test_kol_visibility_acl():
+    client = make_client()
+    admin_headers = auth_headers(client)
+    r1 = register(client, "u1", "pass123456")
+    r2 = register(client, "u2", "pass123456")
+    u1_id = r1.json()["user"]["id"]
+    user1_headers = {"Authorization": f"Bearer {r1.json()['token']}"}
+    user2_headers = {"Authorization": f"Bearer {r2.json()['token']}"}
+    db = client.app.state.db
+
+    public_id = db.add_kol("xueqiu", "公开大V", "1")
+    private_id = db.add_kol("xueqiu", "私有大V", "2")
+    db.update_kol(private_id, is_private=True)
+    db.set_kol_acl(private_id, [u1_id])
+
+    cat1 = client.get("/api/catalog", headers=user1_headers).json()
+    cat2 = client.get("/api/catalog", headers=user2_headers).json()
+    assert {k["id"] for k in cat1} == {public_id, private_id}
+    assert {k["id"] for k in cat2} == {public_id}
+
+    # u2 无法订阅私有大V，u1 可以
+    assert (
+        client.post(
+            "/api/subscriptions",
+            headers=user2_headers,
+            json={"kol_id": private_id},
+        ).status_code
+        == 404
+    )
+    assert (
+        client.post(
+            "/api/subscriptions",
+            headers=user1_headers,
+            json={"kol_id": private_id},
+        ).status_code
+        == 200
+    )
+    # u2 直接访问私有大V详情也是 404
+    assert client.get(f"/api/kols/{private_id}", headers=user2_headers).status_code == 404
+
+    detail = client.get(f"/api/kols/{private_id}", headers=admin_headers).json()
+    assert detail["is_private"] == 1 and detail["visible_users"] == ["u1"]
+
+    # 管理员把白名单换成 u2，u1 立刻不可见
+    resp = client.put(
+        f"/api/kols/{private_id}",
+        headers=admin_headers,
+        json={"visible_users": ["u2"]},
+    )
+    assert resp.status_code == 200
+    assert private_id not in {k["id"] for k in client.get("/api/catalog", headers=user1_headers).json()}
+    assert private_id in {k["id"] for k in client.get("/api/catalog", headers=user2_headers).json()}
+
+    # 转为公开后所有人可见
+    client.put(f"/api/kols/{private_id}", headers=admin_headers, json={"is_private": False})
+    assert private_id in {k["id"] for k in client.get("/api/catalog", headers=user1_headers).json()}
+    assert private_id in {k["id"] for k in client.get("/api/catalog", headers=user2_headers).json()}
+
+
 def test_posts_search_and_push_log_filters():
     client = make_client()
     headers = auth_headers(client)

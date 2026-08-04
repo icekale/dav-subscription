@@ -21,9 +21,25 @@ CREATE TABLE IF NOT EXISTS kols (
     name TEXT NOT NULL,
     external_id TEXT NOT NULL,
     enabled INTEGER NOT NULL DEFAULT 1,
+    is_private INTEGER NOT NULL DEFAULT 0,
     category_id INTEGER,
     priority INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS kol_acl (
+    kol_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    PRIMARY KEY (kol_id, user_id)
+);
+CREATE TABLE IF NOT EXISTS kol_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    platform TEXT NOT NULL,
+    name TEXT NOT NULL DEFAULT '',
+    external_id TEXT NOT NULL,
+    user_id INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    handled_at TEXT
 );
 CREATE TABLE IF NOT EXISTS posts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -108,6 +124,8 @@ class DB:
         kol_cols = {row["name"] for row in self._rows("PRAGMA table_info(kols)")}
         if "priority" not in kol_cols:
             self._conn.execute("ALTER TABLE kols ADD COLUMN priority INTEGER NOT NULL DEFAULT 0")
+        if "is_private" not in kol_cols:
+            self._conn.execute("ALTER TABLE kols ADD COLUMN is_private INTEGER NOT NULL DEFAULT 0")
         # 渠道绑定唯一化：先清理重复（保留最早注册的用户），再建唯一索引，
         # 避免两个账号绑定同一个 chat_id/open_id 导致重复推送或 /bind 合并错账号。
         for column in ("telegram_chat_id", "feishu_open_id", "feishu_chat_id", "wechat_openid"):
@@ -179,7 +197,16 @@ class DB:
         sql += " ORDER BY k.id"
         return self._rows(sql, params)
 
-    def update_kol(self, kol_id: int, name=None, external_id=None, enabled=None, category_id=_UNSET, priority=_UNSET):
+    def update_kol(
+        self,
+        kol_id: int,
+        name=None,
+        external_id=None,
+        enabled=None,
+        category_id=_UNSET,
+        priority=_UNSET,
+        is_private=_UNSET,
+    ):
         sets, params = [], []
         if name is not None:
             sets.append("name = ?")
@@ -196,6 +223,9 @@ class DB:
         if priority is not _UNSET:
             sets.append("priority = ?")
             params.append(1 if priority else 0)
+        if is_private is not _UNSET:
+            sets.append("is_private = ?")
+            params.append(1 if is_private else 0)
         if not sets:
             return
         params.append(kol_id)
@@ -203,6 +233,7 @@ class DB:
 
     def delete_kol(self, kol_id: int):
         # 级联清理该大V的订阅、帖子与推送记录，避免残留
+        self._execute("DELETE FROM kol_acl WHERE kol_id = ?", (kol_id,))
         self._execute("DELETE FROM subscriptions WHERE kol_id = ?", (kol_id,))
         self._execute(
             "DELETE FROM push_logs WHERE post_id IN (SELECT id FROM posts WHERE kol_id = ?)",
@@ -210,6 +241,68 @@ class DB:
         )
         self._execute("DELETE FROM posts WHERE kol_id = ?", (kol_id,))
         self._execute("DELETE FROM kols WHERE id = ?", (kol_id,))
+
+    # ---- KOL 可见性（白名单） ----
+    def set_kol_acl(self, kol_id: int, user_ids: list[int]) -> None:
+        self._execute("DELETE FROM kol_acl WHERE kol_id = ?", (kol_id,))
+        for uid in set(user_ids):
+            self._execute(
+                "INSERT OR IGNORE INTO kol_acl (kol_id, user_id) VALUES (?, ?)",
+                (kol_id, uid),
+            )
+
+    def acl_user_ids(self, kol_id: int) -> list[int]:
+        return [r["user_id"] for r in self._rows("SELECT user_id FROM kol_acl WHERE kol_id = ?", (kol_id,))]
+
+    def visible_kol_ids(self, user_id: int) -> set[int]:
+        """用户可见的大V：公开大V + 白名单里的私有大V。"""
+        rows = self._rows(
+            "SELECT id FROM kols WHERE is_private = 0 "
+            "UNION SELECT kol_id FROM kol_acl WHERE user_id = ?",
+            (user_id,),
+        )
+        return {r["id"] for r in rows}
+
+    # ---- 求添加申请 ----
+    def add_kol_request(self, platform: str, external_id: str, user_id: int, name: str = "") -> int:
+        if platform not in ALLOWED_PLATFORMS:
+            raise ValueError(f"不支持的平台: {platform}")
+        if self._rows(
+            "SELECT id FROM kol_requests WHERE platform = ? AND external_id = ? AND status = 'pending'",
+            (platform, external_id),
+        ):
+            raise ValueError("该大V的申请已在处理中")
+        if self._rows(
+            "SELECT id FROM kols WHERE platform = ? AND external_id = ?",
+            (platform, external_id),
+        ):
+            raise ValueError("该大V已在目录中，直接订阅即可")
+        return self._execute(
+            "INSERT INTO kol_requests (platform, name, external_id, user_id) VALUES (?, ?, ?, ?)",
+            (platform, name.strip(), external_id, user_id),
+        )
+
+    def list_kol_requests(self, status: str | None = None) -> list[dict]:
+        sql = (
+            "SELECT r.*, u.username AS requester FROM kol_requests r "
+            "LEFT JOIN users u ON u.id = r.user_id"
+        )
+        params: tuple = ()
+        if status:
+            sql += " WHERE r.status = ?"
+            params = (status,)
+        sql += " ORDER BY r.id DESC"
+        return self._rows(sql, params)
+
+    def get_kol_request(self, request_id: int) -> dict | None:
+        rows = self._rows("SELECT * FROM kol_requests WHERE id = ?", (request_id,))
+        return rows[0] if rows else None
+
+    def set_kol_request_status(self, request_id: int, status: str) -> None:
+        self._execute(
+            "UPDATE kol_requests SET status = ?, handled_at = datetime('now') WHERE id = ?",
+            (status, request_id),
+        )
 
     # ---- Category ----
     def list_categories(self) -> list[dict]:

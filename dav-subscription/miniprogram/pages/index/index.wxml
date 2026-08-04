@@ -28,19 +28,25 @@
     <view wx:if="{{loading}}" class="empty">加载中…</view>
     <view wx:elif="{{kols.length === 0}}" class="empty">暂无大V，管理员可在后台添加</view>
     <view wx:else>
-      <view class="kol-item" wx:for="{{kols}}" wx:key="id">
-        <view class="avatar">{{item.name[0]}}</view>
-        <view class="kol-info" data-id="{{item.id}}" bindtap="goKol">
-          <view class="row">
-            <text class="kol-name">{{item.name}}</text>
-            <text class="tag">{{platformLabel(item.platform)}}</text>
-            <text wx:if="{{item.category_name}}" class="tag">{{item.category_name}}</text>
-          </view>
-          <view class="kol-desc">ID：{{item.external_id}}</view>
+      <view wx:for="{{groups}}" wx:key="name" wx:for-item="group">
+        <view class="group-head">
+          <text class="group-title">{{group.name}}</text>
+          <text class="group-count">{{group.items.length}} 位</text>
         </view>
-        <button class="btn-sub {{item.subscribed ? 'subscribed' : ''}}" data-id="{{item.id}}" bindtap="toggleSubscribe">
-          {{item.subscribed ? '已订阅' : '订阅'}}
-        </button>
+        <view class="kol-item" wx:for="{{group.items}}" wx:key="id">
+          <view class="avatar">{{item.name[0]}}</view>
+          <view class="kol-info" data-id="{{item.id}}" bindtap="goKol">
+            <view class="row">
+              <text class="kol-name">{{item.name}}</text>
+              <text class="tag">{{platformLabel(item.platform)}}</text>
+              <text wx:if="{{item.category_name}}" class="tag">{{item.category_name}}</text>
+            </view>
+            <view class="kol-desc">ID：{{item.external_id}}</view>
+          </view>
+          <button class="btn-sub {{item.subscribed ? 'subscribed' : ''}}" data-id="{{item.id}}" bindtap="toggleSubscribe">
+            {{item.subscribed ? '已订阅' : '订阅'}}
+          </button>
+        </view>
       </view>
     </view>
   </view>

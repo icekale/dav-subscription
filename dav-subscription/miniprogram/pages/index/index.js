@@ -5,6 +5,7 @@ const PLATFORM_LABELS = { xueqiu: "雪球", weibo: "微博", twitter: "X" };
 Page({
   data: {
     kols: [],
+    groups: [],
     platform: "",
     loading: true,
     platforms: [
@@ -27,7 +28,13 @@ Page({
     try {
       const q = this.data.platform ? `?platform=${this.data.platform}` : "";
       const kols = await request(`/api/catalog${q}`);
-      this.setData({ kols, loading: false });
+      const byCat = {};
+      for (const k of kols) {
+        const key = k.category_name || "未分类";
+        (byCat[key] = byCat[key] || []).push(k);
+      }
+      const groups = Object.entries(byCat).map(([name, items]) => ({ name, items }));
+      this.setData({ kols, groups, loading: false });
     } catch (err) {
       this.setData({ loading: false });
       wx.showToast({ title: err.message, icon: "none" });

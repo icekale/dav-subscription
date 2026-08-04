@@ -1,2 +1,9 @@
 .search-line { gap: 20rpx; }
 .search-input { flex: 1; }
+.ask-link {
+  margin-top: 18rpx;
+  font-size: 26rpx;
+  color: var(--accent);
+  text-align: center;
+}
+.picker { display: flex; align-items: center; }

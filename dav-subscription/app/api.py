@@ -78,10 +78,18 @@ class KolUpdate(BaseModel):
     enabled: bool | None = None
     category_id: int | None = None
     priority: bool | None = None
+    is_private: bool | None = None
+    visible_users: list[str] | None = None
 
 
 class CategoryIn(BaseModel):
     name: str
+
+
+class KolRequestIn(BaseModel):
+    platform: str
+    external_id: str
+    name: str = ""
 
 
 class SubscriptionIn(BaseModel):
@@ -265,12 +273,18 @@ def create_api_router(
     @router.get("/catalog")
     def catalog(platform: str | None = None, category_id: int | None = None, user: dict = Depends(get_current_user)):
         kols = db.list_kols(platform, category_id)
+        if not user["is_admin"]:
+            visible = db.visible_kol_ids(user["id"])
+            kols = [k for k in kols if k["id"] in visible]
         subscribed = db.subscribed_kol_ids(user["id"])
         return [{**kol, "subscribed": kol["id"] in subscribed} for kol in kols]
 
     @router.post("/subscriptions")
     def subscribe(body: SubscriptionIn, user: dict = Depends(get_current_user)):
-        if db.get_kol(body.kol_id) is None:
+        kol = db.get_kol(body.kol_id)
+        if kol is None or (
+            not user["is_admin"] and kol["id"] not in db.visible_kol_ids(user["id"])
+        ):
             raise HTTPException(status_code=404, detail="大V不存在")
         db.add_subscription(user["id"], body.kol_id)
         return {"ok": True}
@@ -292,16 +306,73 @@ def create_api_router(
     @router.get("/kols/{kol_id}")
     def get_kol(kol_id: int, user: dict = Depends(get_current_user)):
         kol = db.get_kol(kol_id)
-        if kol is None:
+        if kol is None or (
+            not user["is_admin"] and kol["id"] not in db.visible_kol_ids(user["id"])
+        ):
             raise HTTPException(status_code=404, detail="大V不存在")
         kol["subscribed"] = kol_id in db.subscribed_kol_ids(user["id"])
+        if user["is_admin"]:
+            acl_ids = set(db.acl_user_ids(kol_id))
+            kol["visible_users"] = [u["username"] for u in db.list_users() if u["id"] in acl_ids]
         return kol
 
     @router.get("/kols/{kol_id}/posts")
     def kol_posts(kol_id: int, limit: int = 100, user: dict = Depends(get_current_user)):
-        if db.get_kol(kol_id) is None:
+        kol = db.get_kol(kol_id)
+        if kol is None or (
+            not user["is_admin"] and kol["id"] not in db.visible_kol_ids(user["id"])
+        ):
             raise HTTPException(status_code=404, detail="大V不存在")
         return db.list_posts(limit=min(limit, 500), kol_id=kol_id)
+
+    @router.post("/kol-requests")
+    def create_kol_request(body: KolRequestIn, user: dict = Depends(get_current_user)):
+        """用户申请添加大V，管理员审批后入库。"""
+        if body.platform not in ALLOWED_PLATFORMS:
+            raise HTTPException(status_code=400, detail=f"不支持的平台: {body.platform}")
+        external_id = body.external_id.strip()
+        if body.platform == "xueqiu":
+            match = re.search(r"xueqiu\.com/(?:u/)?(\d+)", external_id)
+            if match:
+                external_id = match.group(1)
+        elif body.platform == "weibo":
+            external_id = _normalize_weibo_id(external_id)
+        if not external_id:
+            raise HTTPException(status_code=400, detail="请提供大V主页链接或ID")
+        try:
+            db.add_kol_request(body.platform, external_id, user["id"], name=body.name)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
+        return {"ok": True}
+
+    @router.get("/my/kol-requests")
+    def my_kol_requests(user: dict = Depends(get_current_user)):
+        return [r for r in db.list_kol_requests() if r["user_id"] == user["id"]]
+
+    @router.get("/admin/kol-requests", dependencies=[Depends(require_admin)])
+    def admin_kol_requests(status: str | None = None):
+        return db.list_kol_requests(status)
+
+    @router.post("/admin/kol-requests/{request_id}/approve", dependencies=[Depends(require_admin)])
+    def approve_kol_request(request_id: int):
+        req = db.get_kol_request(request_id)
+        if req is None or req["status"] != "pending":
+            raise HTTPException(status_code=404, detail="申请不存在或已处理")
+        name = req["name"] or f"{req['platform']}_{req['external_id']}"
+        try:
+            kid = db.add_kol(req["platform"], name, req["external_id"])
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
+        db.set_kol_request_status(request_id, "approved")
+        return db.get_kol(kid)
+
+    @router.post("/admin/kol-requests/{request_id}/reject", dependencies=[Depends(require_admin)])
+    def reject_kol_request(request_id: int):
+        req = db.get_kol_request(request_id)
+        if req is None or req["status"] != "pending":
+            raise HTTPException(status_code=404, detail="申请不存在或已处理")
+        db.set_kol_request_status(request_id, "rejected")
+        return {"ok": True}
 
     # ---- 管理（管理员）----
     @router.get("/kols", dependencies=[Depends(require_admin)])
@@ -402,6 +473,16 @@ def create_api_router(
             category_id=body.category_id if "category_id" in body.model_fields_set else None,
             priority=body.priority if "priority" in body.model_fields_set else None,
         )
+        if "is_private" in body.model_fields_set and body.is_private is not None:
+            db.update_kol(kol_id, is_private=body.is_private)
+        if "visible_users" in body.model_fields_set and body.visible_users is not None:
+            user_ids = []
+            for username in body.visible_users:
+                target = db.get_user_by_username(username.strip())
+                if target is None:
+                    raise HTTPException(status_code=400, detail=f"用户不存在: {username}")
+                user_ids.append(target["id"])
+            db.set_kol_acl(kol_id, user_ids)
         return db.get_kol(kol_id)
 
     @router.delete("/kols/{kol_id}", dependencies=[Depends(require_admin)])

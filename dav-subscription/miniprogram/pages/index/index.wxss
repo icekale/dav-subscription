@@ -1,6 +1,14 @@
 .hero { background: linear-gradient(180deg, #ffffff, #fafcff); }
 .hero-title { font-size: 40rpx; font-weight: 700; color: var(--text-strong); margin-top: 8rpx; }
 .hero-sub { font-size: 26rpx; color: var(--text-muted); margin-top: 10rpx; line-height: 1.7; }
+.group-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin: 26rpx 4rpx 12rpx;
+}
+.group-title { font-size: 30rpx; font-weight: 700; color: var(--text-strong); }
+.group-count { font-size: 24rpx; color: var(--text-faint); }
 .search-bar {
   display: flex;
   align-items: center;

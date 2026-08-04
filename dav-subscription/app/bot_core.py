@@ -12,6 +12,7 @@ HELP_TEXT = (
     "/list — 查看可订阅的大V（/list 2 翻页）\n"
     "/sub 1 / 雪球主页链接 / 雪球UID — 订阅大V\n"
     "/unsub 1 / 雪球主页链接 / 雪球UID — 取消订阅\n"
+    "/ask 主页链接/UID — 申请添加大V，管理员审批\n"
     "/mysubs — 我的订阅\n"
     "/bind 6位绑定码 — 绑定网页/小程序账号\n"
     "/help — 帮助"
@@ -84,6 +85,8 @@ class SubscriptionBot:
             self._unsub(user, reply_type or identity_type, reply_id or identity, arg)
         elif cmd == "/mysubs":
             self._mysubs(user, reply_type or identity_type, reply_id or identity)
+        elif cmd == "/ask":
+            self._ask(user, reply_type or identity_type, reply_id or identity, arg)
         else:
             self.send(reply_type or identity_type, reply_id or identity, "未知命令，发 /help 查看帮助")
 
@@ -123,6 +126,9 @@ class SubscriptionBot:
     def list_payload(self, user: dict, arg: str = "") -> tuple[str, int, int]:
         """构造 /list 文案与分页信息，供文本/键盘/卡片复用。"""
         kols = self.db.list_kols()
+        if not user.get("is_admin"):
+            visible = self.db.visible_kol_ids(user["id"])
+            kols = [k for k in kols if k["id"] in visible]
         subscribed = self.db.subscribed_kol_ids(user["id"])
         page = int(arg.strip()) if arg.strip().isdigit() else 1
         total = len(kols)
@@ -142,7 +148,7 @@ class SubscriptionBot:
         return ("\n".join(lines) if page_kols else "暂无大V", page, pages)
 
     def _sub(self, user, identity_type: str, identity: str, arg: str) -> None:
-        kol = self._resolve_kol(arg)
+        kol = self._resolve_kol(user, arg)
         if kol is None:
             self.send(identity_type, identity, "没找到该大V，试试 /list 查看 ID")
         else:
@@ -150,12 +156,34 @@ class SubscriptionBot:
             self.send(identity_type, identity, f"已订阅 {kol['name']} ✅")
 
     def _unsub(self, user, identity_type: str, identity: str, arg: str) -> None:
-        kol = self._resolve_kol(arg)
+        kol = self._resolve_kol(user, arg)
         if kol is None:
             self.send(identity_type, identity, "没找到该大V，试试 /mysubs 查看已订阅")
         else:
             self.db.remove_subscription(user["id"], kol["id"])
             self.send(identity_type, identity, f"已取消订阅 {kol['name']}")
+
+    def _ask(self, user, identity_type: str, identity: str, arg: str) -> None:
+        arg = arg.strip()
+        if not arg:
+            self.send(identity_type, identity, "用法：/ask 大V主页链接或UID\n管理员审批通过后即可在 /list 中订阅")
+            return
+        platform, external_id = "xueqiu", arg
+        xueqiu_match = re.search(r"xueqiu\.com/(?:u/)?(\d+)", arg)
+        weibo_match = re.search(r"weibo\.com/u/(\d+)", arg)
+        if xueqiu_match:
+            platform, external_id = "xueqiu", xueqiu_match.group(1)
+        elif weibo_match:
+            platform, external_id = "weibo", weibo_match.group(1)
+        elif not arg.isdigit():
+            self.send(identity_type, identity, "未识别到有效链接，请发大V主页链接或UID")
+            return
+        try:
+            self.db.add_kol_request(platform, external_id, user["id"])
+        except ValueError as exc:
+            self.send(identity_type, identity, str(exc))
+            return
+        self.send(identity_type, identity, "已提交申请 ✅ 管理员审批通过后即可在 /list 中订阅")
 
     def _mysubs(self, user, identity_type: str, identity: str) -> None:
         self.send(identity_type, identity, self.mysubs_payload(user))
@@ -168,7 +196,7 @@ class SubscriptionBot:
             return "\n".join(lines)
         return "还没有订阅任何大V，试试 /list"
 
-    def _resolve_kol(self, arg: str):
+    def _resolve_kol(self, user: dict, arg: str):
         arg = arg.strip()
         if not arg:
             return None
@@ -179,13 +207,16 @@ class SubscriptionBot:
             uid = match.group(1)
             for kol in self.db.list_kols():
                 if kol["platform"] == "xueqiu" and kol["external_id"] == uid:
-                    return kol
+                    return kol if self._visible_to(user, kol["id"]) else None
             return None
         if arg.isdigit():
             kol = self.db.get_kol(int(arg))
-            if kol:
+            if kol and self._visible_to(user, kol["id"]):
                 return kol
         for kol in self.db.list_kols():
             if kol["platform"] == "xueqiu" and kol["external_id"] == arg:
-                return kol
+                return kol if self._visible_to(user, kol["id"]) else None
         return None
+
+    def _visible_to(self, user: dict, kol_id: int) -> bool:
+        return bool(user.get("is_admin")) or kol_id in self.db.visible_kol_ids(user["id"])

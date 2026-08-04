@@ -51,6 +51,7 @@ const NAV = [
   ]},
   { group: "管理", admin: true, items: [
     { route: "admin/kols", icon: "◇", label: "大V管理" },
+    { route: "admin/requests", icon: "✚", label: "求添加" },
     { route: "admin/categories", icon: "▣", label: "分类管理" },
     { route: "admin/posts", icon: "▤", label: "帖子" },
     { route: "admin/logs", icon: "☰", label: "推送记录" },
@@ -503,6 +504,7 @@ async function genBindCode() {
 const ADMIN_TABS = [
   ["stats", "状态"],
   ["kols", "大V管理"],
+  ["requests", "求添加"],
   ["categories", "分类管理"],
   ["posts", "帖子"],
   ["logs", "推送记录"],
@@ -518,7 +520,7 @@ async function renderAdmin(tab) {
         <button class="module-tab ${key === tab ? "active" : ""}" onclick="location.hash='#/admin/${key}'">${label}</button>`).join("")}
     </div>
     <div id="admin-body"></div>`;
-  const loaders = { stats: loadAdminStats, kols: loadAdminKols, categories: loadAdminCategories, posts: loadAdminPosts, logs: loadAdminLogs, users: loadAdminUsers };
+  const loaders = { stats: loadAdminStats, kols: loadAdminKols, requests: loadAdminRequests, categories: loadAdminCategories, posts: loadAdminPosts, logs: loadAdminLogs, users: loadAdminUsers };
   await loaders[tab]();
 }
 
@@ -637,17 +639,19 @@ async function loadAdminKols() {
       <header class="section-head"><div><p class="section-eyebrow">List</p><h3 class="section-title">大V列表</h3></div></header>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>ID</th><th>平台</th><th>昵称</th><th>分类</th><th>外部ID</th><th>优先</th><th>状态</th><th>操作</th></tr></thead>
+          <thead><tr><th>ID</th><th>平台</th><th>昵称</th><th>分类</th><th>外部ID</th><th>优先</th><th>可见性</th><th>状态</th><th>操作</th></tr></thead>
           <tbody>${kols.map((k) => `
             <tr>
               <td>${k.id}</td><td>${PLATFORM_LABELS[k.platform] || k.platform}</td>
               <td>${escapeHtml(k.name)}</td><td>${escapeHtml(k.category_name || "")}</td>
               <td>${escapeHtml(k.external_id)}</td>
               <td>${k.priority ? '<span class="status-ok">是</span>' : "否"}</td>
+              <td>${k.is_private ? '<span class="status-ok">私有</span>' : "公开"}</td>
               <td class="${k.enabled ? "status-ok" : "status-fail"}">${k.enabled ? "启用" : "停用"}</td>
               <td>
                 <button class="btn-sm" onclick="adminTogglePriority(${k.id}, ${!k.priority})">${k.priority ? "取消优先" : "设为优先"}</button>
                 <button class="btn-sm" onclick="adminToggleKol(${k.id}, ${k.enabled ? 0 : 1})">${k.enabled ? "停用" : "启用"}</button>
+                <button class="btn-sm" onclick="adminEditKol(${k.id})">编辑</button>
                 <button class="btn-sm danger" onclick="adminDeleteKol(${k.id})">删除</button>
               </td>
             </tr>`).join("")}</tbody>
@@ -711,6 +715,118 @@ async function adminDeleteKol(id) {
   if (!confirm("确认删除该大V？")) return;
   await api(`/api/kols/${id}`, { method: "DELETE" });
   loadAdminKols();
+}
+
+async function adminEditKol(id) {
+  const kol = await api(`/api/kols/${id}`);
+  const categories = await api("/api/categories");
+  const catOptions = categories.map((c) => `<option value="${c.id}" ${kol.category_id === c.id ? "selected" : ""}>${escapeHtml(c.name)}</option>`).join("");
+  const mask = document.createElement("div");
+  mask.className = "modal-mask";
+  mask.innerHTML = `
+    <div class="modal-card">
+      <h3 style="margin-bottom:12px">编辑大V：${escapeHtml(kol.name)}</h3>
+      <label class="form-label">昵称
+        <input id="ek-name" class="form-control" value="${escapeHtml(kol.name)}">
+      </label>
+      <label class="form-label">分类
+        <select id="ek-category" class="form-control"><option value="">未分类</option>${catOptions}</select>
+      </label>
+      <label class="form-label" style="display:flex;align-items:center;gap:8px">
+        <input id="ek-private" type="checkbox" ${kol.is_private ? "checked" : ""}> 私有大V（仅白名单用户可见/可订阅）
+      </label>
+      <label class="form-label">白名单用户（逗号分隔用户名，仅对私有大V生效）
+        <input id="ek-users" class="form-control" value="${escapeHtml((kol.visible_users || []).join(", "))}" placeholder="user1, user2">
+      </label>
+      <div class="toolbar" style="margin-top:16px">
+        <button class="btn-normal" onclick="saveKolEdit(${kol.id})">保存</button>
+        <button class="btn-sm" onclick="this.closest('.modal-mask').remove()">取消</button>
+      </div>
+    </div>`;
+  mask.addEventListener("click", (e) => {
+    if (e.target === mask) mask.remove();
+  });
+  document.body.appendChild(mask);
+}
+
+async function saveKolEdit(id) {
+  const mask = document.querySelector(".modal-mask");
+  try {
+    await api(`/api/kols/${id}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        name: $("#ek-name").value.trim(),
+        category_id: $("#ek-category").value ? Number($("#ek-category").value) : null,
+        is_private: $("#ek-private").checked,
+        visible_users: $("#ek-users").value.split(",").map((s) => s.trim()).filter(Boolean),
+      }),
+    });
+    if (mask) mask.remove();
+    loadAdminKols();
+  } catch (err) {
+    alert("保存失败: " + err.message);
+  }
+}
+
+async function loadAdminRequests() {
+  const [requests, all] = await Promise.all([
+    api("/api/admin/kol-requests?status=pending"),
+    api("/api/admin/kol-requests"),
+  ]);
+  const done = all.filter((r) => r.status !== "pending");
+  const pendingRows = requests.length === 0
+    ? `<tr><td colspan="7" class="muted">暂无待审批申请</td></tr>`
+    : requests.map((r) => `
+        <tr>
+          <td>${r.id}</td><td>${PLATFORM_LABELS[r.platform] || r.platform}</td>
+          <td>${escapeHtml(r.name || "（未填）")}</td><td>${escapeHtml(r.external_id)}</td>
+          <td>${escapeHtml(r.requester || r.user_id)}</td><td>${escapeHtml(r.created_at)}</td>
+          <td>
+            <button class="btn-sm" onclick="adminApproveRequest(${r.id})">通过</button>
+            <button class="btn-sm danger" onclick="adminRejectRequest(${r.id})">拒绝</button>
+          </td>
+        </tr>`).join("");
+  const historyRows = done.length === 0
+    ? `<tr><td colspan="7" class="muted">暂无处理记录</td></tr>`
+    : done.map((r) => `
+        <tr>
+          <td>${r.id}</td><td>${PLATFORM_LABELS[r.platform] || r.platform}</td>
+          <td>${escapeHtml(r.name || "（未填）")}</td><td>${escapeHtml(r.external_id)}</td>
+          <td>${escapeHtml(r.requester || r.user_id)}</td>
+          <td class="${r.status === "approved" ? "status-ok" : "status-fail"}">${r.status === "approved" ? "已通过" : "已拒绝"}</td>
+          <td>${escapeHtml(r.handled_at || "")}</td>
+        </tr>`).join("");
+  $("#admin-body").innerHTML = `
+    <section class="section-panel">
+      <header class="section-head"><div><p class="section-eyebrow">Requests</p><h3 class="section-title">用户求添加</h3>
+      <p class="section-meta">用户申请添加的大V，审批通过后进入订阅广场。</p></div></header>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>ID</th><th>平台</th><th>昵称</th><th>外部ID</th><th>申请人</th><th>申请时间</th><th>操作</th></tr></thead>
+          <tbody>${pendingRows}</tbody>
+        </table>
+      </div>
+    </section>
+    <section class="section-panel">
+      <header class="section-head"><div><p class="section-eyebrow">History</p><h3 class="section-title">处理记录</h3></div></header>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>ID</th><th>平台</th><th>昵称</th><th>外部ID</th><th>申请人</th><th>状态</th><th>处理时间</th></tr></thead>
+          <tbody>${historyRows}</tbody>
+        </table>
+      </div>
+    </section>`;
+}
+
+async function adminApproveRequest(id) {
+  await api(`/api/admin/kol-requests/${id}/approve`, { method: "POST" });
+  loadAdminRequests();
+}
+
+async function adminRejectRequest(id) {
+  if (!confirm("确认拒绝该申请？")) return;
+  await api(`/api/admin/kol-requests/${id}/reject`, { method: "POST" });
+  loadAdminRequests();
 }
 
 async function loadAdminCategories() {

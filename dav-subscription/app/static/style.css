@@ -391,6 +391,17 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
 .form-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
 .form-row label { font-size: var(--text-sm); font-weight: var(--font-weight-medium); color: var(--color-text-strong); }
 .form-row .form-control { margin-bottom: 0; }
+.form-label { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; font-size: var(--text-sm); font-weight: var(--font-weight-medium); color: var(--color-text-strong); }
+.modal-mask {
+  position: fixed; inset: 0; background: rgba(15, 23, 42, 0.45);
+  display: flex; align-items: center; justify-content: center; z-index: 100; padding: 20px;
+}
+.modal-card {
+  background: var(--color-surface); color: var(--color-text-strong);
+  border: 1px solid var(--color-border); border-radius: var(--radius-card);
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.28);
+  width: min(480px, 100%); padding: 24px; max-height: 90vh; overflow: auto;
+}
 
 /* 响应式 */
 @media (max-width: 900px) {
