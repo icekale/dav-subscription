@@ -283,19 +283,24 @@ def test_weibo_qr_login(monkeypatch):
             # 模拟新浪 SSO 的 JSONP 响应
             self.text = f"window.CB && CB({json.dumps(payload, ensure_ascii=False)});"
 
+    class FakeCookie:
+        def __init__(self, name, value, domain=""):
+            self.name, self.value, self.domain = name, value, domain
+
     class FakeCookies:
-        def __init__(self, items):
-            self._items = items
+        def __init__(self, cookies):
+            self.jar = cookies
 
         def get(self, key, default=None):
-            return self._items.get(key, default)
+            matches = [c for c in self.jar if c.name == key]
+            return matches[0].value if matches else default
 
         def items(self):
-            return self._items.items()
+            return [(c.name, c.value) for c in self.jar]
 
     class FakeClient:
         def __init__(self, **kwargs):
-            self.cookies = FakeCookies({})
+            self.cookies = FakeCookies([])
             self.headers = {}
             self._check_calls = 0
 
@@ -310,7 +315,14 @@ def test_weibo_qr_login(monkeypatch):
             if "login.php" in url:
                 return FakeResp({"crossDomainUrlList": ["http://cross.example/1"]})
             if "cross.example" in url:
-                self.cookies = FakeCookies({"SUB": "s1", "SUBP": "p1"})
+                # 模拟跨域登录后出现同名多域的 SUB cookie（httpx 的 get/items 会冲突）
+                self.cookies = FakeCookies(
+                    [
+                        FakeCookie("SUB", "s1", ".weibo.com"),
+                        FakeCookie("SUB", "s2", "login.sina.com.cn"),
+                        FakeCookie("SUBP", "p1", ".weibo.com"),
+                    ]
+                )
             return FakeResp({})
 
         def close(self):
