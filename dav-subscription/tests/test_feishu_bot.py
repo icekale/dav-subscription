@@ -17,15 +17,16 @@ def make_bot():
 
 def test_feishu_p2p_commands():
     db, bot, sent = make_bot()
-    bot.handle_message("", "p2p", "ou_1", "Kale", "/list")
-    assert sent[-1][0] == "feishu_open_id" and sent[-1][1] == "ou_1"
+    bot.handle_message("oc_p2p", "p2p", "ou_1", "Kale", "/list")
+    assert sent[-1][0] == "feishu_chat_id" and sent[-1][1] == "oc_p2p"
     assert "大V" in sent[-1][2]
 
     user = db.get_user_by_feishu("ou_1")
     assert user is not None
-    bot.handle_message("", "p2p", "ou_1", "Kale", "/sub 1")
+    assert user["feishu_chat_id"] == "oc_p2p"
+    bot.handle_message("oc_p2p", "p2p", "ou_1", "Kale", "/sub 1")
     assert db.subscribed_kol_ids(user["id"]) == {1}
-    bot.handle_message("", "p2p", "ou_1", "Kale", "/mysubs")
+    bot.handle_message("oc_p2p", "p2p", "ou_1", "Kale", "/mysubs")
     assert "大V" in sent[-1][2]
 
 

@@ -176,8 +176,8 @@ def test_subscriber_push_uses_user_channels(monkeypatch):
             pass
 
     class FakeFeishu:
-        def __init__(self, config, open_id=None):
-            calls.append(("feishu", open_id))
+        def __init__(self, config, open_id=None, chat_id=None):
+            calls.append(("feishu", chat_id or open_id))
 
         def notify(self, post):
             pass
@@ -187,8 +187,16 @@ def test_subscriber_push_uses_user_channels(monkeypatch):
 
     db = make_db()
     kid = db.add_kol("xueqiu", "A", "1")
-    uid = db.add_user("u1", "hash", telegram_chat_id="tg123", feishu_open_id="open456")
+    uid = db.add_user(
+        "u1",
+        "hash",
+        telegram_chat_id="tg123",
+        feishu_open_id="open456",
+        feishu_chat_id="oc456",
+    )
     db.add_subscription(uid, kid)
+    uid2 = db.add_user("u2", "hash", feishu_open_id="open789")
+    db.add_subscription(uid2, kid)
     ncfg = NotifiersConfig(
         telegram=TelegramConfig(bot_token="t"),
         feishu=FeishuConfig(app_id="a", app_secret="s"),
@@ -196,9 +204,10 @@ def test_subscriber_push_uses_user_channels(monkeypatch):
 
     poll_once(db, {"xueqiu": FakeFetcher([make_post(kid)])}, [], notifiers_config=ncfg)
     assert ("telegram", "tg123") in calls
-    assert ("feishu", "open456") in calls
+    assert ("feishu", "oc456") in calls  # 有 p2p 会话的优先走 chat_id
+    assert ("feishu", "open789") in calls  # 没有会话的退化为 open_id
     logs = db.list_push_logs()
-    assert len(logs) == 2
+    assert len(logs) == 3
     assert all(log["status"] == "success" for log in logs)
 
 

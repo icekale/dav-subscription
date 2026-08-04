@@ -68,17 +68,25 @@ class FeishuBot:
         return user
 
     def handle_message(self, chat_id: str, chat_type: str, open_id: str, sender_name: str, text: str) -> None:
-        is_group = chat_type == "group"
-        reply_type = "feishu_chat_id" if is_group else "feishu_open_id"
-        reply_id = chat_id if is_group else open_id
+        # 单聊里记录用户的 p2p 会话 chat_id：飞书 open_id 直发可能被 230101 拦截，
+        # 用 chat_id 发单聊消息是稳定可用的路径（群聊/单聊回复都走 chat_id）。
+        if chat_type != "group":
+            user = self._get_or_create_user("feishu_open_id", open_id, sender_name)
+            if user.get("feishu_chat_id") != chat_id:
+                self.db.update_user(user["id"], feishu_chat_id=chat_id)
         self.core.handle(
             "feishu_open_id",
             open_id,
             sender_name,
             text,
-            reply_type=reply_type,
-            reply_id=reply_id,
+            reply_type="feishu_chat_id",
+            reply_id=chat_id,
         )
+        # /bind 合并账号后会自动账号被删掉，这里再补一次，确保目标账号也带上 p2p 会话
+        if chat_type != "group":
+            user = self.db.get_user_by_feishu(open_id)
+            if user is not None and user.get("feishu_chat_id") != chat_id:
+                self.db.update_user(user["id"], feishu_chat_id=chat_id)
 
     def _on_message(self, event):
         try:
@@ -89,9 +97,16 @@ class FeishuBot:
             chat_type = message.chat_type or "p2p"
             sender = event.event.sender
             open_id = (sender.sender_id or {}).open_id or ""
+            logger.info(
+                "收到飞书消息 chat_type=%s chat_id=%s sender=%s text=%r",
+                chat_type,
+                chat_id,
+                open_id,
+                text[:50],
+            )
             self.handle_message(chat_id, chat_type, open_id, open_id, text)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("处理飞书消息失败: %s", exc)
+            logger.warning("处理飞书消息失败: %s", exc, exc_info=True)
 
     def start(self):
         self._thread = threading.Thread(target=self._run, daemon=True)

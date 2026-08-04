@@ -75,7 +75,12 @@ def notify_subscribers(db: DB, post_id: int, post: Post, notifiers_config) -> No
                 db.add_push_log(post_id, "telegram", "failed", str(exc), user_id=user["id"])
                 logger.warning("用户推送失败 user=%s channel=telegram err=%s", user["username"], exc)
         if user["feishu_open_id"]:
-            notifier = FeishuNotifier(notifiers_config.feishu, open_id=user["feishu_open_id"])
+            # 优先用 p2p 会话 chat_id 发送（open_id 直发可能被飞书 230101 拦截）
+            notifier = FeishuNotifier(
+                notifiers_config.feishu,
+                open_id=user["feishu_open_id"] if not user.get("feishu_chat_id") else None,
+                chat_id=user.get("feishu_chat_id") or None,
+            )
             try:
                 notifier.notify(post)
                 db.add_push_log(post_id, "feishu", "success", user_id=user["id"])

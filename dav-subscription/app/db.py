@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS users (
     wechat_openid TEXT NOT NULL DEFAULT '',
     telegram_chat_id TEXT NOT NULL DEFAULT '',
     feishu_open_id TEXT NOT NULL DEFAULT '',
+    feishu_chat_id TEXT NOT NULL DEFAULT '',
     notify_enabled INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -100,6 +101,8 @@ class DB:
         user_cols = {row["name"] for row in self._rows("PRAGMA table_info(users)")}
         if "wechat_openid" not in user_cols:
             self._conn.execute("ALTER TABLE users ADD COLUMN wechat_openid TEXT NOT NULL DEFAULT ''")
+        if "feishu_chat_id" not in user_cols:
+            self._conn.execute("ALTER TABLE users ADD COLUMN feishu_chat_id TEXT NOT NULL DEFAULT ''")
         kol_cols = {row["name"] for row in self._rows("PRAGMA table_info(kols)")}
         if "priority" not in kol_cols:
             self._conn.execute("ALTER TABLE kols ADD COLUMN priority INTEGER NOT NULL DEFAULT 0")
@@ -241,15 +244,17 @@ class DB:
         is_admin: bool = False,
         telegram_chat_id: str = "",
         feishu_open_id: str = "",
+        feishu_chat_id: str = "",
         notify_enabled: bool = True,
         wechat_openid: str = "",
     ) -> int:
         try:
             return self._execute(
                 "INSERT INTO users (username, password_hash, is_admin, telegram_chat_id, "
-                "feishu_open_id, notify_enabled, wechat_openid) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "feishu_open_id, feishu_chat_id, notify_enabled, wechat_openid) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (username, password_hash, 1 if is_admin else 0, telegram_chat_id, feishu_open_id,
-                 1 if notify_enabled else 0, wechat_openid),
+                 feishu_chat_id, 1 if notify_enabled else 0, wechat_openid),
             )
         except sqlite3.IntegrityError:
             raise ValueError(f"用户名已存在: {username}") from None
