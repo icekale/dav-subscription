@@ -1,11 +1,13 @@
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import rsa
 
 from app.config import XueqiuConfig
 from app.db import DB
+from app.fetchers.rss import RssFetcher
 from app.fetchers.xueqiu import XueqiuFetcher
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -126,6 +128,47 @@ def test_format_published_at():
     assert format_published_at("1785840071") == "2026-08-04 18:41"
     assert format_published_at("Tue Aug 04 21:00:00 +0800 2026") == "Tue Aug 04 21:00:00 +0800 2026"
     assert format_published_at("") == ""
+
+
+def test_rss_resolve_x_url():
+    fetcher = RssFetcher(SimpleNamespace(rsshub_base="https://rsshub.app"))
+    assert (
+        fetcher._resolve_feed_url("https://x.com/SemiAnalysis_")
+        == "https://rsshub.app/twitter/user/SemiAnalysis_"
+    )
+    assert (
+        fetcher._resolve_feed_url("https://twitter.com/elonmusk/")
+        == "https://rsshub.app/twitter/user/elonmusk"
+    )
+    assert (
+        fetcher._resolve_feed_url("https://rsshub.app/twitter/user/elonmusk")
+        == "https://rsshub.app/twitter/user/elonmusk"
+    )
+
+
+def test_rss_fetch_resolves_x_and_saves_avatar():
+    feed_xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<rss version="2.0"><channel>'
+        '<image><url>https://pbs.twimg.com/avatar.jpg</url></image>'
+        "<item><title>今日观点</title>"
+        "<link>https://x.com/SemiAnalysis_/status/1</link>"
+        "<description>市场动态</description>"
+        "<pubDate>Tue, 04 Aug 2026 10:00:00 +0800</pubDate>"
+        "</item></channel></rss>"
+    ).encode("utf-8")
+
+    def handler(request):
+        assert request.url.path == "/twitter/user/SemiAnalysis_"
+        return httpx.Response(200, content=feed_xml, headers={"content-type": "application/rss+xml"})
+
+    db = DB(":memory:")
+    kid = db.add_kol("twitter", "SemiAnalysis", "https://x.com/SemiAnalysis_")
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    fetcher = RssFetcher(SimpleNamespace(rsshub_base="https://rsshub.app"), db, client=client)
+    posts = fetcher.fetch(db.get_kol(kid))
+    assert len(posts) == 1 and posts[0].title == "今日观点"
+    assert db.get_kol(kid)["avatar_url"] == "https://pbs.twimg.com/avatar.jpg"
 
 
 def test_weibo_parse_fixture():

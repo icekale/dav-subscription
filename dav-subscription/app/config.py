@@ -44,9 +44,15 @@ class WeiboConfig:
 
 
 @dataclass
+class RssConfig:
+    rsshub_base: str = "https://rsshub.app"
+
+
+@dataclass
 class SourcesConfig:
     xueqiu: XueqiuConfig = field(default_factory=XueqiuConfig)
     weibo: WeiboConfig = field(default_factory=WeiboConfig)
+    rss: RssConfig = field(default_factory=RssConfig)
 
 
 @dataclass
@@ -102,6 +108,7 @@ _ENV_MAP = {
     "WEIBO_TOKEN": ("sources", "weibo", "token"),
     "WEIBO_USERNAME": ("sources", "weibo", "username"),
     "WEIBO_PASSWORD": ("sources", "weibo", "password"),
+    "RSSHUB_BASE": ("sources", "rss", "rsshub_base"),
     "POLLING_INTERVAL_SECONDS": ("polling", "interval_seconds"),
     "POLLING_PRIORITY_INTERVAL_SECONDS": ("polling", "priority_interval_seconds"),
     "POLLING_JITTER_SECONDS": ("polling", "jitter_seconds"),

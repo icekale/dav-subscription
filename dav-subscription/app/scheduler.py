@@ -32,6 +32,17 @@ WEIBO_QR_RENEWAL_KEY = "weibo_qr_renewal_at"
 WEIBO_QR_RENEWAL_COOLDOWN = 15 * 60
 
 
+def _polling_setting(db: DB, key: str, default: int) -> int:
+    """读取后台可覆盖的抓取配置（config_*），未设置时用启动配置默认值。"""
+    value = db.get_setting(key)
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 class PushRetryQueue:
     """推送失败重试队列：指数退避（1m/5m/15m），超过次数放弃。"""
 
@@ -790,6 +801,17 @@ class Scheduler:
         self._recover_failed_pushes()
         while not self._stop.is_set():
             started = time.monotonic()
+            interval_seconds = _polling_setting(
+                self.db, "config_interval_seconds", self.polling_config.interval_seconds
+            )
+            priority_interval = _polling_setting(
+                self.db,
+                "config_priority_interval_seconds",
+                self.polling_config.priority_interval_seconds,
+            )
+            digest_interval = _polling_setting(
+                self.db, "config_digest_interval_seconds", self.polling_config.digest_interval_seconds
+            )
             try:
                 await asyncio.to_thread(
                     poll_once,
@@ -798,9 +820,9 @@ class Scheduler:
                     self.notifiers,
                     self.states,
                     self.notifiers_config,
-                    self.polling_config.interval_seconds,
-                    self.polling_config.priority_interval_seconds,
-                    self._digest if self.polling_config.digest_interval_seconds > 0 else None,
+                    interval_seconds,
+                    priority_interval,
+                    self._digest if digest_interval > 0 else None,
                     self.retry_queue,
                 )
                 self.db.set_setting("stats_last_poll_at", str(int(time.time())))
@@ -823,7 +845,6 @@ class Scheduler:
                         logger.warning("重试推送失败 channel=%s err=%s", item["channel"], exc)
                         self.retry_queue.fail(item)
             # 合并摘要到点统一推送（普通大V，优先大V保持实时）
-            digest_interval = self.polling_config.digest_interval_seconds
             if (
                 digest_interval > 0
                 and self._digest
@@ -841,7 +862,11 @@ class Scheduler:
                 except Exception:  # noqa: BLE001
                     logger.exception("摘要推送失败")
             # 雪球 cookie 主动探测
-            probe_interval = self.polling_config.source_probe_interval_seconds
+            probe_interval = _polling_setting(
+                self.db,
+                "config_source_probe_interval_seconds",
+                self.polling_config.source_probe_interval_seconds,
+            )
             if probe_interval > 0 and now_mono - self._last_xueqiu_probe >= probe_interval:
                 self._last_xueqiu_probe = now_mono
                 try:
@@ -854,7 +879,11 @@ class Scheduler:
                 except Exception:  # noqa: BLE001
                     logger.exception("雪球探测异常")
             # 雪球/微博 cookie 保活（刷新会话防过期）
-            keepalive_interval = self.polling_config.cookie_keepalive_interval_seconds
+            keepalive_interval = _polling_setting(
+                self.db,
+                "config_cookie_keepalive_interval_seconds",
+                self.polling_config.cookie_keepalive_interval_seconds,
+            )
             if keepalive_interval > 0 and now_mono - self._last_cookie_keepalive >= keepalive_interval:
                 self._last_cookie_keepalive = now_mono
                 try:
@@ -899,7 +928,7 @@ class Scheduler:
                     except Exception:  # noqa: BLE001
                         logger.exception("推送日志清理失败")
             elapsed = time.monotonic() - started
-            delay = self.polling_config.interval_seconds + random.uniform(
+            delay = interval_seconds + random.uniform(
                 0, self.polling_config.jitter_seconds
             )
             await asyncio.sleep(max(0.0, delay - elapsed))
@@ -976,7 +1005,9 @@ class Scheduler:
         raise RuntimeError(f"未知渠道: {channel}")
 
     def _daily_report_due(self) -> bool:
-        hour_cfg = self.polling_config.daily_report_hour
+        hour_cfg = _polling_setting(
+            self.db, "config_daily_report_hour", self.polling_config.daily_report_hour
+        )
         now = datetime.now()
         if now.hour < hour_cfg:
             return False

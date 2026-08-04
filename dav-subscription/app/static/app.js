@@ -736,6 +736,28 @@ async function loadAdminStats() {
             </tr>`).join("")}</tbody>
         </table>
       </div>
+      <div class="row" style="gap:14px;align-items:flex-end;margin-top:18px;flex-wrap:wrap">
+        <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)">轮询间隔(秒)
+          <input id="pc-interval" type="number" class="form-control" style="margin:0;width:110px" min="1" max="3600" value="${s.polling_config.interval_seconds}">
+        </label>
+        <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)">优先大V间隔(秒)
+          <input id="pc-priority" type="number" class="form-control" style="margin:0;width:110px" min="1" max="600" value="${s.polling_config.priority_interval_seconds}">
+        </label>
+        <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)">合并推送周期(秒)
+          <input id="pc-digest" type="number" class="form-control" style="margin:0;width:110px" min="0" max="86400" value="${s.polling_config.digest_interval_seconds}">
+        </label>
+        <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)">雪球探测(秒)
+          <input id="pc-probe" type="number" class="form-control" style="margin:0;width:110px" min="0" max="86400" value="${s.polling_config.source_probe_interval_seconds}">
+        </label>
+        <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)">cookie保活(秒)
+          <input id="pc-keepalive" type="number" class="form-control" style="margin:0;width:110px" min="0" max="86400" value="${s.polling_config.cookie_keepalive_interval_seconds}">
+        </label>
+        <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)">每日精选小时
+          <input id="pc-daily" type="number" class="form-control" style="margin:0;width:110px" min="0" max="23" value="${s.polling_config.daily_report_hour}">
+        </label>
+        <button class="btn-normal" onclick="savePollingConfig()">保存抓取设置</button>
+        <span id="pc-result" class="muted"></span>
+      </div>
       <div style="margin-top:16px">
         <button class="btn-normal" onclick="startWeiboQr()">微博扫码登录</button>
         <span class="muted" style="margin-left:10px">用微博 App 扫码后自动保存 Cookie，无需手动复制</span>
@@ -759,6 +781,24 @@ async function loadAdminStats() {
         <span id="xq-result" class="muted"></span>
       </div>
     </section>`;
+}
+
+async function savePollingConfig() {
+  const body = {
+    interval_seconds: Number($("#pc-interval").value),
+    priority_interval_seconds: Number($("#pc-priority").value),
+    digest_interval_seconds: Number($("#pc-digest").value),
+    source_probe_interval_seconds: Number($("#pc-probe").value),
+    cookie_keepalive_interval_seconds: Number($("#pc-keepalive").value),
+    daily_report_hour: Number($("#pc-daily").value),
+  };
+  try {
+    await api("/api/admin/polling-config", { method: "PUT", body: JSON.stringify(body) });
+    $("#pc-result").textContent = "已保存 ✅ 即时生效";
+    loadAdminStats();
+  } catch (err) {
+    alert("保存失败: " + err.message);
+  }
 }
 
 async function saveXueqiuCookie() {

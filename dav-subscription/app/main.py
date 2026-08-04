@@ -33,6 +33,13 @@ def create_app(config=None, db_path: str | Path | None = None) -> FastAPI:
         "stats_keepalive_interval",
         str(config.polling.cookie_keepalive_interval_seconds),
     )
+    db.set_setting("stats_priority_interval_seconds", str(config.polling.priority_interval_seconds))
+    db.set_setting("stats_digest_interval_seconds", str(config.polling.digest_interval_seconds))
+    db.set_setting(
+        "stats_source_probe_interval_seconds",
+        str(config.polling.source_probe_interval_seconds),
+    )
+    db.set_setting("stats_daily_report_hour", str(config.polling.daily_report_hour))
     secret = auth.get_or_create_secret(db, config.web.token_secret)
     if config.web.admin_password:
         admin = db.get_user_by_username("admin")

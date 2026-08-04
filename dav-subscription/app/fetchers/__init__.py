@@ -11,5 +11,5 @@ def build_fetchers(config, db) -> dict[str, Fetcher]:
     return {
         "xueqiu": XueqiuFetcher(config.sources.xueqiu, db),
         "weibo": WeiboFetcher(config.sources.weibo, db),
-        "twitter": RssFetcher(),
+        "twitter": RssFetcher(config.sources.rss, db),
     }

@@ -99,6 +99,15 @@ class RegisterCodeGenIn(BaseModel):
     note: str = ""
 
 
+class PollingConfigIn(BaseModel):
+    interval_seconds: int | None = None
+    priority_interval_seconds: int | None = None
+    digest_interval_seconds: int | None = None
+    source_probe_interval_seconds: int | None = None
+    cookie_keepalive_interval_seconds: int | None = None
+    daily_report_hour: int | None = None
+
+
 class CookieIn(BaseModel):
     cookie: str
 
@@ -169,6 +178,43 @@ def create_api_router(
 
     def _audit(admin: dict, action: str, target: str = "", detail: str = "") -> None:
         db.log_admin_action(admin["id"], action, target, detail)
+
+    POLLING_FIELDS = [
+        ("interval_seconds", "config_interval_seconds", "stats_polling_interval", 1, 3600),
+        (
+            "priority_interval_seconds",
+            "config_priority_interval_seconds",
+            "stats_priority_interval_seconds",
+            1,
+            600,
+        ),
+        ("digest_interval_seconds", "config_digest_interval_seconds", "stats_digest_interval_seconds", 0, 86400),
+        (
+            "source_probe_interval_seconds",
+            "config_source_probe_interval_seconds",
+            "stats_source_probe_interval_seconds",
+            0,
+            86400,
+        ),
+        (
+            "cookie_keepalive_interval_seconds",
+            "config_cookie_keepalive_interval_seconds",
+            "stats_keepalive_interval",
+            0,
+            86400,
+        ),
+        ("daily_report_hour", "config_daily_report_hour", "stats_daily_report_hour", 0, 23),
+    ]
+
+    def _effective_polling() -> dict:
+        out = {}
+        for name, cfg_key, stat_key, _lo, _hi in POLLING_FIELDS:
+            raw = db.get_setting(cfg_key) or db.get_setting(stat_key)
+            try:
+                out[name] = int(raw)
+            except (TypeError, ValueError):
+                out[name] = 0
+        return out
 
     def get_current_user(authorization: str | None = Header(None)):
         token = ""
@@ -488,6 +534,24 @@ def create_api_router(
             "preview": (cookie[:40] + "…") if len(cookie) > 40 else cookie,
         }
 
+    @router.get("/admin/polling-config", dependencies=[Depends(require_admin)])
+    def get_polling_config():
+        return _effective_polling()
+
+    @router.put("/admin/polling-config", dependencies=[Depends(require_admin)])
+    def update_polling_config(body: PollingConfigIn, admin: dict = Depends(require_admin)):
+        changed = []
+        for name, cfg_key, _stat, lo, hi in POLLING_FIELDS:
+            value = getattr(body, name)
+            if value is None:
+                continue
+            if not (lo <= value <= hi):
+                raise HTTPException(status_code=400, detail=f"{name} 需在 {lo}-{hi} 之间")
+            db.set_setting(cfg_key, str(value))
+            changed.append(name)
+        _audit(admin, "update_polling_config", "", ",".join(changed))
+        return _effective_polling()
+
     @router.post("/admin/xueqiu-cookie", dependencies=[Depends(require_admin)])
     def set_xueqiu_cookie(body: CookieIn, admin: dict = Depends(require_admin)):
         cookie = body.cookie.strip()
@@ -756,6 +820,7 @@ def create_api_router(
                 "updated_at": weibo_updated,
                 "preview": (weibo_cookie[:40] + "…") if len(weibo_cookie) > 40 else weibo_cookie,
             },
+            "polling_config": _effective_polling(),
         }
 
     @router.put("/users/{user_id}", dependencies=[Depends(require_admin)])

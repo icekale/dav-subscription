@@ -712,6 +712,31 @@ def test_stats_include_source_health():
     assert sources["weibo"]["last_error"] == "登录失败"
 
 
+def test_polling_config_get_and_update():
+    client = make_client()
+    headers = auth_headers(client)
+    cfg = client.get("/api/admin/polling-config", headers=headers).json()
+    assert cfg["interval_seconds"] > 0 and cfg["daily_report_hour"] == 20
+
+    resp = client.put(
+        "/api/admin/polling-config",
+        headers=headers,
+        json={"interval_seconds": 120, "digest_interval_seconds": 300, "daily_report_hour": 21},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["interval_seconds"] == 120
+    assert resp.json()["digest_interval_seconds"] == 300
+    assert resp.json()["daily_report_hour"] == 21
+
+    # 超范围被拒绝
+    resp = client.put(
+        "/api/admin/polling-config",
+        headers=headers,
+        json={"daily_report_hour": 99},
+    )
+    assert resp.status_code == 400
+
+
 def test_posts_search_and_push_log_filters():
     client = make_client()
     headers = auth_headers(client)

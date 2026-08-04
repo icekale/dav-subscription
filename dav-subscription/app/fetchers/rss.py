@@ -1,6 +1,8 @@
 """X/Twitter 等通用 RSS 抓取（RSSHub / nitter 源）。"""
 from __future__ import annotations
 
+import re
+
 import httpx
 import feedparser
 
@@ -10,15 +12,48 @@ from .base import Fetcher, Post, strip_html
 class RssFetcher(Fetcher):
     platform = "twitter"
 
-    def __init__(self, source_config=None, client: httpx.Client | None = None):
+    def __init__(self, source_config=None, db=None, client: httpx.Client | None = None):
         super().__init__(source_config)
+        self.db = db
+        self.rsshub_base = (getattr(source_config, "rsshub_base", "") or "https://rsshub.app").rstrip("/")
         self.client = client or httpx.Client(
             timeout=20,
             headers={"User-Agent": "Mozilla/5.0"},
         )
 
+    def _resolve_feed_url(self, external_id: str) -> str:
+        """x.com / twitter.com 主页链接自动转成 RSSHub 用户 RSS。"""
+        match = re.search(
+            r"(?:x\.com|twitter\.com)/(?:@?)([A-Za-z0-9_]+)",
+            external_id,
+        )
+        if match:
+            username = match.group(1)
+            return f"{self.rsshub_base}/twitter/user/{username}"
+        return external_id
+
+    @staticmethod
+    def _extract_avatar(feed) -> str:
+        """从 RSS 里提取账号头像：feed image → 首条 media_thumbnail/media_content/作者头像。"""
+        feed_image = (feed.get("feed") or {}).get("image") or {}
+        if feed_image.get("url"):
+            return feed_image["url"]
+        entries = feed.get("entries") or []
+        for entry in entries:
+            thumbnails = entry.get("media_thumbnail") or []
+            if thumbnails and thumbnails[0].get("url"):
+                return thumbnails[0]["url"]
+            media = entry.get("media_content") or []
+            if media and media[0].get("url"):
+                return media[0]["url"]
+            author = (entry.get("author_detail") or {}).get("avatar")
+            if author:
+                return author
+        return ""
+
     def fetch(self, kol: dict) -> list[Post]:
-        resp = self.client.get(kol["external_id"])
+        url = self._resolve_feed_url(kol["external_id"])
+        resp = self.client.get(url)
         resp.raise_for_status()
         feed = feedparser.parse(resp.content)
         posts = []
@@ -35,4 +70,8 @@ class RssFetcher(Fetcher):
                     published_at=str(entry.get("published") or entry.get("updated") or ""),
                 )
             )
+        if self.db is not None:
+            avatar = self._extract_avatar(feed)
+            if avatar and avatar != (self.db.get_kol(kol["id"]) or {}).get("avatar_url"):
+                self.db.update_kol_avatar(kol["id"], avatar)
         return posts

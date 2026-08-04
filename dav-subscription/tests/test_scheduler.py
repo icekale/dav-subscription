@@ -9,6 +9,7 @@ from app.db import DB
 from app.fetchers.base import Post
 from app.scheduler import (
     PushRetryQueue,
+    _polling_setting,
     flush_digest,
     keepalive_weibo_cookie,
     keepalive_xueqiu_cookie,
@@ -358,6 +359,15 @@ def test_daily_report_skips_user_without_posts():
     )
     scheduler._send_daily_report()
     assert fake.daily == []
+
+
+def test_polling_setting_db_override():
+    db = make_db()
+    assert _polling_setting(db, "config_interval_seconds", 180) == 180
+    db.set_setting("config_interval_seconds", "60")
+    assert _polling_setting(db, "config_interval_seconds", 180) == 60
+    db.set_setting("config_interval_seconds", "abc")
+    assert _polling_setting(db, "config_interval_seconds", 180) == 180
 
 
 def test_xueqiu_cookie_keepalive():
