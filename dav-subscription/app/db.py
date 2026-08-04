@@ -384,6 +384,22 @@ class DB:
         rows = self._rows("SELECT COUNT(*) AS n FROM posts")
         return rows[0]["n"]
 
+    def delete_posts_older_than(self, days: int) -> int:
+        """删除超过 N 天的帖子及其推送记录，返回删除条数。"""
+        if days <= 0:
+            return 0
+        rows = self._rows(
+            "SELECT id FROM posts WHERE fetched_at < datetime('now', ?)",
+            (f"-{days} days",),
+        )
+        ids = [row["id"] for row in rows]
+        if not ids:
+            return 0
+        placeholders = ", ".join("?" * len(ids))
+        self._execute(f"DELETE FROM push_logs WHERE post_id IN ({placeholders})", ids)
+        self._execute(f"DELETE FROM posts WHERE id IN ({placeholders})", ids)
+        return len(ids)
+
     def list_feed_posts(self, kol_ids: list[int], limit: int = 100) -> list[dict]:
         if not kol_ids:
             return []

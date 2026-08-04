@@ -1,0 +1,49 @@
+services:
+  dav-subscription:
+    build: .
+    container_name: dav-subscription
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Shanghai
+      - CONFIG_PATH=/app/config.yaml
+      - DB_PATH=/data/dav.db
+      - FEISHU_APP_ID=${FEISHU_APP_ID}
+      - FEISHU_APP_SECRET=${FEISHU_APP_SECRET}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+      - WECHAT_APP_ID=${WECHAT_APP_ID}
+      - WECHAT_APP_SECRET=${WECHAT_APP_SECRET}
+      - XUEQIU_COOKIE=${XUEQIU_COOKIE}
+      - WEB_ALLOW_REGISTER=${WEB_ALLOW_REGISTER:-true}
+      - WEB_ADMIN_PASSWORD=${WEB_ADMIN_PASSWORD}
+      - WEB_TOKEN_SECRET=${WEB_TOKEN_SECRET}
+      - POLLING_POSTS_RETENTION_DAYS=${POLLING_POSTS_RETENTION_DAYS:-30}
+    volumes:
+      - ./data:/data
+    expose:
+      - "8000"
+    networks: [dav]
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: dav-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - DOMAIN=${DOMAIN}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - dav-subscription
+    networks: [dav]
+
+volumes:
+  caddy_data:
+  caddy_config:
+
+networks:
+  dav:

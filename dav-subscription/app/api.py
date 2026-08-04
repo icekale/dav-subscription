@@ -311,6 +311,7 @@ def create_api_router(db: DB, secret: str, allow_register: bool = True, wechat_c
         kols = db.list_kols()
         return {
             "polling_interval_seconds": int(db.get_setting("stats_polling_interval") or 0),
+            "posts_retention_days": int(db.get_setting("stats_posts_retention_days") or 0),
             "last_poll_at": db.get_setting("stats_last_poll_at"),
             "last_poll_duration_ms": db.get_setting("stats_last_poll_duration_ms"),
             "last_poll_error": db.get_setting("stats_last_poll_error") or "",

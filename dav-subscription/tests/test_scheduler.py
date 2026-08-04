@@ -215,3 +215,17 @@ def test_no_channel_no_user_push(monkeypatch):
     db.add_subscription(uid, kid)
     poll_once(db, {"xueqiu": FakeFetcher([make_post(kid)])}, [])
     assert db.list_push_logs() == []
+
+
+def test_delete_posts_older_than():
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    old_id = db.insert_post("xueqiu", kid, "old", "t", "c", "u", "")
+    new_id = db.insert_post("xueqiu", kid, "new", "t", "c", "u", "")
+    db.add_push_log(old_id, "telegram", "success")
+    db._execute("UPDATE posts SET fetched_at = datetime('now', '-40 days') WHERE external_id = 'old'")
+    assert db.delete_posts_older_than(30) == 1
+    assert db.get_kol(kid)  # kols 不受影响
+    remaining = db._rows("SELECT external_id FROM posts ORDER BY id")
+    assert [r["external_id"] for r in remaining] == ["new"]
+    assert db.list_push_logs() == []

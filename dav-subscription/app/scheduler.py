@@ -154,6 +154,7 @@ class Scheduler:
         self.notifiers_config = notifiers_config
         self.states: dict[str, PlatformState] = {}
         self._stop = asyncio.Event()
+        self._last_cleanup = 0.0
 
     def stop(self):
         self._stop.set()
@@ -189,6 +190,18 @@ class Scheduler:
             except Exception:  # noqa: BLE001 - 任何异常都不能终止循环
                 logger.exception("轮询周期异常")
                 self.db.set_setting("stats_last_poll_error", "轮询周期异常")
+            # 定期清理过期帖子（默认每 6 小时检查一次）
+            now_mono = time.monotonic()
+            if now_mono - self._last_cleanup > 6 * 3600:
+                self._last_cleanup = now_mono
+                retention = self.polling_config.posts_retention_days
+                if retention > 0:
+                    try:
+                        removed = self.db.delete_posts_older_than(retention)
+                        if removed:
+                            logger.info("清理过期帖子 %d 条（保留 %d 天）", removed, retention)
+                    except Exception:  # noqa: BLE001
+                        logger.exception("帖子清理失败")
             elapsed = time.monotonic() - started
             delay = self.polling_config.interval_seconds + random.uniform(
                 0, self.polling_config.jitter_seconds

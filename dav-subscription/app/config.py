@@ -52,6 +52,7 @@ class PollingConfig:
     priority_interval_seconds: int = 60
     jitter_seconds: int = 30
     notify_on_start: bool = True
+    posts_retention_days: int = 30
 
 
 @dataclass
@@ -93,6 +94,7 @@ _ENV_MAP = {
     "POLLING_INTERVAL_SECONDS": ("polling", "interval_seconds"),
     "POLLING_PRIORITY_INTERVAL_SECONDS": ("polling", "priority_interval_seconds"),
     "POLLING_JITTER_SECONDS": ("polling", "jitter_seconds"),
+    "POLLING_POSTS_RETENTION_DAYS": ("polling", "posts_retention_days"),
     "NOTIFY_ON_START": ("polling", "notify_on_start"),
     "WEB_PASSWORD": ("web", "password"),
     "WEB_ALLOW_REGISTER": ("web", "allow_register"),
@@ -129,6 +131,7 @@ def _validate(config: Config) -> None:
         ("polling.interval_seconds", config.polling, "interval_seconds", int),
         ("polling.priority_interval_seconds", config.polling, "priority_interval_seconds", int),
         ("polling.jitter_seconds", config.polling, "jitter_seconds", int),
+        ("polling.posts_retention_days", config.polling, "posts_retention_days", int),
         ("polling.notify_on_start", config.polling, "notify_on_start", bool),
         ("web.allow_register", config.web, "allow_register", bool),
     )
@@ -158,6 +161,8 @@ def _validate(config: Config) -> None:
         raise ValueError("配置项 polling.interval_seconds 必须 >= 1")
     if config.polling.jitter_seconds < 0:
         raise ValueError("配置项 polling.jitter_seconds 必须 >= 0")
+    if config.polling.posts_retention_days < 0:
+        raise ValueError("配置项 polling.posts_retention_days 必须 >= 0")
 
 
 def load_config(path: str | Path | None = None) -> Config:
@@ -172,7 +177,12 @@ def load_config(path: str | Path | None = None) -> Config:
         if not value:
             continue
         try:
-            if env_name in ("POLLING_INTERVAL_SECONDS", "POLLING_PRIORITY_INTERVAL_SECONDS", "POLLING_JITTER_SECONDS"):
+            if env_name in (
+                "POLLING_INTERVAL_SECONDS",
+                "POLLING_PRIORITY_INTERVAL_SECONDS",
+                "POLLING_JITTER_SECONDS",
+                "POLLING_POSTS_RETENTION_DAYS",
+            ):
                 value = int(value)
             elif env_name in ("NOTIFY_ON_START", "WEB_ALLOW_REGISTER"):
                 value = value.strip().lower() in ("1", "true", "yes", "on")

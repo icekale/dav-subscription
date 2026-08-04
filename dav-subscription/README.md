@@ -114,12 +114,43 @@ X 官方 API 需付费，本项目通过 RSS 源订阅。每个 X 大V 在「订
 
 RSS 源不稳定时该平台会暂时抓不到，建议自建 RSSHub 保证可用性。
 
+## 生产部署（HTTPS + 正式域名）
+
+1. 复制环境变量模板并填好密钥（域名、bot token、飞书/微信凭据、管理员密码等）：
+
+   ```bash
+   cp .env.example .env.prod
+   # 编辑 .env.prod：DOMAIN、TELEGRAM_BOT_TOKEN、FEISHU_APP_ID/SECRET、
+   # WECHAT_APP_ID/SECRET、WEB_ADMIN_PASSWORD、WEB_TOKEN_SECRET、XUEQIU_COOKIE
+   ```
+
+2. 用生产 compose 启动（Caddy 自动申请/续期 HTTPS 证书）：
+
+   ```bash
+   set -a; source .env.prod; set +a
+   docker compose -f docker-compose.prod.yml up -d --build
+   ```
+
+3. 数据备份（SQLite 在线备份，WAL 安全）：
+
+   ```bash
+   python3 scripts/backup.py data/dav.db backups 14
+   ```
+
+   可加入 crontab 每天自动备份：`0 3 * * * cd /path/to/project && python3 scripts/backup.py data/dav.db backups 14`
+
+4. 小程序上线：把小程序 `miniprogram/utils/api.js` 的 `BASE_URL` 改为 `https://你的域名`，在微信公众平台配置 request 合法域名后提审。
+
+## 数据保留
+
+帖子与推送记录默认保留 30 天（`polling.posts_retention_days`，0 表示永久保留），调度器每 6 小时自动清理超期数据，避免 SQLite 无限膨胀。
+
 ## 安全提示
 
 默认监听所有网卡。建议：
 
 - 仅在内网使用，或置于反向代理后
-- 如暴露公网，务必设置 `web.password`
+- 如暴露公网，务必通过生产 compose（HTTPS）部署，并设置 `WEB_ADMIN_PASSWORD`、`WEB_TOKEN_SECRET`
 
 ## 开发与测试
 
