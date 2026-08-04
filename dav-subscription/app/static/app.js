@@ -1,8 +1,12 @@
 const $ = (sel) => document.querySelector(sel);
 
 const PLATFORM_LABELS = { xueqiu: "雪球", weibo: "微博", twitter: "X" };
-const TAB_ROUTES = new Set(["home", "timeline", "me"]);
-const state = { token: localStorage.getItem("dav_token") || "", user: null };
+const state = {
+  token: localStorage.getItem("dav_token") || "",
+  user: null,
+  catalog: [],
+  platform: "",
+};
 
 function escapeHtml(text) {
   return String(text ?? "").replace(/[&<>"']/g, (c) => ({
@@ -36,41 +40,138 @@ function avatarText(name) {
   return (name || "?").trim().slice(0, 1).toUpperCase();
 }
 
+// ---------- 壳 ----------
+const NAV = [
+  { group: "订阅", items: [
+    { route: "home", icon: "◎", label: "订阅广场" },
+    { route: "mysubs", icon: "▤", label: "我的订阅" },
+    { route: "timeline", icon: "☰", label: "动态" },
+    { route: "settings", icon: "⚙", label: "推送设置" },
+  ]},
+  { group: "管理", admin: true, items: [
+    { route: "admin/kols", icon: "◇", label: "大V管理" },
+    { route: "admin/categories", icon: "▣", label: "分类管理" },
+    { route: "admin/posts", icon: "▤", label: "帖子" },
+    { route: "admin/logs", icon: "☰", label: "推送记录" },
+    { route: "admin/users", icon: "◉", label: "用户" },
+  ]},
+];
+
+function renderSidebar(user) {
+  const html = NAV.filter((g) => !g.admin || user.is_admin)
+    .map((group) => `
+      <div class="nav-group-label">${group.group}</div>
+      ${group.items.map((item) => `
+        <button class="nav-item" data-route="${item.route}" onclick="location.hash='#/${item.route}'">
+          <span class="nav-icon">${item.icon}</span>
+          <span class="nav-label">${item.label}</span>
+        </button>`).join("")}
+    `).join("");
+  $("#sidebar-nav").innerHTML = html;
+  $("#sidebar-user").textContent = `${user.username}${user.is_admin ? " · 管理员" : ""}`;
+}
+
+function renderTopbar(user) {
+  $("#topbar-user").innerHTML = `
+    <div class="user-chip">
+      <div class="user-avatar">${escapeHtml(avatarText(user.username))}</div>
+      <div class="user-meta">
+        <span class="user-name">${escapeHtml(user.username)}</span>
+        <span class="user-role">${user.is_admin ? "管理员" : "订阅用户"}</span>
+      </div>
+    </div>
+    <button class="topbar-logout" onclick="logout()">退出</button>`;
+}
+
+function setPageTitle(title, back = false) {
+  $("#page-title").textContent = title;
+  $("#btn-back").classList.toggle("hidden", !back);
+}
+
+function heroPanel(eyebrow, title, subtitle = "", pills = []) {
+  return `
+    <section class="hero-panel">
+      <div>
+        <p class="hero-eyebrow">${escapeHtml(eyebrow)}</p>
+        <h2 class="hero-title">${escapeHtml(title)}</h2>
+        ${subtitle ? `<p class="hero-subtitle">${escapeHtml(subtitle)}</p>` : ""}
+      </div>
+      ${pills.length ? `<div class="hero-pills">${pills.map((p) => `<span class="hero-pill">${escapeHtml(p)}</span>`).join("")}</div>` : ""}
+    </section>`;
+}
+
+function emptyState(text, actionHtml = "") {
+  return `<div class="empty">${escapeHtml(text)}${actionHtml}</div>`;
+}
+
+// ---------- 订阅广场 ----------
+async function renderHome() {
+  setPageTitle("订阅广场");
+  $("#main").innerHTML = `
+    ${heroPanel("DaV Catalog", "订阅广场", "浏览大V目录，点击卡片查看动态，一键订阅你关注的人。",
+      ["雪球", "微博", "X / RSS"])}
+    <section class="section-panel">
+      <header class="section-head">
+        <div>
+          <p class="section-eyebrow">Catalog</p>
+          <h3 class="section-title">全部大V</h3>
+          <p class="section-meta" id="catalog-meta">加载中…</p>
+        </div>
+        <div class="toolbar" style="margin-top:12px">
+          <div class="search-bar" style="flex:1;min-width:220px">
+            <span>🔍</span>
+            <input id="home-search" placeholder="搜索昵称或 ID，回车确认" onkeydown="if(event.key==='Enter')location.hash='#/search?q='+encodeURIComponent(this.value)">
+          </div>
+          <div class="platform-tabs" id="platform-tabs"></div>
+        </div>
+      </header>
+      <div id="kol-list"></div>
+    </section>`;
+  state.platform = "";
+  renderPlatformTabs();
+  await loadHomeKols();
+}
+
+function renderPlatformTabs() {
+  $("#platform-tabs").innerHTML = ["", "xueqiu", "weibo", "twitter"].map((p) => `
+    <button class="platform-tab ${p === state.platform ? "selected" : ""}"
+      onclick="switchPlatform('${p}')">${p ? PLATFORM_LABELS[p] : "全部"}</button>`).join("");
+}
+
+async function loadHomeKols() {
+  try {
+    const params = state.platform ? `?platform=${state.platform}` : "";
+    state.catalog = await api(`/api/catalog${params}`);
+    $("#catalog-meta").textContent = `共 ${state.catalog.length} 个大V`;
+    $("#kol-list").innerHTML = state.catalog.length
+      ? state.catalog.map(kolCard).join("")
+      : emptyState("暂无大V，管理员可在管理后台添加");
+  } catch (err) {
+    $("#kol-list").innerHTML = emptyState("加载失败: " + err.message);
+  }
+}
+
+async function switchPlatform(platform) {
+  state.platform = platform;
+  renderPlatformTabs();
+  await loadHomeKols();
+}
+
 function kolCard(kol) {
-  const subscribed = kol.subscribed ? "subscribed" : "";
-  const label = kol.subscribed ? "已订阅" : "订阅";
   return `
     <div class="kol-item">
-      <div class="avatar">${escapeHtml(avatarText(kol.name))}</div>
+      <div class="kol-avatar">${escapeHtml(avatarText(kol.name))}</div>
       <div class="kol-info" onclick="location.hash='#/kol/${kol.id}'">
         <div class="base">
           <span class="name">${escapeHtml(kol.name)}</span>
-          ${kol.category_name ? `<span class="tag">${escapeHtml(kol.category_name)}</span>` : ""}
           <span class="tag">${PLATFORM_LABELS[kol.platform] || kol.platform}</span>
+          ${kol.category_name ? `<span class="tag">${escapeHtml(kol.category_name)}</span>` : ""}
         </div>
-        <div class="desc">ID: ${escapeHtml(kol.external_id)}${kol.enabled ? "" : " · 已停用"}</div>
+        <div class="desc">外部 ID：${escapeHtml(kol.external_id)}${kol.enabled ? "" : " · 已停用"}</div>
       </div>
-      <button class="btn-sub ${subscribed}" onclick="toggleSubscribe(${kol.id}, this)">${label}</button>
-    </div>`;
-}
-
-function postCard(post) {
-  return `
-    <div class="post-item">
-      <div class="p-header">
-        <div class="avatar">${escapeHtml(avatarText(post.kol_name))}</div>
-        <div>
-          <div class="p-name">${escapeHtml(post.kol_name)}</div>
-          <div class="p-time">${escapeHtml(post.published_at)}</div>
-        </div>
-      </div>
-      ${post.title ? `<div class="p-title">${escapeHtml(post.title)}</div>` : ""}
-      <div class="p-content">${escapeHtml(post.content || "（无正文）")}</div>
-      <div class="p-meta">
-        ${post.category_name ? `<span class="cat">🗂 ${escapeHtml(post.category_name)}</span>` : ""}
-        <span>${PLATFORM_LABELS[post.platform] || post.platform}</span>
-        <a href="${escapeHtml(post.url)}" target="_blank" rel="noopener">查看原文 →</a>
-      </div>
+      <button class="btn-sub ${kol.subscribed ? "subscribed" : ""}" onclick="toggleSubscribe(${kol.id}, this)">
+        ${kol.subscribed ? "已订阅" : "订阅"}
+      </button>
     </div>`;
 }
 
@@ -82,100 +183,101 @@ async function toggleSubscribe(kolId, btn) {
     } else {
       await api("/api/subscriptions", { method: "POST", body: JSON.stringify({ kol_id: kolId }) });
     }
-    if (btn) {
-      btn.textContent = kol && kol.subscribed ? "订阅" : "已订阅";
-      btn.classList.toggle("subscribed", !(kol && kol.subscribed));
-    }
-    if (state.catalog) {
-      state.catalog = state.catalog.map((k) =>
-        k.id === kolId ? { ...k, subscribed: !(k.subscribed) } : k
-      );
+    if (kol) {
+      kol.subscribed = !kol.subscribed;
+      btn.textContent = kol.subscribed ? "已订阅" : "订阅";
+      btn.classList.toggle("subscribed", kol.subscribed);
     }
   } catch (err) {
     alert("操作失败: " + err.message);
   }
 }
 
-function renderTop(title, back = false, rightHtml = "") {
-  $("#page-title").textContent = title;
-  $("#btn-back").classList.toggle("hidden", !back);
-  $("#top-right").innerHTML = rightHtml;
-}
-
-function showTabBar(show) {
-  $("#tab-bar").classList.toggle("hidden", !show);
-}
-
-function renderEmpty(text, actionHtml = "") {
-  return `<div class="empty">${escapeHtml(text)}${actionHtml}</div>`;
-}
-
-// ---------- 首页 ----------
-async function renderHome() {
-  renderTop("首页");
-  showTabBar(true);
-  const html = `
-    <div class="search-bar" onclick="location.hash='#/search'">
-      <span>🔍</span>&nbsp;搜索大V / 雪球UID
-    </div>
-    <div class="platform-tabs" id="platform-tabs"></div>
-    <div class="sub-title">推荐大V<span class="tip">点击卡片查看动态</span></div>
-    <div id="kol-list"></div>`;
-  $("#main").innerHTML = html;
-  state.platform = "";
-  await loadHomeKols();
-  $("#platform-tabs").innerHTML = ["", "xueqiu", "weibo", "twitter"].map((p) => `
-    <button class="platform-tab ${p === state.platform ? "selected" : ""}"
-      onclick="switchPlatform('${p}')">${p ? PLATFORM_LABELS[p] : "全部"}</button>`).join("");
-}
-
-async function loadHomeKols() {
+// ---------- 我的订阅 / 动态 ----------
+async function renderMySubs() {
+  setPageTitle("我的订阅");
+  $("#main").innerHTML = `
+    ${heroPanel("My Subscriptions", "我的订阅", "管理你关注的大V，随时取消订阅。", ["自助订阅", "分类管理"])}
+    <section class="section-panel">
+      <header class="section-head">
+        <div>
+          <p class="section-eyebrow">Subscriptions</p>
+          <h3 class="section-title">已订阅大V</h3>
+        </div>
+      </header>
+      <div id="mysubs-list"></div>
+    </section>`;
   try {
-    const params = state.platform ? `?platform=${state.platform}` : "";
-    state.catalog = await api(`/api/catalog${params}`);
-    $("#kol-list").innerHTML = state.catalog.length
-      ? state.catalog.map(kolCard).join("")
-      : renderEmpty("暂无大V，管理员可在后台添加");
+    const subs = await api("/api/my/subscriptions");
+    state.catalog = subs.map((k) => ({ ...k, subscribed: true }));
+    $("#mysubs-list").innerHTML = subs.length
+      ? subs.map(kolCard).join("")
+      : emptyState("还没有订阅任何大V", `<div><button class="btn-normal btn-add" onclick="location.hash='#/home'">去发现大V</button></div>`);
   } catch (err) {
-    $("#kol-list").innerHTML = renderEmpty("加载失败: " + err.message);
+    $("#mysubs-list").innerHTML = emptyState(err.message);
   }
 }
 
-async function switchPlatform(platform) {
-  state.platform = platform;
-  await loadHomeKols();
-  document.querySelectorAll(".platform-tab").forEach((btn, i) => {
-    const values = ["", "xueqiu", "weibo", "twitter"];
-    btn.classList.toggle("selected", values[i] === platform);
-  });
-}
-
-// ---------- 动态 ----------
 async function renderTimeline() {
-  renderTop("动态");
-  showTabBar(true);
-  $("#main").innerHTML = `<div class="sub-title">我的动态<span class="tip">订阅大V的最新帖</span></div><div id="feed"></div>`;
+  setPageTitle("动态");
+  $("#main").innerHTML = `
+    ${heroPanel("Timeline", "动态", "你订阅大V的最新动态，按时间倒序。", ["实时抓取", "去重推送"])}
+    <section class="section-panel">
+      <header class="section-head">
+        <div>
+          <p class="section-eyebrow">Feed</p>
+          <h3 class="section-title">最新动态</h3>
+        </div>
+      </header>
+      <div id="feed"></div>
+    </section>`;
   try {
     const posts = await api("/api/my/feed?limit=100");
     $("#feed").innerHTML = posts.length
       ? posts.map(postCard).join("")
-      : renderEmpty("还没有订阅任何大V", `<div><button class="btn-dark btn-add" onclick="location.hash='#/home'">去订阅</button></div>`);
+      : emptyState("还没有订阅任何大V", `<div><button class="btn-normal btn-add" onclick="location.hash='#/home'">去订阅</button></div>`);
   } catch (err) {
-    $("#feed").innerHTML = renderEmpty("加载失败: " + err.message);
+    $("#feed").innerHTML = emptyState(err.message);
   }
+}
+
+function postCard(post) {
+  return `
+    <div class="post-item">
+      <div class="p-header">
+        <div class="kol-avatar">${escapeHtml(avatarText(post.kol_name))}</div>
+        <div>
+          <div class="p-name">${escapeHtml(post.kol_name)}</div>
+          <div class="p-time">${escapeHtml(post.published_at)}</div>
+        </div>
+      </div>
+      ${post.title ? `<div class="p-title">${escapeHtml(post.title)}</div>` : ""}
+      <div class="p-content">${escapeHtml(post.content || "（无正文）")}</div>
+      <div class="p-meta">
+        ${post.category_name ? `<span class="cat">${escapeHtml(post.category_name)}</span>` : ""}
+        <span>${PLATFORM_LABELS[post.platform] || post.platform}</span>
+        <a href="${escapeHtml(post.url)}" target="_blank" rel="noopener">查看原文 →</a>
+      </div>
+    </div>`;
 }
 
 // ---------- 搜索 ----------
 async function renderSearch() {
-  renderTop("查询", true);
-  showTabBar(false);
+  setPageTitle("搜索", true);
+  const params = new URLSearchParams(location.hash.split("?")[1] || "");
+  const query = params.get("q") || "";
   $("#main").innerHTML = `
-    <div class="search-bar">
-      <span>🔍</span>
-      <input id="search-input" placeholder="昵称或雪球UID" onkeydown="if(event.key==='Enter')doSearch()">
-    </div>
-    <div id="search-result"></div>`;
-  $("#search-input").focus();
+    ${heroPanel("Search", "搜索大V", "按昵称或外部 ID（雪球 UID / 微博 UID / RSS 地址）查找。")}
+    <section class="section-panel">
+      <div class="search-bar" style="margin-bottom:16px">
+        <span>🔍</span>
+        <input id="search-input" placeholder="输入昵称或 ID，回车搜索" value="${escapeHtml(query)}" onkeydown="if(event.key==='Enter')doSearch()">
+        <button class="btn-ghost" onclick="doSearch()">搜索</button>
+      </div>
+      <div id="search-result"></div>
+    </section>`;
+  if (query) doSearch();
+  else $("#search-input").focus();
 }
 
 async function doSearch() {
@@ -188,122 +290,77 @@ async function doSearch() {
     );
     $("#search-result").innerHTML = hits.length
       ? hits.map(kolCard).join("")
-      : renderEmpty("没有找到匹配的大V，可联系管理员添加", `<div><button class="btn-dark btn-add" onclick="location.hash='#/home'">返回首页</button></div>`);
+      : emptyState("没有找到匹配的大V，可联系管理员添加");
   } catch (err) {
-    $("#search-result").innerHTML = renderEmpty("搜索失败: " + err.message);
+    $("#search-result").innerHTML = emptyState("搜索失败: " + err.message);
   }
 }
 
 // ---------- 大V动态页 ----------
 async function renderKolPage(kolId) {
-  renderTop("大V动态", true);
-  showTabBar(false);
+  setPageTitle("大V动态", true);
   $("#main").innerHTML = `<div class="empty">加载中…</div>`;
   try {
     const kol = await api(`/api/kols/${kolId}`);
     const posts = await api(`/api/kols/${kolId}/posts?limit=50`);
-    const subscribed = kol.subscribed ? "subscribed" : "";
     $("#main").innerHTML = `
-      <div class="card">
-        <div class="row" style="justify-content:space-between">
-          <div class="row">
-            <div class="avatar">${escapeHtml(avatarText(kol.name))}</div>
-            <div>
-              <div class="p-name">${escapeHtml(kol.name)}</div>
-              <div class="p-time">${PLATFORM_LABELS[kol.platform] || kol.platform} · ID ${escapeHtml(kol.external_id)}</div>
-            </div>
+      ${heroPanel("Kol Profile", kol.name, `外部 ID：${kol.external_id} · ${PLATFORM_LABELS[kol.platform] || kol.platform}${kol.category_name ? " · " + kol.category_name : ""}`, ["查看动态"])}
+      <section class="section-panel">
+        <header class="section-head">
+          <div>
+            <p class="section-eyebrow">Posts</p>
+            <h3 class="section-title">最近动态</h3>
           </div>
-          <button class="btn-sub ${subscribed}" onclick="toggleKolPageSubscribe(${kol.id}, this)">${kol.subscribed ? "已订阅" : "订阅"}</button>
-        </div>
-      </div>
-      <div id="kol-posts">${posts.length ? posts.map(postCard).join("") : renderEmpty("暂无动态")}</div>`;
+          <div class="toolbar" style="margin-top:12px">
+            <button class="btn-sub ${kol.subscribed ? "subscribed" : ""}" id="kol-sub-btn" onclick="toggleKolPageSubscribe(${kol.id})">
+              ${kol.subscribed ? "已订阅" : "订阅"}
+            </button>
+          </div>
+        </header>
+        <div id="kol-posts">${posts.length ? posts.map(postCard).join("") : emptyState("暂无动态")}</div>
+      </section>`;
   } catch (err) {
-    $("#main").innerHTML = renderEmpty("加载失败: " + err.message);
+    $("#main").innerHTML = emptyState("加载失败: " + err.message);
   }
 }
 
-async function toggleKolPageSubscribe(kolId, btn) {
+async function toggleKolPageSubscribe(kolId) {
+  const btn = $("#kol-sub-btn");
   await toggleSubscribe(kolId, btn);
-}
-
-// ---------- 我的 ----------
-async function renderMe() {
-  renderTop("我的");
-  showTabBar(true);
-  try {
-    state.user = await api("/api/me");
-    const adminMenu = state.user.is_admin
-      ? `<button class="menu-item" onclick="location.hash='#/admin/kols'"><span>⚙ 管理后台</span><span class="arrow">›</span></button>`
-      : "";
-    $("#main").innerHTML = `
-      <div class="card user-card">
-        <div class="avatar">${escapeHtml(avatarText(state.user.username))}</div>
-        <div>
-          <div class="row">
-            <span class="u-name">${escapeHtml(state.user.username)}</span>
-            ${state.user.is_admin ? '<span class="u-badge">管理员</span>' : ""}
-          </div>
-          <div class="u-desc">订阅了 ${state.user.subscription_count} 个大V · ${state.user.notify_enabled ? "推送已开启" : "推送已关闭"}</div>
-        </div>
-      </div>
-      <div class="menu-list">
-        <button class="menu-item" onclick="location.hash='#/mysubs'"><span>我的订阅</span><span class="arrow">›</span></button>
-        <button class="menu-item" onclick="location.hash='#/settings'"><span>推送设置</span><span class="arrow">›</span></button>
-        ${adminMenu}
-        <button class="menu-item danger" onclick="logout()"><span>退出登录</span></button>
-      </div>`;
-  } catch (err) {
-    $("#main").innerHTML = renderEmpty(err.message);
-  }
-}
-
-// ---------- 我的订阅 ----------
-async function renderMySubs() {
-  renderTop("我的订阅", true);
-  showTabBar(false);
-  $("#main").innerHTML = `<div class="empty">加载中…</div>`;
-  try {
-    const subs = await api("/api/my/subscriptions");
-    $("#main").innerHTML = subs.length
-      ? subs.map((k) => kolCard({ ...k, subscribed: true })).join("")
-      : renderEmpty("还没有订阅任何大V", `<div><button class="btn-dark btn-add" onclick="location.hash='#/home'">去发现大V</button></div>`);
-  } catch (err) {
-    $("#main").innerHTML = renderEmpty("加载失败: " + err.message);
-  }
 }
 
 // ---------- 推送设置 ----------
 async function renderSettings() {
-  renderTop("推送设置", true);
-  showTabBar(false);
+  setPageTitle("推送设置");
   try {
     state.user = await api("/api/me");
     $("#main").innerHTML = `
-      <div class="notice">
-        <b>怎么绑定推送？</b><br>
-        · Telegram：给机器人发任意消息后，用 @userinfobot 查自己的 chat_id 填到下面（机器人的 bot_token 需在 config.yaml 配置）。<br>
-        · 飞书：需要飞书自建应用的 app_id / app_secret（暂未配置时飞书推送会跳过）。
-      </div>
-      <div class="card">
-        <div class="form-row">
-          <label>Telegram chat_id</label>
-          <input id="set-tg" value="${escapeHtml(state.user.telegram_chat_id)}" placeholder="如 123456789">
+      ${heroPanel("Push Settings", "推送设置", "绑定你的 Telegram / 飞书账号，新帖按订阅关系逐人推送。", ["Telegram", "飞书"])}
+      <section class="section-panel">
+        <div class="notice">
+          <b>怎么绑定？</b><br>
+          · Telegram：给机器人发任意消息后，用 @userinfobot 查询自己的 chat_id（需在 config.yaml 配置 bot_token）。<br>
+          · 飞书：需要飞书自建应用的 app_id / app_secret（未配置时飞书推送会跳过）。
         </div>
         <div class="form-row">
-          <label>飞书 open_id</label>
-          <input id="set-fs" value="${escapeHtml(state.user.feishu_open_id)}" placeholder="ou_xxxxxxxx">
+          <label for="set-tg">Telegram chat_id</label>
+          <input id="set-tg" class="form-control" value="${escapeHtml(state.user.telegram_chat_id)}" placeholder="如 123456789">
         </div>
         <div class="form-row">
-          <label>新帖推送开关</label>
-          <select id="set-notify">
+          <label for="set-fs">飞书 open_id</label>
+          <input id="set-fs" class="form-control" value="${escapeHtml(state.user.feishu_open_id)}" placeholder="ou_xxxxxxxx">
+        </div>
+        <div class="form-row">
+          <label for="set-notify">新帖推送开关</label>
+          <select id="set-notify" class="form-control">
             <option value="1" ${state.user.notify_enabled ? "selected" : ""}>开启</option>
             <option value="0" ${!state.user.notify_enabled ? "selected" : ""}>关闭</option>
           </select>
         </div>
-        <button class="btn-primary" style="width:100%" onclick="saveSettings()">保存</button>
-      </div>`;
+        <button class="btn-normal" onclick="saveSettings()">保存设置</button>
+      </section>`;
   } catch (err) {
-    $("#main").innerHTML = renderEmpty(err.message);
+    $("#main").innerHTML = emptyState(err.message);
   }
 }
 
@@ -325,46 +382,48 @@ async function saveSettings() {
 
 // ---------- 管理后台 ----------
 const ADMIN_TABS = [
-  ["kols", "订阅管理"],
-  ["categories", "分类"],
+  ["kols", "大V管理"],
+  ["categories", "分类管理"],
   ["posts", "帖子"],
   ["logs", "推送记录"],
   ["users", "用户"],
 ];
 
 async function renderAdmin(tab) {
-  renderTop("管理后台", true);
-  showTabBar(false);
-  $("#app-view").classList.add("admin-mode");
+  setPageTitle("管理后台");
   $("#main").innerHTML = `
-    <div class="admin-tabs">
+    ${heroPanel("Admin Console", "管理后台", "维护大V目录、分类与推送记录，查看注册用户。", ["大V", "分类", "推送"])}
+    <div class="module-nav">
       ${ADMIN_TABS.map(([key, label]) => `
-        <button class="${key === tab ? "active" : ""}" onclick="location.hash='#/admin/${key}'">${label}</button>`).join("")}
+        <button class="module-tab ${key === tab ? "active" : ""}" onclick="location.hash='#/admin/${key}'">${label}</button>`).join("")}
     </div>
     <div id="admin-body"></div>`;
-  const body = { kols: loadAdminKols, categories: loadAdminCategories, posts: loadAdminPosts, logs: loadAdminLogs, users: loadAdminUsers };
-  await body[tab]();
+  const loaders = { kols: loadAdminKols, categories: loadAdminCategories, posts: loadAdminPosts, logs: loadAdminLogs, users: loadAdminUsers };
+  await loaders[tab]();
 }
 
 async function loadAdminKols() {
   const [kols, categories] = await Promise.all([api("/api/kols"), api("/api/categories")]);
   const catOptions = categories.map((c) => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
   $("#admin-body").innerHTML = `
-    <div class="card">
-      <div class="card-title sub-title" style="margin:0 0 10px">添加大V</div>
-      <div class="row">
-        <select id="ad-platform">
-          <option value="xueqiu">雪球</option>
-          <option value="weibo">微博</option>
-          <option value="twitter">X (RSS)</option>
-        </select>
-        <select id="ad-category"><option value="">未分类</option>${catOptions}</select>
-        <input id="ad-name" placeholder="昵称">
-        <input id="ad-external" placeholder="user_id / uid / RSS链接">
-        <button class="btn-primary" onclick="adminAddKol()">添加</button>
-      </div>
-    </div>
-    <div class="card">
+    <section class="section-panel">
+      <header class="section-head">
+        <div><p class="section-eyebrow">Create</p><h3 class="section-title">添加大V</h3></div>
+        <div class="toolbar" style="margin-top:12px">
+          <select id="ad-platform" class="form-control" style="margin:0;width:auto">
+            <option value="xueqiu">雪球</option>
+            <option value="weibo">微博</option>
+            <option value="twitter">X (RSS)</option>
+          </select>
+          <select id="ad-category" class="form-control" style="margin:0;width:auto"><option value="">未分类</option>${catOptions}</select>
+          <input id="ad-name" class="form-control" style="margin:0;width:200px" placeholder="昵称">
+          <input id="ad-external" class="form-control" style="margin:0;width:260px" placeholder="user_id / uid / RSS链接">
+          <button class="btn-normal" onclick="adminAddKol()">添加</button>
+        </div>
+      </header>
+    </section>
+    <section class="section-panel">
+      <header class="section-head"><div><p class="section-eyebrow">List</p><h3 class="section-title">大V列表</h3></div></header>
       <div class="table-wrap">
         <table>
           <thead><tr><th>ID</th><th>平台</th><th>昵称</th><th>分类</th><th>外部ID</th><th>状态</th><th>操作</th></tr></thead>
@@ -381,7 +440,7 @@ async function loadAdminKols() {
             </tr>`).join("")}</tbody>
         </table>
       </div>
-    </div>`;
+    </section>`;
 }
 
 async function adminAddKol() {
@@ -415,13 +474,17 @@ async function adminDeleteKol(id) {
 async function loadAdminCategories() {
   const categories = await api("/api/categories");
   $("#admin-body").innerHTML = `
-    <div class="card">
-      <div class="row">
-        <input id="cat-name" placeholder="分类名，如：实盘、宏观、行业研究">
-        <button class="btn-primary" onclick="adminAddCategory()">添加分类</button>
-      </div>
-    </div>
-    <div class="card">
+    <section class="section-panel">
+      <header class="section-head">
+        <div><p class="section-eyebrow">Create</p><h3 class="section-title">添加分类</h3></div>
+        <div class="toolbar" style="margin-top:12px">
+          <input id="cat-name" class="form-control" style="margin:0;width:280px" placeholder="分类名，如：实盘、宏观、行业研究">
+          <button class="btn-normal" onclick="adminAddCategory()">添加分类</button>
+        </div>
+      </header>
+    </section>
+    <section class="section-panel">
+      <header class="section-head"><div><p class="section-eyebrow">List</p><h3 class="section-title">分类列表</h3></div></header>
       <div class="table-wrap">
         <table>
           <thead><tr><th>ID</th><th>分类名</th><th>大V数</th><th>操作</th></tr></thead>
@@ -435,7 +498,7 @@ async function loadAdminCategories() {
             </tr>`).join("")}</tbody>
         </table>
       </div>
-    </div>`;
+    </section>`;
 }
 
 async function adminAddCategory() {
@@ -467,7 +530,8 @@ async function adminDeleteCategory(id) {
 async function loadAdminPosts() {
   const posts = await api("/api/posts?limit=100");
   $("#admin-body").innerHTML = `
-    <div class="card">
+    <section class="section-panel">
+      <header class="section-head"><div><p class="section-eyebrow">Posts</p><h3 class="section-title">帖子列表</h3></div></header>
       <div class="table-wrap">
         <table>
           <thead><tr><th>ID</th><th>大V</th><th>分类</th><th>内容</th><th>时间</th><th>链接</th></tr></thead>
@@ -481,13 +545,14 @@ async function loadAdminPosts() {
             </tr>`).join("")}</tbody>
         </table>
       </div>
-    </div>`;
+    </section>`;
 }
 
 async function loadAdminLogs() {
   const logs = await api("/api/push-logs?limit=100");
   $("#admin-body").innerHTML = `
-    <div class="card">
+    <section class="section-panel">
+      <header class="section-head"><div><p class="section-eyebrow">Push Logs</p><h3 class="section-title">推送记录</h3></div></header>
       <div class="table-wrap">
         <table>
           <thead><tr><th>时间</th><th>用户</th><th>大V</th><th>渠道</th><th>状态</th><th>错误</th></tr></thead>
@@ -502,13 +567,14 @@ async function loadAdminLogs() {
             </tr>`).join("")}</tbody>
         </table>
       </div>
-    </div>`;
+    </section>`;
 }
 
 async function loadAdminUsers() {
   const users = await api("/api/users");
   $("#admin-body").innerHTML = `
-    <div class="card">
+    <section class="section-panel">
+      <header class="section-head"><div><p class="section-eyebrow">Users</p><h3 class="section-title">注册用户</h3></div></header>
       <div class="table-wrap">
         <table>
           <thead><tr><th>ID</th><th>用户名</th><th>角色</th><th>Telegram</th><th>飞书</th><th>推送</th><th>注册时间</th></tr></thead>
@@ -523,14 +589,13 @@ async function loadAdminUsers() {
             </tr>`).join("")}</tbody>
         </table>
       </div>
-    </div>`;
+    </section>`;
 }
 
 // ---------- 路由 ----------
 async function router() {
   const hash = location.hash.replace(/^#\/?/, "") || "home";
   const [page, param] = hash.split("/");
-  $("#app-view").classList.remove("admin-mode");
   if (!state.token) {
     $("#app-view").classList.add("hidden");
     $("#auth-view").classList.remove("hidden");
@@ -538,21 +603,30 @@ async function router() {
   }
   $("#auth-view").classList.add("hidden");
   $("#app-view").classList.remove("hidden");
-  document.querySelectorAll(".tab-item").forEach((b) =>
-    b.classList.toggle("active", b.dataset.tab === page)
+  try {
+    state.user = await api("/api/me");
+  } catch {
+    return;
+  }
+  renderSidebar(state.user);
+  renderTopbar(state.user);
+  document.querySelectorAll(".nav-item").forEach((b) =>
+    b.classList.toggle("active", b.dataset.route === page || b.dataset.route === `${page}/${param}`)
   );
   try {
     if (page === "home") await renderHome();
+    else if (page === "mysubs") await renderMySubs();
     else if (page === "timeline") await renderTimeline();
-    else if (page === "me") await renderMe();
+    else if (page === "settings") await renderSettings();
     else if (page === "search") await renderSearch();
     else if (page === "kol") await renderKolPage(Number(param));
-    else if (page === "mysubs") await renderMySubs();
-    else if (page === "settings") await renderSettings();
-    else if (page === "admin") await renderAdmin(param || "kols");
+    else if (page === "admin") {
+      if (!state.user.is_admin) { location.hash = "#/home"; return; }
+      await renderAdmin(param || "kols");
+    }
     else { location.hash = "#/home"; await renderHome(); }
   } catch (err) {
-    $("#main").innerHTML = renderEmpty(err.message);
+    $("#main").innerHTML = emptyState(err.message);
   }
 }
 
@@ -587,17 +661,14 @@ async function doRegister(e) {
     location.hash = "#/home";
     router();
   } catch (err) {
-    $("#auth-error").textContent = err.message;
+    $("#reg-error").textContent = err.message;
   }
 }
 
-// ---------- 事件绑定 ----------
 function switchAuthMode(mode) {
   const isLogin = mode === "login";
   $("#login-form").classList.toggle("hidden", !isLogin);
   $("#register-form").classList.toggle("hidden", isLogin);
-  $("#auth-heading").textContent = isLogin ? "欢迎回来" : "创建账号";
-  $("#auth-sub").textContent = isLogin ? "登录后继续关注你的大V" : "注册后即可自选订阅大V";
   $("#auth-error").textContent = "";
   $("#reg-error").textContent = "";
   document.querySelectorAll(".switch-btn").forEach((btn) =>
@@ -605,15 +676,13 @@ function switchAuthMode(mode) {
   );
 }
 
+// ---------- 事件 ----------
 $("#login-form").addEventListener("submit", doLogin);
 $("#register-form").addEventListener("submit", doRegister);
 document.querySelectorAll(".switch-btn").forEach((btn) =>
   btn.addEventListener("click", () => switchAuthMode(btn.dataset.mode))
 );
 $("#btn-back").addEventListener("click", () => history.back());
-document.querySelectorAll(".tab-item").forEach((btn) =>
-  btn.addEventListener("click", () => { location.hash = `#/${btn.dataset.tab}`; })
-);
 window.addEventListener("hashchange", router);
 
 router();
