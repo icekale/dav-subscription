@@ -108,3 +108,23 @@ def test_weibo_login_failure_warns_once_per_day():
     # 同一天再次失败不再重复告警
     poll_once(db, {"weibo": LoginErrorFetcher()}, [notifier])
     assert len(notifier.texts) == 1
+
+
+def test_backoff_skips_failing_platform():
+    db = make_db()
+    db.add_kol("xueqiu", "A", "1")
+
+    class CountingFetcherError:
+        def __init__(self):
+            self.calls = 0
+
+        def fetch(self, kol):
+            self.calls += 1
+            raise RuntimeError("boom")
+
+    fetcher = CountingFetcherError()
+    states = {}
+    poll_once(db, {"xueqiu": fetcher}, [], states)
+    assert fetcher.calls == 1
+    poll_once(db, {"xueqiu": fetcher}, [], states)
+    assert fetcher.calls == 1  # 退避期内不应再请求

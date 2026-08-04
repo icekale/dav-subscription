@@ -61,7 +61,7 @@ def poll_once(
     states: dict[str, PlatformState] | None = None,
 ) -> None:
     """执行一轮：遍历启用 KOL → 抓取 → 去重 → 推送。"""
-    states = states or {}
+    states = states if states is not None else {}
     now = time.monotonic()
     for kol in db.list_kols():
         if not kol["enabled"]:

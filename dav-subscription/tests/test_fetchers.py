@@ -53,6 +53,20 @@ def test_xueqiu_cookie_refresh_on_401():
     assert "xq_a_token=newtoken" in db.get_setting("xueqiu_cookie")
 
 
+def test_xueqiu_waf_html_raises_clear_error():
+    def handler(request):
+        return httpx.Response(200, text="<textarea id=\"renderData\">waf challenge</textarea><html>")
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    fetcher = XueqiuFetcher(XueqiuConfig(cookie="xq_a_token=abc"), db=DB(":memory:"), client=client)
+    try:
+        fetcher.fetch({"id": 1, "name": "大V", "external_id": "123"})
+    except RuntimeError as exc:
+        assert "反爬" in str(exc)
+        return
+    raise AssertionError("WAF HTML 应抛出清晰错误")
+
+
 from app.config import WeiboConfig
 from app.fetchers.weibo import WeiboFetcher
 
@@ -149,6 +163,43 @@ def test_weibo_login_failure_raises():
         assert "登录失败" in str(exc)
         return
     raise AssertionError("登录失败时应抛出异常")
+
+
+def test_weibo_432_raises_clear_error():
+    def handler(request):
+        return httpx.Response(432)
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    fetcher = WeiboFetcher(WeiboConfig(cookie="SUB=xyz"), db=DB(":memory:"), client=client)
+    try:
+        fetcher.fetch({"id": 2, "name": "微博大V", "external_id": "1234567890"})
+    except RuntimeError as exc:
+        assert "432" in str(exc)
+        return
+    raise AssertionError("432 应抛出清晰错误")
+
+
+def test_weibo_prelogin_missing_pubkey_raises():
+    def handler(request):
+        if request.url.path == "/sso/prelogin.php":
+            return httpx.Response(
+                200,
+                text='sinaSSOController.preloginCallBack({"retcode":0,"msg":"system error","exectime":60})',
+            )
+        return httpx.Response(200, json={"ok": 0, "msg": "请先登录"})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    fetcher = WeiboFetcher(
+        WeiboConfig(username="user", password="pass"),
+        db=DB(":memory:"),
+        client=client,
+    )
+    try:
+        fetcher.fetch({"id": 2, "name": "微博大V", "external_id": "1234567890"})
+    except RuntimeError as exc:
+        assert "预登录" in str(exc)
+        return
+    raise AssertionError("缺 pubkey 时应抛出清晰错误")
 
 
 from app.fetchers.rss import RssFetcher

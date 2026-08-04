@@ -56,7 +56,13 @@ class XueqiuFetcher(Fetcher):
             self._apply_cookie()
             resp = self.client.get(url, params=params)
         resp.raise_for_status()
-        statuses = (resp.json() or {}).get("statuses") or []
+        try:
+            data = resp.json()
+        except ValueError:
+            raise RuntimeError(
+                "雪球接口返回异常（可能被反爬拦截），请检查 xueqiu cookie 配置后重试"
+            ) from None
+        statuses = (data or {}).get("statuses") or []
         posts = []
         for s in statuses:
             target = s.get("target") or ""

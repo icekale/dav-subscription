@@ -65,8 +65,8 @@ class WeiboFetcher(Fetcher):
         if start == -1 or end <= start:
             raise RuntimeError(f"微博预登录响应异常: {text[:200]}")
         data = json.loads(text[start + 1 : end])
-        if data.get("retcode") != 0:
-            raise RuntimeError(f"微博预登录失败: {data}")
+        if data.get("retcode") != 0 or not data.get("pubkey") or not data.get("nonce"):
+            raise RuntimeError(f"微博预登录失败（可能被限流）: {data}")
         return data
 
     def _login(self) -> None:
@@ -127,6 +127,8 @@ class WeiboFetcher(Fetcher):
         uid = kol["external_id"]
         params = {"type": "uid", "value": uid, "containerid": f"107603{uid}"}
         resp = self.client.get(TIMELINE_URL, params=params)
+        if resp.status_code == 432:
+            raise RuntimeError("微博反爬拦截（HTTP 432），请检查 cookie/账号配置或降低抓取频率后重试")
         if self._login_required(resp):
             self._login()
             self._apply_cookie()
