@@ -1,10 +1,18 @@
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
+
+import httpx
 
 from app.config import FeishuConfig, NotifiersConfig, TelegramConfig
 from app.db import DB
 from app.fetchers.base import Post
-from app.scheduler import flush_digest, poll_once
+from app.scheduler import (
+    flush_digest,
+    keepalive_weibo_cookie,
+    keepalive_xueqiu_cookie,
+    poll_once,
+)
 
 
 class FakeFetcher:
@@ -219,6 +227,64 @@ def test_push_logs_retention():
     db._execute("UPDATE push_logs SET created_at = datetime('now', '-10 days') WHERE id = ?", (1,))
     assert db.delete_push_logs_older_than(7) == 1
     assert db.delete_push_logs_older_than(7) == 0
+
+
+def test_xueqiu_cookie_keepalive():
+    db = make_db()
+    db.set_setting("xueqiu_cookie", "xq_a_token=old; u=1")
+    notifier = FakeNotifier()
+
+    def handler(request):
+        return httpx.Response(
+            200,
+            headers={"set-cookie": "xq_a_token=new; Path=/; Domain=.xueqiu.com"},
+        )
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    keepalive_xueqiu_cookie(
+        db, [notifier], SimpleNamespace(cookie=""), client=client
+    )
+    assert "xq_a_token=new" in db.get_setting("xueqiu_cookie")
+    assert db.get_setting("xueqiu_cookie_updated_at")
+    assert notifier.texts == []
+
+
+def test_weibo_cookie_keepalive_refresh_and_expired_alert():
+    db = make_db()
+    db.set_setting("weibo_cookie", "SUB=old")
+
+    def handler(request):
+        return httpx.Response(
+            200,
+            headers={"set-cookie": "SUB=new; Path=/; Domain=.weibo.com"},
+        )
+
+    notifier = FakeNotifier()
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    keepalive_weibo_cookie(
+        db,
+        [notifier],
+        SimpleNamespace(cookie="", username="", password=""),
+        client=client,
+    )
+    assert "SUB=new" in db.get_setting("weibo_cookie")
+    assert db.get_setting("weibo_cookie_updated_at")
+
+    # 会话失效（无 SUB）且没有账号密码 → 告警
+    def expired(request):
+        return httpx.Response(200)
+
+    db.set_setting("weibo_cookie", "SUB=dead")
+    notifier2 = FakeNotifier()
+    client2 = httpx.Client(transport=httpx.MockTransport(expired))
+    keepalive_weibo_cookie(
+        db,
+        [notifier2],
+        SimpleNamespace(cookie="", username="", password=""),
+        client=client2,
+    )
+    assert any("保活失败" in t for t in notifier2.texts)
+    assert "会话已失效" in db.get_setting("source_err_weibo")
 
 
 def test_push_failure_logged():

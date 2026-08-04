@@ -709,8 +709,11 @@ def create_api_router(
             )
         xueqiu_cookie = db.get_setting("xueqiu_cookie") or ""
         xueqiu_updated = db.get_setting("xueqiu_cookie_updated_at") or ""
+        weibo_cookie = db.get_setting("weibo_cookie") or ""
+        weibo_updated = db.get_setting("weibo_cookie_updated_at") or ""
         return {
             "polling_interval_seconds": int(db.get_setting("stats_polling_interval") or 0),
+            "keepalive_interval_seconds": int(db.get_setting("stats_keepalive_interval") or 0),
             "posts_retention_days": int(db.get_setting("stats_posts_retention_days") or 0),
             "last_poll_at": db.get_setting("stats_last_poll_at"),
             "last_poll_duration_ms": db.get_setting("stats_last_poll_duration_ms"),
@@ -725,6 +728,11 @@ def create_api_router(
                 "set": bool(xueqiu_cookie),
                 "updated_at": xueqiu_updated,
                 "preview": (xueqiu_cookie[:40] + "…") if len(xueqiu_cookie) > 40 else xueqiu_cookie,
+            },
+            "weibo_cookie": {
+                "set": bool(weibo_cookie),
+                "updated_at": weibo_updated,
+                "preview": (weibo_cookie[:40] + "…") if len(weibo_cookie) > 40 else weibo_cookie,
             },
         }
 

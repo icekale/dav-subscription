@@ -32,6 +32,7 @@ services:
       POLLING_PUSH_LOGS_RETENTION_DAYS: "90"
       POLLING_DIGEST_INTERVAL_SECONDS: "600"
       POLLING_SOURCE_PROBE_INTERVAL_SECONDS: "600"
+      POLLING_COOKIE_KEEPALIVE_INTERVAL_SECONDS: "21600"
     volumes:
       - /mnt/user/appdata/dav-subscription/data:/data
       # 如需用配置文件（轮询间隔等），把 config.yaml 放到 appdata 目录再启用：

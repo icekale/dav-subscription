@@ -650,13 +650,19 @@ async function loadAdminStats() {
       <div style="margin-top:16px">
         <button class="btn-normal" onclick="startWeiboQr()">微博扫码登录</button>
         <span class="muted" style="margin-left:10px">用微博 App 扫码后自动保存 Cookie，无需手动复制</span>
+        <p class="muted" style="margin-top:10px">
+          微博 Cookie：${s.weibo_cookie && s.weibo_cookie.set
+            ? `已写入（${escapeHtml(s.weibo_cookie.updated_at || "")}）`
+            : "未写入"}
+          ${s.keepalive_interval_seconds > 0 ? `· 每 ${Math.round(s.keepalive_interval_seconds / 3600)} 小时自动保活` : ""}
+        </p>
       </div>
       <div id="wb-qr-box" style="margin-top:16px"></div>
     </section>
     <section class="section-panel">
       <header class="section-head">
         <div><p class="section-eyebrow">Xueqiu</p><h3 class="section-title">雪球 Cookie</h3>
-        <p class="section-meta">${xq.set ? `已写入（${escapeHtml(xq.updated_at || "")}），预览：${escapeHtml(xq.preview)}` : "未写入，抓取可能受限或被反爬拦截"}</p></div>
+        <p class="section-meta">${xq.set ? `已写入（${escapeHtml(xq.updated_at || "")}），预览：${escapeHtml(xq.preview)}` : "未写入，抓取可能受限或被反爬拦截"}${s.keepalive_interval_seconds > 0 ? ` · 每 ${Math.round(s.keepalive_interval_seconds / 3600)} 小时自动保活` : ""}</p></div>
       </header>
       <textarea id="xq-cookie" class="form-control" rows="4" style="font-family:monospace" placeholder="登录 xueqiu.com 后，浏览器 F12 → Application → Cookies 复制整串（形如 xq_a_token=...; u=...）"></textarea>
       <div class="toolbar" style="margin-top:12px">

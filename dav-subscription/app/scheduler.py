@@ -25,6 +25,8 @@ SOURCE_OK_KEY = "source_ok_{platform}"
 SOURCE_ERR_KEY = "source_err_{platform}"
 SOURCE_FAILS_KEY = "source_fails_{platform}"
 XUEQIU_PROBE_ALERT_KEY = "xueqiu_probe_alert_at"
+COOKIE_KEEPALIVE_ALERT_KEY = "cookie_keepalive_alert_at"
+WEIBO_COOKIE_TIME_KEY = "weibo_cookie_updated_at"
 
 
 def _post_sort_key(post: Post) -> float:
@@ -475,6 +477,119 @@ def probe_xueqiu(db: DB, notifiers: list[Notifier], source_config) -> None:
         client.close()
 
 
+def _flatten_cookies(client, prefer_domain: str) -> str:
+    """把会话 cookie 展平，同名多域时优先指定域名。"""
+    preferred: dict[str, str] = {}
+    for cookie in client.cookies.jar:
+        current = preferred.get(cookie.name)
+        if current is None or prefer_domain in (cookie.domain or ""):
+            preferred[cookie.name] = cookie.value
+    return "; ".join(f"{k}={v}" for k, v in preferred.items())
+
+
+def _alert_cookie_keepalive(db: DB, notifiers: list[Notifier], label: str, detail: str = "") -> None:
+    now = int(time.time())
+    last = db.get_setting(COOKIE_KEEPALIVE_ALERT_KEY)
+    if last and now - int(last) < SOURCE_ALERT_INTERVAL:
+        return
+    db.set_setting(COOKIE_KEEPALIVE_ALERT_KEY, str(now))
+    message = (
+        f"⚠️ {label} cookie 保活失败：会话可能已过期或登录态被清除。"
+        f"请到后台「数据源」页更新 {label} cookie，或配置账号密码自动续期。"
+        + (f" 详情：{detail[:120]}" if detail else "")
+    )
+    for notifier in notifiers:
+        try:
+            notifier.send_text(message)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("cookie 保活告警发送失败 channel=%s err=%s", notifier.channel, exc)
+
+
+def keepalive_xueqiu_cookie(
+    db: DB, notifiers: list[Notifier], source_config, client=None
+) -> None:
+    """定时访问雪球首页刷新会话，持久化最新 cookie。"""
+    from .fetchers.xueqiu import XUEQIU_COOKIE_KEY, XUEQIU_COOKIE_TIME_KEY, _is_waf_html
+
+    cookie = db.get_setting(XUEQIU_COOKIE_KEY) or source_config.cookie
+    if not cookie:
+        return
+    import httpx
+
+    owns_client = client is None
+    client = client or httpx.Client(
+        timeout=20,
+        follow_redirects=True,
+        headers={
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X)",
+            "Referer": "https://xueqiu.com/",
+            "Cookie": cookie,
+        },
+    )
+    try:
+        resp = client.get("https://xueqiu.com/")
+        if resp.status_code in (401, 403) or _is_waf_html(resp):
+            db.set_setting(SOURCE_ERR_KEY.format(platform="xueqiu"), "保活被反爬拦截")
+            _alert_cookie_keepalive(db, notifiers, "雪球", f"HTTP {resp.status_code}")
+            return
+        new_cookie = _flatten_cookies(client, "xueqiu.com")
+        if new_cookie:
+            db.set_setting(XUEQIU_COOKIE_KEY, new_cookie)
+            db.set_setting(XUEQIU_COOKIE_TIME_KEY, str(int(time.time())))
+            db.set_setting(SOURCE_ERR_KEY.format(platform="xueqiu"), "")
+    finally:
+        if owns_client:
+            client.close()
+
+
+def keepalive_weibo_cookie(db: DB, notifiers: list[Notifier], weibo_config, client=None) -> None:
+    """定时访问微博首页刷新会话；失效时尝试账号密码自动登录，失败则告警。"""
+    from .fetchers.weibo import WEIBO_COOKIE_KEY, WeiboFetcher, cookie_header
+
+    cookie = db.get_setting(WEIBO_COOKIE_KEY) or weibo_config.cookie
+    if not cookie:
+        return
+    import httpx
+
+    owns_client = client is None
+    client = client or httpx.Client(
+        timeout=20,
+        follow_redirects=True,
+        headers={
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+            "Referer": "https://weibo.com/",
+            "Cookie": cookie,
+        },
+    )
+    try:
+        client.get("https://weibo.com/")
+        if any(c.name == "SUB" for c in client.cookies.jar):
+            new_cookie = cookie_header(client.cookies)
+            if new_cookie:
+                db.set_setting(WEIBO_COOKIE_KEY, new_cookie)
+                db.set_setting(WEIBO_COOKIE_TIME_KEY, str(int(time.time())))
+                db.set_setting(SOURCE_ERR_KEY.format(platform="weibo"), "")
+            return
+        # 会话已失效：有账号密码则自动登录续期，否则告警
+        db.set_setting(SOURCE_ERR_KEY.format(platform="weibo"), "保活：会话已失效")
+        if weibo_config.username and weibo_config.password:
+            try:
+                fetcher = WeiboFetcher(weibo_config, db, client=client)
+                fetcher._login()
+                db.set_setting(WEIBO_COOKIE_TIME_KEY, str(int(time.time())))
+                db.set_setting(SOURCE_ERR_KEY.format(platform="weibo"), "")
+                logger.info("微博 cookie 保活：已通过账号密码自动续期")
+            except Exception as exc:  # noqa: BLE001
+                _alert_cookie_keepalive(db, notifiers, "微博", str(exc))
+                db.set_setting(SOURCE_ERR_KEY.format(platform="weibo"), f"保活登录失败: {exc}"[:300])
+        else:
+            _alert_cookie_keepalive(db, notifiers, "微博")
+    finally:
+        if owns_client:
+            client.close()
+
+
 class Scheduler:
     def __init__(
         self,
@@ -484,6 +599,7 @@ class Scheduler:
         polling_config,
         notifiers_config=None,
         xueqiu_config=None,
+        weibo_config=None,
     ):
         self.db = db
         self.fetchers = fetchers
@@ -491,12 +607,14 @@ class Scheduler:
         self.polling_config = polling_config
         self.notifiers_config = notifiers_config
         self.xueqiu_config = xueqiu_config
+        self.weibo_config = weibo_config
         self.states: dict[str, PlatformState] = {}
         self._digest: dict[int, list[Post]] = {}
         self._stop = asyncio.Event()
         self._last_cleanup = 0.0
         self._last_digest_flush = time.monotonic()
         self._last_xueqiu_probe = time.monotonic()
+        self._last_cookie_keepalive = time.monotonic()
 
     def stop(self):
         self._stop.set()
@@ -566,6 +684,25 @@ class Scheduler:
                     )
                 except Exception:  # noqa: BLE001
                     logger.exception("雪球探测异常")
+            # 雪球/微博 cookie 保活（刷新会话防过期）
+            keepalive_interval = self.polling_config.cookie_keepalive_interval_seconds
+            if keepalive_interval > 0 and now_mono - self._last_cookie_keepalive >= keepalive_interval:
+                self._last_cookie_keepalive = now_mono
+                try:
+                    await asyncio.to_thread(
+                        keepalive_xueqiu_cookie,
+                        self.db,
+                        self.notifiers,
+                        self.xueqiu_config,
+                    )
+                    await asyncio.to_thread(
+                        keepalive_weibo_cookie,
+                        self.db,
+                        self.notifiers,
+                        self.weibo_config,
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.exception("cookie 保活异常")
             # 定期清理过期帖子（默认每 6 小时检查一次）
             if now_mono - self._last_cleanup > 6 * 3600:
                 self._last_cleanup = now_mono
