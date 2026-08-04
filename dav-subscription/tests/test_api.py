@@ -80,17 +80,29 @@ def test_stats_api():
     client = make_client()
     headers = auth_headers(client)
     client.post(
-        "/api/kols", headers=headers, json={"platform": "xueqiu", "name": "A", "external_id": "1"}
+        "/api/kols", headers=headers, json={"platform": "xueqiu", "name": "A", "external_id": "1", "priority": True}
     )
     stats = client.get("/api/stats", headers=headers).json()
     assert stats["kols"] == 1
     assert stats["enabled_kols"] == 1
+    assert stats["priority_kols"] == 1
     assert stats["users"] == 1
     assert stats["posts"] == 0
     assert "polling_interval_seconds" in stats
     # 普通用户无权访问
     normal = user_headers(client, "viewer")
     assert client.get("/api/stats", headers=normal).status_code == 403
+
+
+def test_kol_priority_toggle():
+    client = make_client()
+    headers = auth_headers(client)
+    kid = client.post(
+        "/api/kols", headers=headers, json={"platform": "xueqiu", "name": "A", "external_id": "1", "priority": True}
+    ).json()["id"]
+    assert client.get(f"/api/kols/{kid}", headers=headers).json()["priority"] == 1
+    resp = client.put(f"/api/kols/{kid}", headers=headers, json={"priority": False})
+    assert resp.json()["priority"] == 0
 
 
 def test_posts_and_push_logs_api():

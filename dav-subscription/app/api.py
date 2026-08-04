@@ -36,6 +36,7 @@ class KolIn(BaseModel):
     name: str
     external_id: str
     category_id: int | None = None
+    priority: bool = False
 
 
 class KolUpdate(BaseModel):
@@ -43,6 +44,7 @@ class KolUpdate(BaseModel):
     external_id: str | None = None
     enabled: bool | None = None
     category_id: int | None = None
+    priority: bool | None = None
 
 
 class CategoryIn(BaseModel):
@@ -219,6 +221,7 @@ def create_api_router(db: DB, secret: str, allow_register: bool = True, wechat_c
             body.name.strip(),
             external_id,
             category_id=body.category_id,
+            priority=body.priority,
         )
         return db.get_kol(kid)
 
@@ -235,6 +238,7 @@ def create_api_router(db: DB, secret: str, allow_register: bool = True, wechat_c
             external_id=body.external_id.strip() if body.external_id is not None else None,
             enabled=body.enabled,
             category_id=body.category_id if "category_id" in body.model_fields_set else None,
+            priority=body.priority if "priority" in body.model_fields_set else None,
         )
         return db.get_kol(kol_id)
 
@@ -302,6 +306,7 @@ def create_api_router(db: DB, secret: str, allow_register: bool = True, wechat_c
             "last_poll_error": db.get_setting("stats_last_poll_error") or "",
             "kols": len(kols),
             "enabled_kols": sum(1 for k in kols if k["enabled"]),
+            "priority_kols": sum(1 for k in kols if k.get("priority")),
             "users": db.count_users(),
             "posts": db.count_posts(),
         }

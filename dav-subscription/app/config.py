@@ -49,6 +49,7 @@ class SourcesConfig:
 @dataclass
 class PollingConfig:
     interval_seconds: int = 180
+    priority_interval_seconds: int = 60
     jitter_seconds: int = 30
     notify_on_start: bool = True
 
@@ -90,6 +91,7 @@ _ENV_MAP = {
     "WEIBO_USERNAME": ("sources", "weibo", "username"),
     "WEIBO_PASSWORD": ("sources", "weibo", "password"),
     "POLLING_INTERVAL_SECONDS": ("polling", "interval_seconds"),
+    "POLLING_PRIORITY_INTERVAL_SECONDS": ("polling", "priority_interval_seconds"),
     "POLLING_JITTER_SECONDS": ("polling", "jitter_seconds"),
     "NOTIFY_ON_START": ("polling", "notify_on_start"),
     "WEB_PASSWORD": ("web", "password"),
@@ -125,6 +127,7 @@ def _validate(config: Config) -> None:
     """类型归一化与校验：配置错误在启动时尽早暴露。"""
     checks = (
         ("polling.interval_seconds", config.polling, "interval_seconds", int),
+        ("polling.priority_interval_seconds", config.polling, "priority_interval_seconds", int),
         ("polling.jitter_seconds", config.polling, "jitter_seconds", int),
         ("polling.notify_on_start", config.polling, "notify_on_start", bool),
         ("web.allow_register", config.web, "allow_register", bool),
@@ -169,7 +172,7 @@ def load_config(path: str | Path | None = None) -> Config:
         if not value:
             continue
         try:
-            if env_name in ("POLLING_INTERVAL_SECONDS", "POLLING_JITTER_SECONDS"):
+            if env_name in ("POLLING_INTERVAL_SECONDS", "POLLING_PRIORITY_INTERVAL_SECONDS", "POLLING_JITTER_SECONDS"):
                 value = int(value)
             elif env_name in ("NOTIFY_ON_START", "WEB_ALLOW_REGISTER"):
                 value = value.strip().lower() in ("1", "true", "yes", "on")

@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS kols (
     external_id TEXT NOT NULL,
     enabled INTEGER NOT NULL DEFAULT 1,
     category_id INTEGER,
+    priority INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE TABLE IF NOT EXISTS posts (
@@ -92,6 +93,9 @@ class DB:
         user_cols = {row["name"] for row in self._rows("PRAGMA table_info(users)")}
         if "wechat_openid" not in user_cols:
             self._conn.execute("ALTER TABLE users ADD COLUMN wechat_openid TEXT NOT NULL DEFAULT ''")
+        kol_cols = {row["name"] for row in self._rows("PRAGMA table_info(kols)")}
+        if "priority" not in kol_cols:
+            self._conn.execute("ALTER TABLE kols ADD COLUMN priority INTEGER NOT NULL DEFAULT 0")
 
     def close(self):
         with self._lock:
@@ -109,12 +113,19 @@ class DB:
             return cur.lastrowid
 
     # ---- KOL ----
-    def add_kol(self, platform: str, name: str, external_id: str, category_id: int | None = None) -> int:
+    def add_kol(
+        self,
+        platform: str,
+        name: str,
+        external_id: str,
+        category_id: int | None = None,
+        priority: bool = False,
+    ) -> int:
         if platform not in ALLOWED_PLATFORMS:
             raise ValueError(f"不支持的平台: {platform}")
         return self._execute(
-            "INSERT INTO kols (platform, name, external_id, category_id) VALUES (?, ?, ?, ?)",
-            (platform, name, external_id, category_id),
+            "INSERT INTO kols (platform, name, external_id, category_id, priority) VALUES (?, ?, ?, ?, ?)",
+            (platform, name, external_id, category_id, 1 if priority else 0),
         )
 
     def get_kol(self, kol_id: int) -> dict | None:
@@ -139,7 +150,7 @@ class DB:
         sql += " ORDER BY k.id"
         return self._rows(sql, params)
 
-    def update_kol(self, kol_id: int, name=None, external_id=None, enabled=None, category_id=_UNSET):
+    def update_kol(self, kol_id: int, name=None, external_id=None, enabled=None, category_id=_UNSET, priority=_UNSET):
         sets, params = [], []
         if name is not None:
             sets.append("name = ?")
@@ -153,6 +164,9 @@ class DB:
         if category_id is not _UNSET:
             sets.append("category_id = ?")
             params.append(category_id)
+        if priority is not _UNSET:
+            sets.append("priority = ?")
+            params.append(1 if priority else 0)
         if not sets:
             return
         params.append(kol_id)

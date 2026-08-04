@@ -134,6 +134,37 @@ def test_backoff_skips_failing_platform():
     assert fetcher.calls == 1  # 退避期内不应再请求
 
 
+def test_priority_kol_fetched_more_often(monkeypatch):
+    clock = {"now": 1_000_000.0}
+    monkeypatch.setattr("app.scheduler.time.monotonic", lambda: clock["now"])
+    db = make_db()
+    normal_id = db.add_kol("xueqiu", "普通", "1")
+    priority_id = db.add_kol("xueqiu", "优先", "2", priority=True)
+    calls = []
+
+    class CountingFetcher:
+        def fetch(self, kol):
+            calls.append(kol["id"])
+            return []
+
+    states = {}
+    kwargs = dict(interval_seconds=180, priority_interval_seconds=60)
+    poll_once(db, {"xueqiu": CountingFetcher()}, [], states, **kwargs)
+    assert sorted(calls) == sorted([normal_id, priority_id])
+
+    # 120s 后：优先大V到期（60s），普通未到期（180s）
+    calls.clear()
+    clock["now"] = 1_000_120
+    poll_once(db, {"xueqiu": CountingFetcher()}, [], states, **kwargs)
+    assert calls == [priority_id]
+
+    # 200s 后：普通大V到期（优先大V此时也已到期，两者都抓）
+    calls.clear()
+    clock["now"] = 1_000_200
+    poll_once(db, {"xueqiu": CountingFetcher()}, [], states, **kwargs)
+    assert sorted(calls) == sorted([normal_id, priority_id])
+
+
 def test_subscriber_push_uses_user_channels(monkeypatch):
     calls = []
 

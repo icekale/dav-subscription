@@ -21,6 +21,7 @@ class PlatformState:
     def __init__(self):
         self.fail_count = 0
         self.skip_until = 0.0
+        self.last_fetched: dict[int, float] = {}
 
 
 def maybe_warn_weibo_login(db: DB, notifiers: list[Notifier], detail: str) -> None:
@@ -89,6 +90,8 @@ def poll_once(
     notifiers: list[Notifier],
     states: dict[str, PlatformState] | None = None,
     notifiers_config=None,
+    interval_seconds: int = 180,
+    priority_interval_seconds: int = 60,
 ) -> None:
     """执行一轮：遍历启用 KOL → 抓取 → 去重 → 推送。"""
     states = states if states is not None else {}
@@ -101,6 +104,10 @@ def poll_once(
             continue
         state = states.setdefault(kol["platform"], PlatformState())
         if now < state.skip_until:
+            continue
+        # 按大V优先级错峰：优先大V用更短间隔，普通大V用全局间隔
+        effective = priority_interval_seconds if kol.get("priority") else interval_seconds
+        if now - state.last_fetched.get(kol["id"], 0) < effective:
             continue
         try:
             posts = fetcher.fetch(kol)
@@ -119,6 +126,7 @@ def poll_once(
                 maybe_warn_weibo_login(db, notifiers, str(exc))
             continue
         state.fail_count = 0
+        state.last_fetched[kol["id"]] = now
         for post in posts:
             post.category = kol.get("category_name") or ""
             post_id = db.insert_post(
@@ -170,6 +178,8 @@ class Scheduler:
                     self.notifiers,
                     self.states,
                     self.notifiers_config,
+                    self.polling_config.interval_seconds,
+                    self.polling_config.priority_interval_seconds,
                 )
                 self.db.set_setting("stats_last_poll_at", str(int(time.time())))
                 self.db.set_setting(

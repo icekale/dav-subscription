@@ -416,6 +416,7 @@ async function loadAdminStats() {
         ${statCard("最近抓取", fmtTime(s.last_poll_at))}
         ${statCard("抓取耗时", s.last_poll_duration_ms ? `${(Number(s.last_poll_duration_ms) / 1000).toFixed(1)} 秒` : "-")}
         ${statCard("大V / 启用", `${s.kols} / ${s.enabled_kols}`)}
+        ${statCard("优先大V", s.priority_kols)}
         ${statCard("用户", s.users)}
         ${statCard("帖子", s.posts)}
       </div>
@@ -455,14 +456,16 @@ async function loadAdminKols() {
       <header class="section-head"><div><p class="section-eyebrow">List</p><h3 class="section-title">大V列表</h3></div></header>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>ID</th><th>平台</th><th>昵称</th><th>分类</th><th>外部ID</th><th>状态</th><th>操作</th></tr></thead>
+          <thead><tr><th>ID</th><th>平台</th><th>昵称</th><th>分类</th><th>外部ID</th><th>优先</th><th>状态</th><th>操作</th></tr></thead>
           <tbody>${kols.map((k) => `
             <tr>
               <td>${k.id}</td><td>${PLATFORM_LABELS[k.platform] || k.platform}</td>
               <td>${escapeHtml(k.name)}</td><td>${escapeHtml(k.category_name || "")}</td>
               <td>${escapeHtml(k.external_id)}</td>
+              <td>${k.priority ? '<span class="status-ok">是</span>' : "否"}</td>
               <td class="${k.enabled ? "status-ok" : "status-fail"}">${k.enabled ? "启用" : "停用"}</td>
               <td>
+                <button class="btn-sm" onclick="adminTogglePriority(${k.id}, ${!k.priority})">${k.priority ? "取消优先" : "设为优先"}</button>
                 <button class="btn-sm" onclick="adminToggleKol(${k.id}, ${k.enabled ? 0 : 1})">${k.enabled ? "停用" : "启用"}</button>
                 <button class="btn-sm danger" onclick="adminDeleteKol(${k.id})">删除</button>
               </td>
@@ -491,6 +494,11 @@ async function adminAddKol() {
 
 async function adminToggleKol(id, enabled) {
   await api(`/api/kols/${id}`, { method: "PUT", body: JSON.stringify({ enabled: !!enabled }) });
+  loadAdminKols();
+}
+
+async function adminTogglePriority(id, priority) {
+  await api(`/api/kols/${id}`, { method: "PUT", body: JSON.stringify({ priority: !!priority }) });
   loadAdminKols();
 }
 
