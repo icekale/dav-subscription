@@ -16,6 +16,7 @@ from . import auth, wechat
 from .bot_core import BIND_CODE_TTL
 from .db import ALLOWED_PLATFORMS, DB
 from .fetchers.combination import extract_cube_symbol, resolve_combination_profile
+from .fetchers.twitter import resolve_x_profile
 from .fetchers.weibo import WEIBO_COOKIE_KEY
 from .fetchers.xueqiu import (
     XUEQIU_COOKIE_KEY,
@@ -765,11 +766,16 @@ def create_api_router(
             external_id = _normalize_weibo_id(external_id)
         if not external_id:
             raise HTTPException(status_code=400, detail="昵称与外部ID不能为空")
-        if not name and body.platform == "combination":
-            # 没填昵称时自动查组合名称（失败退回占位名）
-            cookie = db.get_setting(XUEQIU_COOKIE_KEY) or os.environ.get("XUEQIU_COOKIE", "")
-            profile = resolve_combination_profile(external_id, cookie)
-            name = profile.get("name") or f"combination_{external_id}"
+        if not name:
+            if body.platform == "combination":
+                # 没填昵称时自动查组合名称（失败退回占位名）
+                cookie = db.get_setting(XUEQIU_COOKIE_KEY) or os.environ.get("XUEQIU_COOKIE", "")
+                profile = resolve_combination_profile(external_id, cookie)
+                name = profile.get("name") or f"combination_{external_id}"
+            elif body.platform == "twitter":
+                # 没填昵称时自动查 X 显示名（需 TWITTER_COOKIE，失败退回占位名）
+                profile = resolve_x_profile(external_id)
+                name = profile.get("name") or f"twitter_{external_id}"
         if body.category_id is not None and db.get_category(body.category_id) is None:
             raise HTTPException(status_code=400, detail="分类不存在")
         kid = db.add_kol(
@@ -782,10 +788,15 @@ def create_api_router(
         )
         _audit(admin, "add_kol", str(kid), f"{body.platform} {name} {external_id}")
         kol = db.get_kol(kid)
-        if body.platform == "combination" and not kol["avatar_url"]:
-            profile = resolve_combination_profile(
-                external_id, db.get_setting(XUEQIU_COOKIE_KEY) or ""
-            )
+        if not kol["avatar_url"]:
+            if body.platform == "combination":
+                profile = resolve_combination_profile(
+                    external_id, db.get_setting(XUEQIU_COOKIE_KEY) or ""
+                )
+            elif body.platform == "twitter":
+                profile = resolve_x_profile(external_id)
+            else:
+                profile = {}
             if profile.get("avatar_url"):
                 db.update_kol_avatar(kid, profile["avatar_url"])
                 kol = db.get_kol(kid)
@@ -839,6 +850,12 @@ def create_api_router(
                 # 没填昵称时自动查组合名称与主理人头像
                 cookie = db.get_setting(XUEQIU_COOKIE_KEY) or os.environ.get("XUEQIU_COOKIE", "")
                 profile = resolve_combination_profile(external_id, cookie)
+                if profile.get("name"):
+                    name = profile["name"]
+                avatar_url = profile.get("avatar_url") or ""
+            elif not nickname and body.platform == "twitter":
+                # 没填昵称时自动查 X 显示名与头像（需 TWITTER_COOKIE）
+                profile = resolve_x_profile(external_id)
                 if profile.get("name"):
                     name = profile["name"]
                 avatar_url = profile.get("avatar_url") or ""

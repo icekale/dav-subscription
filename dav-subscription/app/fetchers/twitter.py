@@ -131,6 +131,42 @@ def extract_screen_name(external_id: str) -> str:
     return ""
 
 
+def resolve_x_profile(external_id: str, cookie: str = "") -> dict:
+    """按 X 用户名/主页链接解析昵称与头像（UserByScreenName，需登录 Cookie）。
+
+    失败（cookie 失效/风控/未配置）时返回空 dict，调用方回退占位名。
+    """
+    import os
+
+    cookie = cookie or os.environ.get("TWITTER_COOKIE", "")
+    screen_name = extract_screen_name(external_id)
+    if not screen_name or not cookie:
+        return {}
+    client = httpx.Client(timeout=20)
+    try:
+        fetcher = TwitterFetcher(db=None, client=client)
+        data = fetcher._graphql(
+            "UserByScreenName",
+            {"screen_name": screen_name, "withSafetyModeUserFields": True},
+            cookie,
+        )
+        result = ((data.get("data") or {}).get("user") or {}).get("result") or {}
+        name = (
+            (result.get("core") or {}).get("name")
+            or (result.get("legacy") or {}).get("name")
+            or ""
+        )
+        avatar = ((result.get("avatar") or {}).get("image_url") or "").replace(
+            "_normal", "_400x400"
+        )
+        return {"name": name, "avatar_url": avatar, "screen_name": screen_name}
+    except Exception as exc:  # noqa: BLE001 - 解析失败退回占位名
+        logger.warning("X 昵称解析失败 screen=%s err=%s", screen_name, exc)
+        return {}
+    finally:
+        client.close()
+
+
 def _walk_tweet_results(entry: dict, out: list[dict]) -> None:
     """递归展开时间线条目（单条推文 / 模块内多推文 / 置顶）。"""
     content = entry.get("content") or {}

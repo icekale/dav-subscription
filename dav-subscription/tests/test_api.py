@@ -84,6 +84,55 @@ def test_kol_add_with_xueqiu_homepage_link():
     assert resp.json()["external_id"] == "8790885129"
 
 
+def test_add_x_kol_auto_resolves_name_and_avatar(monkeypatch):
+    from app import api as api_mod
+
+    monkeypatch.setattr(
+        api_mod,
+        "resolve_x_profile",
+        lambda external_id, cookie="": {
+            "name": "SemiAnalysis",
+            "avatar_url": "https://pbs.twimg.com/x_400x400.jpg",
+            "screen_name": "SemiAnalysis_",
+        },
+    )
+    client = make_client()
+    headers = auth_headers(client)
+    resp = client.post(
+        "/api/kols",
+        headers=headers,
+        json={"platform": "twitter", "name": "", "external_id": "https://x.com/SemiAnalysis_"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["name"] == "SemiAnalysis"
+    assert resp.json()["avatar_url"] == "https://pbs.twimg.com/x_400x400.jpg"
+
+
+def test_batch_import_x_kol_auto_resolves_name(monkeypatch):
+    from app import api as api_mod
+
+    monkeypatch.setattr(
+        api_mod,
+        "resolve_x_profile",
+        lambda external_id, cookie="": {
+            "name": "elonmusk",
+            "avatar_url": "https://pbs.twimg.com/musk.jpg",
+            "screen_name": "elonmusk",
+        },
+    )
+    client = make_client()
+    headers = auth_headers(client)
+    resp = client.post(
+        "/api/kols/batch",
+        headers=headers,
+        json={"platform": "twitter", "lines": "https://x.com/elonmusk"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["ok"] == 1
+    kols = client.get("/api/kols", headers=headers).json()
+    assert any(k["name"] == "elonmusk" for k in kols)
+
+
 def test_stats_api():
     client = make_client()
     headers = auth_headers(client)

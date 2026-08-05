@@ -6,6 +6,7 @@ from app.db import DB
 from app.fetchers.twitter import (
     TwitterFetcher,
     extract_screen_name,
+    resolve_x_profile,
 )
 
 
@@ -113,6 +114,62 @@ def test_extract_screen_name():
     assert extract_screen_name("elonmusk") == "elonmusk"
     assert extract_screen_name("https://x.com/a/status/123") == "a"
     assert extract_screen_name("") == ""
+
+
+def test_resolve_x_profile(monkeypatch):
+    monkeypatch.setenv("TWITTER_COOKIE", "auth_token=a; ct0=b")
+
+    class FakeResp:
+        def __init__(self, data):
+            self._data = data
+            self.status_code = 200
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self._data
+
+    class FakeClient:
+        def __init__(self, *a, **k):
+            pass
+
+        def close(self):
+            pass
+
+        def get(self, url, params=None, headers=None):
+            return FakeResp({"data": {"page": "x"}})
+
+        def post(self, url, params=None, json=None, headers=None):
+            if "UserByScreenName" in url:
+                return FakeResp(
+                    {
+                        "data": {
+                            "user": {
+                                "result": {
+                                    "rest_id": "1745",
+                                    "core": {
+                                        "name": "SemiAnalysis",
+                                        "screen_name": "SemiAnalysis_",
+                                    },
+                                    "avatar": {
+                                        "image_url": "https://pbs.twimg.com/x_normal.jpg"
+                                    },
+                                }
+                            }
+                        }
+                    }
+                )
+            return FakeResp({"data": {}})
+
+    monkeypatch.setattr("httpx.Client", FakeClient)
+    profile = resolve_x_profile("https://x.com/SemiAnalysis_")
+    assert profile["name"] == "SemiAnalysis"
+    assert profile["avatar_url"] == "https://pbs.twimg.com/x_400x400.jpg"
+
+    # 未配置 cookie 时返回空，调用方回退占位名
+    monkeypatch.delenv("TWITTER_COOKIE")
+    assert resolve_x_profile("https://x.com/SemiAnalysis_") == {}
 
 
 def test_twitter_direct_fetch_parses_tweets_and_avatar(monkeypatch):
