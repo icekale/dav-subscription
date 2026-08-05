@@ -524,7 +524,9 @@ def poll_once(
             continue
         # 按大V优先级错峰：优先大V用更短间隔，普通大V用全局间隔
         effective = priority_interval_seconds if kol.get("priority") else interval_seconds
-        if now - state.last_fetched.get(kol["id"], 0) < effective:
+        # 从未抓取过的大V首轮立即抓取（monotonic 基准在容器启动早期可能小于间隔，
+        # 用「从未抓取」标记判断而不是拿 0 当基准，避免首轮被误跳过）
+        if kol["id"] in state.last_fetched and now - state.last_fetched[kol["id"]] < effective:
             continue
         jobs.append((kol, fetcher, state))
     if not jobs:
@@ -578,7 +580,8 @@ def _fetch_kol_once(
 ) -> None:
     """并发 worker：抓取单个大V并处理新帖（状态读写加锁保护）。"""
     effective = priority_interval_seconds if kol.get("priority") else interval_seconds
-    if now - state.last_fetched.get(kol["id"], 0) < effective:
+    # 与 poll_once 一致：从未抓取过的大V立即抓取，避免用 0 当基准误跳过首轮
+    if kol["id"] in state.last_fetched and now - state.last_fetched[kol["id"]] < effective:
         return
     try:
         posts = fetcher.fetch(kol)

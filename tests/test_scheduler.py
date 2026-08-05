@@ -652,6 +652,22 @@ def test_push_retry_queue_enqueued_on_failure_and_backoff_drops(monkeypatch):
     assert q.due() == []
 
 
+def test_poll_once_fetches_never_fetched_kol_with_small_monotonic(monkeypatch):
+    """容器启动早期 monotonic 可能小于轮询间隔，首轮不应被误跳过（CI 回归）。"""
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    calls = []
+
+    class CountingFetcher:
+        def fetch(self, kol):
+            calls.append(kol["id"])
+            return []
+
+    monkeypatch.setattr("app.scheduler.time.monotonic", lambda: 5.0)
+    poll_once(db, {"xueqiu": CountingFetcher()}, [])
+    assert calls == [kid]
+
+
 def test_retry_recovery_from_failed_logs():
     db = make_db()
     kid = db.add_kol("xueqiu", "A", "1")

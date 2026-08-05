@@ -3,7 +3,10 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+
+# 项目面向中文社交平台，发布时间统一按北京时间展示，避免依赖服务器时区
+CN_TZ = timezone(timedelta(hours=8))
 
 
 @dataclass
@@ -44,7 +47,7 @@ def format_published_at(raw: str) -> str:
         ts = int(raw)
         ts = ts / 1000 if ts > 1e12 else ts
         try:
-            return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
+            return datetime.fromtimestamp(ts, tz=CN_TZ).strftime("%Y-%m-%d %H:%M")
         except (ValueError, OSError):
             return raw
     return raw
