@@ -135,6 +135,44 @@ textarea.form-control {
 }
 .btn-ghost:hover { border-color: var(--color-text-muted); }
 
+/* ---------- 申请添加大V 邀请横幅 ---------- */
+.request-banner {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 14px;
+  padding: 14px 16px;
+  border: 1px solid rgba(22, 119, 255, 0.16);
+  border-radius: var(--radius-card);
+  background: var(--color-accent-soft);
+}
+.request-banner-icon {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  color: var(--color-accent);
+  font-size: 20px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow-xs);
+}
+.request-banner-copy { flex: 1 1 auto; min-width: 0; }
+.request-banner-copy .title {
+  font-size: var(--text-body);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-strong);
+}
+.request-banner-copy .desc {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  margin-top: 2px;
+}
+.request-banner .btn-normal { flex: 0 0 auto; }
+
 /* ---------- 应用壳 ---------- */
 .app-view { display: flex; min-height: 100vh; }
 .sidebar {

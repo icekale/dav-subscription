@@ -181,9 +181,13 @@ async function renderHome() {
         </div>
       </header>
       ${state.user?.is_admin ? "" : `
-        <div class="toolbar" style="margin-top:12px">
-          <button class="btn-ghost" onclick="location.hash='#/search'">＋ 申请添加大V</button>
-          <span class="muted">目录里没有想关注的大V？提交申请，管理员审批通过后自动上架</span>
+        <div class="request-banner">
+          <div class="request-banner-icon">✚</div>
+          <div class="request-banner-copy">
+            <div class="title">想关注的大V不在列表里？</div>
+            <div class="desc">提交申请，管理员审批通过后自动上架并通知你</div>
+          </div>
+          <button class="btn-normal" onclick="location.hash='#/search'">申请添加</button>
         </div>`}
       <div id="kol-list"></div>
     </section>`;
