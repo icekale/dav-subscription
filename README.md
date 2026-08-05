@@ -6,6 +6,7 @@
 
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Docker](https://img.shields.io/badge/Docker-ready-2496ed.svg?logo=docker&logoColor=white)](Dockerfile)
+[![Docker Hub](https://img.shields.io/docker/v/icekale/dav-subscription?logo=docker&label=Docker%20Hub)](https://hub.docker.com/r/icekale/dav-subscription)
 [![GHCR](https://img.shields.io/badge/GHCR-镜像-2496ed.svg?logo=github&logoColor=white)](https://github.com/icekale/dav-subscription/pkgs/container/dav-subscription)
 [![Platform](https://img.shields.io/badge/Platform-amd64%20%7C%20arm64-blue.svg)]()
 
@@ -83,6 +84,18 @@ docker compose up -d --build
 - Telegram / 飞书里给机器人发 `/list` 即可开始订阅大V
 
 数据保存在 `./data/dav.db`（SQLite），重启不丢；升级只需 `git pull && docker compose up -d --build`。
+
+不想本地构建？直接用现成镜像（Docker Hub / GHCR 均发布，amd64 + arm64）：
+
+```bash
+docker run -d --name dav-subscription --restart unless-stopped \
+  -p 8000:8000 -v "$PWD/data:/data" \
+  -e WEB_ADMIN_PASSWORD=你的管理员密码 \
+  -e TELEGRAM_BOT_TOKEN=你的token \
+  icekale/dav-subscription:latest
+```
+
+或在 compose 里用 `image: icekale/dav-subscription:latest` 替代 `build: .`。
 
 ## 生产部署（HTTPS）
 
