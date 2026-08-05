@@ -9,6 +9,7 @@ HELP_TEXT = (
     "📌 大V订阅机器人\n"
     "/list — 查看可订阅的大V（/list 2 翻页）\n"
     "/sub 1 / 雪球/微博主页链接 / UID — 订阅大V\n"
+    "　可选：/sub 1 reply（只订回复）/ /sub 1 both（帖子+回复）\n"
     "/unsub 1 / 雪球/微博主页链接 / UID — 取消订阅\n"
     "/ask 主页链接/UID — 申请添加大V，管理员审批\n"
     "/mysubs — 我的订阅\n"
@@ -32,6 +33,7 @@ WELCOME_TEXT = (
 
 BIND_CODE_TTL = 600
 LIST_PAGE_SIZE = 20
+SUB_TYPE_LABELS = {"post": "帖子", "reply": "回复", "both": "帖子+回复"}
 
 
 class SubscriptionBot:
@@ -151,12 +153,19 @@ class SubscriptionBot:
         return ("\n".join(lines) if page_kols else "暂无大V", page, pages)
 
     def _sub(self, user, identity_type: str, identity: str, arg: str) -> None:
-        kol = self._resolve_kol(user, arg)
+        parts = arg.split(None, 1)
+        ref = parts[0].strip() if parts else ""
+        sub_type = parts[1].strip().lower() if len(parts) > 1 else "post"
+        if sub_type not in ("post", "reply", "both"):
+            self.send(identity_type, identity, "订阅类型需为 post / reply / both，例如 /sub 1 both")
+            return
+        kol = self._resolve_kol(user, ref)
         if kol is None:
             self.send(identity_type, identity, "没找到该大V，试试 /list 查看 ID")
         else:
-            self.db.add_subscription(user["id"], kol["id"])
-            self.send(identity_type, identity, f"已订阅 {kol['name']} ✅")
+            self.db.add_subscription(user["id"], kol["id"], type=sub_type)
+            label = SUB_TYPE_LABELS.get(sub_type, "帖子")
+            self.send(identity_type, identity, f"已订阅 {kol['name']}（{label}）✅")
 
     def _unsub(self, user, identity_type: str, identity: str, arg: str) -> None:
         kol = self._resolve_kol(user, arg)
@@ -195,7 +204,10 @@ class SubscriptionBot:
         subs = self.db.list_subscriptions(user["id"])
         if subs:
             lines = ["📌 我的订阅："]
-            lines.extend(f"{s['id']}. {s['name']}" for s in subs)
+            lines.extend(
+                f"{s['id']}. {s['name']}（{SUB_TYPE_LABELS.get(s.get('subscribe_type') or 'post', '帖子')}）"
+                for s in subs
+            )
             return "\n".join(lines)
         return "还没有订阅任何大V，试试 /list"
 

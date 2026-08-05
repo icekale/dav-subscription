@@ -204,6 +204,7 @@ function kolCard(kol) {
       <button class="btn-sub ${kol.subscribed ? "subscribed" : ""}" onclick="toggleSubscribe(${kol.id}, this)">
         ${kol.subscribed ? "已订阅" : "订阅"}
       </button>
+      ${kol.subscribed ? subTypeChipsHtml(kol.id, kol.subscribe_type || "post") : ""}
       ${state.user?.is_admin ? `<button class="btn-sm danger" onclick="adminDeleteKolFromHome(${kol.id})" title="删除该大V">删除</button>` : ""}
     </div>`;
 }
@@ -225,7 +226,7 @@ async function toggleSubscribe(kolId, btn) {
     if (wasSubscribed) {
       await api(`/api/subscriptions/${kolId}`, { method: "DELETE" });
     } else {
-      await api("/api/subscriptions", { method: "POST", body: JSON.stringify({ kol_id: kolId }) });
+      await api("/api/subscriptions", { method: "POST", body: JSON.stringify({ kol_id: kolId, type: "post" }) });
     }
     const nowSubscribed = !wasSubscribed;
     if (kol) kol.subscribed = nowSubscribed;
@@ -233,6 +234,31 @@ async function toggleSubscribe(kolId, btn) {
     btn.classList.toggle("subscribed", nowSubscribed);
   } catch (err) {
     alert("操作失败: " + err.message);
+  }
+}
+
+function subTypeChipsHtml(kolId, current) {
+  const labels = { post: "帖子", reply: "回复", both: "全部" };
+  return `
+    <div class="sub-type-row" data-kol="${kolId}">
+      ${Object.entries(labels).map(([type, label]) => `
+        <button class="sub-type-chip ${(current || "post") === type ? "active" : ""}"
+          onclick="setSubscribeType(${kolId}, '${type}', this)">${label}</button>`).join("")}
+    </div>`;
+}
+
+async function setSubscribeType(kolId, type, btn) {
+  try {
+    await api(`/api/subscriptions/${kolId}`, { method: "PUT", body: JSON.stringify({ type }) });
+    const kol = state.catalog.find((k) => k.id === kolId);
+    if (kol) {
+      kol.subscribed = true;
+      kol.subscribe_type = type;
+    }
+    const row = btn.closest(".sub-type-row");
+    if (row) row.querySelectorAll(".sub-type-chip").forEach((c) => c.classList.toggle("active", c === btn));
+  } catch (err) {
+    alert("切换订阅类型失败: " + err.message);
   }
 }
 
@@ -300,6 +326,7 @@ function postCard(post) {
       <div class="p-meta">
         ${post.category_name ? `<span class="cat">${escapeHtml(post.category_name)}</span>` : ""}
         <span>${PLATFORM_LABELS[post.platform] || post.platform}</span>
+        ${post.post_type === "reply" ? `<span class="cat">回复</span>` : ""}
         <a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener">查看原文 →</a>
       </div>
     </div>`;
@@ -423,6 +450,7 @@ async function renderKolPage(kolId) {
             <h3 class="section-title">最近动态</h3>
           </div>
           <div class="toolbar" style="margin-top:12px">
+            ${kol.subscribed ? subTypeChipsHtml(kol.id, kol.subscribe_type || "post") : ""}
             <button class="btn-sub ${kol.subscribed ? "subscribed" : ""}" id="kol-sub-btn" onclick="toggleKolPageSubscribe(${kol.id})">
               ${kol.subscribed ? "已订阅" : "订阅"}
             </button>
@@ -436,8 +464,8 @@ async function renderKolPage(kolId) {
 }
 
 async function toggleKolPageSubscribe(kolId) {
-  const btn = $("#kol-sub-btn");
-  await toggleSubscribe(kolId, btn);
+  await toggleSubscribe(kolId, $("#kol-sub-btn"));
+  renderKolPage(kolId);
 }
 
 // ---------- 推送设置 ----------

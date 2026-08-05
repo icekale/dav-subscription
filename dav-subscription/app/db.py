@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS posts (
     external_id TEXT NOT NULL,
     title TEXT NOT NULL DEFAULT '',
     content TEXT NOT NULL DEFAULT '',
+    post_type TEXT NOT NULL DEFAULT '',
     url TEXT NOT NULL DEFAULT '',
     published_at TEXT NOT NULL DEFAULT '',
     fetched_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -84,6 +85,7 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
     kol_id INTEGER NOT NULL,
+    type TEXT NOT NULL DEFAULT 'post',
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE (user_id, kol_id)
 );
@@ -128,6 +130,16 @@ class DB:
         self._conn.commit()
 
     def _migrate(self):
+        post_cols = {row["name"] for row in self._rows("PRAGMA table_info(posts)")}
+        if "post_type" not in post_cols:
+            self._conn.execute(
+                "ALTER TABLE posts ADD COLUMN post_type TEXT NOT NULL DEFAULT ''"
+            )
+        sub_cols = {row["name"] for row in self._rows("PRAGMA table_info(subscriptions)")}
+        if "type" not in sub_cols:
+            self._conn.execute(
+                "ALTER TABLE subscriptions ADD COLUMN type TEXT NOT NULL DEFAULT 'post'"
+            )
         cols = {row["name"] for row in self._rows("PRAGMA table_info(kols)")}
         if "category_id" not in cols:
             self._conn.execute("ALTER TABLE kols ADD COLUMN category_id INTEGER")
@@ -523,15 +535,27 @@ class DB:
                 raise
 
     # ---- Subscription ----
-    def add_subscription(self, user_id: int, kol_id: int) -> bool:
+    def add_subscription(self, user_id: int, kol_id: int, type: str = "post") -> bool:
         try:
             self._execute(
-                "INSERT INTO subscriptions (user_id, kol_id) VALUES (?, ?)",
-                (user_id, kol_id),
+                "INSERT INTO subscriptions (user_id, kol_id, type) VALUES (?, ?, ?)",
+                (user_id, kol_id, type),
             )
             return True
         except sqlite3.IntegrityError:
             return False
+
+    def update_subscription_type(self, user_id: int, kol_id: int, type: str) -> bool:
+        """切换订阅类型：post / reply / both。"""
+        if type not in ("post", "reply", "both"):
+            raise ValueError(f"无效的订阅类型: {type}")
+        with self._lock:
+            cur = self._conn.execute(
+                "UPDATE subscriptions SET type = ? WHERE user_id = ? AND kol_id = ?",
+                (type, user_id, kol_id),
+            )
+            self._conn.commit()
+            return cur.rowcount > 0
 
     def remove_subscription(self, user_id: int, kol_id: int) -> None:
         self._execute(
@@ -541,7 +565,8 @@ class DB:
 
     def list_subscriptions(self, user_id: int) -> list[dict]:
         return self._rows(
-            "SELECT k.*, c.name AS category_name, s.created_at AS subscribed_at "
+            "SELECT k.*, s.type AS subscribe_type, c.name AS category_name, "
+            "s.created_at AS subscribed_at "
             "FROM subscriptions s JOIN kols k ON k.id = s.kol_id "
             "LEFT JOIN categories c ON c.id = k.category_id "
             "WHERE s.user_id = ? ORDER BY s.id",
@@ -552,10 +577,17 @@ class DB:
         rows = self._rows("SELECT kol_id FROM subscriptions WHERE user_id = ?", (user_id,))
         return {row["kol_id"] for row in rows}
 
+    def subscribed_kol_types(self, user_id: int) -> dict[int, str]:
+        rows = self._rows(
+            "SELECT kol_id, type FROM subscriptions WHERE user_id = ?", (user_id,)
+        )
+        return {row["kol_id"]: row["type"] for row in rows}
+
     def subscribers_of_kol(self, kol_id: int) -> list[dict]:
         """该大V的订阅者（启用通知且绑定了渠道的用户）。"""
         return self._rows(
-            "SELECT u.* FROM subscriptions s JOIN users u ON u.id = s.user_id "
+            "SELECT u.*, s.type AS subscribe_type FROM subscriptions s "
+            "JOIN users u ON u.id = s.user_id "
             "JOIN kols k ON k.id = s.kol_id "
             "WHERE s.kol_id = ? AND u.notify_enabled = 1 "
             "AND (u.telegram_chat_id != '' OR u.feishu_open_id != '' OR u.feishu_chat_id != '') "
@@ -621,14 +653,16 @@ class DB:
         )
         return rows[0] if rows else None
 
-    def insert_post(self, platform, kol_id, external_id, title, content, url, published_at) -> int | None:
+    def insert_post(
+        self, platform, kol_id, external_id, title, content, url, published_at, post_type: str = ""
+    ) -> int | None:
         if self.post_exists(platform, external_id):
             return None
         try:
             return self._execute(
-                "INSERT INTO posts (platform, kol_id, external_id, title, content, url, published_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (platform, kol_id, external_id, title, content, url, published_at),
+                "INSERT INTO posts (platform, kol_id, external_id, title, content, post_type, url, published_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (platform, kol_id, external_id, title, content, post_type, url, published_at),
             )
         except sqlite3.IntegrityError:
             return None  # 并发下重复插入，视为已存在

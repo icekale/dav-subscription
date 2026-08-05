@@ -115,6 +115,11 @@ class CookieIn(BaseModel):
 
 class SubscriptionIn(BaseModel):
     kol_id: int
+    type: str = "post"
+
+
+class SubscriptionTypeIn(BaseModel):
+    type: str
 
 
 class UserUpdate(BaseModel):
@@ -383,8 +388,15 @@ def create_api_router(
             key=lambda k: (bool(k.get("priority")), last_post_at.get(k["id"]) or ""),
             reverse=True,
         )
-        subscribed = db.subscribed_kol_ids(user["id"])
-        return [{**kol, "subscribed": kol["id"] in subscribed} for kol in kols]
+        subscribed_types = db.subscribed_kol_types(user["id"])
+        return [
+            {
+                **kol,
+                "subscribed": kol["id"] in subscribed_types,
+                "subscribe_type": subscribed_types.get(kol["id"], "post"),
+            }
+            for kol in kols
+        ]
 
     @router.post("/subscriptions")
     def subscribe(body: SubscriptionIn, user: dict = Depends(get_current_user)):
@@ -393,7 +405,20 @@ def create_api_router(
             not user["is_admin"] and kol["id"] not in db.visible_kol_ids(user["id"])
         ):
             raise HTTPException(status_code=404, detail="大V不存在")
-        db.add_subscription(user["id"], body.kol_id)
+        if body.type not in ("post", "reply", "both"):
+            raise HTTPException(status_code=400, detail="订阅类型需为 post / reply / both")
+        db.add_subscription(user["id"], body.kol_id, type=body.type)
+        return {"ok": True}
+
+    @router.put("/subscriptions/{kol_id}")
+    def update_subscription_type(kol_id: int, body: SubscriptionTypeIn, user: dict = Depends(get_current_user)):
+        kol = db.get_kol(kol_id)
+        if kol is None:
+            raise HTTPException(status_code=404, detail="大V不存在")
+        if body.type not in ("post", "reply", "both"):
+            raise HTTPException(status_code=400, detail="订阅类型需为 post / reply / both")
+        if not db.update_subscription_type(user["id"], kol_id, body.type):
+            raise HTTPException(status_code=404, detail="尚未订阅该大V")
         return {"ok": True}
 
     @router.delete("/subscriptions/{kol_id}")
@@ -418,6 +443,7 @@ def create_api_router(
         ):
             raise HTTPException(status_code=404, detail="大V不存在")
         kol["subscribed"] = kol_id in db.subscribed_kol_ids(user["id"])
+        kol["subscribe_type"] = db.subscribed_kol_types(user["id"]).get(kol_id, "post")
         if user["is_admin"]:
             acl_ids = set(db.acl_user_ids(kol_id))
             kol["visible_users"] = [u["username"] for u in db.list_users() if u["id"] in acl_ids]

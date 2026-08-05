@@ -867,8 +867,38 @@ def test_subscription_flow():
     assert catalog[0]["subscribed"] is False
 
     assert client.post("/api/subscriptions", headers=customer_headers, json={"kol_id": kid}).status_code == 200
-    assert client.get("/api/catalog", headers=customer_headers).json()[0]["subscribed"] is True
+    catalog_item = client.get("/api/catalog", headers=customer_headers).json()[0]
+    assert catalog_item["subscribed"] is True and catalog_item["subscribe_type"] == "post"
     assert client.get("/api/my/subscriptions", headers=customer_headers).json()[0]["id"] == kid
+
+    # 订阅类型：切换到「回复」、再到「全部」
+    assert (
+        client.put(
+            f"/api/subscriptions/{kid}",
+            headers=customer_headers,
+            json={"type": "reply"},
+        ).status_code
+        == 200
+    )
+    assert client.get("/api/catalog", headers=customer_headers).json()[0]["subscribe_type"] == "reply"
+    assert (
+        client.put(f"/api/subscriptions/{kid}", headers=customer_headers, json={"type": "both"}).status_code
+        == 200
+    )
+    assert client.get("/api/my/subscriptions", headers=customer_headers).json()[0]["subscribe_type"] == "both"
+    # 非法类型被拒绝
+    assert (
+        client.put(f"/api/subscriptions/{kid}", headers=customer_headers, json={"type": "bad"}).status_code
+        == 400
+    )
+    # 未订阅的大V不能切类型
+    other_kid = client.post(
+        "/api/kols", headers=admin_headers, json={"platform": "xueqiu", "name": "另一大V", "external_id": "1"}
+    ).json()["id"]
+    assert (
+        client.put(f"/api/subscriptions/{other_kid}", headers=customer_headers, json={"type": "both"}).status_code
+        == 404
+    )
 
     # 订阅后能看到该大V的动态
     client.app.state.db.insert_post("xueqiu", kid, "p1", "t", "c", "u", "")

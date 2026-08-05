@@ -12,6 +12,20 @@ XUEQIU_COOKIE_TIME_KEY = "xueqiu_cookie_updated_at"
 XUEQIU_TIMELINE_URL = "https://xueqiu.com/statuses/user_timeline.json"
 
 
+def classify_status(status: dict) -> str | None:
+    """判断动态流中的一项类型：post（发帖）/ reply（回复他人）/ None（转发等不推送项）。
+
+    雪球 user_timeline 里回复项的特征：正文以「回复<a>@某人</a>」开头（commentId > 0），
+    转发项也带 retweeted_status，不能仅凭该字段跳过（否则会把回复一起丢掉）。
+    """
+    desc = (status.get("description") or "").lstrip()
+    if desc.startswith("回复") and status.get("commentId"):
+        return "reply"
+    if status.get("retweeted_status"):
+        return None
+    return "post"
+
+
 def _is_waf_html(resp: httpx.Response) -> bool:
     """判断响应是否为阿里云 WAF 的 JS 挑战页（普通 HTTP 客户端无法通过）。"""
     content_type = resp.headers.get("content-type", "")
@@ -143,8 +157,9 @@ class XueqiuFetcher(Fetcher):
         statuses = (data or {}).get("statuses") or []
         posts = []
         for s in statuses:
-            if s.get("retweeted_status"):
-                continue  # 只保留原创动态，转发不推送
+            post_type = classify_status(s)
+            if post_type is None:
+                continue  # 纯转发不推送（回复项单独识别并保留）
             target = s.get("target") or ""
             url = f"https://xueqiu.com{target}" if target.startswith("/") else target
             posts.append(
@@ -157,6 +172,7 @@ class XueqiuFetcher(Fetcher):
                     content=strip_html(s.get("description") or ""),
                     url=url,
                     published_at=format_published_at(str(s.get("created_at") or "")),
+                    post_type=post_type,
                 )
             )
         if statuses:

@@ -8,7 +8,7 @@ import rsa
 from app.config import XueqiuConfig
 from app.db import DB
 from app.fetchers.rss import RssFetcher
-from app.fetchers.xueqiu import XueqiuFetcher
+from app.fetchers.xueqiu import XueqiuFetcher, classify_status
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -57,6 +57,43 @@ def test_xueqiu_skips_reposts():
     fetcher = XueqiuFetcher(XueqiuConfig(cookie="xq_a_token=abc"), db=DB(":memory:"), client=client)
     posts = fetcher.fetch({"id": 1, "name": "大V", "external_id": "123"})
     assert [p.external_id for p in posts] == ["101"]
+
+
+def test_classify_status():
+    assert classify_status({"id": 1, "description": "正文"}) == "post"
+    assert classify_status({"id": 1, "description": "正文", "retweeted_status": {"id": 2}}) is None
+    assert classify_status({"id": 1, "description": "回复<a>@x</a>: 内容", "commentId": 9}) == "reply"
+    # 回复项也带 retweeted_status（被回复的原帖），不能被误判成转发
+    assert (
+        classify_status(
+            {"id": 1, "description": "回复<a>@x</a>: 内容", "commentId": 9, "retweeted_status": {"id": 2}}
+        )
+        == "reply"
+    )
+
+
+def test_xueqiu_fetch_keeps_replies():
+    payload = {
+        "statuses": [
+            {"id": 101, "description": "第一条", "target": "/101"},
+            {"id": 102, "description": "转发的", "target": "/102", "retweeted_status": {"id": 999}},
+            {
+                "id": 103,
+                "description": '回复<a href="https://xueqiu.com/n/foo" target="_blank">@foo</a>: 内容',
+                "target": "/103",
+                "commentId": 12345,
+                "retweeted_status": {"id": 888},
+            },
+        ]
+    }
+
+    def handler(request):
+        return httpx.Response(200, json=payload)
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    fetcher = XueqiuFetcher(XueqiuConfig(cookie="xq_a_token=abc"), db=DB(":memory:"), client=client)
+    posts = fetcher.fetch({"id": 1, "name": "大V", "external_id": "123"})
+    assert [(p.external_id, p.post_type) for p in posts] == [("101", "post"), ("103", "reply")]
 
 
 def test_xueqiu_cookie_refresh_on_401():

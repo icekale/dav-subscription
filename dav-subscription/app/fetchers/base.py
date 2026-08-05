@@ -17,6 +17,7 @@ class Post:
     url: str
     published_at: str
     category: str = ""
+    post_type: str = ""
 
 
 def strip_html(text: str) -> str:

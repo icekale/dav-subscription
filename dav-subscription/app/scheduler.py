@@ -273,6 +273,13 @@ def _post_sort_key(post: Post) -> float:
         return float("inf")
 
 
+def _sub_type_matches(sub_type: str, post_type: str) -> bool:
+    """订阅类型（post/reply/both）是否覆盖这条动态（post/reply/空）。"""
+    if post_type == "reply":
+        return sub_type in ("reply", "both")
+    return sub_type in ("post", "both", "")
+
+
 class PlatformState:
     """每个平台连续失败次数与退避截止时间。"""
 
@@ -408,6 +415,9 @@ def notify_subscribers(
     client = httpx.Client(timeout=15)
     try:
         for user in db.subscribers_of_kol(post.kol_id):
+            sub_type = user.get("subscribe_type") or "post"
+            if not _sub_type_matches(sub_type, post.post_type):
+                continue  # 订阅类型不覆盖该动态（帖子/回复分订）
             if user["telegram_chat_id"] and notifiers_config.telegram.bot_token:
                 if global_tg_active and user["telegram_chat_id"] == global_tg_chat:
                     continue  # 已由全局推送覆盖
@@ -547,6 +557,7 @@ def poll_once(
                 post.content,
                 post.url,
                 post.published_at,
+                post.post_type,
             )
             if post_id is None:
                 continue
@@ -580,6 +591,10 @@ def notify_digest_subscribers(
     client = httpx.Client(timeout=15)
     try:
         for user in db.subscribers_of_kol(kol["id"]):
+            sub_type = user.get("subscribe_type") or "post"
+            matched = [p for p in posts if _sub_type_matches(sub_type, p.post_type)]
+            if not matched:
+                continue
             if user["telegram_chat_id"] and notifiers_config.telegram.bot_token:
                 if global_tg_active and user["telegram_chat_id"] == global_tg_chat:
                     continue
@@ -590,8 +605,8 @@ def notify_digest_subscribers(
                     unsub_kol_id=kol["id"],
                 )
                 try:
-                    notifier.send_digest(posts, kol["name"], kol["platform"])
-                    for post in posts:
+                    notifier.send_digest(matched, kol["name"], kol["platform"])
+                    for post in matched:
                         db.add_push_log(
                             db.get_post_id(post.platform, post.external_id),
                             "telegram",
@@ -601,9 +616,9 @@ def notify_digest_subscribers(
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("摘要推送失败 user=%s channel=telegram err=%s", user["username"], exc)
                     if retry_queue is not None:
-                        for post in posts:
+                        for post in matched:
                             retry_queue.add(post, "telegram", user["id"])
-                    for post in posts:
+                    for post in matched:
                         db.add_push_log(
                             db.get_post_id(post.platform, post.external_id),
                             "telegram",
@@ -620,8 +635,8 @@ def notify_digest_subscribers(
                     unsub_kol_id=kol["id"],
                 )
                 try:
-                    notifier.send_digest(posts, kol["name"], kol["platform"])
-                    for post in posts:
+                    notifier.send_digest(matched, kol["name"], kol["platform"])
+                    for post in matched:
                         db.add_push_log(
                             db.get_post_id(post.platform, post.external_id),
                             "feishu",
@@ -631,9 +646,9 @@ def notify_digest_subscribers(
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("摘要推送失败 user=%s channel=feishu err=%s", user["username"], exc)
                     if retry_queue is not None:
-                        for post in posts:
+                        for post in matched:
                             retry_queue.add(post, "feishu", user["id"])
-                    for post in posts:
+                    for post in matched:
                         db.add_push_log(
                             db.get_post_id(post.platform, post.external_id),
                             "feishu",

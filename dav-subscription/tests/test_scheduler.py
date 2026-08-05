@@ -205,6 +205,65 @@ def test_notify_subscribers_feishu_chat_only(monkeypatch):
     assert sent["ok"] is True
 
 
+def test_subscription_type_db_ops():
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    assert db.add_subscription(uid, kid, type="reply") is True
+    assert db.subscribed_kol_types(uid) == {kid: "reply"}
+    assert db.update_subscription_type(uid, kid, "both") is True
+    assert db.subscribed_kol_types(uid) == {kid: "both"}
+    assert db.list_subscriptions(uid)[0]["subscribe_type"] == "both"
+    assert db.subscribers_of_kol(kid)[0]["subscribe_type"] == "both"
+    assert db.update_subscription_type(uid, 9999, "post") is False
+    try:
+        db.update_subscription_type(uid, kid, "bad")
+        raise AssertionError("应拒绝非法类型")
+    except ValueError:
+        pass
+
+
+def test_notify_subscribers_filters_by_subscribe_type(monkeypatch):
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    post_user = db.add_user("post_only", "h", telegram_chat_id="111")
+    reply_user = db.add_user("reply_only", "h", telegram_chat_id="222")
+    both_user = db.add_user("both", "h", telegram_chat_id="333")
+    db.add_subscription(post_user, kid, type="post")
+    db.add_subscription(reply_user, kid, type="reply")
+    db.add_subscription(both_user, kid, type="both")
+    sent = []
+
+    class FakeTG:
+        channel = "telegram"
+
+        def __init__(self, *args, **kwargs):
+            self.client = SimpleNamespace(close=lambda: None)
+            self.chat_id = kwargs.get("chat_id")
+
+        def notify(self, post):
+            sent.append((self.chat_id, post.post_type))
+
+    notifiers_config = SimpleNamespace(
+        telegram=SimpleNamespace(bot_token="t", chat_id="999"),  # 全局 chat 不覆盖任一用户
+        feishu=SimpleNamespace(),
+    )
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FakeTG)
+    post_item = Post(
+        platform="xueqiu", kol_id=kid, kol_name="A",
+        external_id="p1", title="t", content="c", url="u", published_at="", post_type="post",
+    )
+    notify_subscribers(db, 1, post_item, notifiers_config, notifiers=[], retry_queue=None)
+    assert sorted(chat for chat, _ in sent) == ["111", "333"]
+    sent.clear()
+    reply_item = Post(
+        platform="xueqiu", kol_id=kid, kol_name="A",
+        external_id="p2", title="t", content="c", url="u", published_at="", post_type="reply",
+    )
+    notify_subscribers(db, 2, reply_item, notifiers_config, notifiers=[], retry_queue=None)
+    assert sorted(chat for chat, _ in sent) == ["222", "333"]
+
+
 def test_source_failure_alert_and_recovery(monkeypatch):
     db = make_db()
     kid = db.add_kol("xueqiu", "A", "1")
