@@ -97,6 +97,25 @@ def test_xueqiu_fetch_keeps_replies():
     assert [(p.external_id, p.post_type) for p in posts] == [("101", "post"), ("103", "reply")]
 
 
+def test_xueqiu_fetch_full_text_for_truncated_long_post():
+    def handler(request):
+        if request.url.path == "/statuses/show.json":
+            return httpx.Response(
+                200,
+                json={"status": {"description": "这是完整的长文正文，远超时间线截断长度。"}},
+                headers={"content-type": "application/json"},
+            )
+        return httpx.Response(
+            200,
+            json={"statuses": [{"id": 101, "description": "时间线里的截断长文……", "target": "/101"}]},
+        )
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    fetcher = XueqiuFetcher(XueqiuConfig(cookie="xq_a_token=abc"), db=DB(":memory:"), client=client)
+    posts = fetcher.fetch({"id": 1, "name": "大V", "external_id": "123"})
+    assert posts[0].content == "这是完整的长文正文，远超时间线截断长度。"
+
+
 def test_xueqiu_cookie_refresh_on_401():
     fixture = json.loads((FIXTURES / "xueqiu_sample.json").read_text(encoding="utf-8"))
     timeline_hits = {"n": 0}

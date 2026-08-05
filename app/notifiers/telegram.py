@@ -10,7 +10,7 @@ from html import escape
 
 import httpx
 
-from ..fetchers.base import Post
+from ..fetchers.base import Post, truncate_text
 from .base import Notifier
 
 PLATFORM_LABELS = {"xueqiu": "雪球", "combination": "雪球组合", "weibo": "微博", "twitter": "X/Twitter"}
@@ -48,7 +48,7 @@ _tg_rate_limiter = _RateLimiter(TG_MAX_MESSAGES_PER_SECOND)
 
 def build_telegram_text(post: Post) -> str:
     platform = PLATFORM_LABELS.get(post.platform, post.platform)
-    body = post.content[:200] or post.title or "（无正文）"
+    body = truncate_text(post.content, 2000) or post.title or "（无正文）"
     kind = " · 回复" if post.post_type == "reply" else ""
     lines = [
         f"<b>📌 {escape(post.kol_name)} · {platform}{kind}</b>",

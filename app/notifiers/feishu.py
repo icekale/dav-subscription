@@ -8,7 +8,7 @@ import time
 
 import httpx
 
-from ..fetchers.base import Post
+from ..fetchers.base import Post, truncate_text
 from .base import Notifier
 
 PLATFORM_LABELS = {"xueqiu": "雪球", "combination": "雪球组合", "weibo": "微博", "twitter": "X/Twitter"}
@@ -45,7 +45,7 @@ def _tenant_access_token(app_id: str, app_secret: str, client: httpx.Client) -> 
 
 def build_feishu_card(post: Post) -> dict:
     platform = PLATFORM_LABELS.get(post.platform, post.platform)
-    content = post.content[:200] or post.title or "（无正文）"
+    content = truncate_text(post.content, 2000) or post.title or "（无正文）"
     title = f"📌 {post.kol_name} · {platform}"
     if post.post_type == "reply":
         title += " · 回复"

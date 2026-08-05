@@ -140,6 +140,24 @@ class XueqiuFetcher(Fetcher):
         self.db.set_setting(XUEQIU_COOKIE_KEY, cookie)
         self.db.set_setting(XUEQIU_COOKIE_TIME_KEY, str(int(time.time())))
 
+    def _fetch_full_status(self, status_id: str) -> str:
+        """尽力拉取长文完整正文：时间线接口对长文只回约 140 字 + 省略号，
+        详情接口才有全文（可能被 WAF 拦截，失败返回空串，不影响主流程）。"""
+        if not status_id:
+            return ""
+        try:
+            resp = self.client.get(
+                "https://xueqiu.com/statuses/show.json",
+                params={"id": status_id},
+            )
+            if "application/json" not in resp.headers.get("content-type", ""):
+                return ""
+            data = resp.json()
+            status = (data or {}).get("status") or {}
+            return strip_html(status.get("description") or "")
+        except Exception:  # noqa: BLE001 - 详情拉取失败退回截断文本
+            return ""
+
     def fetch(self, kol: dict) -> list[Post]:
         self._apply_cookie()
         # 用户时间线 JSON 接口不受 WAF 挑战保护；original/timeline.json 反而会被 WAF 拦截
@@ -177,6 +195,12 @@ class XueqiuFetcher(Fetcher):
                 continue  # 纯转发不推送（回复项单独识别并保留）
             target = s.get("target") or ""
             url = f"https://xueqiu.com{target}" if target.startswith("/") else target
+            content = strip_html(s.get("description") or "")
+            if content.endswith(("…", "...")):
+                # 时间线长文被截断，尝试拿完整正文
+                full = self._fetch_full_status(str(s.get("id") or ""))
+                if full and len(full) > len(content):
+                    content = full
             posts.append(
                 Post(
                     platform=self.platform,
@@ -184,7 +208,7 @@ class XueqiuFetcher(Fetcher):
                     kol_name=kol["name"],
                     external_id=str(s.get("id") or ""),
                     title=s.get("title") or "",
-                    content=strip_html(s.get("description") or ""),
+                    content=content,
                     url=url,
                     published_at=format_published_at(str(s.get("created_at") or "")),
                     post_type=post_type,

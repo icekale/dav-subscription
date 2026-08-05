@@ -1,4 +1,4 @@
-from app.fetchers.base import Post
+from app.fetchers.base import Post, truncate_text
 from app.notifiers.feishu import (
     build_feishu_card,
     build_feishu_combination_card,
@@ -22,6 +22,19 @@ def make_post() -> Post:
         url="https://xueqiu.com/1",
         published_at="2026-08-04",
     )
+
+
+def test_truncate_text_short_keeps_all():
+    assert truncate_text("短文本", 100) == "短文本"
+    assert truncate_text("", 100) == ""
+
+
+def test_truncate_text_cuts_with_ellipsis():
+    long_text = "第一句。" + "中" * 300 + "。结尾句"
+    t = truncate_text(long_text, 200)
+    assert t.endswith("…")
+    assert len(t) <= 201
+    assert "第一句。" in t
 
 
 def test_feishu_card_contains_author_and_url():

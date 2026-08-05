@@ -41,6 +41,19 @@ def strip_html(text: str) -> str:
     return text.strip()
 
 
+def truncate_text(text: str, limit: int) -> str:
+    """截断长文本：优先在换行/句号处断，避免拦腰切断一句话，末尾补省略号。"""
+    text = (text or "").strip()
+    if len(text) <= limit:
+        return text
+    cut = text[:limit]
+    for sep in ("\n", "。", "！", "？", "；"):
+        idx = cut.rfind(sep)
+        if idx > limit * 0.6:
+            return cut[: idx + 1].rstrip() + "…"
+    return cut.rstrip() + "…"
+
+
 def format_published_at(raw: str) -> str:
     """把时间戳（毫秒/秒）格式化为可读时间，其他格式原样返回。"""
     raw = (raw or "").strip()
