@@ -99,11 +99,17 @@ function renderSidebar(user) {
     `).join("");
   $("#sidebar-nav").innerHTML = html;
   $("#sidebar-user").innerHTML = `
-    <div class="sidebar-user-row">
-      <span class="sidebar-user-name">${escapeHtml(user.username)}</span>
-      ${user.is_admin ? '<span class="sidebar-user-badge">管理员</span>' : ""}
+    <div class="sidebar-account">
+      <div class="sidebar-account-avatar">${escapeHtml(avatarText(user.username))}</div>
+      <div class="sidebar-account-info">
+        <div class="sidebar-user-row">
+          <span class="sidebar-user-name">${escapeHtml(user.username)}</span>
+          ${user.is_admin ? '<span class="sidebar-user-badge">管理员</span>' : ""}
+        </div>
+        <div class="sidebar-user-meta">大V订阅 · v${APP_VERSION}</div>
+      </div>
     </div>
-    <div class="sidebar-user-meta">大V订阅 v${APP_VERSION}</div>`;
+  `;
 }
 
 function renderTopbar(user) {
