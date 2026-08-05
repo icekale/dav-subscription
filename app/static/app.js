@@ -545,7 +545,7 @@ function postCard(post) {
       </div>
       ${post.title ? `<div class="p-title">${escapeHtml(post.title)}</div>` : ""}
       <div class="p-content">${escapeHtml(post.content || "（无正文）")}</div>
-      ${post.images && post.images.length ? `
+      ${Array.isArray(post.images) && post.images.length ? `
         <div class="post-images">
           ${post.images.slice(0, 4).map((img) => `
             <a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener"><img src="${escapeHtml(img)}" loading="lazy" alt=""></a>`).join("")}

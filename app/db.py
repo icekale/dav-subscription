@@ -18,6 +18,23 @@ def _merge_sub_types(a: str, b: str) -> str:
     return next(iter(types))
 
 
+def _normalize_post_images(rows: list[dict]) -> list[dict]:
+    """posts 行的 images 是 JSON 文本，API 场景统一解析为数组。"""
+    for row in rows:
+        raw = row.get("images")
+        if isinstance(raw, list):
+            continue
+        if isinstance(raw, str) and raw:
+            try:
+                parsed = json.loads(raw)
+                row["images"] = parsed if isinstance(parsed, list) else []
+            except (TypeError, ValueError):
+                row["images"] = []
+        else:
+            row["images"] = []
+    return rows
+
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS categories (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -902,7 +919,7 @@ class DB:
             sql += " WHERE " + " AND ".join(conds)
         sql += " ORDER BY p.id DESC LIMIT ?"
         params.append(limit)
-        return self._rows(sql, params)
+        return _normalize_post_images(self._rows(sql, params))
 
     def count_posts(self) -> int:
         rows = self._rows("SELECT COUNT(*) AS n FROM posts")
@@ -940,7 +957,7 @@ class DB:
         if not kol_ids:
             return []
         placeholders = ", ".join("?" * len(kol_ids))
-        return self._rows(
+        return _normalize_post_images(self._rows(
             "SELECT p.*, k.name AS kol_name, k.category_id AS category_id, "
             "k.avatar_url AS avatar_url, c.name AS category_name, "
             "COALESCE(s.favorite, 0) AS favorite FROM posts p "
@@ -949,7 +966,7 @@ class DB:
             "LEFT JOIN subscriptions s ON s.kol_id = p.kol_id AND s.user_id = ? "
             f"WHERE p.kol_id IN ({placeholders}) ORDER BY p.id DESC LIMIT ?",
             (user_id, *kol_ids, limit),
-        )
+        ))
 
     def list_daily_posts(
         self, kol_ids: list[int], since_ts: int, limit: int = 15, user_id: int | None = None

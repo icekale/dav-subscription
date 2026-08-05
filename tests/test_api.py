@@ -1250,6 +1250,18 @@ def test_subscription_flow():
     feed = client.get("/api/my/feed", headers=customer_headers).json()
     assert len(feed) == 1 and feed[0]["kol_name"] == "超级鹿鼎公"
 
+    # images 存库为 JSON 文本，API 返回必须解析为数组（回归：网页时间线渲染崩溃）
+    client.app.state.db.insert_post(
+        "xueqiu", kid, "p2", "t2", "c2", "u2", "",
+        images=["https://x.com/1.jpg", "https://x.com/2.jpg"],
+    )
+    feed = client.get("/api/my/feed", headers=customer_headers).json()
+    p2 = next(p for p in feed if p["external_id"] == "p2")
+    assert isinstance(p2["images"], list) and p2["images"] == [
+        "https://x.com/1.jpg",
+        "https://x.com/2.jpg",
+    ]
+
     # 取消订阅后动态清空
     assert client.delete(f"/api/subscriptions/{kid}", headers=customer_headers).status_code == 200
     assert client.get("/api/my/feed", headers=customer_headers).json() == []
@@ -1258,7 +1270,12 @@ def test_subscription_flow():
     detail = client.get(f"/api/kols/{kid}", headers=customer_headers).json()
     assert detail["name"] == "超级鹿鼎公" and detail["subscribed"] is False
     posts = client.get(f"/api/kols/{kid}/posts", headers=customer_headers).json()
-    assert len(posts) == 1
+    assert len(posts) == 2
+    p2_detail = next(p for p in posts if p["external_id"] == "p2")
+    assert isinstance(p2_detail["images"], list) and p2_detail["images"] == [
+        "https://x.com/1.jpg",
+        "https://x.com/2.jpg",
+    ]
 
     # 资料绑定
     resp = client.put(
