@@ -106,13 +106,28 @@ def cookie_header(cookies: httpx.Cookies) -> str:
 
 
 def extract_weibo_images(mblog: dict) -> list[str]:
-    """微博动态图片：pics 里的 large/original 图（最多 4 张）。"""
+    """微博动态图片：pics（旧格式）与 pic_infos/pic_ids（mymblog 格式）里的原图（最多 4 张）。"""
     out: list[str] = []
     for pic in mblog.get("pics") or []:
         url = (
             (pic.get("large") or {}).get("url")
             or (pic.get("original") or {}).get("url")
             or pic.get("url")
+            or ""
+        )
+        if url.startswith("//"):
+            url = f"https:{url}"
+        if url and url not in out:
+            out.append(url)
+        if len(out) >= 4:
+            break
+    infos = mblog.get("pic_infos") or {}
+    for pid in mblog.get("pic_ids") or []:
+        info = infos.get(pid) or {}
+        url = (
+            (info.get("original") or {}).get("url")
+            or (info.get("large") or {}).get("url")
+            or (info.get("mw690") or {}).get("url")
             or ""
         )
         if url.startswith("//"):

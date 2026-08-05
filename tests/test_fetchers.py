@@ -277,6 +277,15 @@ def test_weibo_extract_images():
         "https://w/p2.jpg",
         "https://w/p3.jpg",
     ]
+    # mymblog 接口格式：pic_ids + pic_infos
+    mblog2 = {
+        "pic_ids": ["pid1", "pid2"],
+        "pic_infos": {
+            "pid1": {"original": {"url": "//w/o1.jpg"}, "large": {"url": "//w/l1.jpg"}},
+            "pid2": {"mw690": {"url": "https://w/m2.jpg"}},
+        },
+    }
+    assert extract_weibo_images(mblog2) == ["https://w/o1.jpg", "https://w/m2.jpg"]
     assert extract_weibo_images({}) == []
 
 
