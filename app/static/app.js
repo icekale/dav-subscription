@@ -750,7 +750,7 @@ async function renderSettings() {
           <div>
             <p class="section-eyebrow">Channels</p>
             <h3 class="section-title">推送渠道状态</h3>
-            <p class="section-meta">新帖会推送到你绑定的渠道；状态每 4 秒自动刷新。</p>
+            <p class="section-meta">新帖会推送到你绑定的渠道；状态每 10 秒自动刷新。</p>
           </div>
         </header>
         <div id="push-status">${channelStatusHtml(state.user)}</div>
@@ -884,7 +884,7 @@ async function renderSettings() {
       </section>`;
     settingsPollCount = 0;
     stopSettingsPoll();
-    settingsPollTimer = setInterval(refreshSettingsStatus, 4000);
+    settingsPollTimer = setInterval(refreshSettingsStatus, 10000);
   } catch (err) {
     $("#main").innerHTML = emptyState(err.message);
   }

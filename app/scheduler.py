@@ -420,6 +420,7 @@ def notify_subscribers(
     notifiers_config,
     notifiers=None,
     retry_queue: PushRetryQueue | None = None,
+    client=None,
 ) -> None:
     """把新帖推送给订阅了该大V的用户（各自绑定的渠道）。"""
     if notifiers_config is None:
@@ -430,7 +431,8 @@ def notify_subscribers(
     from .notifiers.telegram import TelegramNotifier
     from .notifiers.wecom import WeComNotifier
 
-    client = httpx.Client(timeout=15)
+    owns_client = client is None
+    client = client or httpx.Client(timeout=15)
     try:
         for user in db.subscribers_of_kol(post.kol_id):
             sub_type = user.get("subscribe_type") or "post"
@@ -495,7 +497,8 @@ def notify_subscribers(
                         db, notifiers or [], f"user={user['username']} channel=wecom err={exc}"
                     )
     finally:
-        client.close()
+        if owns_client:
+            client.close()
 
 
 def poll_once(
@@ -537,28 +540,35 @@ def poll_once(
     platform_sem = {p: threading.Semaphore(2) for p in platforms}
     platform_lock = {p: threading.Lock() for p in platforms}
 
-    def _worker(job):
-        kol, fetcher, state = job
-        with platform_sem[kol["platform"]]:
-            _fetch_kol_once(
-                db,
-                fetchers,
-                notifiers,
-                states,
-                kol,
-                fetcher,
-                state,
-                now,
-                interval_seconds,
-                priority_interval_seconds,
-                notifiers_config,
-                digest,
-                retry_queue,
-                platform_lock[kol["platform"]],
-            )
+    import httpx
 
-    with ThreadPoolExecutor(max_workers=min(8, len(jobs))) as ex:
-        list(ex.map(_worker, jobs))
+    client = httpx.Client(timeout=15)
+    try:
+        def _worker(job):
+            kol, fetcher, state = job
+            with platform_sem[kol["platform"]]:
+                _fetch_kol_once(
+                    db,
+                    fetchers,
+                    notifiers,
+                    states,
+                    kol,
+                    fetcher,
+                    state,
+                    now,
+                    interval_seconds,
+                    priority_interval_seconds,
+                    notifiers_config,
+                    digest,
+                    retry_queue,
+                    platform_lock[kol["platform"]],
+                    client,
+                )
+
+        with ThreadPoolExecutor(max_workers=min(8, len(jobs))) as ex:
+            list(ex.map(_worker, jobs))
+    finally:
+        client.close()
     maybe_alert_x_fallback(db, notifiers)
 
 
@@ -577,6 +587,7 @@ def _fetch_kol_once(
     digest: dict[int, list[Post]] | None,
     retry_queue: PushRetryQueue | None,
     state_lock: threading.Lock,
+    client=None,
 ) -> None:
     """并发 worker：抓取单个大V并处理新帖（状态读写加锁保护）。"""
     effective = priority_interval_seconds if kol.get("priority") else interval_seconds
@@ -647,18 +658,9 @@ def _fetch_kol_once(
                     post.content = translate_text(post.content or "")
             except Exception as exc:  # noqa: BLE001 - 翻译失败退回原文
                 logger.warning("X 内容翻译失败 post=%s err=%s", post.external_id, exc)
-        post_id = db.insert_post(
-            post.platform,
-            post.kol_id,
-            post.external_id,
-            post.title,
-            post.content,
-            post.url,
-            post.published_at,
-            post.post_type,
-            post.detail,
-            post.images,
-        )
+    # 批量入库（一个事务），再逐条推送
+    post_ids = db.insert_posts_batch(posts)
+    for post, post_id in zip(posts, post_ids):
         if post_id is None:
             continue
         logger.info("新帖 platform=%s kol=%s id=%s", post.platform, post.kol_name, post.external_id)
@@ -666,7 +668,7 @@ def _fetch_kol_once(
             # 普通大V进入合并摘要缓冲，按 digest_interval 周期统一推送
             digest.setdefault(kol["id"], []).append(post)
         else:
-            notify_subscribers(db, post_id, post, notifiers_config, notifiers, retry_queue)
+            notify_subscribers(db, post_id, post, notifiers_config, notifiers, retry_queue, client=client)
 
 
 def notify_digest_subscribers(

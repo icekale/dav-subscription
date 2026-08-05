@@ -124,6 +124,13 @@ CREATE TABLE IF NOT EXISTS admin_logs (
     detail TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- 性能索引：帖子/日志/订阅按数据量增长后的高频查询
+CREATE INDEX IF NOT EXISTS idx_posts_kol_id ON posts(kol_id);
+CREATE INDEX IF NOT EXISTS idx_posts_fetched_at ON posts(fetched_at);
+CREATE INDEX IF NOT EXISTS idx_push_logs_created_at ON push_logs(created_at);
+CREATE INDEX IF NOT EXISTS idx_push_logs_post_id ON push_logs(post_id);
+CREATE INDEX IF NOT EXISTS idx_subscriptions_kol_id ON subscriptions(kol_id);
 """
 
 ALLOWED_PLATFORMS = {"xueqiu", "combination", "weibo", "twitter"}
@@ -756,29 +763,66 @@ class DB:
         detail: dict | None = None,
         images: list[str] | None = None,
     ) -> int | None:
-        if self.post_exists(platform, external_id):
-            return None
         detail_json = json.dumps(detail, ensure_ascii=False) if detail else ""
         images_json = json.dumps(images, ensure_ascii=False) if images else ""
         try:
-            return self._execute(
-                "INSERT INTO posts (platform, kol_id, external_id, title, content, post_type, images, url, published_at, detail) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    platform,
-                    kol_id,
-                    external_id,
-                    title,
-                    content,
-                    post_type,
-                    images_json,
-                    url,
-                    published_at,
-                    detail_json,
-                ),
-            )
+            with self._lock:
+                cur = self._conn.execute(
+                    "INSERT OR IGNORE INTO posts (platform, kol_id, external_id, title, content, post_type, images, url, published_at, detail) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        platform,
+                        kol_id,
+                        external_id,
+                        title,
+                        content,
+                        post_type,
+                        images_json,
+                        url,
+                        published_at,
+                        detail_json,
+                    ),
+                )
+                if cur.rowcount == 0:
+                    return None  # 唯一约束命中，帖子已存在
+                self._conn.commit()
+                return cur.lastrowid
         except sqlite3.IntegrityError:
             return None  # 并发下重复插入，视为已存在
+
+    def insert_posts_batch(self, posts) -> list[int | None]:
+        """一个事务批量插入帖子，返回与入参对齐的 id 列表（已存在为 None）。"""
+        if not posts:
+            return []
+        with self._lock:
+            try:
+                self._conn.execute("BEGIN")
+                ids: list[int | None] = []
+                for p in posts:
+                    detail_json = json.dumps(p.detail, ensure_ascii=False) if p.detail else ""
+                    images_json = json.dumps(p.images, ensure_ascii=False) if p.images else ""
+                    cur = self._conn.execute(
+                        "INSERT OR IGNORE INTO posts (platform, kol_id, external_id, title, content, post_type, images, url, published_at, detail) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        (
+                            p.platform,
+                            p.kol_id,
+                            p.external_id,
+                            p.title,
+                            p.content,
+                            p.post_type,
+                            images_json,
+                            p.url,
+                            p.published_at,
+                            detail_json,
+                        ),
+                    )
+                    ids.append(cur.lastrowid if cur.rowcount else None)
+                self._conn.commit()
+                return ids
+            except Exception:
+                self._conn.rollback()
+                raise
 
     def list_posts(
         self,
