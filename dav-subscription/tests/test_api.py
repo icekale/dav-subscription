@@ -133,6 +133,30 @@ def test_batch_import_x_kol_auto_resolves_name(monkeypatch):
     assert any(k["name"] == "elonmusk" for k in kols)
 
 
+def test_add_weibo_kol_auto_resolves_name_and_avatar(monkeypatch):
+    from app import api as api_mod
+
+    monkeypatch.setattr(
+        api_mod,
+        "resolve_weibo_profile",
+        lambda uid, cookie="": {
+            "name": "wu2198",
+            "avatar_url": "https://wx1.sinaimg.cn/orj360/wb.jpg",
+            "uid": uid,
+        },
+    )
+    client = make_client()
+    headers = auth_headers(client)
+    resp = client.post(
+        "/api/kols",
+        headers=headers,
+        json={"platform": "weibo", "name": "", "external_id": "https://weibo.com/u/123456"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["name"] == "wu2198"
+    assert resp.json()["avatar_url"] == "https://wx1.sinaimg.cn/orj360/wb.jpg"
+
+
 def test_stats_api():
     client = make_client()
     headers = auth_headers(client)

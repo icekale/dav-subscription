@@ -17,7 +17,7 @@ from .bot_core import BIND_CODE_TTL
 from .db import ALLOWED_PLATFORMS, DB
 from .fetchers.combination import extract_cube_symbol, resolve_combination_profile
 from .fetchers.twitter import resolve_x_profile
-from .fetchers.weibo import WEIBO_COOKIE_KEY
+from .fetchers.weibo import WEIBO_COOKIE_KEY, resolve_weibo_profile
 from .fetchers.xueqiu import (
     XUEQIU_COOKIE_KEY,
     XUEQIU_COOKIE_TIME_KEY,
@@ -772,6 +772,10 @@ def create_api_router(
                 cookie = db.get_setting(XUEQIU_COOKIE_KEY) or os.environ.get("XUEQIU_COOKIE", "")
                 profile = resolve_combination_profile(external_id, cookie)
                 name = profile.get("name") or f"combination_{external_id}"
+            elif body.platform == "weibo":
+                # 没填昵称时自动查微博昵称（公开接口，失败退回占位名）
+                profile = resolve_weibo_profile(external_id)
+                name = profile.get("name") or f"weibo_{external_id}"
             elif body.platform == "twitter":
                 # 没填昵称时自动查 X 显示名（需 TWITTER_COOKIE，失败退回占位名）
                 profile = resolve_x_profile(external_id)
@@ -793,6 +797,8 @@ def create_api_router(
                 profile = resolve_combination_profile(
                     external_id, db.get_setting(XUEQIU_COOKIE_KEY) or ""
                 )
+            elif body.platform == "weibo":
+                profile = resolve_weibo_profile(external_id)
             elif body.platform == "twitter":
                 profile = resolve_x_profile(external_id)
             else:
@@ -856,6 +862,12 @@ def create_api_router(
             elif not nickname and body.platform == "twitter":
                 # 没填昵称时自动查 X 显示名与头像（需 TWITTER_COOKIE）
                 profile = resolve_x_profile(external_id)
+                if profile.get("name"):
+                    name = profile["name"]
+                avatar_url = profile.get("avatar_url") or ""
+            elif not nickname and body.platform == "weibo":
+                # 没填昵称时自动查微博昵称与头像（公开接口）
+                profile = resolve_weibo_profile(external_id)
                 if profile.get("name"):
                     name = profile["name"]
                 avatar_url = profile.get("avatar_url") or ""

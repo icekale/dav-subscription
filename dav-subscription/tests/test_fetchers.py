@@ -234,7 +234,7 @@ def test_xueqiu_waf_html_raises_clear_error():
 
 from app.config import WeiboConfig
 from app.fetchers.base import format_published_at
-from app.fetchers.weibo import WeiboFetcher
+from app.fetchers.weibo import WeiboFetcher, resolve_weibo_profile
 
 
 def test_format_published_at():
@@ -299,6 +299,48 @@ def test_weibo_parse_fixture():
     assert posts[0].external_id == "M1"
     assert posts[0].url == "https://weibo.com/detail/M1"
     assert "行情" in posts[0].content
+
+
+def test_resolve_weibo_profile(monkeypatch):
+    class FakeResp:
+        def __init__(self, data):
+            self._data = data
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self._data
+
+    class FakeClient:
+        def __init__(self, *a, **k):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def get(self, url, params=None):
+            return FakeResp(
+                {
+                    "ok": 1,
+                    "data": {
+                        "userInfo": {
+                            "screen_name": "wu2198",
+                            "avatar_hd": "https://wx1.sinaimg.cn/hd.jpg",
+                        }
+                    },
+                }
+            )
+
+    monkeypatch.setattr("httpx.Client", FakeClient)
+    profile = resolve_weibo_profile("123456")
+    assert profile["name"] == "wu2198"
+    assert profile["avatar_url"] == "https://wx1.sinaimg.cn/hd.jpg"
+
+    assert resolve_weibo_profile("abc") == {}
 
 
 def _make_weibo_login_mocks(fixture):

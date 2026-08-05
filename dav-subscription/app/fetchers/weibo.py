@@ -4,6 +4,7 @@ from __future__ import annotations
 import base64
 import html
 import json
+import logging
 import re
 import time
 
@@ -12,11 +13,56 @@ import rsa
 
 from .base import Fetcher, Post, strip_html
 
+logger = logging.getLogger(__name__)
+
 WEIBO_COOKIE_KEY = "weibo_cookie"
 PRELOGIN_URL = "https://login.sina.com.cn/sso/prelogin.php"
 LOGIN_URL = "https://login.sina.com.cn/sso/login.php"
 # 桌面端 AJAX 接口，配合 weibo.com 域会话 cookie（扫码登录得到的会话即可用）
 TIMELINE_URL = "https://weibo.com/ajax/statuses/mymblog"
+
+
+def resolve_weibo_profile(uid: str, cookie: str = "") -> dict:
+    """按微博 UID 解析昵称与头像（m.weibo.cn 公开接口，无需登录）。
+
+    失败时返回空 dict，调用方回退占位名。
+    """
+    uid = (uid or "").strip()
+    if not uid.isdigit():
+        return {}
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) "
+            "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1"
+        ),
+        "Referer": "https://m.weibo.cn/",
+    }
+    if cookie:
+        headers["Cookie"] = cookie
+    try:
+        with httpx.Client(timeout=15, follow_redirects=True, headers=headers) as client:
+            resp = client.get(
+                "https://m.weibo.cn/api/container/getIndex",
+                params={"type": "uid", "value": uid},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            if data.get("ok") != 1:
+                return {}
+            user = (data.get("data") or {}).get("userInfo") or {}
+            return {
+                "name": user.get("screen_name") or "",
+                "avatar_url": (
+                    user.get("avatar_hd")
+                    or user.get("avatar_large")
+                    or user.get("profile_image_url")
+                    or ""
+                ),
+                "uid": uid,
+            }
+    except Exception as exc:  # noqa: BLE001 - 解析失败退回占位名
+        logger.warning("微博昵称解析失败 uid=%s err=%s", uid, exc)
+        return {}
 
 
 def cookie_header(cookies: httpx.Cookies) -> str:
