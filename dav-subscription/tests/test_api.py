@@ -234,6 +234,24 @@ def test_bind_code_api():
     assert row["user_id"] == me["id"]
 
 
+def test_push_channels_api():
+    client = make_client()
+    headers = user_headers(client, "chuser")
+    # 默认空 = 全部已绑定渠道推送
+    assert client.get("/api/me", headers=headers).json()["push_channels"] == ""
+    # 设置合法渠道
+    resp = client.put("/api/me", headers=headers, json={"push_channels": "telegram,feishu"})
+    assert resp.status_code == 200
+    assert resp.json()["push_channels"] == "telegram,feishu"
+    # 非法渠道被拒绝
+    resp = client.put("/api/me", headers=headers, json={"push_channels": "sms"})
+    assert resp.status_code == 400
+    # 清空恢复默认（全部）
+    resp = client.put("/api/me", headers=headers, json={"push_channels": ""})
+    assert resp.status_code == 200
+    assert resp.json()["push_channels"] == ""
+
+
 def test_change_password_api():
     client = make_client()
     headers = user_headers(client, "pwuser")

@@ -725,6 +725,21 @@ async function renderSettings() {
       <section class="section-panel">
         <header class="section-head">
           <div>
+            <p class="section-eyebrow">Delivery</p>
+            <h3 class="section-title">推送通道选择</h3>
+            <p class="section-meta">绑定多个渠道时，可只给选中的渠道推送；不选则全部推送。</p>
+          </div>
+        </header>
+        <div class="channel-picks" id="push-channels-box">${pushChannelsHtml(state.user)}</div>
+        ${(state.user.telegram_chat_id || state.user.feishu_open_id || state.user.feishu_chat_id || state.user.wecom_webhook)
+          ? `<div class="toolbar" style="margin-top:14px">
+               <button class="btn-normal" onclick="savePushChannels()">保存推送通道</button>
+               <span id="push-channels-result" class="muted"></span>
+             </div>` : ""}
+      </section>
+      <section class="section-panel">
+        <header class="section-head">
+          <div>
             <p class="section-eyebrow">Telegram</p>
             <h3 class="section-title">① 打开 Telegram 机器人</h3>
           </div>
@@ -839,6 +854,36 @@ async function renderSettings() {
     settingsPollTimer = setInterval(refreshSettingsStatus, 4000);
   } catch (err) {
     $("#main").innerHTML = emptyState(err.message);
+  }
+}
+
+function pushChannelsHtml(user) {
+  const opts = [];
+  if (user.telegram_chat_id) opts.push(["telegram", "Telegram"]);
+  if (user.feishu_open_id || user.feishu_chat_id) opts.push(["feishu", "飞书"]);
+  if (user.wecom_webhook) opts.push(["wecom", "企业微信"]);
+  if (!opts.length) return `<p class="muted">还没有绑定推送渠道，先完成上方任一渠道绑定后即可选择。</p>`;
+  const selected = (user.push_channels || "").split(",").map((s) => s.trim()).filter(Boolean);
+  return opts.map(([ch, label]) => `
+    <label class="channel-pick">
+      <input type="checkbox" value="${ch}" ${selected.length === 0 || selected.includes(ch) ? "checked" : ""}> ${label}
+    </label>`).join("");
+}
+
+async function savePushChannels() {
+  const boxes = [...document.querySelectorAll("#push-channels-box input[type=checkbox]")];
+  if (!boxes.length) return;
+  const channels = boxes.filter((b) => b.checked).map((b) => b.value);
+  if (!channels.length) {
+    alert("请至少保留一个推送通道；全部不想要可以关闭「新帖推送开关」");
+    return;
+  }
+  try {
+    await api("/api/me", { method: "PUT", body: JSON.stringify({ push_channels: channels.join(",") }) });
+    state.user.push_channels = channels.join(",");
+    $("#push-channels-result").textContent = "已保存 ✅";
+  } catch (err) {
+    alert("保存失败: " + err.message);
   }
 }
 

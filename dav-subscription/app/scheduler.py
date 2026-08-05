@@ -284,6 +284,14 @@ def _sub_type_matches(sub_type: str, post_type: str) -> bool:
     return sub_type in ("post", "both", "")
 
 
+def _channel_enabled(user: dict, channel: str) -> bool:
+    """用户是否选择用该渠道接收推送；未设置时默认全部已绑定渠道都推。"""
+    selected = user.get("push_channels") or ""
+    if not selected:
+        return True
+    return channel in {c.strip() for c in selected.split(",") if c.strip()}
+
+
 class PlatformState:
     """每个平台连续失败次数与退避截止时间。"""
 
@@ -428,7 +436,7 @@ def notify_subscribers(
             sub_type = user.get("subscribe_type") or "post"
             if not _sub_type_matches(sub_type, post.post_type):
                 continue  # 订阅类型不覆盖该动态（帖子/回复分订）
-            if user["telegram_chat_id"] and (
+            if user["telegram_chat_id"] and _channel_enabled(user, "telegram") and (
                 notifiers_config.telegram.bot_token or user.get("telegram_bot_token")
             ):
                 notifier = TelegramNotifier(
@@ -448,7 +456,9 @@ def notify_subscribers(
                     maybe_alert_push_failure(
                         db, notifiers or [], f"user={user['username']} channel=telegram err={exc}"
                     )
-            if user.get("feishu_open_id") or user.get("feishu_chat_id"):
+            if _channel_enabled(user, "feishu") and (
+                user.get("feishu_open_id") or user.get("feishu_chat_id")
+            ):
                 # 优先用 p2p 会话 chat_id 发送（open_id 直发可能被飞书 230101 拦截）
                 notifier = FeishuNotifier(
                     notifiers_config.feishu,
@@ -467,7 +477,7 @@ def notify_subscribers(
                     maybe_alert_push_failure(
                         db, notifiers or [], f"user={user['username']} channel=feishu err={exc}"
                     )
-            if user.get("wecom_webhook"):
+            if user.get("wecom_webhook") and _channel_enabled(user, "wecom"):
                 notifier = WeComNotifier(
                     notifiers_config.wecom,
                     client=client,
@@ -679,7 +689,7 @@ def notify_digest_subscribers(
             matched = [p for p in posts if _sub_type_matches(sub_type, p.post_type)]
             if not matched:
                 continue
-            if user["telegram_chat_id"] and (
+            if user["telegram_chat_id"] and _channel_enabled(user, "telegram") and (
                 notifiers_config.telegram.bot_token or user.get("telegram_bot_token")
             ):
                 notifier = TelegramNotifier(
@@ -711,7 +721,9 @@ def notify_digest_subscribers(
                             str(exc),
                             user_id=user["id"],
                         )
-            if user.get("feishu_open_id") or user.get("feishu_chat_id"):
+            if _channel_enabled(user, "feishu") and (
+                user.get("feishu_open_id") or user.get("feishu_chat_id")
+            ):
                 notifier = FeishuNotifier(
                     notifiers_config.feishu,
                     client=client,
@@ -741,7 +753,7 @@ def notify_digest_subscribers(
                             str(exc),
                             user_id=user["id"],
                         )
-            if user.get("wecom_webhook"):
+            if user.get("wecom_webhook") and _channel_enabled(user, "wecom"):
                 notifier = WeComNotifier(
                     notifiers_config.wecom,
                     client=client,
@@ -1348,7 +1360,7 @@ class Scheduler:
                 )
                 for r in rows
             ]
-            if user.get("telegram_chat_id") and (
+            if user.get("telegram_chat_id") and _channel_enabled(user, "telegram") and (
                 self.notifiers_config.telegram.bot_token or user.get("telegram_bot_token")
             ):
                 notifier = TelegramNotifier(
@@ -1366,7 +1378,9 @@ class Scheduler:
                     logger.warning("每日精选推送失败 user=%s channel=telegram err=%s", user["username"], exc)
                 finally:
                     notifier.client.close()
-            if user.get("feishu_open_id") or user.get("feishu_chat_id"):
+            if _channel_enabled(user, "feishu") and (
+                user.get("feishu_open_id") or user.get("feishu_chat_id")
+            ):
                 notifier = FeishuNotifier(
                     self.notifiers_config.feishu,
                     open_id=user["feishu_open_id"] if not user.get("feishu_chat_id") else None,
@@ -1382,7 +1396,7 @@ class Scheduler:
                     logger.warning("每日精选推送失败 user=%s channel=feishu err=%s", user["username"], exc)
                 finally:
                     notifier.client.close()
-            if user.get("wecom_webhook"):
+            if user.get("wecom_webhook") and _channel_enabled(user, "wecom"):
                 notifier = WeComNotifier(
                     self.notifiers_config.wecom,
                     webhook_url=user["wecom_webhook"],

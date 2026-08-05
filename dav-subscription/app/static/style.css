@@ -392,6 +392,18 @@ textarea.form-control {
 }
 .sub-type-switch input { accent-color: #16a34a; cursor: pointer; }
 
+/* 推送通道选择 */
+.channel-picks { display: flex; gap: 10px; flex-wrap: wrap; }
+.channel-pick {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 10px 16px; border: var(--border-strong); border-radius: var(--radius-control);
+  background: var(--color-surface); cursor: pointer; user-select: none;
+  font-size: var(--text-sm); color: var(--color-text-strong);
+  transition: all var(--ease-standard);
+}
+.channel-pick:hover { border-color: var(--color-accent); }
+.channel-pick input { accent-color: var(--color-accent); cursor: pointer; }
+
 /* 帖子 */
 .post-item { padding: 16px 4px; border-bottom: var(--border-soft); }
 .post-item:last-child { border-bottom: none; }

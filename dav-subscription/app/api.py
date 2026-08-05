@@ -94,6 +94,7 @@ class MeUpdate(BaseModel):
     wecom_webhook: str | None = None
     notify_enabled: bool | None = None
     daily_report_enabled: bool | None = None
+    push_channels: str | None = None
 
 
 class PasswordChangeIn(BaseModel):
@@ -190,6 +191,7 @@ def public_user(user: dict) -> dict:
         "wecom_webhook": user["wecom_webhook"],
         "notify_enabled": bool(user["notify_enabled"]),
         "daily_report_enabled": bool(user.get("daily_report")),
+        "push_channels": user.get("push_channels") or "",
         "created_at": user["created_at"],
     }
 
@@ -435,6 +437,16 @@ def create_api_router(
             db.update_user(user["id"], notify_enabled=body.notify_enabled)
         if "daily_report_enabled" in body.model_fields_set and body.daily_report_enabled is not None:
             db.update_user(user["id"], daily_report=body.daily_report_enabled)
+        if "push_channels" in body.model_fields_set:
+            value = (body.push_channels or "").strip()
+            channels = [c.strip() for c in value.split(",") if c.strip()] if value else []
+            invalid = [c for c in channels if c not in ("telegram", "feishu", "wecom")]
+            if invalid:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"无效的推送渠道: {', '.join(invalid)}",
+                )
+            db.update_user(user["id"], push_channels=",".join(channels))
         return public_user(db.get_user(user["id"]))
 
     @router.post("/me/bind-code")

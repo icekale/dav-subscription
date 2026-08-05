@@ -429,6 +429,65 @@ def test_notify_subscribers_filters_by_subscribe_type(monkeypatch):
     assert sorted(chat for chat, _ in sent) == ["222", "333"]
 
 
+def test_notify_subscribers_respects_selected_channels(monkeypatch):
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    uid = db.add_user("multi", "h", telegram_chat_id="111", feishu_chat_id="oc_1")
+    db.update_user(uid, wecom_webhook="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=wc1")
+    db.add_subscription(uid, kid)
+    post = Post(
+        platform="xueqiu", kol_id=kid, kol_name="A",
+        external_id="p1", title="t", content="c", url="u", published_at="",
+    )
+    hits = []
+
+    class FakeTG:
+        def __init__(self, *args, **kwargs):
+            self.client = SimpleNamespace(close=lambda: None)
+
+        def notify(self, post):
+            hits.append("telegram")
+
+    class FakeFS:
+        def __init__(self, *args, **kwargs):
+            self.client = SimpleNamespace(close=lambda: None)
+
+        def notify(self, post):
+            hits.append("feishu")
+
+    class FakeWC:
+        def __init__(self, *args, **kwargs):
+            self.client = SimpleNamespace(close=lambda: None)
+
+        def notify(self, post):
+            hits.append("wecom")
+
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FakeTG)
+    monkeypatch.setattr("app.notifiers.feishu.FeishuNotifier", FakeFS)
+    monkeypatch.setattr("app.notifiers.wecom.WeComNotifier", FakeWC)
+    ncfg = SimpleNamespace(
+        telegram=SimpleNamespace(bot_token="t", chat_id=""),
+        feishu=SimpleNamespace(),
+        wecom=SimpleNamespace(),
+    )
+
+    # 未设置选择：全部已绑定渠道都推
+    notify_subscribers(db, 1, post, ncfg, notifiers=[], retry_queue=None)
+    assert sorted(hits) == ["feishu", "telegram", "wecom"]
+    hits.clear()
+
+    # 只选 Telegram
+    db.update_user(uid, push_channels="telegram")
+    notify_subscribers(db, 1, post, ncfg, notifiers=[], retry_queue=None)
+    assert hits == ["telegram"]
+    hits.clear()
+
+    # 选飞书 + 企业微信
+    db.update_user(uid, push_channels="feishu,wecom")
+    notify_subscribers(db, 1, post, ncfg, notifiers=[], retry_queue=None)
+    assert sorted(hits) == ["feishu", "wecom"]
+
+
 def test_source_failure_alert_and_recovery(monkeypatch):
     db = make_db()
     kid = db.add_kol("xueqiu", "A", "1")
