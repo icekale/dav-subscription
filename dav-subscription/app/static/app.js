@@ -618,7 +618,10 @@ function channelStatusHtml(user) {
           <span class="${tg ? "status-ok" : "status-fail"}">${tg ? "已绑定 ✅" : "未绑定"}</span>
         </div>
         <p class="muted" style="margin:8px 0 0">${tg ? "推送已启用" : "按下方步骤操作，本页会自动刷新状态"}</p>
-        ${tg ? `<button class="btn-sm" style="margin-top:10px" onclick="unbindChannel('telegram_chat_id')">解绑</button>` : ""}
+        ${tg
+          ? `<button class="btn-sm" style="margin-top:10px" onclick="unbindChannel('telegram_chat_id')">解绑</button>`
+          : `<button class="btn-sm" style="margin-top:10px" onclick="bindChannel('telegram')">绑定</button>
+             <div id="bind-result-telegram"></div>`}
       </div>
       <div class="channel-card">
         <div class="channel-head">
@@ -630,7 +633,10 @@ function channelStatusHtml(user) {
             : (fsOpen ? "已关联账号，请先在飞书私聊机器人发一条消息"
             : "按下方步骤操作，本页会自动刷新状态")}
         </p>
-        ${fsOpen ? `<button class="btn-sm" style="margin-top:10px" onclick="unbindChannel('feishu')">解绑</button>` : ""}
+        ${fsOpen
+          ? `<button class="btn-sm" style="margin-top:10px" onclick="unbindChannel('feishu')">解绑</button>`
+          : `<button class="btn-sm" style="margin-top:10px" onclick="bindChannel('feishu')">绑定</button>
+             <div id="bind-result-feishu"></div>`}
       </div>
       <div class="channel-card">
         <div class="channel-head">
@@ -823,6 +829,29 @@ async function saveDailyReport() {
     });
   } catch (err) {
     alert("保存失败: " + err.message);
+  }
+}
+
+async function bindChannel(channel) {
+  try {
+    const data = await api("/api/me/bind-code");
+    const code = data.code;
+    const guide = state.user.push_guide || {};
+    const el = channel === "telegram" ? $("#bind-result-telegram") : $("#bind-result-feishu");
+    if (channel === "telegram" && guide.telegram_bot_username) {
+      const link = `https://t.me/${encodeURIComponent(guide.telegram_bot_username)}?start=bind_${code}`;
+      el.innerHTML = `
+        <p style="margin:10px 0 6px">点击下方按钮，Telegram 会自动打开机器人并完成绑定：</p>
+        <a class="btn-normal" href="${link}" target="_blank" rel="noopener">一键绑定 Telegram</a>
+        <p class="muted" style="margin-top:8px">按钮没反应？复制 <b>${escapeHtml(code)}</b> 粘贴给机器人也可以。</p>`;
+    } else {
+      const label = channel === "telegram" ? "Telegram" : "飞书";
+      el.innerHTML = `
+        <p style="margin:10px 0 6px">复制绑定码，粘贴发送给${label}机器人（自动识别，无需命令）：</p>
+        <b style="font-size:20px;letter-spacing:3px">${escapeHtml(code)}</b>`;
+    }
+  } catch (err) {
+    alert("生成绑定码失败: " + err.message);
   }
 }
 

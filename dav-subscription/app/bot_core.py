@@ -59,7 +59,20 @@ class SubscriptionBot:
         缺省时回复到 identity 本身（飞书群聊里回复目标是群 chat_id，需单独传）。
         """
         text = (text or "").strip()
-        if not text.startswith("/"):
+        if not text:
+            return
+        if text.startswith("/"):
+            cmd, _, arg = text.partition(" ")
+            cmd = cmd.lower()
+            # Telegram 深链一键绑定：t.me/<bot>?start=bind_<码> 会自动发 /start bind_码
+            if cmd == "/start" and arg.strip().lower().startswith("bind_"):
+                self._bind(identity_type, identity, arg.strip()[5:], reply_type, reply_id)
+                return
+        else:
+            # 直接粘贴的 6 位绑定码：自动识别，无需记 /bind 命令
+            cleaned = text.upper()
+            if len(cleaned) == 6 and cleaned.isalnum():
+                self._bind(identity_type, identity, cleaned, reply_type, reply_id)
             return
         cmd, _, arg = text.partition(" ")
         cmd = cmd.lower()
