@@ -170,7 +170,7 @@ async function renderHome() {
   }
   $("#main").innerHTML = `
     ${heroPanel("DaV Catalog", "订阅广场", "浏览大V目录，点击卡片查看动态，一键订阅你关注的人。",
-      ["雪球", "雪球组合", "微博", "X"])}
+      [])}
     ${onboardingHtml}
     <section class="section-panel">
       <header class="section-head">
