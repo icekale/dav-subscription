@@ -290,7 +290,7 @@ async function setSubscribeType(kolId, which, input) {
 async function renderMySubs() {
   setPageTitle("我的订阅");
   $("#main").innerHTML = `
-    ${heroPanel("My Subscriptions", "我的订阅", "管理你关注的大V与组合，随时取消订阅。", ["大V", "组合", "分类管理"])}
+    ${heroPanel("My Subscriptions", "我的订阅", "管理你关注的大V与组合，随时取消订阅。", ["大V", "组合"])}
     <section class="section-panel">
       <header class="section-head">
         <div>
@@ -792,27 +792,11 @@ async function genBindCode() {
   }
 }
 
-// ---------- 管理后台 ----------
-const ADMIN_TABS = [
-  ["stats", "数据源"],
-  ["kols", "大V管理"],
-  ["requests", "求添加"],
-  ["codes", "注册码"],
-  ["categories", "分类管理"],
-  ["posts", "帖子"],
-  ["logs", "推送记录"],
-  ["audit", "操作日志"],
-  ["users", "用户"],
-];
-
+// ---------- 管理后台（导航统一走左侧边栏） ----------
 async function renderAdmin(tab) {
   setPageTitle("管理后台");
   $("#main").innerHTML = `
-    ${heroPanel("Admin Console", "管理后台", "维护大V目录、分类与推送记录，查看注册用户。", ["大V", "分类", "推送"])}
-    <div class="module-nav">
-      ${ADMIN_TABS.map(([key, label]) => `
-        <button class="module-tab ${key === tab ? "active" : ""}" onclick="location.hash='#/admin/${key}'">${label}</button>`).join("")}
-    </div>
+    ${heroPanel("Admin Console", "管理后台", "维护大V目录、分类与推送记录，查看注册用户。")}
     <div id="admin-body"></div>`;
   const loaders = { stats: loadAdminStats, kols: loadAdminKols, requests: loadAdminRequests, codes: loadAdminCodes, categories: loadAdminCategories, posts: loadAdminPosts, logs: loadAdminLogs, audit: loadAdminAudit, users: loadAdminUsers };
   await loaders[tab]();
