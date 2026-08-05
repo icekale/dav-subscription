@@ -101,22 +101,39 @@ def make_post(kol_id):
     )
 
 
-def test_new_post_pushed_once():
+def test_new_post_pushed_once(monkeypatch):
     db = make_db()
     kid = db.add_kol("xueqiu", "A", "1")
     cid = db.add_category("实盘")
     db.update_kol(kid, category_id=cid)
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.add_subscription(uid, kid)
     post = make_post(kid)
-    notifier = FakeNotifier()
+    calls = []
 
-    poll_once(db, {"xueqiu": FakeFetcher([post])}, [notifier])
-    assert len(notifier.calls) == 1
-    assert notifier.calls[0].category == "实盘"
+    class FakeTG:
+        def __init__(self, config, chat_id=None, client=None, **kwargs):
+            calls.append(("init", chat_id))
+            self.client = SimpleNamespace(close=lambda: None)
+            self.channel = "telegram"
+
+        def notify(self, post):
+            calls.append(("notify", post.external_id, post.category))
+
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FakeTG)
+    ncfg = SimpleNamespace(
+        telegram=SimpleNamespace(bot_token="t", chat_id=""),
+        feishu=SimpleNamespace(),
+        wecom=SimpleNamespace(),
+    )
+
+    poll_once(db, {"xueqiu": FakeFetcher([post])}, [], notifiers_config=ncfg)
+    assert ("notify", post.external_id, "实盘") in calls
     assert len(db.list_posts()) == 1
     assert db.list_push_logs()[0]["status"] == "success"
 
-    poll_once(db, {"xueqiu": FakeFetcher([post])}, [notifier])
-    assert len(notifier.calls) == 1
+    poll_once(db, {"xueqiu": FakeFetcher([post])}, [], notifiers_config=ncfg)
+    assert calls.count(("notify", post.external_id, "实盘")) == 1
     assert len(db.list_posts()) == 1
 
 
@@ -189,16 +206,17 @@ def test_poll_once_fetches_platforms_concurrently():
         "weibo": make_fetcher(posts[1]),
         "twitter": make_fetcher(posts[2]),
     }
-    notifier = FakeNotifier()
-    poll_once(db, fetchers, [notifier])
+    poll_once(db, fetchers, [])
     # 跨平台并行抓取：峰值并发应大于 1（串行时为 1）
     assert stats["max"] >= 2
-    assert len(notifier.calls) == 3
+    assert len(db.list_posts()) == 3
 
 
-def test_posts_pushed_in_time_order():
+def test_posts_pushed_in_time_order(monkeypatch):
     db = make_db()
     kid = db.add_kol("weibo", "A", "1")
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.add_subscription(uid, kid)
     # 抓取返回乱序（置顶/接口顺序），发布时间为三种不同格式
     posts = [
         Post(
@@ -217,9 +235,23 @@ def test_posts_pushed_in_time_order():
             published_at="Tue, 04 Aug 2026 20:30:00 +0800",
         ),
     ]
-    notifier = FakeNotifier()
-    poll_once(db, {"weibo": FakeFetcher(posts)}, [notifier])
-    assert [p.external_id for p in notifier.calls] == ["p1", "p2", "p3"]
+    order = []
+
+    class FakeTG:
+        def __init__(self, config, chat_id=None, client=None, **kwargs):
+            self.client = SimpleNamespace(close=lambda: None)
+
+        def notify(self, post):
+            order.append(post.external_id)
+
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FakeTG)
+    ncfg = SimpleNamespace(
+        telegram=SimpleNamespace(bot_token="t", chat_id=""),
+        feishu=SimpleNamespace(),
+        wecom=SimpleNamespace(),
+    )
+    poll_once(db, {"weibo": FakeFetcher(posts)}, [], notifiers_config=ncfg)
+    assert order == ["p1", "p2", "p3"]
 
 
 def test_private_kol_subscribers_acl_filtered():
@@ -427,43 +459,76 @@ def test_source_failure_alert_and_recovery(monkeypatch):
     assert any("数据源已恢复" in t for t in notifier.texts)
 
 
-def test_digest_buffers_non_priority_and_flushes():
+def test_digest_buffers_non_priority_and_flushes(monkeypatch):
     db = make_db()
     kid = db.add_kol("xueqiu", "A", "1")  # 普通大V
-    notifier = FakeDigestNotifier()
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.add_subscription(uid, kid)
     digest: dict[int, list] = {}
     posts = [make_post(kid), make_post(kid)]
     posts[1].external_id = "p2"
+    sent = []
+
+    class FakeTG:
+        def __init__(self, config, chat_id=None, client=None, **kwargs):
+            self.client = SimpleNamespace(close=lambda: None)
+
+        def send_digest(self, posts, kol_name, platform):
+            sent.append((len(posts), kol_name))
+
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FakeTG)
+    ncfg = SimpleNamespace(
+        telegram=SimpleNamespace(bot_token="t", chat_id=""),
+        feishu=SimpleNamespace(),
+        wecom=SimpleNamespace(),
+    )
     poll_once(
         db,
         {"xueqiu": FakeFetcher(posts)},
-        [notifier],
+        [],
         interval_seconds=0,
         digest=digest,
+        notifiers_config=ncfg,
     )
     # 普通大V不立即推送，进入摘要缓冲
-    assert notifier.calls == [] and notifier.digests == []
+    assert sent == []
     assert len(digest.get(kid, [])) == 2
 
-    flush_digest(db, digest, [notifier], None)
-    assert len(notifier.digests) == 1
-    assert notifier.digests[0][1] == "A" and len(notifier.digests[0][0]) == 2
+    flush_digest(db, digest, [], ncfg)
+    assert sent == [(2, "A")]
     assert digest == {}
 
 
-def test_priority_kol_bypasses_digest():
+def test_priority_kol_bypasses_digest(monkeypatch):
     db = make_db()
     kid = db.add_kol("xueqiu", "P", "1", priority=True)
-    notifier = FakeNotifier()
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.add_subscription(uid, kid)
+    calls = []
+
+    class FakeTG:
+        def __init__(self, config, chat_id=None, client=None, **kwargs):
+            self.client = SimpleNamespace(close=lambda: None)
+
+        def notify(self, post):
+            calls.append(post.external_id)
+
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FakeTG)
+    ncfg = SimpleNamespace(
+        telegram=SimpleNamespace(bot_token="t", chat_id=""),
+        feishu=SimpleNamespace(),
+        wecom=SimpleNamespace(),
+    )
     digest: dict[int, list] = {}
     poll_once(
         db,
         {"xueqiu": FakeFetcher([make_post(kid)])},
-        [notifier],
+        [],
         interval_seconds=0,
         digest=digest,
+        notifiers_config=ncfg,
     )
-    assert len(notifier.calls) == 1
+    assert len(calls) == 1
     assert digest == {}
 
 
@@ -493,14 +558,30 @@ def test_push_retry_queue_enqueued_on_failure_and_backoff_drops(monkeypatch):
     monkeypatch.setattr("app.scheduler.time.monotonic", lambda: clock["t"])
     db = make_db()
     kid = db.add_kol("xueqiu", "A", "1")
-    notifier = FailAlwaysNotifier()
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.add_subscription(uid, kid)
+
+    class FailingTelegram:
+        def __init__(self, config, chat_id=None, client=None, **kwargs):
+            self.client = SimpleNamespace(close=lambda: None)
+
+        def notify(self, post):
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FailingTelegram)
+    ncfg = SimpleNamespace(
+        telegram=SimpleNamespace(bot_token="t", chat_id=""),
+        feishu=SimpleNamespace(),
+        wecom=SimpleNamespace(),
+    )
     q = PushRetryQueue()
     poll_once(
         db,
         {"xueqiu": FakeFetcher([make_post(kid)])},
-        [notifier],
+        [],
         interval_seconds=0,
         retry_queue=q,
+        notifiers_config=ncfg,
     )
     assert q.pending() == 1
     clock["t"] = 2000  # 越过 60 秒退避
@@ -530,22 +611,6 @@ def test_retry_recovery_from_failed_logs():
     )
     scheduler._recover_failed_pushes()
     assert scheduler.retry_queue.pending() == 1
-
-
-def test_flush_digest_fallback_notify_without_send_digest():
-    db = make_db()
-    kid = db.add_kol("xueqiu", "A", "1")
-    notifier = FakeNotifier()  # 没有 send_digest，走逐条推送兜底
-    digest: dict[int, list] = {}
-    poll_once(
-        db,
-        {"xueqiu": FakeFetcher([make_post(kid)])},
-        [notifier],
-        interval_seconds=0,
-        digest=digest,
-    )
-    flush_digest(db, digest, [notifier], None)
-    assert len(notifier.calls) == 1
 
 
 def test_daily_report_sent_to_enabled_user(monkeypatch):
@@ -917,17 +982,27 @@ def test_weibo_cookie_keepalive_refresh_and_expired_alert():
     assert "会话已失效" in db.get_setting("source_err_weibo")
 
 
-def test_push_failure_logged():
+def test_push_failure_logged(monkeypatch):
     db = make_db()
     kid = db.add_kol("xueqiu", "A", "1")
     post = make_post(kid)
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.add_subscription(uid, kid)
 
-    class FailingNotifier(FakeNotifier):
+    class FailingTelegram:
+        def __init__(self, config, chat_id=None, client=None, **kwargs):
+            self.client = SimpleNamespace(close=lambda: None)
+
         def notify(self, post):
             raise RuntimeError("down")
 
-    notifier = FailingNotifier()
-    poll_once(db, {"xueqiu": FakeFetcher([post])}, [notifier])
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FailingTelegram)
+    ncfg = SimpleNamespace(
+        telegram=SimpleNamespace(bot_token="t", chat_id=""),
+        feishu=SimpleNamespace(),
+        wecom=SimpleNamespace(),
+    )
+    poll_once(db, {"xueqiu": FakeFetcher([post])}, [], notifiers_config=ncfg)
     logs = db.list_push_logs()
     assert logs[0]["status"] == "failed"
     assert "down" in logs[0]["error"]
@@ -1048,7 +1123,7 @@ def test_subscriber_push_uses_user_channels(monkeypatch):
     assert all(log["status"] == "success" for log in logs)
 
 
-def test_global_tg_chat_not_pushed_twice(monkeypatch):
+def test_global_tg_chat_subscriber_still_receives(monkeypatch):
     calls = []
 
     class FakeTelegram:
@@ -1086,7 +1161,8 @@ def test_global_tg_chat_not_pushed_twice(monkeypatch):
         feishu=FeishuConfig(app_id="a", app_secret="s"),
     )
 
-    # 全局 TG 通知目标与订阅者相同：只推一次（全局），不重复按用户推
+    # kale 场景：全局告警目标与订阅者 TG 相同；帖子只按订阅关系推，
+    # 全局通知器不再推所有帖子
     global_notifier = GlobalNotifier()
     poll_once(
         db,
@@ -1094,8 +1170,8 @@ def test_global_tg_chat_not_pushed_twice(monkeypatch):
         [global_notifier],
         notifiers_config=ncfg,
     )
-    assert len(global_notifier.calls) == 1
-    assert calls == []  # 订阅者与全局目标相同，不再按用户重复推
+    assert global_notifier.calls == []  # 全局不再推帖子
+    assert calls == [("telegram", "777000")]  # 订阅者正常收到订阅的帖子
     logs = db.list_push_logs()
     assert len(logs) == 1 and logs[0]["status"] == "success"
 

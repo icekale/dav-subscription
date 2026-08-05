@@ -404,31 +404,6 @@ def maybe_alert_x_fallback(db: DB, notifiers: list[Notifier]) -> None:
     db.set_setting(X_DIRECT_ALERT_KEY, str(now))
 
 
-def notify_post(
-    db: DB,
-    post_id: int,
-    post: Post,
-    notifiers: list[Notifier],
-    retry_queue: PushRetryQueue | None = None,
-) -> None:
-    """向所有通知器推送，失败记录日志并重试一次。"""
-    for notifier in notifiers:
-        try:
-            notifier.notify(post)
-            db.add_push_log(post_id, notifier.channel, "success")
-        except Exception as exc:  # noqa: BLE001 - 推送失败只记录
-            logger.warning("推送失败 channel=%s post=%s err=%s", notifier.channel, post.external_id, exc)
-            db.add_push_log(post_id, notifier.channel, "failed", str(exc))
-            try:
-                notifier.notify(post)
-                db.add_push_log(post_id, notifier.channel, "success")
-            except Exception as exc2:  # noqa: BLE001
-                logger.error("推送重试失败 channel=%s post=%s err=%s", notifier.channel, post.external_id, exc2)
-                db.add_push_log(post_id, notifier.channel, "failed", str(exc2))
-                if retry_queue is not None:
-                    retry_queue.add(post, notifier.channel)
-
-
 def notify_subscribers(
     db: DB,
     post_id: int,
@@ -446,9 +421,6 @@ def notify_subscribers(
     from .notifiers.telegram import TelegramNotifier
     from .notifiers.wecom import WeComNotifier
 
-    # 全局 TG 通知（config.chat_id）已覆盖的接收者，避免同一条帖子推两次
-    global_tg_chat = notifiers_config.telegram.chat_id
-    global_tg_active = bool(notifiers_config.telegram.bot_token and global_tg_chat)
     client = httpx.Client(timeout=15)
     try:
         for user in db.subscribers_of_kol(post.kol_id):
@@ -458,8 +430,6 @@ def notify_subscribers(
             if user["telegram_chat_id"] and (
                 notifiers_config.telegram.bot_token or user.get("telegram_bot_token")
             ):
-                if global_tg_active and user["telegram_chat_id"] == global_tg_chat:
-                    continue  # 已由全局推送覆盖
                 notifier = TelegramNotifier(
                     notifiers_config.telegram,
                     client=client,
@@ -680,7 +650,6 @@ def _fetch_kol_once(
             # 普通大V进入合并摘要缓冲，按 digest_interval 周期统一推送
             digest.setdefault(kol["id"], []).append(post)
         else:
-            notify_post(db, post_id, post, notifiers, retry_queue)
             notify_subscribers(db, post_id, post, notifiers_config, notifiers, retry_queue)
 
 
@@ -701,8 +670,6 @@ def notify_digest_subscribers(
     from .notifiers.telegram import TelegramNotifier
     from .notifiers.wecom import WeComNotifier
 
-    global_tg_chat = notifiers_config.telegram.chat_id
-    global_tg_active = bool(notifiers_config.telegram.bot_token and global_tg_chat)
     client = httpx.Client(timeout=15)
     try:
         for user in db.subscribers_of_kol(kol["id"]):
@@ -713,8 +680,6 @@ def notify_digest_subscribers(
             if user["telegram_chat_id"] and (
                 notifiers_config.telegram.bot_token or user.get("telegram_bot_token")
             ):
-                if global_tg_active and user["telegram_chat_id"] == global_tg_chat:
-                    continue
                 notifier = TelegramNotifier(
                     notifiers_config.telegram,
                     client=client,
@@ -813,7 +778,7 @@ def flush_digest(
     notifiers_config,
     retry_queue: PushRetryQueue | None = None,
 ) -> None:
-    """到点把缓冲的摘要统一推送：全局通知器 + 订阅者。"""
+    """到点把缓冲的摘要统一推送给订阅者（不再做全局推送）。"""
     if not digest:
         return
     items = list(digest.items())
@@ -822,34 +787,6 @@ def flush_digest(
         kol = db.get_kol(kol_id)
         if kol is None or not posts:
             continue
-        for notifier in notifiers:
-            send = getattr(notifier, "send_digest", None)
-            if send is None:
-                for post in posts:
-                    post_id = db.get_post_id(post.platform, post.external_id)
-                    if post_id:
-                        notify_post(db, post_id, post, [notifier], retry_queue)
-                continue
-            try:
-                send(posts, kol["name"], kol["platform"])
-                for post in posts:
-                    db.add_push_log(
-                        db.get_post_id(post.platform, post.external_id),
-                        notifier.channel,
-                        "success",
-                    )
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("全局摘要推送失败 channel=%s err=%s", notifier.channel, exc)
-                if retry_queue is not None:
-                    for post in posts:
-                        retry_queue.add(post, notifier.channel)
-                for post in posts:
-                    db.add_push_log(
-                        db.get_post_id(post.platform, post.external_id),
-                        notifier.channel,
-                        "failed",
-                        str(exc),
-                    )
         notify_digest_subscribers(db, posts, kol, notifiers_config, notifiers, retry_queue)
 
 
