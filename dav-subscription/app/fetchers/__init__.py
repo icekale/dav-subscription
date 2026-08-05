@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from .base import Fetcher
 from .combination import CombinationFetcher
-from .rss import RssFetcher
+from .twitter import TwitterFetcher
 from .weibo import WeiboFetcher
 from .xueqiu import XueqiuFetcher
 
@@ -13,5 +13,5 @@ def build_fetchers(config, db) -> dict[str, Fetcher]:
         "xueqiu": XueqiuFetcher(config.sources.xueqiu, db),
         "combination": CombinationFetcher(config.sources.xueqiu, db),
         "weibo": WeiboFetcher(config.sources.weibo, db),
-        "twitter": RssFetcher(config.sources.rss, db),
+        "twitter": TwitterFetcher(config.sources.rss, db),
     }

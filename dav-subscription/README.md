@@ -115,13 +115,12 @@ docker compose up -d --build
 
 ## X (Twitter) 订阅
 
-X 官方 API 需付费，本项目通过 RSS 源订阅。每个 X 大V 在「订阅管理」中添加时，外部 ID 填 RSS 地址，例如：
+主通道通过 X 官方内部 GraphQL 接口直抓（需配置 `TWITTER_COOKIE` 登录 Cookie），
+内容默认自动翻译成中文（同 X 网页版）。每个 X 大V 添加时填主页链接即可，例如
+`https://x.com/elonmusk`（或直接填用户名 `elonmusk`）。
 
-- RSSHub 公共实例：`https://rsshub.app/twitter/user/elonmusk`
-- 自建 RSSHub：`http://<你的地址>/twitter/user/elonmusk`
-- 其他兼容 RSS 2.0 的源亦可
-
-RSS 源不稳定时该平台会暂时抓不到，建议自建 RSSHub 保证可用性。
+直抓接口被 X 风控/轮换导致暂时失败时，自动回退到 RSSHub 备用 RSS 通道
+（`RSSHUB_BASE`，默认公共实例 `https://rsshub.app`），抓取不中断。
 
 ## 生产部署（HTTPS + 正式域名）
 
@@ -173,8 +172,7 @@ RSS 源不稳定时该平台会暂时抓不到，建议自建 RSSHub 保证可�
 - 雪球 cookie 支持后台直接写入（数据源页），调度器会按 `source_probe_interval_seconds` 主动探测反爬状态。
 - Unraid 定时备份：在 User Scripts 里配置 daily，命令
   `bash /mnt/user/appdata/dav-subscription/scripts/backup_unraid.sh`（保留最近 14 份，可设 `KEEP`）。
-- 自建 RSSHub：`docker compose -f deploy/docker-compose.rsshub.yml up -d`，X 大V的地址换成
-  `http://<Unraid IP>:1200/twitter/user/用户名` 更稳定。
+- X 采集默认走官方直抓 + RSSHub 备用，无需单独部署 RSSHub 容器。
 
 ## 安全提示
 

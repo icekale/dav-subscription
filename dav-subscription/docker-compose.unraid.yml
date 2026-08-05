@@ -29,7 +29,7 @@ services:
       RSSHUB_BASE: "${RSSHUB_BASE:-https://rsshub.app}"
       XAI_API_KEY: "${XAI_API_KEY}"
       XAI_MODEL: "${XAI_MODEL:-grok-2-latest}"
-      # X 登录 Cookie（完整串）：既供 RSSHub 抓取，也让 X 官方翻译生效（免 API key）
+      # X 登录 Cookie（完整串）：主通道直抓 X 官方接口 + 官方翻译，免 API key
       TWITTER_COOKIE: "${TWITTER_COOKIE}"
       WEB_ALLOW_REGISTER: "${WEB_ALLOW_REGISTER:-true}"
       WEB_ADMIN_PASSWORD: "${WEB_ADMIN_PASSWORD}"

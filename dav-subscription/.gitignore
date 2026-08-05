@@ -6,3 +6,5 @@ config.yaml
 .env
 *.pyc
 backups/
+
+.DS_Store

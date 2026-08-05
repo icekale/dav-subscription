@@ -19,7 +19,7 @@ sources:
     username: ""      # 可选：微博账号（配置后自动登录续期 cookie）
     password: ""      # 可选：微博密码
   rss:
-    rsshub_base: "https://rsshub.app"  # X/RSS 抓取用的 RSSHub 实例（自建后改成自己的地址）
+    rsshub_base: "https://rsshub.app"  # X 直抓失败时的备用 RSS 通道（RSSHub 公共实例，可不改）
 
 polling:
   interval_seconds: 180

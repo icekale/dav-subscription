@@ -128,7 +128,7 @@ async function renderHome() {
   setPageTitle("订阅广场");
   $("#main").innerHTML = `
     ${heroPanel("DaV Catalog", "订阅广场", "浏览大V目录，点击卡片查看动态，一键订阅你关注的人。",
-      ["雪球", "雪球组合", "微博", "X / RSS"])}
+      ["雪球", "雪球组合", "微博", "X"])}
     <section class="section-panel">
       <header class="section-head">
         <div>
@@ -415,7 +415,7 @@ async function renderSearch() {
   const params = new URLSearchParams(location.hash.split("?")[1] || "");
   const query = params.get("q") || "";
   $("#main").innerHTML = `
-    ${heroPanel("Search", "搜索大V", "按昵称或外部 ID（雪球 UID / 微博 UID / RSS 地址）查找。")}
+    ${heroPanel("Search", "搜索大V", "按昵称或外部 ID（雪球 UID / 微博 UID / X 用户名）查找。")}
     <section class="section-panel">
       <div class="search-bar" style="margin-bottom:16px">
         <span>🔍</span>
@@ -437,7 +437,7 @@ async function renderSearch() {
             <option value="xueqiu">雪球</option>
             <option value="combination">雪球组合</option>
             <option value="weibo">微博</option>
-            <option value="twitter">X (RSS)</option>
+            <option value="twitter">X</option>
           </select>
           <input id="ask-link" class="form-control" style="margin:0;flex:1;min-width:220px" placeholder="大V主页链接或 ID">
           <button class="btn-normal" onclick="submitAsk()">提交申请</button>
@@ -1039,11 +1039,11 @@ async function loadAdminKols() {
             <option value="xueqiu">雪球</option>
             <option value="combination">雪球组合</option>
             <option value="weibo">微博</option>
-            <option value="twitter">X (RSS)</option>
+            <option value="twitter">X</option>
           </select>
           <select id="ad-category" class="form-control" style="margin:0;width:auto"><option value="">未分类</option>${catOptions}</select>
           <input id="ad-name" class="form-control" style="margin:0;width:200px" placeholder="昵称">
-          <input id="ad-external" class="form-control" style="margin:0;width:300px" placeholder="user_id / uid / RSS链接 / 雪球主页链接">
+          <input id="ad-external" class="form-control" style="margin:0;width:300px" placeholder="user_id / uid / X主页链接 / 雪球主页链接">
           <button class="btn-normal" onclick="adminAddKol()">添加</button>
         </div>
       </header>
@@ -1059,7 +1059,7 @@ async function loadAdminKols() {
           <option value="xueqiu">雪球</option>
           <option value="combination">雪球组合</option>
           <option value="weibo">微博</option>
-          <option value="twitter">X (RSS)</option>
+          <option value="twitter">X</option>
         </select>
         <select id="ad-batch-category" class="form-control" style="margin:0;width:auto"><option value="">未分类</option>${catOptions}</select>
         <button class="btn-normal" onclick="adminBatchAddKols()">批量导入</button>
