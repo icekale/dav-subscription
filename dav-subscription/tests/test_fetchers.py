@@ -323,22 +323,34 @@ def test_resolve_weibo_profile(monkeypatch):
             return False
 
         def get(self, url, params=None):
+            if "weibo.com/ajax" in url:
+                return FakeResp(
+                    {
+                        "ok": 1,
+                        "data": {
+                            "user": {
+                                "screen_name": "wu2198",
+                                "avatar_hd": "https://wx1.sinaimg.cn/ajax.jpg",
+                            }
+                        },
+                    }
+                )
             return FakeResp(
                 {
                     "ok": 1,
                     "data": {
                         "userInfo": {
                             "screen_name": "wu2198",
-                            "avatar_hd": "https://wx1.sinaimg.cn/hd.jpg",
+                            "avatar_hd": "https://wx1.sinaimg.cn/mobile.jpg",
                         }
                     },
                 }
             )
 
     monkeypatch.setattr("httpx.Client", FakeClient)
-    profile = resolve_weibo_profile("123456")
+    profile = resolve_weibo_profile("123456", cookie="SUB=xyz")
     assert profile["name"] == "wu2198"
-    assert profile["avatar_url"] == "https://wx1.sinaimg.cn/hd.jpg"
+    assert profile["avatar_url"] == "https://wx1.sinaimg.cn/ajax.jpg"
 
     assert resolve_weibo_profile("abc") == {}
 

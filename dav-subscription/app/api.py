@@ -774,7 +774,10 @@ def create_api_router(
                 name = profile.get("name") or f"combination_{external_id}"
             elif body.platform == "weibo":
                 # 没填昵称时自动查微博昵称（公开接口，失败退回占位名）
-                profile = resolve_weibo_profile(external_id)
+                profile = resolve_weibo_profile(
+                    external_id,
+                    db.get_setting(WEIBO_COOKIE_KEY) or os.environ.get("WEIBO_COOKIE", ""),
+                )
                 name = profile.get("name") or f"weibo_{external_id}"
             elif body.platform == "twitter":
                 # 没填昵称时自动查 X 显示名（需 TWITTER_COOKIE，失败退回占位名）
@@ -798,7 +801,10 @@ def create_api_router(
                     external_id, db.get_setting(XUEQIU_COOKIE_KEY) or ""
                 )
             elif body.platform == "weibo":
-                profile = resolve_weibo_profile(external_id)
+                profile = resolve_weibo_profile(
+                    external_id,
+                    db.get_setting(WEIBO_COOKIE_KEY) or os.environ.get("WEIBO_COOKIE", ""),
+                )
             elif body.platform == "twitter":
                 profile = resolve_x_profile(external_id)
             else:
@@ -867,7 +873,10 @@ def create_api_router(
                 avatar_url = profile.get("avatar_url") or ""
             elif not nickname and body.platform == "weibo":
                 # 没填昵称时自动查微博昵称与头像（公开接口）
-                profile = resolve_weibo_profile(external_id)
+                profile = resolve_weibo_profile(
+                    external_id,
+                    db.get_setting(WEIBO_COOKIE_KEY) or os.environ.get("WEIBO_COOKIE", ""),
+                )
                 if profile.get("name"):
                     name = profile["name"]
                 avatar_url = profile.get("avatar_url") or ""

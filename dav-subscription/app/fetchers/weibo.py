@@ -23,14 +23,24 @@ TIMELINE_URL = "https://weibo.com/ajax/statuses/mymblog"
 
 
 def resolve_weibo_profile(uid: str, cookie: str = "") -> dict:
-    """按微博 UID 解析昵称与头像（m.weibo.cn 公开接口，无需登录）。
+    """按微博 UID 解析昵称与头像。
 
-    失败时返回空 dict，调用方回退占位名。
+    优先 weibo.com 官方 AJAX（需会话 Cookie，扫码/自动登录后可用）；
+    无 Cookie 或失败时退回 m.weibo.cn 公开接口（数据中心 IP 可能被 432 风控）。
+    全部失败返回空 dict，调用方回退占位名。
     """
     uid = (uid or "").strip()
     if not uid.isdigit():
         return {}
-    headers = {
+    desktop_headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+        ),
+        "Referer": "https://weibo.com/",
+        "Cookie": cookie,
+    }
+    mobile_headers = {
         "User-Agent": (
             "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) "
             "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1"
@@ -38,9 +48,29 @@ def resolve_weibo_profile(uid: str, cookie: str = "") -> dict:
         "Referer": "https://m.weibo.cn/",
     }
     if cookie:
-        headers["Cookie"] = cookie
+        try:
+            with httpx.Client(timeout=15, headers=desktop_headers) as client:
+                resp = client.get(
+                    "https://weibo.com/ajax/profile/info",
+                    params={"uid": uid},
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                if data.get("ok") == 1:
+                    user = (data.get("data") or {}).get("user") or {}
+                    name = user.get("screen_name") or ""
+                    avatar = (
+                        user.get("avatar_hd")
+                        or user.get("avatar_large")
+                        or user.get("profile_image_url")
+                        or ""
+                    )
+                    if name or avatar:
+                        return {"name": name, "avatar_url": avatar, "uid": uid}
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("微博 AJAX 解析失败 uid=%s err=%s", uid, exc)
     try:
-        with httpx.Client(timeout=15, follow_redirects=True, headers=headers) as client:
+        with httpx.Client(timeout=15, follow_redirects=True, headers=mobile_headers) as client:
             resp = client.get(
                 "https://m.weibo.cn/api/container/getIndex",
                 params={"type": "uid", "value": uid},
