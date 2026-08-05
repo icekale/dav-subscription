@@ -122,7 +122,7 @@ class TelegramBot:
         try:
             self._call("answerCallbackQuery", callback_query_id=cq_id)
         except Exception:  # noqa: BLE001 - 轻量回执失败不影响主流程
-            pass
+            logger.warning("answerCallbackQuery 失败 cq_id=%s", cq_id)
         user = self._get_or_create_user(
             "telegram_chat_id",
             str(chat_id),

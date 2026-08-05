@@ -5,7 +5,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from app.config import Config, WeChatConfig
+from app.config import Config
 from app.db import DB
 from app.main import create_app
 
@@ -402,7 +402,7 @@ def test_batch_import_auto_fills_xueqiu_nickname(monkeypatch):
     kols = client.get("/api/kols", headers=headers).json()
     names = {k["external_id"]: k["name"] for k in kols}
     assert names["55555"] == "自动昵称"
-    assert [k for k in kols if k["external_id"] == "55555"][0]["avatar_url"] == "https://x/avatar.png"
+    assert next(k for k in kols if k["external_id"] == "55555")["avatar_url"] == "https://x/avatar.png"
     assert names["66666"] == "xueqiu_66666"  # 解析失败退回兜底名
     assert names["77777"] == "段永平"  # 已填昵称不覆盖
 
@@ -617,7 +617,9 @@ def test_register_requires_invite_code():
         json={"username": "invited", "password": "secret123", "code": codes[0]},
     )
     assert resp.status_code == 200
-    row = [c for c in client.get("/api/admin/register-codes", headers=admin_headers).json() if c["code"] == codes[0]][0]
+    row = next(
+        c for c in client.get("/api/admin/register-codes", headers=admin_headers).json() if c["code"] == codes[0]
+    )
     assert row["used_by"] and row["used_by_name"] == "invited"
 
     # 同一注册码不能再用

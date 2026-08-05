@@ -1,6 +1,6 @@
+import json
 import tempfile
 import time
-import json
 from pathlib import Path
 
 from app.db import DB
@@ -43,8 +43,10 @@ def test_list_pagination():
 
 
 def test_feishu_card_action_subscribe():
-    db, bot, sent = make_bot()
-    from lark_oapi.event.callback.model.p2_card_action_trigger import P2CardActionTrigger
+    db, bot, _ = make_bot()
+    from lark_oapi.event.callback.model.p2_card_action_trigger import (
+        P2CardActionTrigger,
+    )
 
     event = P2CardActionTrigger(
         {
@@ -100,7 +102,9 @@ def test_feishu_card_hides_private_kol_and_denies_sub():
     assert "大V" in card_text  # 公开大V仍在
 
     # 直接触发私有大V的订阅回调应被拒绝
-    from lark_oapi.event.callback.model.p2_card_action_trigger import P2CardActionTrigger
+    from lark_oapi.event.callback.model.p2_card_action_trigger import (
+        P2CardActionTrigger,
+    )
 
     event = P2CardActionTrigger(
         {

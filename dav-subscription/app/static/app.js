@@ -240,7 +240,8 @@ async function toggleSubscribe(kolId, btn) {
 
 function refreshKolsView() {
   const hash = location.hash;
-  if (hash.startsWith("#/mysubs")) renderMySubs();
+  if (hash.startsWith("#/combinations")) renderCombinations();
+  else if (hash.startsWith("#/mysubs")) renderMySubs();
   else if (hash.startsWith("#/kol/")) renderKolPage(Number(hash.split("/")[2] || 0));
   else loadHomeKols();
 }

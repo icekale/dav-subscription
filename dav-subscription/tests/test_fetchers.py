@@ -270,7 +270,7 @@ def test_rss_fetch_resolves_x_and_saves_avatar():
         "<description>市场动态</description>"
         "<pubDate>Tue, 04 Aug 2026 10:00:00 +0800</pubDate>"
         "</item></channel></rss>"
-    ).encode("utf-8")
+    ).encode()
 
     def handler(request):
         assert request.url.path == "/twitter/user/SemiAnalysis_"
@@ -399,8 +399,6 @@ def test_weibo_html_login_redirect_triggers_auto_login():
 
 
 def test_weibo_login_failure_raises():
-    fixture = json.loads((FIXTURES / "weibo_sample.json").read_text(encoding="utf-8"))
-
     def handler(request):
         if request.url.path == "/sso/prelogin.php":
             _, priv = rsa.newkeys(512)
@@ -465,7 +463,6 @@ def test_weibo_prelogin_missing_pubkey_raises():
     raise AssertionError("缺 pubkey 时应抛出清晰错误")
 
 
-from app.fetchers.rss import RssFetcher
 
 
 def test_rss_parse_fixture():

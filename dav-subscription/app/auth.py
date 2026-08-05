@@ -24,7 +24,7 @@ DUMMY_HASH = hash_password("__dummy__")
 
 def verify_password(password: str, stored: str) -> bool:
     try:
-        salt, digest = stored.split("$", 1)
+        salt = stored.split("$", 1)[0]
     except ValueError:
         return False
     return hmac.compare_digest(hash_password(password, salt), stored)

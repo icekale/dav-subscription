@@ -34,6 +34,7 @@ WELCOME_TEXT = (
 BIND_CODE_TTL = 600
 LIST_PAGE_SIZE = 20
 SUB_TYPE_LABELS = {"post": "帖子", "reply": "回复", "both": "帖子+回复"}
+PLATFORM_LABELS = {"xueqiu": "雪球", "combination": "雪球组合", "weibo": "微博", "twitter": "X"}
 
 
 class SubscriptionBot:
@@ -143,7 +144,9 @@ class SubscriptionBot:
         page_kols = kols[start : start + LIST_PAGE_SIZE]
         lines = ["📋 可订阅的大V："]
         lines.extend(
-            f"{'✅' if k['id'] in subscribed else '⬜'} {k['id']}. {k['name']}（{k['platform']}）{'🔥' if k.get('priority') else ''}"
+            f"{'✅' if k['id'] in subscribed else '⬜'} {k['id']}. {k['name']}"
+            f"（{PLATFORM_LABELS.get(k['platform'], k['platform'])}）"
+            f"{'🔥' if k.get('priority') else ''}"
             for k in page_kols
         )
         if any(k.get("priority") for k in page_kols):

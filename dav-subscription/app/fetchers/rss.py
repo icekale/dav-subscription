@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import re
 
-import httpx
 import feedparser
+import httpx
 
 from .base import Fetcher, Post, strip_html
 

@@ -1,6 +1,6 @@
 const { request } = require("../../utils/api");
 
-const PLATFORM_LABELS = { xueqiu: "雪球", weibo: "微博", twitter: "X" };
+const PLATFORM_LABELS = { xueqiu: "雪球", combination: "雪球组合", weibo: "微博", twitter: "X" };
 
 Page({
   data: {
@@ -11,6 +11,7 @@ Page({
     platforms: [
       { value: "", label: "全部" },
       { value: "xueqiu", label: "雪球" },
+      { value: "combination", label: "雪球组合" },
       { value: "weibo", label: "微博" },
       { value: "twitter", label: "X" },
     ],

@@ -1,25 +1,27 @@
 """REST API：认证、订阅目录、我的动态、KOL/分类管理。"""
 from __future__ import annotations
 
+import logging
+import os
 import re
 import secrets
 import time
-import os
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 
-from . import auth
-from . import wechat
+from . import auth, wechat
 from .bot_core import BIND_CODE_TTL
 from .db import ALLOWED_PLATFORMS, DB
 from .fetchers.combination import extract_cube_symbol, resolve_combination_profile
+from .fetchers.weibo import WEIBO_COOKIE_KEY
 from .fetchers.xueqiu import (
     XUEQIU_COOKIE_KEY,
     XUEQIU_COOKIE_TIME_KEY,
     resolve_profile,
 )
-from .fetchers.weibo import WEIBO_COOKIE_KEY
 from .weibo_qr import create_qr, poll_qr
 
 
@@ -506,7 +508,7 @@ def create_api_router(
         try:
             db.add_subscription(req["user_id"], kid)
         except Exception:  # noqa: BLE001 - 自动订阅失败不阻塞审批
-            pass
+            logger.warning("审批后自动订阅失败 request=%s", request_id, exc_info=True)
         if notifiers_config is not None:
             from .notifiers.feishu import FeishuNotifier
             from .notifiers.telegram import TelegramNotifier
@@ -521,7 +523,7 @@ def create_api_router(
                     )
                     notifier.send_text(message)
                 except Exception:  # noqa: BLE001
-                    pass
+                    logger.warning("审批通知 TG 发送失败 user=%s", requester["username"], exc_info=True)
                 finally:
                     if notifier is not None:
                         notifier.client.close()
@@ -535,7 +537,7 @@ def create_api_router(
                     )
                     notifier.send_text(message)
                 except Exception:  # noqa: BLE001
-                    pass
+                    logger.warning("审批通知飞书发送失败 user=%s", requester["username"], exc_info=True)
                 finally:
                     if notifier is not None:
                         notifier.client.close()
@@ -611,7 +613,7 @@ def create_api_router(
             raise HTTPException(status_code=400, detail="cookie 不能为空")
         db.set_setting(XUEQIU_COOKIE_KEY, cookie)
         db.set_setting(XUEQIU_COOKIE_TIME_KEY, str(int(time.time())))
-        _audit(admin, "set_xueqiu_cookie", "", "len=%d" % len(cookie))
+        _audit(admin, "set_xueqiu_cookie", "", f"len={len(cookie)}")
         return {"ok": True}
 
     @router.delete("/admin/register-codes/{code}", dependencies=[Depends(require_admin)])
@@ -758,9 +760,8 @@ def create_api_router(
     def update_kol(kol_id: int, body: KolUpdate, admin: dict = Depends(require_admin)):
         if db.get_kol(kol_id) is None:
             raise HTTPException(status_code=404, detail="KOL 不存在")
-        if "category_id" in body.model_fields_set and body.category_id is not None:
-            if db.get_category(body.category_id) is None:
-                raise HTTPException(status_code=400, detail="分类不存在")
+        if "category_id" in body.model_fields_set and body.category_id is not None and db.get_category(body.category_id) is None:
+            raise HTTPException(status_code=400, detail="分类不存在")
         name = body.name.strip() if body.name is not None else None
         external_id = body.external_id.strip() if body.external_id is not None else None
         if name == "" or external_id == "":

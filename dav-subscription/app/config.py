@@ -182,7 +182,7 @@ def _validate(config: Config) -> None:
                 raise ValueError(
                     f"期望 {expected.__name__}, 实际 {type(value).__name__}: {value!r}"
                 )
-        except ValueError as exc:
+        except (TypeError, ValueError) as exc:
             raise ValueError(f"配置项 {label} 无效: {exc}") from exc
         setattr(obj, attr, value)
     if config.polling.interval_seconds < 1:

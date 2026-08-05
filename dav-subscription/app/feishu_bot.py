@@ -126,7 +126,7 @@ class FeishuBot:
 
     def _send_list_card(self, chat_id: str, open_id: str, sender_name: str, arg: str) -> None:
         user = self._get_or_create_user("feishu_open_id", open_id, sender_name)
-        text, page, pages = self.core.list_payload(user, arg)
+        _, page, pages = self.core.list_payload(user, arg)
         self._send_card(chat_id, self._build_list_card(user, page, pages))
 
     def _build_list_card(self, user: dict, page: int, pages: int) -> dict:
@@ -199,7 +199,7 @@ class FeishuBot:
                 return resp
             if act == "page":
                 user = self._get_or_create_user("feishu_open_id", open_id, open_id)
-                text, page, pages = self.core.list_payload(user, str(value.get("page", 1)))
+                _, page, pages = self.core.list_payload(user, str(value.get("page", 1)))
                 resp.card = CallBackCard({"type": "raw", "data": self._build_list_card(user, page, pages)})
                 resp.toast = CallBackToast({"type": "info", "content": f"第 {page}/{pages} 页"})
                 return resp

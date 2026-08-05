@@ -6,10 +6,8 @@ import pytest
 
 from app.config import FeishuConfig, TelegramConfig
 from app.fetchers.base import Post
-from app.notifiers.feishu import FeishuNotifier
-from app.notifiers.feishu import build_feishu_digest_card
-from app.notifiers.telegram import TelegramNotifier
-from app.notifiers.telegram import build_telegram_digest
+from app.notifiers.feishu import FeishuNotifier, build_feishu_digest_card
+from app.notifiers.telegram import TelegramNotifier, build_telegram_digest
 
 
 def make_post() -> Post:

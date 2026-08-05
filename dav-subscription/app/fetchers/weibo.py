@@ -58,7 +58,7 @@ class WeiboFetcher(Fetcher):
     @staticmethod
     def _encrypt_password(password: str, pubkey_hex: str, nonce: str) -> str:
         key = rsa.PublicKey(int(pubkey_hex, 16), 65537)
-        encrypted = rsa.encrypt(f"{nonce}\n{password}".encode("utf-8"), key)
+        encrypted = rsa.encrypt(f"{nonce}\n{password}".encode(), key)
         return base64.b64encode(encrypted).decode()
 
     def _prelogin(self) -> dict:

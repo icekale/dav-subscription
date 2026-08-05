@@ -1,6 +1,6 @@
+import json
 import tempfile
 import time
-import json
 from pathlib import Path
 
 from app.db import DB
@@ -69,7 +69,7 @@ def test_bot_list_marks_priority_kol():
 
 
 def test_bot_sub_resolve_by_external_id():
-    db, bot, kid, sent = make_env()
+    db, bot, kid, _ = make_env()
     bot.handle_update(update(222, "/sub 8790885129"))
     user = db.get_user_by_telegram("222")
     assert db.subscribed_kol_ids(user["id"]) == {kid}
@@ -77,20 +77,20 @@ def test_bot_sub_resolve_by_external_id():
 
 def test_bot_sub_resolve_by_homepage_link():
     for link in ("https://xueqiu.com/8790885129", "https://xueqiu.com/u/8790885129"):
-        db, bot, kid, sent = make_env()
+        db, bot, kid, _ = make_env()
         bot.handle_update(update(999, f"/sub {link}"))
         user = db.get_user_by_telegram("999")
         assert db.subscribed_kol_ids(user["id"]) == {kid}, link
 
 
 def test_bot_sub_ignores_nickname():
-    db, bot, _, sent = make_env()
+    _, bot, _, sent = make_env()
     bot.handle_update(update(555, "/sub 超级鹿鼎公"))
     assert "没找到" in sent[-1][1]
 
 
 def test_bot_unknown_sub():
-    db, bot, _, sent = make_env()
+    _, bot, _, sent = make_env()
     bot.handle_update(update(333, "/sub 不存在的大V"))
     assert "没找到" in sent[-1][1]
 

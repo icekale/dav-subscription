@@ -57,4 +57,4 @@ def test_ask_creates_request_and_list_filters_private():
     admin_id = db.get_user_by_username("admin")["id"]
     db.set_kol_acl(private_id, [admin_id])
     bot.handle("telegram_chat_id", "999", "admin", f"/sub {private_id}")
-    assert f"已订阅 私有" in sent[-1]
+    assert "已订阅 私有" in sent[-1]

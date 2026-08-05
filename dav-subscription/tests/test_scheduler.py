@@ -9,6 +9,7 @@ from app.db import DB
 from app.fetchers.base import Post
 from app.scheduler import (
     PushRetryQueue,
+    Scheduler,
     _polling_bool,
     _polling_setting,
     extract_tweet_id,
@@ -20,7 +21,6 @@ from app.scheduler import (
     poll_once,
     translate_text,
 )
-from app.scheduler import Scheduler
 
 
 class FakeFetcher:
@@ -820,7 +820,7 @@ def test_priority_kol_fetched_more_often(monkeypatch):
             return []
 
     states = {}
-    kwargs = dict(interval_seconds=180, priority_interval_seconds=60)
+    kwargs = {"interval_seconds": 180, "priority_interval_seconds": 60}
     poll_once(db, {"xueqiu": CountingFetcher()}, [], states, **kwargs)
     assert sorted(calls) == sorted([normal_id, priority_id])
 
@@ -998,7 +998,7 @@ def test_delete_posts_older_than():
     db = make_db()
     kid = db.add_kol("xueqiu", "A", "1")
     old_id = db.insert_post("xueqiu", kid, "old", "t", "c", "u", "")
-    new_id = db.insert_post("xueqiu", kid, "new", "t", "c", "u", "")
+    db.insert_post("xueqiu", kid, "new", "t", "c", "u", "")
     db.add_push_log(old_id, "telegram", "success")
     db._execute("UPDATE posts SET fetched_at = datetime('now', '-40 days') WHERE external_id = 'old'")
     assert db.delete_posts_older_than(30) == 1

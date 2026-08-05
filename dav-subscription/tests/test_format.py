@@ -1,10 +1,14 @@
 from app.fetchers.base import Post
-from app.notifiers.feishu import build_feishu_combination_card
-from app.notifiers.feishu import build_feishu_card
-from app.notifiers.feishu import build_feishu_daily_card
-from app.notifiers.telegram import build_combination_text
-from app.notifiers.telegram import build_telegram_text
-from app.notifiers.telegram import build_telegram_daily
+from app.notifiers.feishu import (
+    build_feishu_card,
+    build_feishu_combination_card,
+    build_feishu_daily_card,
+)
+from app.notifiers.telegram import (
+    build_combination_text,
+    build_telegram_daily,
+    build_telegram_text,
+)
 
 
 def make_post() -> Post:

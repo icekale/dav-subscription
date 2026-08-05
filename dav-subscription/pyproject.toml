@@ -1,0 +1,10 @@
+[tool.ruff]
+target-version = "py311"
+
+[tool.ruff.lint]
+# B008: FastAPI Depends() 作为默认值（框架惯用法）
+# BLE001: 抓取/推送等边界处使用裸 except 兜底（均带注释说明）
+# RUF100: 代码里保留的 noqa（与 BLE001 配套）
+# DTZ005/006/007: 服务固定 TZ=Asia/Shanghai，本地时间即为业务时间
+# TRY004: 配置解析统一捕获 ValueError 包装提示，语义更明确
+ignore = ["B008", "BLE001", "RUF100", "DTZ005", "DTZ006", "DTZ007", "TRY004"]

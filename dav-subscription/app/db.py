@@ -445,9 +445,7 @@ class DB:
     def update_user(self, user_id: int, **kwargs) -> None:
         sets, params = [], []
         for key, value in kwargs.items():
-            if key == "is_admin":
-                value = 1 if value else 0
-            elif key == "notify_enabled":
+            if key in ("is_admin", "notify_enabled"):
                 value = 1 if value else 0
             sets.append(f"{key} = ?")
             params.append(value)

@@ -2,7 +2,6 @@ import pytest
 
 from app.config import load_config
 
-
 ALL_ENV = [
     "CONFIG_PATH",
     "DB_PATH",
