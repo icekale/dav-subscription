@@ -46,10 +46,18 @@ def resolve_combination_profile(symbol: str, cookie: str = "") -> dict:
         for item in (data or {}).get("list") or []:
             if item.get("symbol") == symbol:
                 owner = item.get("owner") or {}
+                avatar = ""
+                photo_domain = owner.get("photo_domain") or ""
+                purl = (owner.get("profile_image_url") or "").split(",")[0]
+                if purl:
+                    if photo_domain.startswith("//"):
+                        avatar = f"https:{photo_domain}{purl}"
+                    elif photo_domain.startswith("http"):
+                        avatar = f"{photo_domain}{purl}"
                 return {
                     "name": item.get("name") or "",
                     "owner_name": owner.get("screen_name") or "",
-                    "avatar_url": owner.get("avatar") or "",
+                    "avatar_url": avatar,
                     "annualized_gain": item.get("annualized_gain_rate") or 0,
                 }
     except Exception:  # noqa: BLE001 - 名称解析失败不阻断添加
