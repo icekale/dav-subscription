@@ -382,3 +382,19 @@ def test_digest_builders():
     card = build_feishu_digest_card(posts, "李四", "weibo")
     assert "2 条新动态" in card["header"]["title"]["content"]
     assert len(card["elements"]) >= 2
+
+    # 单条动态不加序号，避免出现孤立的 "1."
+    single = [posts[0]]
+    text1 = build_telegram_digest(single, "李四", "weibo")
+    assert "（1 条新动态）" in text1 and "1." not in text1
+    assert "\n1. " not in text1
+
+    card1 = build_feishu_digest_card(single, "李四", "weibo")
+    assert "（1 条新动态）" in card1["header"]["title"]["content"]
+    body1 = card1["elements"][0]["text"]["content"]
+    assert not body1.startswith("1. ")
+    button1 = card1["elements"][1]["actions"][0]["text"]["content"]
+    assert button1 == "查看原文"
+
+    text_w1 = build_wecom_digest(single, "李四", "weibo")
+    assert "（1 条新动态）" in text_w1 and "\n1. " not in text_w1

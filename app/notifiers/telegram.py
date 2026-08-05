@@ -104,9 +104,11 @@ def build_telegram_digest(posts: list[Post], kol_name: str, platform: str) -> st
         f"<b>📌 {escape(kol_name)} · {platform_label}</b>（{len(posts)} 条新动态）",
         "",
     ]
+    numbered = len(posts) > 1
     for i, post in enumerate(posts[:DIGEST_MAX_ITEMS], 1):
         body = (post.content[:120] or post.title or "（无正文）").replace("\n", " ")
-        lines.append(f"{i}. {escape(body)}")
+        prefix = f"{i}. " if numbered else ""
+        lines.append(f"{prefix}{escape(body)}")
         time_line = f"🕐 {escape(post.published_at)}" if post.published_at else ""
         link = f'🔗 <a href="{escape(post.url)}">查看原文</a>' if post.url else ""
         meta = " · ".join(x for x in (time_line, link) if x)
@@ -142,9 +144,11 @@ def build_telegram_daily(posts: list[Post]) -> str:
 def build_telegram_dnd_summary(posts: list[Post]) -> str:
     """免打扰时段汇总：一次列出缓冲的新动态（最多 10 条）。"""
     lines = [f"<b>📵 免打扰时段汇总</b>（{len(posts)} 条新动态）", ""]
+    numbered = len(posts) > 1
     for i, post in enumerate(posts[:DND_MAX_ITEMS], 1):
         body = (post.content[:100] or post.title or "（无正文）").replace("\n", " ")
-        lines.append(f"{i}. <b>{escape(post.kol_name)}</b> · {escape(body)}")
+        prefix = f"{i}. " if numbered else ""
+        lines.append(f"{prefix}<b>{escape(post.kol_name)}</b> · {escape(body)}")
         time_line = f"🕐 {escape(post.published_at)}" if post.published_at else ""
         link = f'🔗 <a href="{escape(post.url)}">原文</a>' if post.url else ""
         meta = " · ".join(x for x in (time_line, link) if x)

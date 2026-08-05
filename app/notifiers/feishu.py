@@ -163,10 +163,12 @@ def build_feishu_combination_card(post: Post) -> dict:
 def build_feishu_digest_card(posts: list[Post], kol_name: str, platform: str) -> dict:
     platform_label = PLATFORM_LABELS.get(platform, platform)
     elements = []
+    numbered = len(posts) > 1
     for i, post in enumerate(posts[:DIGEST_MAX_ITEMS], 1):
         body = (post.content[:120] or post.title or "（无正文）").replace("\n", " ")
         time_line = f"🕐 {post.published_at}" if post.published_at else ""
-        text = f"{i}. {body}"
+        prefix = f"{i}. " if numbered else ""
+        text = f"{prefix}{body}"
         if time_line:
             text += f"\n{time_line}"
         elements.append({"tag": "div", "text": {"tag": "lark_md", "content": text}})
@@ -177,7 +179,10 @@ def build_feishu_digest_card(posts: list[Post], kol_name: str, platform: str) ->
                     "actions": [
                         {
                             "tag": "button",
-                            "text": {"tag": "plain_text", "content": f"查看原文 {i}"},
+                            "text": {
+                                "tag": "plain_text",
+                                "content": f"查看原文 {i}" if numbered else "查看原文",
+                            },
                             "type": "default",
                             "url": post.url,
                         }
@@ -252,9 +257,11 @@ def build_feishu_daily_card(posts: list[Post]) -> dict:
 def build_feishu_dnd_summary_card(posts: list[Post]) -> dict:
     """免打扰时段汇总卡片。"""
     elements = []
+    numbered = len(posts) > 1
     for i, post in enumerate(posts[:DND_MAX_ITEMS], 1):
         body = (post.content[:100] or post.title or "（无正文）").replace("\n", " ")
-        text = f"{i}. **{post.kol_name}** · {body}"
+        prefix = f"{i}. " if numbered else ""
+        text = f"{prefix}**{post.kol_name}** · {body}"
         if post.published_at:
             text += f"\n🕐 {post.published_at}"
         elements.append({"tag": "div", "text": {"tag": "lark_md", "content": text}})

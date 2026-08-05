@@ -74,9 +74,11 @@ def build_wecom_combination_text(post: Post) -> str:
 def build_wecom_digest(posts: list[Post], kol_name: str, platform: str) -> str:
     platform_label = PLATFORM_LABELS.get(platform, platform)
     lines = [f"**📌 {kol_name} · {platform_label}**（{len(posts)} 条新动态）", ""]
+    numbered = len(posts) > 1
     for i, post in enumerate(posts[:DIGEST_MAX_ITEMS], 1):
         body = _md_escape(post.content or post.title or "（无正文）")[:120]
-        lines.append(f"{i}. {body}")
+        prefix = f"{i}. " if numbered else ""
+        lines.append(f"{prefix}{body}")
         meta_parts = []
         if post.published_at:
             meta_parts.append(f"🕐 {post.published_at}")
@@ -112,9 +114,11 @@ def build_wecom_daily(posts: list[Post]) -> str:
 
 def build_wecom_dnd_summary(posts: list[Post]) -> str:
     lines = [f"**📵 免打扰时段汇总**（{len(posts)} 条新动态）", ""]
+    numbered = len(posts) > 1
     for i, post in enumerate(posts[:DND_MAX_ITEMS], 1):
         body = _md_escape(post.content or post.title or "（无正文）")[:100]
-        line = f"{i}. **{post.kol_name}** · {body}"
+        prefix = f"{i}. " if numbered else ""
+        line = f"{prefix}**{post.kol_name}** · {body}"
         if post.published_at:
             line += f"\n🕐 {post.published_at}"
         lines.append(line)
