@@ -192,6 +192,13 @@ class TelegramNotifier(Notifier):
             raise RuntimeError(f"Telegram 返回错误: {result}")
 
     def notify(self, post: Post) -> None:
+        # 带图帖子：文字与图片合并成一条相册消息（第一张图 caption 带文字，同飞书卡片）
+        if post.images and not (post.platform == "combination" and post.detail):
+            try:
+                self._send_media_group(post)
+                return
+            except Exception as exc:  # noqa: BLE001 - 相册失败降级为文本+逐图发送
+                logger.warning("Telegram 相册发送失败，降级为文本+逐图: %s", exc)
         keyboard = [[{"text": "🔗 查看原文", "url": post.url}]]
         if self.unsub_kol_id is not None:
             keyboard.append([{"text": "退订", "callback_data": f"unsub:{self.unsub_kol_id}"}])
@@ -214,6 +221,44 @@ class TelegramNotifier(Notifier):
                 self._send_photo_url(image_url, caption=f"📷 {i}/{min(len(post.images), 4)}")
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Telegram 图片发送失败 url=%s err=%s", image_url, exc)
+
+    def _build_image_caption(self, post: Post) -> str:
+        """相册 caption：头部 + 正文摘要 + 分类/时间/链接，控制在 1000 字符内。"""
+        platform = PLATFORM_LABELS.get(post.platform, post.platform)
+        kind = " · 回复" if post.post_type == "reply" else ""
+        parts = [f"<b>📌 {escape(post.kol_name)} · {platform}{kind}</b>"]
+        parts.append(
+            truncate_text(post.content, 700) or post.title or "（无正文）"
+        )
+        if post.category:
+            parts.append(f"🗂 {escape(post.category)}")
+        if post.published_at:
+            parts.append(f"🕐 {escape(post.published_at)}")
+        if post.url:
+            parts.append(f'🔗 <a href="{escape(post.url)}">查看原文</a>')
+        text = "\n".join(parts)
+        return truncate_text(text, 1000)
+
+    def _send_media_group(self, post: Post) -> None:
+        if not self.bot_token or not self.chat_id:
+            raise RuntimeError("未配置 telegram bot_token/chat_id")
+        caption = self._build_image_caption(post)
+        media = []
+        for i, url in enumerate(post.images[:4]):
+            item = {"type": "photo", "media": url}
+            if i == 0:
+                item["caption"] = caption
+                item["parse_mode"] = "HTML"
+            media.append(item)
+        _tg_rate_limiter.wait()
+        resp = self.client.post(
+            f"https://api.telegram.org/bot{self.bot_token}/sendMediaGroup",
+            data={"chat_id": self.chat_id, "media": json.dumps(media, ensure_ascii=False)},
+        )
+        resp.raise_for_status()
+        result = resp.json()
+        if not result.get("ok"):
+            raise RuntimeError(f"Telegram 返回错误: {result}")
 
     def _send_photo_url(self, photo_url: str, caption: str = "") -> None:
         if not self.bot_token or not self.chat_id:

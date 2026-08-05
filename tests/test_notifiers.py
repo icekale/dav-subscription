@@ -142,15 +142,15 @@ def test_telegram_unsub_button():
     assert "退订" in markup and '"callback_data": "unsub:7"' in markup
 
 
-def test_telegram_notify_sends_images():
+def test_telegram_notify_sends_images_in_media_group():
     calls = []
 
     class FakeTelegram(TelegramNotifier):
         def _send(self, data):
             calls.append(("text", data.get("text")))
 
-        def _send_photo_url(self, url, caption=""):
-            calls.append(("photo", url, caption))
+        def _send_media_group(self, post):
+            calls.append(("album", post.images, self._build_image_caption(post)))
 
     tg = FakeTelegram(
         TelegramConfig(bot_token="t", chat_id="1"),
@@ -159,11 +159,32 @@ def test_telegram_notify_sends_images():
     post = make_post()
     post.images = ["https://a/1.jpg", "https://a/2.jpg"]
     tg.notify(post)
+    assert calls == [("album", ["https://a/1.jpg", "https://a/2.jpg"], calls[0][2])]
+    assert "📌" in calls[0][2] and "查看原文" in calls[0][2]
+
+
+def test_telegram_media_group_falls_back_to_text_and_photos():
+    calls = []
+
+    class FakeTelegram(TelegramNotifier):
+        def _send(self, data):
+            calls.append(("text", data.get("text")))
+
+        def _send_media_group(self, post):
+            raise RuntimeError("album fail")
+
+        def _send_photo_url(self, url, caption=""):
+            calls.append(("photo", url))
+
+    tg = FakeTelegram(
+        TelegramConfig(bot_token="t", chat_id="1"),
+        client=httpx.Client(),
+    )
+    post = make_post()
+    post.images = ["https://a/1.jpg"]
+    tg.notify(post)
     assert calls[0][0] == "text"
-    assert calls[1:] == [
-        ("photo", "https://a/1.jpg", "📷 1/2"),
-        ("photo", "https://a/2.jpg", "📷 2/2"),
-    ]
+    assert calls[1] == ("photo", "https://a/1.jpg")
 
 
 def test_feishu_notify_adds_images(monkeypatch):
