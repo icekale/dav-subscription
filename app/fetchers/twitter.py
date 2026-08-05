@@ -229,13 +229,27 @@ class TwitterFetcher(Fetcher):
         self._fallback = RssFetcher(source_config, db, client=self.client)
 
     def fetch(self, kol: dict) -> list[Post]:
-        """优先 X 直抓；失败（cookie 失效/接口轮换/风控）自动回退 RSSHub。"""
+        """优先 X 直抓；失败时按错误类型分流。
+
+        - 网络类错误（SSL/超时/连接重置）：不降级 RSSHub——备用通道大概率同样不通，
+          只记 warn 事件后抛出，让调度器退避等网络恢复，避免抖动时刷降级事件/告警；
+        - 鉴权/接口类错误（401/403/GraphQL errors/cookie 失效）：降级 RSSHub 备用通道。
+        """
         cookie = os.environ.get("TWITTER_COOKIE", "")
         try:
             posts = self._fetch_direct(kol, cookie)
             if self.db is not None:
                 self.db.set_setting("x_direct_last_ok_at", str(int(time.time())))
             return posts
+        except httpx.TransportError as exc:
+            if self.db is not None:
+                self.db.add_source_event(
+                    "twitter",
+                    "warn",
+                    f"X网络抖动(直抓): {str(exc)[:200]}",
+                )
+            logger.warning("X 直抓网络错误，跳过降级 kol=%s err=%s", kol["name"], exc)
+            raise
         except Exception as exc:  # noqa: BLE001 - 回退备用通道
             if self.db is not None:
                 self.db.set_setting("x_direct_last_fallback_at", str(int(time.time())))

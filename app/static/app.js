@@ -1415,7 +1415,7 @@ function renderStatsData(s) {
               <td>${e.status === "ok"
                 ? '<span class="status-ok">正常</span>'
                 : e.status === "warn"
-                  ? '<span class="status-warn">降级</span>'
+                  ? '<span class="status-warn">警告</span>'
                   : '<span class="status-fail">失败</span>'}</td>
               <td class="muted">${escapeHtml(e.detail)}</td>
             </tr>`).join("")}</tbody>

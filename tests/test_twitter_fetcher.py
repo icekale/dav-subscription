@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 import httpx
+import pytest
 
 from app.db import DB
 from app.fetchers.twitter import (
@@ -277,3 +278,25 @@ def test_twitter_falls_back_to_rsshub(monkeypatch):
     assert posts[0].url == "https://x.com/SemiAnalysis_/status/999"
     assert db.get_setting("x_direct_last_fallback_at")
     assert "queryId 已失效" in (db.get_setting("x_direct_fallback_reason") or "")
+
+
+def test_twitter_network_error_skips_rsshub_fallback(monkeypatch):
+    """网络层错误（SSL/超时/连接重置）不触发降级，避免抖动时误报。"""
+    monkeypatch.setenv("TWITTER_COOKIE", "auth_token=a; ct0=b")
+    rss_calls = {"n": 0}
+
+    def handler(request):
+        if request.url.host == "x.com":
+            raise httpx.ConnectError("connection reset", request=request)
+        rss_calls["n"] += 1
+        return httpx.Response(200, content=b"<rss/>")
+
+    db = DB(":memory:")
+    kid = db.add_kol("twitter", "SemiAnalysis", "https://x.com/SemiAnalysis_")
+    fetcher = _make_fetcher(handler, db)
+    with pytest.raises(httpx.TransportError):
+        fetcher.fetch(db.get_kol(kid))
+    assert rss_calls["n"] == 0  # 没有走到 RSSHub
+    assert not db.get_setting("x_direct_last_fallback_at")  # 不标记降级
+    events = db.recent_source_events()
+    assert any("网络抖动" in e["detail"] for e in events)
