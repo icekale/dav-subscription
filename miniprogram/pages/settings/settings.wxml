@@ -11,10 +11,23 @@
   <view class="card">
     <view class="card-title">推送渠道</view>
     <view class="form-item">
-      <view class="form-label">Telegram</view>
+      <view class="form-label">Telegram<text wx:if="{{tgCustom}}" class="tag">自建</text></view>
       <view class="channel-line">
         <text class="channel-status {{tgBound ? 'ok' : 'muted'}}">{{tgBound ? "已绑定：" + tg : "未绑定"}}</text>
-        <button wx:if="{{tgBound}}" class="btn-link" data-channel="telegram" bindtap="unbind">解绑</button>
+        <button wx:if="{{tgBound}}" class="btn-link" data-channel="{{tgCustom ? 'telegram_bot_token' : 'telegram'}}" bindtap="unbind">解绑</button>
+      </view>
+      <view wx:if="{{!tgBound}}" class="sub-bind">
+        <view class="notice-line" style="color:var(--text-muted);font-size:22rpx;line-height:1.7">
+          方式一：生成下方绑定码，发给机器人 <text class="code-text">/bind 6位码</text>。
+          方式二：用你自己的机器人（推荐，无推送量限制）：
+        </view>
+        <view class="row" style="gap:16rpx;margin-top:12rpx">
+          <input class="input tg-token-input" placeholder="123456:ABC-DEF..." value="{{customTgToken}}" bindinput="onCustomTgInput" />
+          <button class="btn btn-ghost" style="flex-shrink:0" bindtap="saveCustomTg">保存</button>
+        </view>
+        <view class="notice-line" style="color:var(--text-faint);font-size:22rpx;margin-top:8rpx">
+          @BotFather 创建机器人后把 token 粘贴保存，先给新机器人发一条消息再保存。
+        </view>
       </view>
     </view>
     <view class="form-item">
@@ -24,9 +37,63 @@
         <button wx:if="{{fsOpen}}" class="btn-link" data-channel="feishu" bindtap="unbind">解绑</button>
       </view>
     </view>
+    <view class="form-item">
+      <view class="form-label">企业微信</view>
+      <view class="channel-line">
+        <text class="channel-status {{wecomBound ? 'ok' : 'muted'}}">{{wecomBound ? "已绑定（群机器人）" : "未绑定"}}</text>
+        <button wx:if="{{wecomBound}}" class="btn-link" data-channel="wecom" bindtap="unbind">解绑</button>
+      </view>
+      <view class="row" style="gap:16rpx;margin-top:12rpx">
+        <input class="input tg-token-input" placeholder="企业微信群机器人 webhook 地址" value="{{wecomInput}}" bindinput="onWecomInput" />
+        <button class="btn btn-ghost" style="flex-shrink:0" bindtap="saveWecom">{{wecomBound ? '更新' : '保存'}}</button>
+      </view>
+      <view class="notice-line" style="color:var(--text-faint);font-size:22rpx;margin-top:8rpx">
+        在企业微信群「添加群机器人」获取 webhook，推送会发到该群。
+      </view>
+    </view>
     <view class="notice-line" style="color:var(--text-muted);font-size:24rpx;line-height:1.8;margin-top:8rpx">
       状态自动刷新：去机器人发一条消息，回到本页稍等几秒即可看到已绑定。
     </view>
+  </view>
+  <view class="card">
+    <view class="card-title">推送通道选择</view>
+    <view wx:if="{{channelOptions.length === 0}}" class="notice-line" style="color:var(--text-muted);font-size:24rpx;line-height:1.8">
+      还没有绑定推送渠道，完成上方任一渠道绑定后即可选择用哪个通道推送。
+    </view>
+    <view wx:else>
+      <view class="form-item" wx:for="{{channelOptions}}" wx:key="value">
+        <view class="channel-line">
+          <text class="form-label" style="margin-bottom:0">{{item.label}}</text>
+          <switch checked="{{item.checked}}" color="#1677ff" data-channel="{{item.value}}" bindchange="onChannelToggle" />
+        </view>
+      </view>
+      <button class="btn btn-ghost btn-block" bindtap="save">保存通道选择</button>
+    </view>
+  </view>
+  <view class="card">
+    <view class="card-title">午夜免打扰</view>
+    <view class="notice-line" style="color:var(--text-muted);font-size:24rpx;line-height:1.8">
+      时段内不推送新帖（支持跨午夜），结束后一次性补一条汇总；特别关注可设为穿透免打扰。
+    </view>
+    <view class="form-item dnd-row">
+      <text class="form-label" style="margin-bottom:0">开启免打扰</text>
+      <switch checked="{{dndEnabled}}" color="#1677ff" bindchange="onDndEnabled" />
+    </view>
+    <view wx:if="{{dndEnabled}}" class="dnd-times">
+      <view class="row" style="gap:24rpx">
+        <picker mode="time" value="{{dndStart}}" bindchange="onDndStart">
+          <view class="input picker-value">开始 {{dndStart}}</view>
+        </picker>
+        <picker mode="time" value="{{dndEnd}}" bindchange="onDndEnd">
+          <view class="input picker-value">结束 {{dndEnd}}</view>
+        </picker>
+      </view>
+      <view class="form-item dnd-row" style="margin-top:20rpx">
+        <text class="form-label" style="margin-bottom:0">特别关注可穿透免打扰</text>
+        <switch checked="{{dndAllowFavorite}}" color="#b45309" bindchange="onDndFav" />
+      </view>
+    </view>
+    <button class="btn btn-ghost btn-block" style="margin-top:8rpx" bindtap="saveDnd">保存免打扰设置</button>
   </view>
   <view class="card">
     <view class="form-item">
@@ -37,7 +104,7 @@
       <view class="form-label">每日精选摘要（每天 20:00 推一次今日总览）</view>
       <switch checked="{{dailyReport}}" color="#1677ff" bindchange="onDaily" />
     </view>
-    <button class="btn btn-primary btn-block" bindtap="save">保存设置</button>
+    <button class="btn btn-primary btn-block" bindtap="save">保存新帖设置</button>
   </view>
   <view class="card">
     <view class="card-title">账号绑定</view>

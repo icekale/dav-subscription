@@ -10,3 +10,32 @@
   line-height: 1.8;
   margin-top: 8rpx;
 }
+.channel-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 48rpx;
+}
+.channel-status { font-size: 26rpx; }
+.channel-status.ok { color: var(--success); font-weight: 500; }
+.channel-status.muted { color: var(--text-muted); }
+.btn-link {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 26rpx;
+  line-height: 48rpx;
+  padding: 0 8rpx;
+}
+.sub-bind { margin-top: 16rpx; padding-top: 16rpx; border-top: 1rpx solid var(--line); }
+.tg-token-input { flex: 1; min-width: 0; height: 72rpx; font-size: 26rpx; }
+.code-text {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border-radius: 8rpx;
+  padding: 0 8rpx;
+}
+.dnd-row { display: flex; align-items: center; justify-content: space-between; }
+.dnd-times { margin-top: 20rpx; }
+.picker-value { display: flex; align-items: center; font-size: 26rpx; }

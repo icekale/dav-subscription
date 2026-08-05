@@ -4,6 +4,16 @@ function getToken() {
   return wx.getStorageSync("dav_token") || "";
 }
 
+// 后端头像缓存返回 /avatars/xxx.jpg 这类站内相对路径，补全成完整地址；
+// 外部 http(s) 地址原样返回，空值返回空串。
+function resolveAvatar(url) {
+  if (!url) return "";
+  if (typeof url === "string" && url.startsWith("/")) {
+    return `${BASE_URL}${url}`;
+  }
+  return url;
+}
+
 function request(path, options = {}) {
   const token = getToken();
   const headers = Object.assign(
@@ -92,4 +102,5 @@ module.exports = {
   accountLogin,
   logout,
   loadSession,
+  resolveAvatar,
 };

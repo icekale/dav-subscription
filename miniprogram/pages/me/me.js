@@ -29,7 +29,7 @@ Page({
   goAbout() {
     wx.showModal({
       title: "大V订阅",
-      content: "聚合订阅雪球 / 微博 / X 大V公开动态，新帖推送到 Telegram 与飞书。",
+      content: "聚合订阅雪球 / 微博 / X 大V公开动态，新帖推送到 Telegram / 飞书 / 企业微信。",
       showCancel: false,
     });
   },

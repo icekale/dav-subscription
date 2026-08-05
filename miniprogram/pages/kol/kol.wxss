@@ -1,2 +1,46 @@
 .kol-name { font-size: 32rpx; font-weight: 600; color: var(--text-strong); }
 .kol-desc { font-size: 24rpx; color: var(--text-muted); margin-top: 8rpx; }
+.sub-type-box {
+  margin-top: 24rpx;
+  padding: 20rpx 0 0;
+  border-top: 1rpx solid var(--line);
+}
+.sub-type-label {
+  font-size: 24rpx;
+  color: var(--text-muted);
+  margin-bottom: 16rpx;
+}
+.sub-type-switches { display: flex; gap: 16rpx; }
+.sub-type-chip {
+  height: 56rpx;
+  line-height: 56rpx;
+  padding: 0 28rpx;
+  border-radius: var(--radius-pill);
+  border: 1rpx solid var(--line-strong);
+  color: var(--text-muted);
+  font-size: 24rpx;
+  background: var(--surface);
+}
+.sub-type-chip.selected {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 500;
+}
+.fav-row { margin-top: 20rpx; }
+.fav-btn {
+  display: inline-flex;
+  align-items: center;
+  height: 56rpx;
+  padding: 0 28rpx;
+  border-radius: var(--radius-pill);
+  border: 1rpx solid var(--line-strong);
+  color: var(--text-muted);
+  font-size: 24rpx;
+  background: var(--surface);
+}
+.fav-btn.fav-on {
+  background: rgba(250, 204, 21, 0.12);
+  border-color: rgba(202, 138, 4, 0.4);
+  color: #b45309;
+}

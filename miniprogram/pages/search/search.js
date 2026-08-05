@@ -1,6 +1,5 @@
-const { request } = require("../../utils/api");
-
-const PLATFORM_LABELS = { xueqiu: "雪球", weibo: "微博", twitter: "X" };
+const { request, resolveAvatar } = require("../../utils/api");
+const { platformLabel } = require("../../utils/labels");
 
 Page({
   data: {
@@ -13,6 +12,7 @@ Page({
     askPlatformIndex: 0,
     askPlatforms: [
       { value: "xueqiu", label: "雪球" },
+      { value: "combination", label: "雪球组合" },
       { value: "weibo", label: "微博" },
       { value: "twitter", label: "X" },
     ],
@@ -60,18 +60,22 @@ Page({
     this.setData({ loading: true, searched: false });
     try {
       const kols = await request("/api/catalog");
-      const results = kols.filter(
-        (k) => k.name.toLowerCase().includes(keyword) || k.external_id.toLowerCase().includes(keyword)
-      );
+      const results = kols
+        .filter(
+          (k) =>
+            k.name.toLowerCase().includes(keyword) ||
+            (k.external_id || "").toLowerCase().includes(keyword)
+        )
+        .map((k) => ({
+          ...k,
+          platform_label: platformLabel(k.platform),
+          avatar_url: resolveAvatar(k.avatar_url),
+        }));
       this.setData({ results, loading: false, searched: true });
     } catch (err) {
       this.setData({ loading: false, searched: true });
       wx.showToast({ title: err.message, icon: "none" });
     }
-  },
-
-  platformLabel(platform) {
-    return PLATFORM_LABELS[platform] || platform;
   },
 
   goKol(e) {

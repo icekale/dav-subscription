@@ -1,6 +1,5 @@
-const { request } = require("../../utils/api");
-
-const PLATFORM_LABELS = { xueqiu: "雪球", combination: "雪球组合", weibo: "微博", twitter: "X" };
+const { request, resolveAvatar } = require("../../utils/api");
+const { platformLabel } = require("../../utils/labels");
 
 Page({
   data: {
@@ -28,7 +27,11 @@ Page({
   async load() {
     try {
       const q = this.data.platform ? `?platform=${this.data.platform}` : "";
-      const kols = await request(`/api/catalog${q}`);
+      const kols = (await request(`/api/catalog${q}`)).map((k) => ({
+        ...k,
+        platform_label: platformLabel(k.platform),
+        avatar_url: resolveAvatar(k.avatar_url),
+      }));
       const byCat = {};
       for (const k of kols) {
         const key = k.category_name || "未分类";
@@ -40,10 +43,6 @@ Page({
       this.setData({ loading: false });
       wx.showToast({ title: err.message, icon: "none" });
     }
-  },
-
-  platformLabel(platform) {
-    return PLATFORM_LABELS[platform] || platform;
   },
 
   switchPlatform(e) {

@@ -1,1 +1,71 @@
-/* 复用 app.wxss 通用样式 */
+.filter-tabs {
+  display: flex;
+  gap: 12rpx;
+  background: var(--bg);
+  border-radius: var(--radius-pill);
+  padding: 6rpx;
+}
+.filter-tab {
+  height: 52rpx;
+  line-height: 52rpx;
+  padding: 0 24rpx;
+  border-radius: var(--radius-pill);
+  color: var(--text-muted);
+  font-size: 24rpx;
+}
+.filter-tab.selected {
+  background: var(--surface);
+  color: var(--text-strong);
+  font-weight: 500;
+  box-shadow: 0 2rpx 8rpx rgba(15, 23, 42, 0.08);
+}
+.star-tag {
+  display: inline-block;
+  font-size: 20rpx;
+  color: #b45309;
+  background: rgba(250, 204, 21, 0.14);
+  border-radius: var(--radius-pill);
+  padding: 4rpx 16rpx;
+  margin-left: 12rpx;
+}
+.sub-type-row { display: flex; gap: 12rpx; margin-top: 14rpx; flex-wrap: wrap; }
+.sub-type-chip {
+  height: 48rpx;
+  line-height: 48rpx;
+  padding: 0 20rpx;
+  border-radius: var(--radius-pill);
+  border: 1rpx solid var(--line-strong);
+  color: var(--text-muted);
+  font-size: 22rpx;
+  background: var(--surface);
+}
+.sub-type-chip.selected {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 500;
+}
+.item-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 14rpx;
+  margin-left: 16rpx;
+}
+.fav-btn {
+  width: 64rpx;
+  height: 56rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-control);
+  border: 1rpx solid var(--line-strong);
+  color: var(--text-faint);
+  font-size: 30rpx;
+  background: var(--surface);
+}
+.fav-btn.fav-on {
+  background: rgba(250, 204, 21, 0.14);
+  border-color: rgba(202, 138, 4, 0.4);
+  color: #b45309;
+}

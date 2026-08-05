@@ -1,6 +1,5 @@
-const { request } = require("../../utils/api");
-
-const PLATFORM_LABELS = { xueqiu: "雪球", weibo: "微博", twitter: "X" };
+const { request, resolveAvatar } = require("../../utils/api");
+const { platformLabel } = require("../../utils/labels");
 
 Page({
   data: { posts: [], loading: true },
@@ -15,16 +14,16 @@ Page({
 
   async load() {
     try {
-      const posts = await request("/api/my/feed?limit=100");
+      const posts = (await request("/api/my/feed?limit=100")).map((p) => ({
+        ...p,
+        platform_label: platformLabel(p.platform),
+        avatar_url: resolveAvatar(p.avatar_url),
+      }));
       this.setData({ posts, loading: false });
     } catch (err) {
       this.setData({ loading: false });
       wx.showToast({ title: err.message, icon: "none" });
     }
-  },
-
-  platformLabel(platform) {
-    return PLATFORM_LABELS[platform] || platform;
   },
 
   goHome() {

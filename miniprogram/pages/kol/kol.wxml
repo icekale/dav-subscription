@@ -7,7 +7,7 @@
         <view style="margin-left:24rpx">
           <view class="row">
             <text class="kol-name">{{kol.name}}</text>
-            <text class="tag">{{platformLabel(kol.platform)}}</text>
+            <text class="tag">{{kol.platform_label}}</text>
           </view>
           <view class="kol-desc">ID：{{kol.external_id}}{{kol.category_name ? ' · ' + kol.category_name : ''}}</view>
         </view>
@@ -15,6 +15,22 @@
       <button class="btn-sub {{kol.subscribed ? 'subscribed' : ''}}" bindtap="toggleSubscribe">
         {{kol.subscribed ? '已订阅' : '订阅'}}
       </button>
+    </view>
+    <view wx:if="{{kol.subscribed && kol.platform === 'xueqiu'}}" class="sub-type-box">
+      <view class="sub-type-label">订阅内容</view>
+      <view class="sub-type-switches">
+        <view
+          wx:for="{{subTypes}}"
+          wx:key="value"
+          class="sub-type-chip {{kol.subscribe_type === item.value ? 'selected' : ''}}"
+          data-type="{{item.value}}"
+          bindtap="changeSubType">{{item.label}}</view>
+      </view>
+    </view>
+    <view wx:if="{{kol.subscribed}}" class="fav-row">
+      <view class="fav-btn {{kol.favorite ? 'fav-on' : ''}}" bindtap="toggleFavorite">
+        {{kol.favorite ? '★ 已特别关注（优先推送）' : '☆ 设为特别关注（优先推送）'}}
+      </view>
     </view>
   </view>
   <view class="card">
@@ -34,7 +50,7 @@
         <view wx:if="{{item.title}}" class="post-title">{{item.title}}</view>
         <view class="post-content">{{item.content || '（无正文）'}}</view>
         <view class="post-meta">
-          <text style="margin-left:0">{{platformLabel(item.platform)}}</text>
+          <text style="margin-left:0">{{item.platform_label}}</text>
           <text class="post-link" data-url="{{item.url}}" bindtap="copyLink">查看原文 →</text>
         </view>
       </view>

@@ -29,7 +29,7 @@
         <view class="kol-info" data-id="{{item.id}}" bindtap="goKol">
           <view class="row">
             <text class="kol-name">{{item.name}}</text>
-            <text class="tag">{{platformLabel(item.platform)}}</text>
+            <text class="tag">{{item.platform_label}}</text>
           </view>
           <view class="kol-desc">ID：{{item.external_id}}</view>
         </view>

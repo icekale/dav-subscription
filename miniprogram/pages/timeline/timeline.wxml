@@ -24,8 +24,9 @@
         <view wx:if="{{item.title}}" class="post-title">{{item.title}}</view>
         <view class="post-content">{{item.content || '（无正文）'}}</view>
         <view class="post-meta">
+          <text wx:if="{{item.post_type === 'reply'}}" class="tag">回复</text>
           <text wx:if="{{item.category_name}}" class="tag">{{item.category_name}}</text>
-          <text style="margin-left:12rpx">{{platformLabel(item.platform)}}</text>
+          <text style="margin-left:12rpx">{{item.platform_label}}</text>
           <text class="post-link" data-url="{{item.url}}" bindtap="copyLink">查看原文 →</text>
         </view>
       </view>
