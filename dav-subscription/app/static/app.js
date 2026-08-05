@@ -636,54 +636,63 @@ function channelStatusHtml(user) {
   const fsChat = user.feishu_chat_id;
   const wc = user.wecom_webhook;
   const fsOk = !!(fsOpen && fsChat);
+  const statusPill = (cls, text) => `<span class="channel-status ${cls}"><i class="dot"></i>${text}</span>`;
   return `
-    <div class="row" style="gap:16px;flex-wrap:wrap">
-      <div class="channel-card">
+    <div class="channel-grid">
+      <div class="channel-card" data-channel="telegram">
         <div class="channel-head">
-          <b>Telegram${tgCustom ? ' <span class="tag">自建</span>' : ""}</b>
-          <span class="${tg ? "status-ok" : "status-fail"}">${tg ? "已绑定 ✅" : "未绑定"}</span>
+          <span class="channel-title">${CHANNEL_ICONS.telegram}<b>Telegram${tgCustom ? ' <span class="tag">自建</span>' : ""}</b></span>
+          ${statusPill(tg ? "status-ok" : "status-fail", tg ? "已绑定" : "未绑定")}
         </div>
-        <p class="muted" style="margin:8px 0 0">${tg ? (tgCustom ? "使用你自己的机器人推送" : "官方机器人推送已启用") : "按下方步骤操作"}</p>
-        ${tg
-          ? `<button class="btn-sm" style="margin-top:10px" onclick="unbindChannel('${tgCustom ? "telegram_bot_token" : "telegram_chat_id"}')">解绑</button>`
-          : `<button class="btn-sm" style="margin-top:10px" onclick="bindChannel('telegram')">一键绑定官方机器人</button>
-             <div id="bind-result-telegram"></div>
-             <details style="margin-top:10px">
-               <summary class="muted" style="cursor:pointer">或使用自己的机器人（推荐）</summary>
-               <ol style="padding-left:18px;line-height:1.8;margin-top:8px">
-                 <li>打开 Telegram 搜索 <b>@BotFather</b>，发 <code>/newbot</code> 创建机器人，拿到 token</li>
-                 <li>给你的新机器人发任意消息（如 <code>/start</code>）</li>
-                 <li>把 token 粘贴到下方点「保存」，系统自动识别你的会话，无需手动填 ID</li>
-               </ol>
-               <div class="row" style="gap:8px;margin-top:10px">
-                 <input id="set-custom-tg" class="form-control" style="flex:1;min-width:220px" type="password" placeholder="123456:ABC-DEF...">
-                 <button class="btn-normal" onclick="saveCustomTgBot()">保存</button>
-               </div>
-               <p id="custom-tg-result" class="muted"></p>
-             </details>`}
+        <p class="muted channel-desc">${tg ? (tgCustom ? "使用你自己的机器人推送" : "官方机器人推送已启用") : "按下方步骤操作"}</p>
+        <div class="channel-actions">
+          ${tg
+            ? `<button class="btn-sm" onclick="unbindChannel('${tgCustom ? "telegram_bot_token" : "telegram_chat_id"}')">解绑</button>`
+            : `<button class="btn-sm" onclick="bindChannel('telegram')">一键绑定官方机器人</button>
+               <div id="bind-result-telegram"></div>
+               <details>
+                 <summary class="muted" style="cursor:pointer">或使用自己的机器人（推荐）</summary>
+                 <ol style="padding-left:18px;line-height:1.8;margin-top:8px">
+                   <li>打开 Telegram 搜索 <b>@BotFather</b>，发 <code>/newbot</code> 创建机器人，拿到 token</li>
+                   <li>给你的新机器人发任意消息（如 <code>/start</code>）</li>
+                   <li>把 token 粘贴到下方点「保存」，系统自动识别你的会话，无需手动填 ID</li>
+                 </ol>
+                 <div class="row" style="gap:8px;margin-top:10px">
+                   <input id="set-custom-tg" class="form-control" style="flex:1;min-width:220px" type="password" placeholder="123456:ABC-DEF...">
+                   <button class="btn-normal" onclick="saveCustomTgBot()">保存</button>
+                 </div>
+                 <p id="custom-tg-result" class="muted"></p>
+               </details>`}
+        </div>
       </div>
-      <div class="channel-card">
+      <div class="channel-card" data-channel="feishu">
         <div class="channel-head">
-          <b>飞书</b>
-          <span class="${fsOk ? "status-ok" : (fsOpen ? "status-warn" : "status-fail")}">${fsOk ? "已绑定 ✅" : (fsOpen ? "未完成" : "未绑定")}</span>
+          <span class="channel-title">${CHANNEL_ICONS.feishu}<b>飞书</b></span>
+          ${fsOk ? statusPill("status-ok", "已绑定") : fsOpen ? statusPill("status-warn", "未完成") : statusPill("status-fail", "未绑定")}
         </div>
-        <p class="muted" style="margin:8px 0 0">
+        <p class="muted channel-desc">
           ${fsOk ? "私聊会话已建立，推送正常"
             : (fsOpen ? "已关联账号，请先在飞书私聊机器人发一条消息"
             : "按下方步骤操作，本页会自动刷新状态")}
         </p>
-        ${fsOpen
-          ? `<button class="btn-sm" style="margin-top:10px" onclick="unbindChannel('feishu')">解绑</button>`
-          : `<button class="btn-sm" style="margin-top:10px" onclick="bindChannel('feishu')">绑定</button>
-             <div id="bind-result-feishu"></div>`}
-      </div>
-      <div class="channel-card">
-        <div class="channel-head">
-          <b>企业微信</b>
-          <span class="${wc ? "status-ok" : "status-fail"}">${wc ? "已绑定 ✅" : "未绑定"}</span>
+        <div class="channel-actions">
+          ${fsOpen
+            ? `<button class="btn-sm" onclick="unbindChannel('feishu')">解绑</button>`
+            : `<button class="btn-sm" onclick="bindChannel('feishu')">绑定</button>
+               <div id="bind-result-feishu"></div>`}
         </div>
-        <p class="muted" style="margin:8px 0 0">${wc ? "群机器人推送已启用" : "在企业微信群添加群机器人，把 webhook 粘贴到下方输入框即可"}</p>
-        ${wc ? `<button class="btn-sm" style="margin-top:10px" onclick="unbindChannel('wecom')">解绑</button>` : ""}
+      </div>
+      <div class="channel-card" data-channel="wecom">
+        <div class="channel-head">
+          <span class="channel-title">${CHANNEL_ICONS.wecom}<b>企业微信</b></span>
+          ${wc ? statusPill("status-ok", "已绑定") : statusPill("status-fail", "未绑定")}
+        </div>
+        <p class="muted channel-desc">${wc ? "群机器人推送已启用" : "在企业微信群添加群机器人，把 webhook 粘贴到下方输入框即可"}</p>
+        <div class="channel-actions">
+          ${wc
+            ? `<button class="btn-sm" onclick="unbindChannel('wecom')">解绑</button>`
+            : `<button class="btn-sm" onclick="document.getElementById('wecom-bind').scrollIntoView({behavior:'smooth'})">去绑定</button>`}
+        </div>
       </div>
     </div>`;
 }
@@ -763,7 +772,7 @@ async function renderSettings() {
           <li>发 <code>/list</code> 可查看大V目录，<code>/sub 大VID</code> 直接订阅。</li>
         </ol>
       </section>
-      <section class="section-panel">
+      <section class="section-panel" id="wecom-bind">
         <header class="section-head">
           <div>
             <p class="section-eyebrow">WeCom</p>
