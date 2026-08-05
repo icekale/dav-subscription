@@ -651,9 +651,7 @@ function channelStatusHtml(user) {
         </div>
         <p class="muted channel-desc">${tg ? (tgCustom ? "使用你自己的机器人推送" : "官方机器人推送已启用") : "按下方步骤操作"}</p>
         <div class="channel-actions">
-          ${tg
-            ? `<button class="channel-btn secondary" onclick="unbindChannel('${tgCustom ? "telegram_bot_token" : "telegram_chat_id"}')">解绑</button>`
-            : `<button class="channel-btn primary" onclick="bindChannel('telegram')">一键绑定官方机器人</button>
+          ${tg ? "" : `
                <div id="bind-result-telegram"></div>
                <details>
                  <summary class="muted" style="cursor:pointer">或使用自己的机器人（推荐）</summary>
@@ -668,6 +666,9 @@ function channelStatusHtml(user) {
                  </div>
                  <p id="custom-tg-result" class="muted"></p>
                </details>`}
+          ${tg
+            ? `<button class="channel-btn secondary" onclick="unbindChannel('${tgCustom ? "telegram_bot_token" : "telegram_chat_id"}')">解绑</button>`
+            : `<button class="channel-btn primary" onclick="bindChannel('telegram')">一键绑定官方机器人</button>`}
         </div>
       </div>
       <div class="channel-card" data-channel="feishu">
@@ -681,10 +682,10 @@ function channelStatusHtml(user) {
             : "按下方步骤操作，本页会自动刷新状态")}
         </p>
         <div class="channel-actions">
+          ${fsOpen ? "" : `<div id="bind-result-feishu"></div>`}
           ${fsOpen
             ? `<button class="channel-btn secondary" onclick="unbindChannel('feishu')">解绑</button>`
-            : `<button class="channel-btn primary" onclick="bindChannel('feishu')">绑定</button>
-               <div id="bind-result-feishu"></div>`}
+            : `<button class="channel-btn primary" onclick="bindChannel('feishu')">绑定</button>`}
         </div>
       </div>
       <div class="channel-card" data-channel="wecom">
