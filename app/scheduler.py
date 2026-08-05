@@ -766,6 +766,11 @@ def notify_digest_subscribers(
                         )
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("摘要推送失败 user=%s channel=telegram err=%s", user["username"], exc)
+                    maybe_alert_push_failure(
+                        db,
+                        notifiers or [],
+                        f"user={user['username']} channel=telegram digest err={exc}",
+                    )
                     if retry_queue is not None:
                         for post in matched:
                             retry_queue.add(post, "telegram", user["id"])
@@ -799,6 +804,11 @@ def notify_digest_subscribers(
                         )
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("摘要推送失败 user=%s channel=feishu err=%s", user["username"], exc)
+                    maybe_alert_push_failure(
+                        db,
+                        notifiers or [],
+                        f"user={user['username']} channel=feishu digest err={exc}",
+                    )
                     if retry_queue is not None:
                         for post in matched:
                             retry_queue.add(post, "feishu", user["id"])
@@ -828,6 +838,11 @@ def notify_digest_subscribers(
                         )
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("摘要推送失败 user=%s channel=wecom err=%s", user["username"], exc)
+                    maybe_alert_push_failure(
+                        db,
+                        notifiers or [],
+                        f"user={user['username']} channel=wecom digest err={exc}",
+                    )
                     if retry_queue is not None:
                         for post in matched:
                             retry_queue.add(post, "wecom", user["id"])
@@ -1481,6 +1496,11 @@ class Scheduler:
                     notifier.send_dnd_summary(posts)
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("免打扰汇总 TG 发送失败 user=%s err=%s", user["username"], exc)
+                    maybe_alert_push_failure(
+                        self.db,
+                        self.notifiers or [],
+                        f"user={user['username']} channel=telegram dnd err={exc}",
+                    )
             if _channel_enabled(user, "feishu") and (
                 user.get("feishu_open_id") or user.get("feishu_chat_id")
             ):
@@ -1494,6 +1514,11 @@ class Scheduler:
                     notifier.send_dnd_summary(posts)
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("免打扰汇总飞书发送失败 user=%s err=%s", user["username"], exc)
+                    maybe_alert_push_failure(
+                        self.db,
+                        self.notifiers or [],
+                        f"user={user['username']} channel=feishu dnd err={exc}",
+                    )
             if user.get("wecom_webhook") and _channel_enabled(user, "wecom"):
                 notifier = WeComNotifier(
                     self.notifiers_config.wecom,
@@ -1504,6 +1529,11 @@ class Scheduler:
                     notifier.send_dnd_summary(posts)
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("免打扰汇总企业微信发送失败 user=%s err=%s", user["username"], exc)
+                    maybe_alert_push_failure(
+                        self.db,
+                        self.notifiers or [],
+                        f"user={user['username']} channel=wecom dnd err={exc}",
+                    )
         finally:
             client.close()
 
@@ -1602,6 +1632,11 @@ class Scheduler:
                             self.db.add_push_log(post_id, "telegram", "success", user_id=user["id"])
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("每日精选推送失败 user=%s channel=telegram err=%s", user["username"], exc)
+                    maybe_alert_push_failure(
+                        self.db,
+                        self.notifiers or [],
+                        f"user={user['username']} channel=telegram daily err={exc}",
+                    )
                 finally:
                     notifier.client.close()
             if _channel_enabled(user, "feishu") and (
@@ -1620,6 +1655,11 @@ class Scheduler:
                             self.db.add_push_log(post_id, "feishu", "success", user_id=user["id"])
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("每日精选推送失败 user=%s channel=feishu err=%s", user["username"], exc)
+                    maybe_alert_push_failure(
+                        self.db,
+                        self.notifiers or [],
+                        f"user={user['username']} channel=feishu daily err={exc}",
+                    )
                 finally:
                     notifier.client.close()
             if user.get("wecom_webhook") and _channel_enabled(user, "wecom"):
@@ -1635,5 +1675,10 @@ class Scheduler:
                             self.db.add_push_log(post_id, "wecom", "success", user_id=user["id"])
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("每日精选推送失败 user=%s channel=wecom err=%s", user["username"], exc)
+                    maybe_alert_push_failure(
+                        self.db,
+                        self.notifiers or [],
+                        f"user={user['username']} channel=wecom daily err={exc}",
+                    )
                 finally:
                     notifier.client.close()

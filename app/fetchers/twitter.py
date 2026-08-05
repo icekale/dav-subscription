@@ -31,6 +31,7 @@ DEFAULT_QUERY_IDS = {
     "UserByScreenName": "Gb-d6r0vxPOADdG62OEBpQ",
 }
 QUERY_ID_TTL = 6 * 3600  # 每 6 小时重新从前端提取一次 queryId
+QUERY_ID_RETRY_COOLDOWN = 300  # 提取失败后 5 分钟重试，避免每次轮询都打前端
 FETCH_COUNT = 20
 
 # UserTweets 时间线所需的标准 feature switches（X 网页端常用集合）
@@ -64,6 +65,7 @@ UA = (
 
 _query_ids: dict[str, str] = dict(DEFAULT_QUERY_IDS)
 _query_ids_loaded = 0.0
+_query_ids_error_until = 0.0
 
 
 def _cookie_parts(cookie: str) -> dict[str, str]:
@@ -91,11 +93,12 @@ def _auth_headers(cookie: str) -> dict[str, str]:
 
 def _refresh_query_ids(client: httpx.Client, cookie: str) -> None:
     """从 X 前端 main bundle 提取最新的 UserTweets / UserByScreenName queryId。"""
-    global _query_ids_loaded
+    global _query_ids_loaded, _query_ids_error_until
     now = time.time()
     if now - _query_ids_loaded < QUERY_ID_TTL:
         return
-    _query_ids_loaded = now
+    if now < _query_ids_error_until:
+        return  # 上次提取失败，冷却期内不重复打前端
     try:
         headers = _auth_headers(cookie)
         page = client.get("https://x.com/", headers=headers)
@@ -116,9 +119,15 @@ def _refresh_query_ids(client: httpx.Client, cookie: str) -> None:
             )
             if found:
                 _query_ids[op] = found.group(1)
+        _query_ids_loaded = now
         logger.info("X queryId 已从前端更新: %s", _query_ids)
     except Exception as exc:  # noqa: BLE001 - 提取失败用内置默认值兜底
-        logger.warning("X queryId 提取失败，使用默认值: %s", exc)
+        _query_ids_error_until = now + QUERY_ID_RETRY_COOLDOWN
+        logger.warning(
+            "X queryId 提取失败，使用默认值，%.0f 秒后重试: %s",
+            QUERY_ID_RETRY_COOLDOWN,
+            exc,
+        )
 
 
 def extract_screen_name(external_id: str) -> str:

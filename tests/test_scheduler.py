@@ -666,6 +666,65 @@ def test_retry_queue_keys_include_platform():
     assert q.pending() == 2
 
 
+def test_digest_failure_alerts_admin(monkeypatch):
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.add_subscription(uid, kid)
+    post = make_post(kid)
+    db.insert_post("xueqiu", kid, post.external_id, post.title, post.content, post.url, post.published_at)
+    digest = {kid: [post]}
+
+    class FailingTG:
+        def __init__(self, config, chat_id=None, client=None, **kwargs):
+            self.client = SimpleNamespace(close=lambda: None)
+
+        def send_digest(self, posts, kol_name, platform):
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FailingTG)
+    ncfg = SimpleNamespace(
+        telegram=SimpleNamespace(bot_token="t", chat_id=""),
+        feishu=SimpleNamespace(),
+        wecom=SimpleNamespace(),
+    )
+    notifier = FakeNotifier()
+    flush_digest(db, digest, [notifier], ncfg)
+    assert any("推送失败" in t for t in notifier.texts)
+
+
+def test_dnd_summary_failure_alerts_admin(monkeypatch):
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.add_subscription(uid, kid)
+    notifier = FakeNotifier()
+    scheduler = Scheduler(
+        db,
+        {},
+        [notifier],
+        SimpleNamespace(),
+        notifiers_config=SimpleNamespace(
+            telegram=SimpleNamespace(bot_token="t", chat_id=""),
+            feishu=SimpleNamespace(),
+            wecom=SimpleNamespace(),
+        ),
+        xueqiu_config=SimpleNamespace(cookie=""),
+        weibo_config=SimpleNamespace(cookie="", username="", password=""),
+    )
+
+    class FailingTG:
+        def __init__(self, *args, **kwargs):
+            self.client = SimpleNamespace(close=lambda: None)
+
+        def send_dnd_summary(self, posts):
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FailingTG)
+    scheduler._send_dnd_summary(db.get_user(uid), [make_post(kid)])
+    assert any("推送失败" in t for t in notifier.texts)
+
+
 def test_poll_once_fetches_never_fetched_kol_with_small_monotonic(monkeypatch):
     """容器启动早期 monotonic 可能小于轮询间隔，首轮不应被误跳过（CI 回归）。"""
     db = make_db()

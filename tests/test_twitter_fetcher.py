@@ -28,6 +28,55 @@ def _user_response():
     }
 
 
+def test_query_id_refresh_failure_backs_off(monkeypatch):
+    """提取 queryId 失败后进入短冷却，而不是锁死 6 小时。"""
+    from app.fetchers import twitter as tw_mod
+
+    saved_loaded = tw_mod._query_ids_loaded
+    saved_error = tw_mod._query_ids_error_until
+    tw_mod._query_ids_loaded = 0.0
+    tw_mod._query_ids_error_until = 0.0
+    clock = {"t": 100000.0}  # 足够大，确保越过 6 小时 TTL 的"从未加载"判定
+    monkeypatch.setattr(tw_mod.time, "time", lambda: clock["t"])
+
+    class Handler:
+        def __init__(self, fail):
+            self.fail = fail
+            self.requests = 0
+
+        def __call__(self, request):
+            self.requests += 1
+            if self.fail:
+                raise httpx.ConnectError("boom", request=request)
+            if "abs.twimg.com" in str(request.url):
+                return httpx.Response(
+                    200,
+                    text='queryId:"abc123"xxxoperationName:"UserTweets"',
+                )
+            return httpx.Response(
+                200,
+                text='<script src="https://abs.twimg.com/responsive-web/client-web/main.abc.js"></script>',
+            )
+
+    try:
+        fail_handler = Handler(fail=True)
+        fail_client = httpx.Client(transport=httpx.MockTransport(fail_handler))
+        tw_mod._refresh_query_ids(fail_client, "auth_token=x; ct0=y")
+        assert fail_handler.requests == 1  # 只打了首页一次
+
+        ok_handler = Handler(fail=False)
+        ok_client = httpx.Client(transport=httpx.MockTransport(ok_handler))
+        tw_mod._refresh_query_ids(ok_client, "auth_token=x; ct0=y")
+        assert ok_handler.requests == 0  # 冷却期内不重试
+
+        clock["t"] += tw_mod.QUERY_ID_RETRY_COOLDOWN + 1
+        tw_mod._refresh_query_ids(ok_client, "auth_token=x; ct0=y")
+        assert ok_handler.requests == 2  # 冷却期后重试（首页 + bundle）
+    finally:
+        tw_mod._query_ids_loaded = saved_loaded
+        tw_mod._query_ids_error_until = saved_error
+
+
 def _timeline_response():
     tweet = lambda tid, text, created="Tue Aug 04 12:00:00 +0000 2026", reply_to="": {  # noqa: E731
         "result": {
