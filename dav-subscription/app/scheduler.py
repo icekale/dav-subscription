@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import email.utils
+import json
 import logging
 import os
 import random
@@ -642,6 +643,7 @@ def _fetch_kol_once(
             post.url,
             post.published_at,
             post.post_type,
+            post.detail,
         )
         if post_id is None:
             continue
@@ -1233,6 +1235,11 @@ class Scheduler:
                     continue
                 if row["channel"] == "wecom" and not user.get("wecom_webhook"):
                     continue
+            kol = self.db.get_kol(post_row["kol_id"])
+            try:
+                detail = json.loads(post_row["detail"]) if post_row.get("detail") else None
+            except (TypeError, ValueError):
+                detail = None
             post = Post(
                 platform=post_row["platform"],
                 kol_id=post_row["kol_id"],
@@ -1242,6 +1249,9 @@ class Scheduler:
                 content=post_row["content"],
                 url=post_row["url"],
                 published_at=post_row["published_at"],
+                category=(kol or {}).get("category_name") or "",
+                post_type=post_row.get("post_type") or "",
+                detail=detail,
             )
             self.retry_queue.add(post, row["channel"], user_id)
             recovered += 1

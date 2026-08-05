@@ -1,12 +1,21 @@
 """SQLite 持久化：KOL、帖子（去重）、推送日志。"""
 from __future__ import annotations
 
+import json
 import sqlite3
 import threading
 import time
 from pathlib import Path
 
 _UNSET = object()
+
+
+def _merge_sub_types(a: str, b: str) -> str:
+    """两个订阅类型合并（并集语义）：post + reply = both。"""
+    types = {a or "post", b or "post"}
+    if "both" in types or {"post", "reply"} <= types:
+        return "both"
+    return next(iter(types))
 
 
 SCHEMA = """
@@ -136,6 +145,10 @@ class DB:
         if "post_type" not in post_cols:
             self._conn.execute(
                 "ALTER TABLE posts ADD COLUMN post_type TEXT NOT NULL DEFAULT ''"
+            )
+        if "detail" not in post_cols:
+            self._conn.execute(
+                "ALTER TABLE posts ADD COLUMN detail TEXT NOT NULL DEFAULT ''"
             )
         sub_cols = {row["name"] for row in self._rows("PRAGMA table_info(subscriptions)")}
         if "type" not in sub_cols:
@@ -648,15 +661,42 @@ class DB:
 
     # ---- 账号合并 ----
     def transfer_subscriptions(self, from_user_id: int, to_user_id: int) -> None:
-        self._execute(
-            "INSERT OR IGNORE INTO subscriptions (user_id, kol_id) "
-            "SELECT ?, kol_id FROM subscriptions WHERE user_id = ?",
-            (to_user_id, from_user_id),
-        )
-        self._execute(
-            "DELETE FROM subscriptions WHERE user_id = ?",
-            (from_user_id,),
-        )
+        """把源账号的订阅合并到目标账号；同一大V保留更全的订阅类型。
+
+        用于机器人账号绑定网页账号后的合并，避免「回复/帖子+回复」被降级成「帖子」。
+        """
+        if from_user_id == to_user_id:
+            return
+        with self._lock:
+            try:
+                self._conn.execute("BEGIN")
+                rows = self._conn.execute(
+                    "SELECT kol_id, type FROM subscriptions WHERE user_id = ?",
+                    (from_user_id,),
+                ).fetchall()
+                for row in rows:
+                    existing = self._conn.execute(
+                        "SELECT type FROM subscriptions WHERE user_id = ? AND kol_id = ?",
+                        (to_user_id, row["kol_id"]),
+                    ).fetchone()
+                    if existing is None:
+                        self._conn.execute(
+                            "INSERT INTO subscriptions (user_id, kol_id, type) VALUES (?, ?, ?)",
+                            (to_user_id, row["kol_id"], row["type"] or "post"),
+                        )
+                    else:
+                        merged = _merge_sub_types(row["type"], existing["type"])
+                        self._conn.execute(
+                            "UPDATE subscriptions SET type = ? WHERE user_id = ? AND kol_id = ?",
+                            (merged, to_user_id, row["kol_id"]),
+                        )
+                self._conn.execute(
+                    "DELETE FROM subscriptions WHERE user_id = ?", (from_user_id,)
+                )
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
 
     def delete_user(self, user_id: int) -> None:
         self._execute("DELETE FROM bind_codes WHERE user_id = ?", (user_id,))
@@ -687,15 +727,35 @@ class DB:
         return rows[0] if rows else None
 
     def insert_post(
-        self, platform, kol_id, external_id, title, content, url, published_at, post_type: str = ""
+        self,
+        platform,
+        kol_id,
+        external_id,
+        title,
+        content,
+        url,
+        published_at,
+        post_type: str = "",
+        detail: dict | None = None,
     ) -> int | None:
         if self.post_exists(platform, external_id):
             return None
+        detail_json = json.dumps(detail, ensure_ascii=False) if detail else ""
         try:
             return self._execute(
-                "INSERT INTO posts (platform, kol_id, external_id, title, content, post_type, url, published_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (platform, kol_id, external_id, title, content, post_type, url, published_at),
+                "INSERT INTO posts (platform, kol_id, external_id, title, content, post_type, url, published_at, detail) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    platform,
+                    kol_id,
+                    external_id,
+                    title,
+                    content,
+                    post_type,
+                    url,
+                    published_at,
+                    detail_json,
+                ),
             )
         except sqlite3.IntegrityError:
             return None  # 并发下重复插入，视为已存在

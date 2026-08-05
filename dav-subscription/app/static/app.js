@@ -983,7 +983,11 @@ async function renderAdmin(tab) {
     ${heroPanel("Admin Console", "管理后台", "维护大V目录、分类与推送记录，查看注册用户。")}
     <div id="admin-body"></div>`;
   const loaders = { stats: loadAdminStats, kols: loadAdminKols, requests: loadAdminRequests, codes: loadAdminCodes, categories: loadAdminCategories, posts: loadAdminPosts, logs: loadAdminLogs, audit: loadAdminAudit, users: loadAdminUsers };
-  await loaders[tab]();
+  try {
+    await loaders[tab]();
+  } catch (err) {
+    $("#admin-body").innerHTML = emptyState("加载失败: " + err.message);
+  }
 }
 
 async function loadAdminStats() {
@@ -1164,10 +1168,16 @@ function statCard(label, value) {
 }
 
 async function loadAdminKols() {
-  const [kols, categories] = await Promise.all([
-    api(`/api/kols${state.adminKolsPlatform ? `?platform=${state.adminKolsPlatform}` : ""}`),
-    api("/api/categories"),
-  ]);
+  let kols, categories;
+  try {
+    [kols, categories] = await Promise.all([
+      api(`/api/kols${state.adminKolsPlatform ? `?platform=${state.adminKolsPlatform}` : ""}`),
+      api("/api/categories"),
+    ]);
+  } catch (err) {
+    $("#admin-body").innerHTML = emptyState("加载失败: " + err.message);
+    return;
+  }
   const catOptions = categories.map((c) => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
   $("#admin-body").innerHTML = `
     <section class="section-panel">
@@ -1365,10 +1375,16 @@ async function saveKolEdit(id) {
 }
 
 async function loadAdminRequests() {
-  const [requests, all] = await Promise.all([
-    api("/api/admin/kol-requests?status=pending"),
-    api("/api/admin/kol-requests"),
-  ]);
+  let requests, all;
+  try {
+    [requests, all] = await Promise.all([
+      api("/api/admin/kol-requests?status=pending"),
+      api("/api/admin/kol-requests"),
+    ]);
+  } catch (err) {
+    $("#admin-body").innerHTML = emptyState("加载失败: " + err.message);
+    return;
+  }
   const done = all.filter((r) => r.status !== "pending");
   const pendingRows = requests.length === 0
     ? `<tr><td colspan="7" class="muted">暂无待审批申请</td></tr>`
@@ -1415,14 +1431,22 @@ async function loadAdminRequests() {
 }
 
 async function adminApproveRequest(id) {
-  await api(`/api/admin/kol-requests/${id}/approve`, { method: "POST" });
-  loadAdminRequests();
+  try {
+    await api(`/api/admin/kol-requests/${id}/approve`, { method: "POST" });
+    loadAdminRequests();
+  } catch (err) {
+    alert("操作失败: " + err.message);
+  }
 }
 
 async function adminRejectRequest(id) {
   if (!confirm("确认拒绝该申请？")) return;
-  await api(`/api/admin/kol-requests/${id}/reject`, { method: "POST" });
-  loadAdminRequests();
+  try {
+    await api(`/api/admin/kol-requests/${id}/reject`, { method: "POST" });
+    loadAdminRequests();
+  } catch (err) {
+    alert("操作失败: " + err.message);
+  }
 }
 
 async function loadAdminCodes() {
@@ -1543,8 +1567,12 @@ async function adminRenameCategory(id) {
 
 async function adminDeleteCategory(id) {
   if (!confirm("确认删除该分类？其下大V将变为未分类")) return;
-  await api(`/api/categories/${id}`, { method: "DELETE" });
-  loadAdminCategories();
+  try {
+    await api(`/api/categories/${id}`, { method: "DELETE" });
+    loadAdminCategories();
+  } catch (err) {
+    alert("删除失败: " + err.message);
+  }
 }
 
 async function loadAdminPosts() {

@@ -92,6 +92,8 @@ def create_app(config=None, db_path: str | Path | None = None) -> FastAPI:
                 await bot_task
             except asyncio.CancelledError:
                 pass
+        # 关停前把合并摘要缓冲发出去，避免重启/更新丢消息
+        scheduler.stop()
         db.close()
 
     app = FastAPI(title="大V订阅", lifespan=lifespan)

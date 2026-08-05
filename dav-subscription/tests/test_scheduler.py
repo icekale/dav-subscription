@@ -1,3 +1,4 @@
+import json
 import tempfile
 import threading
 import time
@@ -611,6 +612,123 @@ def test_retry_recovery_from_failed_logs():
     )
     scheduler._recover_failed_pushes()
     assert scheduler.retry_queue.pending() == 1
+
+
+def test_transfer_subscriptions_preserves_and_merges_type():
+    db = make_db()
+    kid1 = db.add_kol("xueqiu", "A", "1")
+    kid2 = db.add_kol("xueqiu", "B", "2")
+    target = db.add_user("web", "h")
+    bot = db.add_user("bot", "h")
+    db.add_subscription(target, kid1, type="post")
+    db.add_subscription(bot, kid1, type="reply")
+    db.add_subscription(bot, kid2, type="both")
+
+    db.transfer_subscriptions(bot, target)
+
+    types = {row["id"]: row["subscribe_type"] for row in db.list_subscriptions(target)}
+    assert types[kid1] == "both"  # post + reply 合并为 both
+    assert types[kid2] == "both"
+    assert db.list_subscriptions(bot) == []
+
+
+def test_insert_post_persists_detail_and_recovery_restores_fields():
+    db = make_db()
+    kid = db.add_kol("combination", "组合A", "ZH123")
+    cid = db.add_category("实盘")
+    db.update_kol(kid, category_id=cid)
+    detail = {
+        "stats": [["年化", "12.3%"], ["净值", "1.500"]],
+        "actions": [{"type": "增持", "stock": "贵州茅台", "symbol": "600519"}],
+        "cash": "5.0%",
+    }
+    pid = db.insert_post(
+        "combination", kid, "c1", "组合A 调仓", "内容", "u", "", detail=detail
+    )
+    row = db.get_post(pid)
+    assert json.loads(row["detail"]) == detail
+
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.add_push_log(pid, "telegram", "failed", "boom", user_id=uid)
+    db._execute("UPDATE push_logs SET created_at = datetime('now', '-1 hours') WHERE id = ?", (pid,))
+
+    scheduler = Scheduler(
+        db,
+        {},
+        [],
+        SimpleNamespace(),
+        notifiers_config=SimpleNamespace(telegram=SimpleNamespace(bot_token="t", chat_id="111")),
+        xueqiu_config=SimpleNamespace(cookie=""),
+        weibo_config=SimpleNamespace(cookie="", username="", password=""),
+    )
+    scheduler._recover_failed_pushes()
+    assert scheduler.retry_queue.pending() == 1
+    item = next(iter(scheduler.retry_queue._items.values()))
+    assert item["post"].post_type == ""
+    assert item["post"].category == "实盘"
+    assert item["post"].detail == detail
+
+
+def test_retry_recovery_restores_post_type():
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    pid = db.insert_post("xueqiu", kid, "p9", "t", "c", "u", "", post_type="reply")
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.add_push_log(pid, "telegram", "failed", "boom", user_id=uid)
+    db._execute("UPDATE push_logs SET created_at = datetime('now', '-1 hours') WHERE id = ?", (pid,))
+
+    scheduler = Scheduler(
+        db,
+        {},
+        [],
+        SimpleNamespace(),
+        notifiers_config=SimpleNamespace(telegram=SimpleNamespace(bot_token="t", chat_id="111")),
+        xueqiu_config=SimpleNamespace(cookie=""),
+        weibo_config=SimpleNamespace(cookie="", username="", password=""),
+    )
+    scheduler._recover_failed_pushes()
+    assert scheduler.retry_queue.pending() == 1
+    item = next(iter(scheduler.retry_queue._items.values()))
+    assert item["post"].post_type == "reply"
+
+
+def test_scheduler_stop_flushes_pending_digest(monkeypatch):
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.add_subscription(uid, kid)
+    sent = []
+
+    class FakeTG:
+        def __init__(self, config, chat_id=None, client=None, **kwargs):
+            self.client = SimpleNamespace(close=lambda: None)
+
+        def send_digest(self, posts, kol_name, platform):
+            sent.append((len(posts), kol_name))
+
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FakeTG)
+    ncfg = SimpleNamespace(
+        telegram=SimpleNamespace(bot_token="t", chat_id=""),
+        feishu=SimpleNamespace(),
+        wecom=SimpleNamespace(),
+    )
+    scheduler = Scheduler(
+        db,
+        {},
+        [],
+        SimpleNamespace(),
+        notifiers_config=ncfg,
+        xueqiu_config=SimpleNamespace(cookie=""),
+        weibo_config=SimpleNamespace(cookie="", username="", password=""),
+    )
+    post = make_post(kid)
+    post.external_id = "p2"
+    scheduler._digest = {kid: [post]}
+
+    scheduler.stop()
+
+    assert sent == [(1, "A")]
+    assert scheduler._digest == {}
 
 
 def test_daily_report_sent_to_enabled_user(monkeypatch):
