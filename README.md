@@ -42,6 +42,32 @@
 
 ## 快速 Docker 部署
 
+### 0. 用 AI Agent 部署（可选，推荐）
+
+本项目从部署、配置到日常运维都可以交给 AI Agent（如 Codex、Claude Code、Cursor 等）直接完成。克隆仓库后，把目标交给 AI Agent，它会自行阅读本 README 与部署文档、准备配置、执行命令并做健康检查：
+
+```bash
+git clone https://github.com/icekale/dav-subscription.git
+```
+
+> 示例指令（按你的环境替换部署目标与推送渠道）：
+>
+> ```
+> 阅读这个仓库的 README 和部署文档，用 Docker Compose 帮我部署 dav-subscription：
+> 1. 配置 Telegram / 飞书 / 企业微信推送渠道，并创建 admin 管理员账号
+> 2. 构建并启动容器，部署完成后检查健康接口和 Web 后台可访问
+> 3. 告诉我登录地址、管理员账号，以及查看日志排障的方法
+> ```
+
+AI Agent 可以完成的典型工作：
+
+- **部署**：自动准备 `.env`、构建并启动容器、验证 `/healthz` 与 Web 后台
+- **升级**：`git pull` 后重建容器，保留 `./data/dav.db` 数据不丢失
+- **排障**：查看容器日志、检查数据源抓取状态、定位推送失败原因
+- **日常运维**：数据备份、清理过期帖子、调整抓取频率与抓取策略
+
+> 提示：重要生产环境建议在让 AI Agent 操作前先备份 `./data/` 目录，并保留系统快照。
+
 ### 1. 前置要求
 
 - Docker 20.10+ 与 Docker Compose v2（`docker compose version` 可验证）
