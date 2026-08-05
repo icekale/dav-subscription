@@ -240,6 +240,11 @@ class TwitterFetcher(Fetcher):
             if self.db is not None:
                 self.db.set_setting("x_direct_last_fallback_at", str(int(time.time())))
                 self.db.set_setting("x_direct_fallback_reason", str(exc)[:300])
+                self.db.add_source_event(
+                    "twitter",
+                    "warn",
+                    f"X直抓降级RSSHub: {str(exc)[:200]}",
+                )
             logger.warning(
                 "X 直抓失败，回退 RSSHub kol=%s err=%s",
                 kol["name"],

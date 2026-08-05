@@ -128,6 +128,13 @@ CREATE TABLE IF NOT EXISTS admin_logs (
     detail TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE TABLE IF NOT EXISTS source_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    platform TEXT NOT NULL,
+    status TEXT NOT NULL,
+    detail TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 
 -- 性能索引：帖子/日志/订阅按数据量增长后的高频查询
 CREATE INDEX IF NOT EXISTS idx_posts_kol_id ON posts(kol_id);
@@ -135,6 +142,7 @@ CREATE INDEX IF NOT EXISTS idx_posts_fetched_at ON posts(fetched_at);
 CREATE INDEX IF NOT EXISTS idx_push_logs_created_at ON push_logs(created_at);
 CREATE INDEX IF NOT EXISTS idx_push_logs_post_id ON push_logs(post_id);
 CREATE INDEX IF NOT EXISTS idx_subscriptions_kol_id ON subscriptions(kol_id);
+CREATE INDEX IF NOT EXISTS idx_source_events_platform ON source_events(platform, created_at);
 """
 
 ALLOWED_PLATFORMS = {"xueqiu", "combination", "weibo", "twitter"}
@@ -1040,3 +1048,42 @@ class DB:
             "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             (key, value),
         )
+
+    # ---- 数据源稳定性事件 ----
+    def add_source_event(self, platform: str, status: str, detail: str = "") -> None:
+        """记录一次数据源事件：ok（本轮有抓取成功）/ fail（本轮有失败）/ warn（降级）。"""
+        self._execute(
+            "INSERT INTO source_events (platform, status, detail) VALUES (?, ?, ?)",
+            (platform, status, detail[:300]),
+        )
+
+    def source_event_stats(self, platform: str, hours: int = 24) -> dict[str, int]:
+        """最近 N 小时内的 ok/fail/warn 事件数。"""
+        rows = self._rows(
+            "SELECT status, COUNT(*) AS n FROM source_events "
+            "WHERE platform = ? AND created_at >= datetime('now', ?) "
+            "GROUP BY status",
+            (platform, f"-{hours} hours"),
+        )
+        out = {"ok": 0, "fail": 0, "warn": 0}
+        for row in rows:
+            if row["status"] in out:
+                out[row["status"]] = row["n"]
+        return out
+
+    def recent_source_events(self, limit: int = 30) -> list[dict]:
+        return self._rows(
+            "SELECT * FROM source_events ORDER BY id DESC LIMIT ?",
+            (min(max(limit, 1), 200),),
+        )
+
+    def delete_source_events_older_than(self, days: int) -> int:
+        if days <= 0:
+            return 0
+        with self._lock:
+            cur = self._conn.execute(
+                "DELETE FROM source_events WHERE created_at < datetime('now', ?)",
+                (f"-{days} days",),
+            )
+            self._conn.commit()
+            return cur.rowcount

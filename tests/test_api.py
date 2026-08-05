@@ -1489,3 +1489,23 @@ def test_batch_import_xueqiu_fetches_avatar_even_with_nickname(monkeypatch):
     target = next(k for k in kols if k["platform"] == "xueqiu")
     assert target["name"] == "段永平"
     assert target["avatar_url"] == "https://xueqiu.com/avatar.png"
+
+
+def test_stats_returns_source_stability_fields():
+    client = make_client()
+    headers = auth_headers(client)
+    db = client.app.state.db
+    kid = db.add_kol("xueqiu", "A", "1")
+    db.insert_post("xueqiu", kid, "p1", "t", "c", "u", "")
+    db.add_source_event("xueqiu", "ok", "ok=1 fail=0")
+    db.add_source_event("xueqiu", "fail", "fail=1 ok=0 err=boom")
+    db.set_setting("stats_retry_pending", "2")
+
+    data = client.get("/api/stats", headers=headers).json()
+    xq = next(s for s in data["sources"] if s["platform"] == "xueqiu")
+    assert xq["ok_24h"] == 1 and xq["fail_24h"] == 1
+    assert xq["success_rate_24h"] == 50
+    assert len(data["recent_source_events"]) == 2
+    assert data["retry_pending"] == 2
+    assert any(h["id"] == kid and h["last_post_at"] for h in data["kol_health"])
+    assert "push_alert_last_at" in data["alerts"]

@@ -519,6 +519,32 @@ td .btn-sm.danger { color: var(--color-danger); border-color: rgba(220, 38, 38, 
 .status-ok { color: var(--color-success); }
 .status-fail { color: var(--color-danger); }
 .status-warn { color: var(--color-warning, #d97706); }
+
+.rate-bar {
+  position: relative;
+  min-width: 110px;
+  height: 16px;
+  background: var(--color-bg-muted);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.rate-fill {
+  height: 100%;
+  border-radius: 8px;
+  transition: width 0.3s ease;
+}
+
+.rate-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-strong);
+}
 .channel-grid {
   display: flex;
   gap: 14px;

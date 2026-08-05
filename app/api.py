@@ -1184,12 +1184,20 @@ def create_api_router(
             ok_at = db.get_setting(f"source_ok_{platform}")
             err = db.get_setting(f"source_err_{platform}") or ""
             fails = db.get_setting(f"source_fails_{platform}") or "0"
+            ev = db.source_event_stats(platform, 24)
+            total = ev["ok"] + ev["fail"]
             src = {
                 "platform": platform,
                 "ok": bool(ok_at),
                 "last_ok_at": ok_at,
                 "last_error": err,
                 "consecutive_fails": int(fails),
+                "ok_24h": ev["ok"],
+                "fail_24h": ev["fail"],
+                "warn_24h": ev["warn"],
+                "success_rate_24h": round(ev["ok"] * 100 / total) if total else None,
+                "next_retry_at": db.get_setting(f"source_next_retry_at_{platform}") or "",
+                "last_alert_at": db.get_setting(f"source_alert_{platform}") or "",
             }
             if platform == "twitter":
                 # X 通道状态：直抓（官方接口）为主，降级时用 RSSHub 备用
@@ -1210,6 +1218,18 @@ def create_api_router(
         xueqiu_updated = db.get_setting("xueqiu_cookie_updated_at") or ""
         weibo_cookie = db.get_setting("weibo_cookie") or ""
         weibo_updated = db.get_setting("weibo_cookie_updated_at") or ""
+        last_post_at = db.last_post_time_by_kol()
+        kol_health = [
+            {
+                "id": k["id"],
+                "name": k["name"],
+                "platform": k["platform"],
+                "enabled": bool(k["enabled"]),
+                "last_post_at": last_post_at.get(k["id"]) or "",
+            }
+            for k in kols
+        ]
+        kol_health.sort(key=lambda h: h["last_post_at"])
         return {
             "polling_interval_seconds": int(db.get_setting("stats_polling_interval") or 0),
             "keepalive_interval_seconds": int(db.get_setting("stats_keepalive_interval") or 0),
@@ -1234,6 +1254,15 @@ def create_api_router(
                 "preview": (weibo_cookie[:40] + "…") if len(weibo_cookie) > 40 else weibo_cookie,
             },
             "polling_config": _effective_polling(),
+            "recent_source_events": db.recent_source_events(30),
+            "kol_health": kol_health,
+            "retry_pending": int(db.get_setting("stats_retry_pending") or 0),
+            "alerts": {
+                "push_alert_last_at": db.get_setting("push_alert_last_at") or "",
+                "x_direct_alert_at": db.get_setting("x_direct_alert_at") or "",
+                "cookie_keepalive_alert_at": db.get_setting("cookie_keepalive_alert_at") or "",
+                "xueqiu_probe_alert_at": db.get_setting("xueqiu_probe_alert_at") or "",
+            },
         }
 
     @router.put("/users/{user_id}", dependencies=[Depends(require_admin)])

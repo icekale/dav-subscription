@@ -1208,47 +1208,68 @@ async function renderAdmin(tab) {
   }
 }
 
+let statsTimer = null;
+
+function stopStatsTimer() {
+  if (statsTimer) {
+    clearInterval(statsTimer);
+    statsTimer = null;
+  }
+}
+
+function fmtTs(ts) {
+  return ts ? new Date(Number(ts) * 1000).toLocaleString() : "-";
+}
+
+function rateBar(rate) {
+  if (rate === null || rate === undefined) return `<span class="muted">暂无数据</span>`;
+  const color = rate >= 95 ? "var(--color-success)" : rate >= 70 ? "var(--color-warning)" : "var(--color-danger)";
+  return `
+    <div class="rate-bar">
+      <div class="rate-fill" style="width:${Math.min(100, Math.max(0, rate))}%;background:${color}"></div>
+      <span class="rate-label">${rate}%</span>
+    </div>`;
+}
+
 async function loadAdminStats() {
+  stopStatsTimer();
   const [s, xq] = await Promise.all([api("/api/stats"), api("/api/admin/xueqiu-cookie")]);
-  const fmtTime = (ts) => (ts ? new Date(Number(ts) * 1000).toLocaleString() : "尚未抓取");
   $("#admin-body").innerHTML = `
     <section class="section-panel">
-      <header class="section-head"><div><p class="section-eyebrow">Data Sources</p><h3 class="section-title">数据源</h3>
-      <p class="section-meta">各平台抓取状态与登录凭据维护。</p></div></header>
-      <div class="row" style="gap:16px;flex-wrap:wrap">
-        ${statCard("轮询间隔", `${s.polling_interval_seconds} 秒`)}
-        ${statCard("最近抓取", fmtTime(s.last_poll_at))}
-        ${statCard("抓取耗时", s.last_poll_duration_ms ? `${(Number(s.last_poll_duration_ms) / 1000).toFixed(1)} 秒` : "-")}
-        ${statCard("大V / 启用", `${s.kols} / ${s.enabled_kols}`)}
-        ${statCard("优先大V", s.priority_kols)}
-        ${statCard("用户", s.users)}
-        ${statCard("帖子", s.posts)}
-      </div>
-      ${s.last_poll_error ? `<div class="notice" style="margin-top:16px">最近轮询异常：${escapeHtml(s.last_poll_error)}</div>` : ""}
+      <header class="section-head">
+        <div><p class="section-eyebrow">Data Sources</p><h3 class="section-title">数据源稳定性</h3>
+        <p class="section-meta">抓取健康、24h 成功率与事件流；页面每 30 秒自动刷新，可随时手动刷新。</p></div>
+        <div class="toolbar" style="margin-top:12px">
+          <span id="stats-refresh-at" class="muted"></span>
+          <button class="btn-ghost" onclick="loadAdminStats()">立即刷新</button>
+        </div>
+      </header>
+      <div id="stats-cards"></div>
+      <div id="stats-poll-error"></div>
+      <div id="stats-ops" style="margin-top:16px"></div>
       <div class="table-wrap" style="margin-top:16px">
         <table>
-          <thead><tr><th>平台</th><th>状态</th><th>通道</th><th>最近成功</th><th>最近失败</th><th>连续失败</th></tr></thead>
-          <tbody>${(s.sources || []).map((src) => {
-            const channel = src.platform === "twitter"
-              ? (src.direct_mode === "direct"
-                  ? '<span class="status-ok">直抓</span>'
-                  : src.direct_mode === "fallback"
-                    ? '<span class="status-warn" title="' + escapeHtml(src.direct_fallback_reason || "") + '">备用RSS</span>'
-                    : '<span class="muted">-</span>')
-              : '<span class="muted">-</span>';
-            return `
-              <tr>
-                <td>${PLATFORM_LABELS[src.platform] || src.platform}</td>
-                <td class="${src.ok ? "status-ok" : "status-fail"}">${src.ok ? "正常" : "无成功记录"}</td>
-                <td>${channel}</td>
-                <td>${src.last_ok_at ? fmtTime(src.last_ok_at) : "-"}</td>
-                <td class="muted">${src.last_error ? escapeHtml(src.last_error.slice(0, 60)) : "-"}</td>
-                <td class="${src.consecutive_fails >= 3 ? "status-fail" : ""}">${src.consecutive_fails}</td>
-              </tr>`;
-          }).join("")}</tbody>
+          <thead><tr><th>平台</th><th>状态</th><th>通道</th><th>24h 成功率</th><th>成功 / 失败</th><th>连续失败</th><th>最近成功</th><th>下次重试</th><th>最近错误</th></tr></thead>
+          <tbody id="sources-table"></tbody>
         </table>
       </div>
-      <div class="row" style="gap:14px;align-items:flex-end;margin-top:18px;flex-wrap:wrap">
+    </section>
+    <section class="section-panel">
+      <header class="section-head"><div><p class="section-eyebrow">Events</p><h3 class="section-title">数据源事件</h3>
+      <p class="section-meta">最近 30 条抓取成功 / 失败 / 降级记录（保留 7 天）。</p></div></header>
+      <div id="source-events"></div>
+    </section>
+    <section class="section-panel">
+      <header class="section-head"><div><p class="section-eyebrow">KOL Health</p><h3 class="section-title">大V抓取健康</h3>
+      <p class="section-meta">按「最近抓到新帖时间」从旧到新排列，顶部即长期无更新的候选排查对象。</p></div></header>
+      <div id="kol-health"></div>
+    </section>
+    <section class="section-panel">
+      <header class="section-head">
+        <div><p class="section-eyebrow">Config</p><h3 class="section-title">抓取设置</h3>
+        <p class="section-meta">保存后即时生效，无需重启。</p></div>
+      </header>
+      <div class="row" style="gap:14px;align-items:flex-end;margin-top:12px;flex-wrap:wrap">
         <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)">轮询间隔(秒)
           <input id="pc-interval" type="number" class="form-control" style="margin:0;width:110px" min="1" max="3600" value="${s.polling_config.interval_seconds}">
         </label>
@@ -1274,7 +1295,11 @@ async function loadAdminStats() {
         <button class="btn-normal" onclick="savePollingConfig()">保存抓取设置</button>
         <span id="pc-result" class="muted"></span>
       </div>
-      <div style="margin-top:16px">
+    </section>
+    <section class="section-panel">
+      <header class="section-head"><div><p class="section-eyebrow">Weibo</p><h3 class="section-title">微博 Cookie</h3>
+      <p class="section-meta">扫码登录后自动保存 Cookie，或配置账号密码自动续期。</p></div></header>
+      <div>
         <button class="btn-normal" onclick="startWeiboQr()">微博扫码登录</button>
         <span class="muted" style="margin-left:10px">用微博 App 扫码后自动保存 Cookie，无需手动复制</span>
         <p class="muted" style="margin-top:10px">
@@ -1297,6 +1322,116 @@ async function loadAdminStats() {
         <span id="xq-result" class="muted"></span>
       </div>
     </section>`;
+  renderStatsData(s);
+  statsTimer = setInterval(async () => {
+    try {
+      const fresh = await api("/api/stats");
+      renderStatsData(fresh);
+    } catch {
+      /* 后台刷新失败不打扰，等下一轮 */
+    }
+  }, 30000);
+}
+
+function renderStatsData(s) {
+  const cards = $("#stats-cards");
+  if (cards) {
+    cards.innerHTML = `
+      <div class="row" style="gap:16px;flex-wrap:wrap">
+        ${statCard("轮询间隔", `${s.polling_interval_seconds} 秒`)}
+        ${statCard("最近抓取", fmtTs(s.last_poll_at))}
+        ${statCard("抓取耗时", s.last_poll_duration_ms ? `${(Number(s.last_poll_duration_ms) / 1000).toFixed(1)} 秒` : "-")}
+        ${statCard("大V / 启用", `${s.kols} / ${s.enabled_kols}`)}
+        ${statCard("优先大V", s.priority_kols)}
+        ${statCard("用户 / 帖子", `${s.users} / ${s.posts}`)}
+      </div>`;
+  }
+  const pollErr = $("#stats-poll-error");
+  if (pollErr) {
+    pollErr.innerHTML = s.last_poll_error
+      ? `<div class="notice" style="margin-top:16px">最近轮询异常：${escapeHtml(s.last_poll_error)}</div>`
+      : "";
+  }
+  const ops = $("#stats-ops");
+  if (ops) {
+    const alerts = s.alerts || {};
+    const chips = [
+      s.retry_pending
+        ? `<span class="channel-status status-warn"><i class="dot"></i>待重试推送 ${s.retry_pending} 条</span>`
+        : `<span class="channel-status status-ok"><i class="dot"></i>重试队列空闲</span>`,
+    ];
+    if (alerts.push_alert_last_at) chips.push(`<span class="channel-status status-warn"><i class="dot"></i>推送告警 ${fmtTs(alerts.push_alert_last_at)}</span>`);
+    if (alerts.x_direct_alert_at) chips.push(`<span class="channel-status status-warn"><i class="dot"></i>X降级告警 ${fmtTs(alerts.x_direct_alert_at)}</span>`);
+    if (alerts.cookie_keepalive_alert_at) chips.push(`<span class="channel-status status-warn"><i class="dot"></i>cookie保活告警 ${fmtTs(alerts.cookie_keepalive_alert_at)}</span>`);
+    if (alerts.xueqiu_probe_alert_at) chips.push(`<span class="channel-status status-warn"><i class="dot"></i>雪球探测告警 ${fmtTs(alerts.xueqiu_probe_alert_at)}</span>`);
+    ops.innerHTML = `<div class="row" style="gap:10px;flex-wrap:wrap">${chips.join("")}</div>`;
+  }
+  const tbody = $("#sources-table");
+  if (tbody) {
+    tbody.innerHTML = (s.sources || []).map((src) => {
+      const channel = src.platform === "twitter"
+        ? (src.direct_mode === "direct"
+            ? '<span class="status-ok">直抓</span>'
+            : src.direct_mode === "fallback"
+              ? '<span class="status-warn" title="' + escapeHtml(src.direct_fallback_reason || "") + '">备用RSS</span>'
+              : '<span class="muted">-</span>')
+        : '<span class="muted">-</span>';
+      return `
+        <tr>
+          <td>${PLATFORM_LABELS[src.platform] || src.platform}</td>
+          <td class="${src.ok ? "status-ok" : "status-fail"}">${src.ok ? "正常" : "无成功记录"}</td>
+          <td>${channel}</td>
+          <td>${rateBar(src.success_rate_24h)}</td>
+          <td>${src.ok_24h} / ${src.fail_24h}${src.warn_24h ? ` <span class="status-warn">⚠${src.warn_24h}</span>` : ""}</td>
+          <td class="${src.consecutive_fails >= 3 ? "status-fail" : ""}">${src.consecutive_fails}</td>
+          <td>${fmtTs(src.last_ok_at)}</td>
+          <td>${src.next_retry_at ? fmtTs(src.next_retry_at) : "-"}</td>
+          <td class="muted" title="${escapeHtml(src.last_error || "")}">${src.last_error ? escapeHtml(src.last_error.slice(0, 40)) : "-"}</td>
+        </tr>`;
+    }).join("");
+  }
+  const events = $("#source-events");
+  if (events) {
+    const rows = s.recent_source_events || [];
+    events.innerHTML = rows.length
+      ? `<div class="table-wrap"><table>
+          <thead><tr><th>时间</th><th>平台</th><th>状态</th><th>详情</th></tr></thead>
+          <tbody>${rows.map((e) => `
+            <tr>
+              <td class="muted">${escapeHtml(e.created_at)}</td>
+              <td>${PLATFORM_LABELS[e.platform] || e.platform}</td>
+              <td>${e.status === "ok"
+                ? '<span class="status-ok">正常</span>'
+                : e.status === "warn"
+                  ? '<span class="status-warn">降级</span>'
+                  : '<span class="status-fail">失败</span>'}</td>
+              <td class="muted">${escapeHtml(e.detail)}</td>
+            </tr>`).join("")}</tbody>
+        </table></div>`
+      : emptyState("暂无事件，抓取正常运行中");
+  }
+  const kh = $("#kol-health");
+  if (kh) {
+    const rows = s.kol_health || [];
+    kh.innerHTML = rows.length
+      ? `<div class="table-wrap"><table>
+          <thead><tr><th>大V</th><th>平台</th><th>状态</th><th>最近抓到新帖</th></tr></thead>
+          <tbody>${rows.map((h) => `
+            <tr>
+              <td>${escapeHtml(h.name)}</td>
+              <td>${PLATFORM_LABELS[h.platform] || h.platform}</td>
+              <td>${h.enabled
+                ? (h.last_post_at
+                    ? '<span class="status-ok">正常</span>'
+                    : '<span class="status-warn">从未抓到</span>')
+                : '<span class="status-fail">已停用</span>'}</td>
+              <td class="muted">${h.last_post_at ? escapeHtml(h.last_post_at) : "-"}</td>
+            </tr>`).join("")}</tbody>
+        </table></div>`
+      : emptyState("还没有添加大V");
+  }
+  const refreshAt = $("#stats-refresh-at");
+  if (refreshAt) refreshAt.textContent = `更新于 ${new Date().toLocaleTimeString()}`;
 }
 
 async function savePollingConfig() {
@@ -2081,6 +2216,7 @@ async function adminToggleAdmin(userId, makeAdmin) {
 async function router() {
   stopSettingsPoll();
   stopSysLogsTimer();
+  stopStatsTimer();
   const hash = location.hash.replace(/^#\/?/, "") || "home";
   const [page, param] = hash.split("/");
   if (!state.token) {

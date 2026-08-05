@@ -572,6 +572,8 @@ def poll_once(
     platforms = {kol["platform"] for kol, _, _ in jobs}
     platform_sem = {p: threading.Semaphore(2) for p in platforms}
     platform_lock = {p: threading.Lock() for p in platforms}
+    # 本轮各平台 ok/fail 计数（稳定性事件表，避免每轮每个大V都记一条）
+    round_stats: dict[str, dict] = {}
 
     import httpx
 
@@ -597,10 +599,23 @@ def poll_once(
                     platform_lock[kol["platform"]],
                     client,
                     dnd_buffer,
+                    round_stats,
                 )
 
         with ThreadPoolExecutor(max_workers=min(8, len(jobs))) as ex:
             list(ex.map(_worker, jobs))
+        for platform, st in round_stats.items():
+            if st["ok"]:
+                db.add_source_event(platform, "ok", f"ok={st['ok']} fail={st['fail']}")
+            if st["fail"]:
+                db.add_source_event(
+                    platform,
+                    "fail",
+                    f"fail={st['fail']} ok={st['ok']} kol={st['kol']} err={st['err'][:200]}",
+                )
+            if st["ok"] and not st["fail"]:
+                # 整轮无失败才清掉重试倒计时；有失败保留，避免并发顺序导致状态抖动
+                db.set_setting(f"source_next_retry_at_{platform}", "")
     finally:
         client.close()
     logger.info("轮询完成：%d 个大V，耗时 %.0fms", len(jobs), (time.monotonic() - now) * 1000)
@@ -624,6 +639,7 @@ def _fetch_kol_once(
     state_lock: threading.Lock,
     client=None,
     dnd_buffer: dict[int, list[Post]] | None = None,
+    round_stats: dict[str, dict] | None = None,
 ) -> None:
     """并发 worker：抓取单个大V并处理新帖（状态读写加锁保护）。"""
     effective = priority_interval_seconds if kol.get("priority") else interval_seconds
@@ -637,6 +653,13 @@ def _fetch_kol_once(
             state.fail_count += 1
             delay = min(30 * (2 ** (state.fail_count - 1)), 600)
             state.skip_until = time.monotonic() + delay
+            if round_stats is not None:
+                st = round_stats.setdefault(
+                    kol["platform"], {"ok": 0, "fail": 0, "err": "", "kol": ""}
+                )
+                st["fail"] += 1
+                st["err"] = str(exc)[:300]
+                st["kol"] = kol["name"]
             if state.fail_count == SOURCE_FAIL_THRESHOLD or state.fail_count % 10 == 0:
                 maybe_alert_source_failure(
                     db, notifiers, kol["platform"], kol["name"], str(exc), state.fail_count
@@ -657,6 +680,10 @@ def _fetch_kol_once(
             maybe_warn_xueqiu_cookie(db, notifiers, str(exc))
         db.set_setting(SOURCE_ERR_KEY.format(platform=kol["platform"]), str(exc)[:300])
         db.set_setting(SOURCE_FAILS_KEY.format(platform=kol["platform"]), str(state.fail_count))
+        db.set_setting(
+            f"source_next_retry_at_{kol['platform']}",
+            str(int(time.time()) + delay),
+        )
         return
     with state_lock:
         if state.alerted:
@@ -664,6 +691,11 @@ def _fetch_kol_once(
             state.alerted = False
         state.fail_count = 0
         state.last_fetched[kol["id"]] = now
+        if round_stats is not None:
+            st = round_stats.setdefault(
+                kol["platform"], {"ok": 0, "fail": 0, "err": "", "kol": ""}
+            )
+            st["ok"] += 1
     db.set_setting(SOURCE_OK_KEY.format(platform=kol["platform"]), str(int(time.time())))
     db.set_setting(SOURCE_FAILS_KEY.format(platform=kol["platform"]), "0")
     db.set_setting(SOURCE_ERR_KEY.format(platform=kol["platform"]), "")
@@ -1270,6 +1302,8 @@ class Scheduler:
                     except Exception as exc:  # noqa: BLE001
                         logger.warning("重试推送失败 channel=%s err=%s", item["channel"], exc)
                         self.retry_queue.fail(item)
+            # 把待重试数量落库，供后台「数据源」页展示
+            self.db.set_setting("stats_retry_pending", str(self.retry_queue.pending()))
             # 合并摘要到点统一推送（普通大V，优先大V保持实时）
             if (
                 digest_interval > 0
@@ -1360,6 +1394,13 @@ class Scheduler:
                             logger.info("清理推送日志 %d 条（保留 %d 天）", removed_logs, log_retention)
                     except Exception:  # noqa: BLE001
                         logger.exception("推送日志清理失败")
+                # 数据源稳定性事件保留 7 天足够看趋势，过长无意义
+                try:
+                    removed_events = self.db.delete_source_events_older_than(7)
+                    if removed_events:
+                        logger.info("清理数据源事件 %d 条（保留 7 天）", removed_events)
+                except Exception:  # noqa: BLE001
+                    logger.exception("数据源事件清理失败")
             elapsed = time.monotonic() - started
             delay = interval_seconds + random.uniform(
                 0, self.polling_config.jitter_seconds

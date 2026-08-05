@@ -725,6 +725,54 @@ def test_dnd_summary_failure_alerts_admin(monkeypatch):
     assert any("推送失败" in t for t in notifier.texts)
 
 
+class MixedFetcher:
+    """按 KOL 区分成功/失败的假抓取器。"""
+
+    def __init__(self, ok_posts, fail_kols):
+        self.ok_posts = ok_posts
+        self.fail_kols = fail_kols
+
+    def fetch(self, kol):
+        if kol["id"] in self.fail_kols:
+            raise RuntimeError("boom")
+        return self.ok_posts
+
+
+def test_poll_once_logs_source_events_and_next_retry():
+    db = make_db()
+    ok_kid = db.add_kol("xueqiu", "OK", "1")
+    fail_kid = db.add_kol("xueqiu", "FAIL", "2")
+    poll_once(
+        db,
+        {"xueqiu": MixedFetcher([make_post(ok_kid)], {fail_kid})},
+        [],
+    )
+    events = db.recent_source_events()
+    assert {e["platform"] for e in events} == {"xueqiu"}
+    assert {e["status"] for e in events} == {"ok", "fail"}
+    assert any("boom" in e["detail"] for e in events)
+    stats = db.source_event_stats("xueqiu", 24)
+    assert stats["ok"] == 1 and stats["fail"] == 1
+    retry = db.get_setting("source_next_retry_at_xueqiu")
+    assert retry and int(retry) > 0  # 本轮有失败，保留重试倒计时
+
+
+def test_poll_once_clears_next_retry_on_all_success():
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    db.set_setting("source_next_retry_at_xueqiu", "9999999999")
+    poll_once(db, {"xueqiu": FakeFetcher([make_post(kid)])}, [])
+    assert db.get_setting("source_next_retry_at_xueqiu") == ""
+
+
+def test_source_events_retention():
+    db = make_db()
+    db.add_source_event("xueqiu", "fail", "x")
+    db._execute("UPDATE source_events SET created_at = datetime('now', '-8 days') WHERE id = 1")
+    assert db.delete_source_events_older_than(7) == 1
+    assert db.recent_source_events() == []
+
+
 def test_poll_once_fetches_never_fetched_kol_with_small_monotonic(monkeypatch):
     """容器启动早期 monotonic 可能小于轮询间隔，首轮不应被误跳过（CI 回归）。"""
     db = make_db()
