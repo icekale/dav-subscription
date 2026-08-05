@@ -1408,12 +1408,20 @@ class Scheduler:
     def _retry_push(self, item: dict) -> None:
         post = item["post"]
         user = self.db.get_user(item["user_id"]) if item["user_id"] is not None else None
-        if user is not None and _in_dnd_window(user):
+        favorite = bool(
+            item["user_id"] is not None
+            and post.kol_id in self.db.subscribed_favorite_ids(item["user_id"])
+        )
+        if (
+            user is not None
+            and _in_dnd_window(user)
+            and not (favorite and _dnd_favorite_passthrough(user))
+        ):
             # 免打扰时段内的重试也进免打扰缓冲，避免深夜打扰
             self._dnd_buffer.setdefault(user["id"], []).append(post)
             self.retry_queue.drop(item)
             return
-        notifier = self._build_retry_notifier(item["channel"], item["user_id"])
+        notifier = self._build_retry_notifier(item["channel"], item["user_id"], favorite=favorite)
         try:
             notifier.notify(post)
         finally:
@@ -1498,7 +1506,7 @@ class Scheduler:
         finally:
             client.close()
 
-    def _build_retry_notifier(self, channel: str, user_id: int | None):
+    def _build_retry_notifier(self, channel: str, user_id: int | None, favorite: bool = False):
         from .notifiers.feishu import FeishuNotifier
         from .notifiers.telegram import TelegramNotifier
         from .notifiers.wecom import WeComNotifier
@@ -1518,6 +1526,7 @@ class Scheduler:
                 self.notifiers_config.telegram,
                 chat_id=user["telegram_chat_id"],
                 bot_token=user.get("telegram_bot_token") or None,
+                favorite=favorite,
             )
         if channel == "feishu":
             if not (user.get("feishu_open_id") or user.get("feishu_chat_id")):
@@ -1526,6 +1535,7 @@ class Scheduler:
                 self.notifiers_config.feishu,
                 open_id=user["feishu_open_id"] if not user.get("feishu_chat_id") else None,
                 chat_id=user.get("feishu_chat_id") or None,
+                favorite=favorite,
             )
         if channel == "wecom":
             if not user.get("wecom_webhook"):
@@ -1533,6 +1543,7 @@ class Scheduler:
             return WeComNotifier(
                 self.notifiers_config.wecom,
                 webhook_url=user["wecom_webhook"],
+                favorite=favorite,
             )
         raise RuntimeError(f"未知渠道: {channel}")
 

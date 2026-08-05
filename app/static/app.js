@@ -316,6 +316,7 @@ async function toggleFavorite(kolId, btn) {
     });
     if (kol) kol.favorite = next;
     if (btn) btn.classList.toggle("fav-on", next);
+    if (location.hash.startsWith("#/mysubs")) renderMySubsList();
   } catch (err) {
     alert("操作失败: " + err.message);
   }
