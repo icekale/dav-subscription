@@ -2,11 +2,14 @@ const $ = (sel) => document.querySelector(sel);
 
 const PLATFORM_LABELS = { xueqiu: "雪球", combination: "雪球组合", weibo: "微博", twitter: "X" };
 const APP_VERSION = "1.4.0";
+const PLATFORM_TABS = ["", "xueqiu", "combination", "weibo", "twitter"];
 const state = {
   token: localStorage.getItem("dav_token") || "",
   user: null,
   catalog: [],
   platform: "",
+  mysubsPlatform: "",
+  adminKolsPlatform: "",
 };
 
 function escapeHtml(text) {
@@ -50,6 +53,7 @@ function avatarHtml(name, url) {
 const NAV = [
   { group: "订阅", items: [
     { route: "home", icon: "◎", label: "订阅广场" },
+    { route: "combinations", icon: "◈", label: "组合订阅" },
     { route: "mysubs", icon: "▤", label: "我的订阅" },
     { route: "timeline", icon: "☰", label: "动态" },
     { route: "settings", icon: "⚙", label: "推送设置" },
@@ -124,7 +128,7 @@ async function renderHome() {
   setPageTitle("订阅广场");
   $("#main").innerHTML = `
     ${heroPanel("DaV Catalog", "订阅广场", "浏览大V目录，点击卡片查看动态，一键订阅你关注的人。",
-      ["雪球", "微博", "X / RSS"])}
+      ["雪球", "雪球组合", "微博", "X / RSS"])}
     <section class="section-panel">
       <header class="section-head">
         <div>
@@ -149,7 +153,7 @@ async function renderHome() {
 }
 
 function renderPlatformTabs() {
-  $("#platform-tabs").innerHTML = ["", "xueqiu", "weibo", "twitter"].map((p) => `
+  $("#platform-tabs").innerHTML = PLATFORM_TABS.map((p) => `
     <button class="platform-tab ${p === state.platform ? "selected" : ""}"
       onclick="switchPlatform('${p}')">${p ? PLATFORM_LABELS[p] : "全部"}</button>`).join("");
 }
@@ -286,24 +290,76 @@ async function setSubscribeType(kolId, which, input) {
 async function renderMySubs() {
   setPageTitle("我的订阅");
   $("#main").innerHTML = `
-    ${heroPanel("My Subscriptions", "我的订阅", "管理你关注的大V，随时取消订阅。", ["自助订阅", "分类管理"])}
+    ${heroPanel("My Subscriptions", "我的订阅", "管理你关注的大V与组合，随时取消订阅。", ["大V", "组合", "分类管理"])}
     <section class="section-panel">
       <header class="section-head">
         <div>
           <p class="section-eyebrow">Subscriptions</p>
-          <h3 class="section-title">已订阅大V</h3>
+          <h3 class="section-title">已订阅</h3>
         </div>
       </header>
+      <div class="platform-tabs" id="mysubs-tabs" style="margin-top:12px"></div>
       <div id="mysubs-list"></div>
     </section>`;
   try {
     const subs = await api("/api/my/subscriptions");
     state.catalog = subs.map((k) => ({ ...k, subscribed: true }));
-    $("#mysubs-list").innerHTML = subs.length
-      ? state.catalog.map(kolCard).join("")
-      : emptyState("还没有订阅任何大V", `<div><button class="btn-normal btn-add" onclick="location.hash='#/home'">去发现大V</button></div>`);
+    renderMySubsTabs();
+    renderMySubsList();
   } catch (err) {
     $("#mysubs-list").innerHTML = emptyState(err.message);
+  }
+}
+
+function renderMySubsTabs() {
+  $("#mysubs-tabs").innerHTML = PLATFORM_TABS.map((p) => `
+    <button class="platform-tab ${p === state.mysubsPlatform ? "selected" : ""}"
+      onclick="switchMySubsPlatform('${p}')">${p ? PLATFORM_LABELS[p] : "全部"}</button>`).join("");
+}
+
+function switchMySubsPlatform(platform) {
+  state.mysubsPlatform = platform;
+  renderMySubsTabs();
+  renderMySubsList();
+}
+
+function renderMySubsList() {
+  const kols = state.catalog.filter(
+    (k) => !state.mysubsPlatform || k.platform === state.mysubsPlatform
+  );
+  $("#mysubs-list").innerHTML = kols.length
+    ? kols.map(kolCard).join("")
+    : emptyState("这里还没有订阅", `<div><button class="btn-normal btn-add" onclick="location.hash='#/home'">去订阅广场看看</button></div>`);
+}
+
+async function renderCombinations() {
+  setPageTitle("组合订阅");
+  $("#main").innerHTML = `
+    ${heroPanel("Combination Subscriptions", "组合订阅", "订阅雪球组合，每次调仓（持仓变化）都会实时推送。", ["调仓提醒", "模拟仓"])}
+    <section class="section-panel">
+      <header class="section-head">
+        <div>
+          <p class="section-eyebrow">Cubes</p>
+          <h3 class="section-title">雪球组合</h3>
+          <p class="section-meta" id="combo-meta">加载中…</p>
+        </div>
+      </header>
+      <div id="combo-list"></div>
+    </section>`;
+  try {
+    const kols = await api("/api/catalog?platform=combination");
+    state.catalog = kols;
+    $("#combo-meta").textContent = `共 ${kols.length} 个组合`;
+    $("#combo-list").innerHTML = kols.length
+      ? kols.map(kolCard).join("")
+      : emptyState(
+          "还没有添加雪球组合",
+          state.user?.is_admin
+            ? `<div><button class="btn-normal btn-add" onclick="location.hash='#/admin/kols'">去管理后台添加</button></div>`
+            : `<div><button class="btn-normal btn-add" onclick="location.hash='#/search'">申请添加 →</button></div>`
+        );
+  } catch (err) {
+    $("#combo-list").innerHTML = emptyState(err.message);
   }
 }
 
@@ -930,7 +986,10 @@ function statCard(label, value) {
 }
 
 async function loadAdminKols() {
-  const [kols, categories] = await Promise.all([api("/api/kols"), api("/api/categories")]);
+  const [kols, categories] = await Promise.all([
+    api(`/api/kols${state.adminKolsPlatform ? `?platform=${state.adminKolsPlatform}` : ""}`),
+    api("/api/categories"),
+  ]);
   const catOptions = categories.map((c) => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
   $("#admin-body").innerHTML = `
     <section class="section-panel">
@@ -969,7 +1028,10 @@ async function loadAdminKols() {
       </div>
     </section>
     <section class="section-panel">
-      <header class="section-head"><div><p class="section-eyebrow">List</p><h3 class="section-title">大V列表</h3></div></header>
+      <header class="section-head">
+        <div><p class="section-eyebrow">List</p><h3 class="section-title">大V列表</h3></div>
+        <div class="platform-tabs" id="admin-kols-tabs" style="margin-top:12px"></div>
+      </header>
       <div class="table-wrap">
         <table>
           <thead><tr><th>ID</th><th>平台</th><th>昵称</th><th>分类</th><th>外部ID</th><th>优先</th><th>原创</th><th>可见性</th><th>状态</th><th>操作</th></tr></thead>
@@ -992,6 +1054,14 @@ async function loadAdminKols() {
         </table>
       </div>
     </section>`;
+  $("#admin-kols-tabs").innerHTML = PLATFORM_TABS.map((p) => `
+    <button class="platform-tab ${p === state.adminKolsPlatform ? "selected" : ""}"
+      onclick="switchAdminKolsPlatform('${p}')">${p ? PLATFORM_LABELS[p] : "全部"}</button>`).join("");
+}
+
+function switchAdminKolsPlatform(platform) {
+  state.adminKolsPlatform = platform;
+  loadAdminKols();
 }
 
 async function adminBatchAddKols() {
@@ -1570,6 +1640,7 @@ async function router() {
   );
   try {
     if (page === "home") await renderHome();
+    else if (page === "combinations") await renderCombinations();
     else if (page === "mysubs") await renderMySubs();
     else if (page === "timeline") await renderTimeline();
     else if (page === "settings") await renderSettings();
