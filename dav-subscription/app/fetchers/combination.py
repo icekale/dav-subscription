@@ -11,6 +11,8 @@ from .xueqiu import XUEQIU_COOKIE_KEY, XUEQIU_COOKIE_TIME_KEY, _is_waf_html
 
 REBALANCING_URL = "https://xueqiu.com/cubes/rebalancing/history.json"
 CUBE_SEARCH_URL = "https://xueqiu.com/query/v1/cube/search.json"
+PROFILE_CACHE_TTL = 300
+_profile_cache: dict[str, tuple[float, dict]] = {}
 
 
 def extract_cube_symbol(external_id: str) -> str:
@@ -33,9 +35,16 @@ def _cube_client(cookie: str) -> httpx.Client:
     )
 
 
-def resolve_combination_profile(symbol: str, cookie: str = "") -> dict:
+def resolve_combination_profile(
+    symbol: str, cookie: str = "", client: httpx.Client | None = None
+) -> dict:
     """查组合名称/主理人/头像/年化（添加组合大V时自动填名用），失败返回空 dict。"""
-    client = _cube_client(cookie)
+    now = time.time()
+    cached = _profile_cache.get(symbol)
+    if cached and now - cached[0] < PROFILE_CACHE_TTL:
+        return cached[1]
+    owns_client = client is None
+    client = client or _cube_client(cookie)
     try:
         resp = client.get(
             CUBE_SEARCH_URL,
@@ -54,16 +63,20 @@ def resolve_combination_profile(symbol: str, cookie: str = "") -> dict:
                         avatar = f"https:{photo_domain}{purl}"
                     elif photo_domain.startswith("http"):
                         avatar = f"{photo_domain}{purl}"
-                return {
+                profile = {
                     "name": item.get("name") or "",
                     "owner_name": owner.get("screen_name") or "",
                     "avatar_url": avatar,
                     "annualized_gain": item.get("annualized_gain_rate") or 0,
+                    "net_value": item.get("net_value") or 0,
                 }
+                _profile_cache[symbol] = (now, profile)
+                return profile
     except Exception:  # noqa: BLE001 - 名称解析失败不阻断添加
         return {}
     finally:
-        client.close()
+        if owns_client:
+            client.close()
     return {}
 
 
@@ -114,6 +127,15 @@ class CombinationFetcher(Fetcher):
             raise RuntimeError("雪球组合接口返回异常（可能被反爬拦截）") from None
         name = kol["name"]
         posts = []
+        profile = resolve_combination_profile(symbol, client=self.client)
+        stats_line = ""
+        parts = []
+        if profile.get("annualized_gain"):
+            parts.append(f"年化 {profile['annualized_gain']:.1f}%")
+        if profile.get("net_value"):
+            parts.append(f"净值 {profile['net_value']:.3f}")
+        if parts:
+            stats_line = " · ".join(parts)
         for item in (data or {}).get("list") or []:
             histories = item.get("rebalancing_histories") or []
             if item.get("status") != "success" or not histories:
@@ -122,20 +144,23 @@ class CombinationFetcher(Fetcher):
             for h in histories:
                 prev_w = h.get("prev_weight")
                 target_w = h.get("target_weight")
-                prev_s = f"{prev_w:.1f}%" if isinstance(prev_w, (int, float)) else "-"
-                target_s = f"{target_w:.1f}%" if isinstance(target_w, (int, float)) else "-"
-                action = "→"
-                if isinstance(prev_w, (int, float)) and isinstance(target_w, (int, float)):
-                    if target_w > prev_w:
-                        action = "➕"
-                    elif target_w < prev_w:
-                        action = "➖"
-                lines.append(f"{h.get('stock_name') or ''} {prev_s} {action} {target_s}")
+                prev_ok = isinstance(prev_w, (int, float))
+                target_ok = isinstance(target_w, (int, float))
+                stock = h.get("stock_name") or ""
+                if not prev_ok and target_ok:
+                    lines.append(f"🆕 {stock} 新建 {target_w:.1f}%")
+                elif prev_ok and (not target_ok or target_w <= 0):
+                    lines.append(f"🗑 {stock} 清仓 {prev_w:.1f}%")
+                elif prev_ok and target_ok:
+                    action = "➕" if target_w > prev_w else "➖"
+                    lines.append(f"{stock} {prev_w:.1f}% {action} {target_w:.1f}%")
             cash = item.get("cash")
             cash_line = f"现金 {cash:.1f}%" if isinstance(cash, (int, float)) else ""
             content = "\n".join(lines)
             if cash_line:
                 content = f"{content}\n{cash_line}" if content else cash_line
+            if stats_line:
+                content = f"{stats_line}\n{content}" if content else stats_line
             posts.append(
                 Post(
                     platform=self.platform,

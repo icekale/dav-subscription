@@ -156,10 +156,24 @@ def test_combination_fetch_parses_rebalancing():
         ]
     }
 
+    search_payload = {
+        "list": [
+            {
+                "symbol": "ZH3623878",
+                "name": "伯言-A股",
+                "annualized_gain_rate": 27.13,
+                "net_value": 1.8472,
+                "owner": {"screen_name": "伯言2020", "photo_domain": "//xavatar.imedao.com/", "profile_image_url": "community/a.jpg"},
+            }
+        ]
+    }
+
     def handler(request):
-        assert request.url.path == "/cubes/rebalancing/history.json"
-        assert request.url.params.get("cube_symbol") == "ZH3623878"
-        return httpx.Response(200, json=payload)
+        if request.url.path == "/cubes/rebalancing/history.json":
+            assert request.url.params.get("cube_symbol") == "ZH3623878"
+            return httpx.Response(200, json=payload)
+        assert request.url.path == "/query/v1/cube/search.json"
+        return httpx.Response(200, json=search_payload)
 
     client = httpx.Client(transport=httpx.MockTransport(handler))
     fetcher = CombinationFetcher(
@@ -173,7 +187,8 @@ def test_combination_fetch_parses_rebalancing():
     assert p.external_id == "237035355"
     assert p.platform == "combination"
     assert p.url == "https://xueqiu.com/P/ZH3623878"
-    assert "永杉锂业 21.1% ➖ 0.0%" in p.content
+    assert "年化 27.1%" in p.content and "净值 1.847" in p.content
+    assert "🗑 永杉锂业 清仓 21.1%" in p.content
     assert "贵州茅台 0.0% ➕ 5.2%" in p.content
     assert "现金 80.0%" in p.content
     assert p.title == "伯言-A股 调仓"
