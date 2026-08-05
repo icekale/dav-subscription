@@ -79,7 +79,6 @@ const NAV = [
     { route: "admin/posts", icon: "▤", label: "帖子" },
     { route: "admin/logs", icon: "☰", label: "推送记录" },
     { route: "admin/audit", icon: "◈", label: "操作日志" },
-    { route: "admin/syslogs", icon: "📜", label: "系统日志" },
     { route: "admin/users", icon: "◉", label: "用户" },
   ]},
 ];
@@ -1120,7 +1119,7 @@ async function renderAdmin(tab) {
   $("#main").innerHTML = `
     ${heroPanel("Admin Console", "管理后台", "维护大V目录、分类与推送记录，查看注册用户。")}
     <div id="admin-body"></div>`;
-  const loaders = { stats: loadAdminStats, kols: loadAdminKols, requests: loadAdminRequests, codes: loadAdminCodes, categories: loadAdminCategories, posts: loadAdminPosts, logs: loadAdminLogs, audit: loadAdminAudit, syslogs: loadAdminSysLogs, users: loadAdminUsers };
+  const loaders = { stats: loadAdminStats, kols: loadAdminKols, requests: loadAdminRequests, codes: loadAdminCodes, categories: loadAdminCategories, posts: loadAdminPosts, logs: loadAdminLogs, audit: loadAdminAudit, users: loadAdminUsers };
   try {
     await loaders[tab]();
   } catch (err) {
@@ -1803,6 +1802,19 @@ async function loadAdminAudit() {
   const logs = await api("/api/admin/logs?limit=100");
   $("#admin-body").innerHTML = `
     <section class="section-panel">
+      <header class="section-head">
+        <div>
+          <p class="section-eyebrow">System Logs</p>
+          <h3 class="section-title">系统日志</h3>
+          <p class="section-meta">内存环形缓冲的最近 500 条日志，每 5 秒自动刷新；更完整历史见 docker logs（LOG_LEVEL=DEBUG 可开启更详细日志）。</p>
+        </div>
+        <div class="toolbar" style="margin-top:12px">
+          <button class="btn-normal" onclick="loadAdminSysLogsPanel()">刷新</button>
+        </div>
+      </header>
+      <pre class="syslog" id="syslog-pre">加载中…</pre>
+    </section>
+    <section class="section-panel">
       <header class="section-head"><div><p class="section-eyebrow">Audit</p><h3 class="section-title">操作日志</h3>
       <p class="section-meta">管理员关键操作记录（改权限/删用户/增删大V/注册码/cookie）。</p></div></header>
       <div class="table-wrap">
@@ -1819,6 +1831,9 @@ async function loadAdminAudit() {
         </table>
       </div>
     </section>`;
+  stopSysLogsTimer();
+  sysLogsTimer = setInterval(loadAdminSysLogsPanel, 5000);
+  loadAdminSysLogsPanel();
 }
 
 let sysLogsTimer = null;
@@ -1830,30 +1845,15 @@ function stopSysLogsTimer() {
   }
 }
 
-async function loadAdminSysLogs() {
+async function loadAdminSysLogsPanel() {
   try {
     const data = await api("/api/admin/system-logs?limit=500");
     const lines = data.lines || [];
-    const body = $("#admin-body");
-    if (!body) return;
-    body.innerHTML = `
-      <section class="section-panel">
-        <header class="section-head">
-          <div>
-            <p class="section-eyebrow">System Logs</p>
-            <h3 class="section-title">系统日志</h3>
-            <p class="section-meta">内存环形缓冲的最近 ${lines.length} 条日志，每 5 秒自动刷新；更完整的历史请查看 docker logs（LOG_LEVEL=DEBUG 可开启更详细日志）。</p>
-          </div>
-          <div class="toolbar" style="margin-top:12px">
-            <button class="btn-normal" onclick="loadAdminSysLogs()">刷新</button>
-          </div>
-        </header>
-        <pre class="syslog">${escapeHtml(lines.join("\n")) || "（暂无日志）"}</pre>
-      </section>`;
-    stopSysLogsTimer();
-    sysLogsTimer = setInterval(loadAdminSysLogs, 5000);
+    const el = $("#syslog-pre");
+    if (el) el.textContent = lines.join("\n") || "（暂无日志）";
   } catch (err) {
-    $("#admin-body").innerHTML = emptyState("加载失败: " + err.message);
+    const el = $("#syslog-pre");
+    if (el) el.textContent = "加载失败: " + err.message;
   }
 }
 
