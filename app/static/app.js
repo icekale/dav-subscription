@@ -1237,35 +1237,6 @@ async function loadAdminStats() {
   $("#admin-body").innerHTML = `
     <section class="section-panel">
       <header class="section-head">
-        <div><p class="section-eyebrow">Data Sources</p><h3 class="section-title">数据源稳定性</h3>
-        <p class="section-meta">抓取健康、24h 成功率与事件流；页面每 30 秒自动刷新，可随时手动刷新。</p></div>
-        <div class="toolbar" style="margin-top:12px">
-          <span id="stats-refresh-at" class="muted"></span>
-          <button class="btn-ghost" onclick="loadAdminStats()">立即刷新</button>
-        </div>
-      </header>
-      <div id="stats-cards"></div>
-      <div id="stats-poll-error"></div>
-      <div id="stats-ops" style="margin-top:16px"></div>
-      <div class="table-wrap" style="margin-top:16px">
-        <table>
-          <thead><tr><th>平台</th><th>状态</th><th>通道</th><th>24h 成功率</th><th>成功 / 失败</th><th>连续失败</th><th>最近成功</th><th>下次重试</th><th>最近错误</th></tr></thead>
-          <tbody id="sources-table"></tbody>
-        </table>
-      </div>
-    </section>
-    <section class="section-panel">
-      <header class="section-head"><div><p class="section-eyebrow">Events</p><h3 class="section-title">数据源事件</h3>
-      <p class="section-meta">最近 30 条抓取成功 / 失败 / 降级记录（保留 7 天）。</p></div></header>
-      <div id="source-events"></div>
-    </section>
-    <section class="section-panel">
-      <header class="section-head"><div><p class="section-eyebrow">KOL Health</p><h3 class="section-title">大V抓取健康</h3>
-      <p class="section-meta">按「最近抓到新帖时间」从旧到新排列，顶部即长期无更新的候选排查对象。</p></div></header>
-      <div id="kol-health"></div>
-    </section>
-    <section class="section-panel">
-      <header class="section-head">
         <div><p class="section-eyebrow">Config</p><h3 class="section-title">抓取设置</h3>
         <p class="section-meta">保存后即时生效，无需重启。</p></div>
       </header>
@@ -1295,6 +1266,35 @@ async function loadAdminStats() {
         <button class="btn-normal" onclick="savePollingConfig()">保存抓取设置</button>
         <span id="pc-result" class="muted"></span>
       </div>
+    </section>
+    <section class="section-panel">
+      <header class="section-head">
+        <div><p class="section-eyebrow">Data Sources</p><h3 class="section-title">数据源稳定性</h3>
+        <p class="section-meta">抓取健康、24h 成功率与事件流；页面每 30 秒自动刷新，可随时手动刷新。</p></div>
+        <div class="toolbar" style="margin-top:12px">
+          <span id="stats-refresh-at" class="muted"></span>
+          <button class="btn-ghost" onclick="loadAdminStats()">立即刷新</button>
+        </div>
+      </header>
+      <div id="stats-cards"></div>
+      <div id="stats-poll-error"></div>
+      <div id="stats-ops" style="margin-top:16px"></div>
+      <div class="table-wrap" style="margin-top:16px">
+        <table>
+          <thead><tr><th>平台</th><th>状态</th><th>通道</th><th>24h 成功率</th><th>成功 / 失败</th><th>连续失败</th><th>最近成功</th><th>下次重试</th><th>最近错误</th></tr></thead>
+          <tbody id="sources-table"></tbody>
+        </table>
+      </div>
+    </section>
+    <section class="section-panel">
+      <header class="section-head"><div><p class="section-eyebrow">Events</p><h3 class="section-title">数据源事件</h3>
+      <p class="section-meta">最近 30 条抓取成功 / 失败 / 降级记录（保留 7 天）。</p></div></header>
+      <div id="source-events"></div>
+    </section>
+    <section class="section-panel">
+      <header class="section-head"><div><p class="section-eyebrow">KOL Health</p><h3 class="section-title">大V抓取健康</h3>
+      <p class="section-meta">按「最近抓到新帖时间」从旧到新排列，顶部即长期无更新的候选排查对象。</p></div></header>
+      <div id="kol-health"></div>
     </section>
     <section class="section-panel">
       <header class="section-head"><div><p class="section-eyebrow">Weibo</p><h3 class="section-title">微博 Cookie</h3>
