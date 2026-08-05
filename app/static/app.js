@@ -552,7 +552,10 @@ function postCard(post) {
         </div>` : ""}
       <div class="p-meta">
         ${post.category_name ? `<span class="cat">${escapeHtml(post.category_name)}</span>` : ""}
-        <span>${PLATFORM_LABELS[post.platform] || post.platform}</span>
+        <span class="p-platform" data-platform="${escapeHtml(post.platform)}">
+          ${PLATFORM_ICONS[post.platform] || ""}
+          <span>${PLATFORM_LABELS[post.platform] || escapeHtml(post.platform)}</span>
+        </span>
         ${post.post_type === "reply" ? `<span class="cat">回复</span>` : ""}
         <a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener">查看原文 →</a>
       </div>
