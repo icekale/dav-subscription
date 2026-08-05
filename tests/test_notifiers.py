@@ -192,6 +192,28 @@ def test_feishu_notify_adds_images(monkeypatch):
     )
 
 
+def test_feishu_dnd_summary_card_structure():
+    from app.notifiers.feishu import build_feishu_dnd_summary_card
+
+    card = build_feishu_dnd_summary_card([make_post()])
+    assert {"config", "header", "elements"} <= set(card.keys())
+    assert "免打扰" in card["header"]["title"]["content"]
+
+
+def test_feishu_send_dnd_summary():
+    def handler(request):
+        payload = json.loads(request.read())
+        assert "免打扰" in json.dumps(payload, ensure_ascii=False)
+        return httpx.Response(200, json={"code": 0, "msg": "success"})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    notifier = FeishuNotifier(
+        FeishuConfig(webhook_url="https://open.feishu.cn/open-apis/bot/v2/hook/x"),
+        client=client,
+    )
+    notifier.send_dnd_summary([make_post()])
+
+
 def test_telegram_rate_limiter_smooths_burst():
     limiter = _RateLimiter(max_per_second=5)
     started = time.monotonic()

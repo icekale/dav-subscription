@@ -93,6 +93,8 @@ CREATE TABLE IF NOT EXISTS users (
     notify_enabled INTEGER NOT NULL DEFAULT 1,
     daily_report INTEGER NOT NULL DEFAULT 0,
     push_channels TEXT NOT NULL DEFAULT '',
+    dnd_start TEXT NOT NULL DEFAULT '',
+    dnd_end TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE TABLE IF NOT EXISTS subscriptions (
@@ -184,6 +186,10 @@ class DB:
             self._conn.execute("ALTER TABLE users ADD COLUMN daily_report INTEGER NOT NULL DEFAULT 0")
         if "push_channels" not in user_cols:
             self._conn.execute("ALTER TABLE users ADD COLUMN push_channels TEXT NOT NULL DEFAULT ''")
+        if "dnd_start" not in user_cols:
+            self._conn.execute("ALTER TABLE users ADD COLUMN dnd_start TEXT NOT NULL DEFAULT ''")
+        if "dnd_end" not in user_cols:
+            self._conn.execute("ALTER TABLE users ADD COLUMN dnd_end TEXT NOT NULL DEFAULT ''")
         if "wecom_webhook" not in user_cols:
             self._conn.execute("ALTER TABLE users ADD COLUMN wecom_webhook TEXT NOT NULL DEFAULT ''")
         if "telegram_bot_token" not in user_cols:

@@ -847,6 +847,85 @@ def test_startup_message_only_to_admins(monkeypatch):
     assert sent == [("111", "✅ 大V订阅服务已启动")]
 
 
+def test_dnd_window_math():
+    from datetime import UTC, datetime
+
+    from app.scheduler import _in_dnd_window
+
+    dt = lambda h, m: datetime(2026, 8, 5, h, m, tzinfo=UTC)
+    u = {"dnd_start": "23:00", "dnd_end": "07:00"}
+    assert _in_dnd_window(u, dt(0, 30))
+    assert _in_dnd_window(u, dt(23, 30))
+    assert not _in_dnd_window(u, dt(12, 0))
+    assert not _in_dnd_window(u, dt(7, 0))  # 结束时间不含
+    assert not _in_dnd_window({"dnd_start": "", "dnd_end": ""}, dt(0, 30))
+    assert not _in_dnd_window({"dnd_start": "23:00", "dnd_end": "23:00"}, dt(23, 0))
+    u2 = {"dnd_start": "13:00", "dnd_end": "15:00"}
+    assert _in_dnd_window(u2, dt(14, 0))
+    assert not _in_dnd_window(u2, dt(16, 0))
+
+
+def test_notify_subscribers_buffers_during_dnd(monkeypatch):
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.update_user(uid, dnd_start="23:00", dnd_end="07:00")
+    db.add_subscription(uid, kid)
+    post = make_post(kid)
+    dnd = {}
+    ncfg = SimpleNamespace(
+        telegram=SimpleNamespace(bot_token="t", chat_id=""),
+        feishu=SimpleNamespace(),
+        wecom=SimpleNamespace(),
+    )
+    monkeypatch.setattr("app.scheduler._in_dnd_window", lambda user, now=None: True)
+    notify_subscribers(db, 1, post, ncfg, notifiers=[], retry_queue=None, dnd_buffer=dnd)
+    assert dnd.get(uid) == [post]
+    assert db.list_push_logs() == []
+
+
+def test_flush_dnd_buffers_sends_summary(monkeypatch):
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.add_subscription(uid, kid)
+    post = make_post(kid)
+    scheduler = Scheduler(
+        db,
+        {},
+        [],
+        SimpleNamespace(),
+        notifiers_config=SimpleNamespace(
+            telegram=SimpleNamespace(bot_token="t", chat_id=""),
+            feishu=SimpleNamespace(),
+            wecom=SimpleNamespace(),
+        ),
+        xueqiu_config=SimpleNamespace(cookie=""),
+        weibo_config=SimpleNamespace(cookie="", username="", password=""),
+    )
+    scheduler._dnd_buffer = {uid: [post]}
+    sent = []
+
+    class FakeTG:
+        def __init__(self, *args, **kwargs):
+            self.client = SimpleNamespace(close=lambda: None)
+
+        def send_dnd_summary(self, posts):
+            sent.append(len(posts))
+
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FakeTG)
+    # 仍在免打扰时段：不推
+    monkeypatch.setattr("app.scheduler._in_dnd_window", lambda user, now=None: True)
+    scheduler._flush_dnd_buffers()
+    assert sent == []
+    assert scheduler._dnd_buffer == {uid: [post]}
+    # 时段结束：补推一条汇总
+    monkeypatch.setattr("app.scheduler._in_dnd_window", lambda user, now=None: False)
+    scheduler._flush_dnd_buffers()
+    assert sent == [1]
+    assert scheduler._dnd_buffer == {}
+
+
 def test_daily_report_sent_to_enabled_user(monkeypatch):
     db = make_db()
     kid = db.add_kol("xueqiu", "A", "1")

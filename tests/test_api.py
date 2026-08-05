@@ -290,6 +290,22 @@ def test_push_channels_api():
     assert resp.json()["push_channels"] == ""
 
 
+def test_dnd_api_validation():
+    client = make_client()
+    headers = user_headers(client, "dnduser")
+    resp = client.put("/api/me", headers=headers, json={"dnd_start": "23:00", "dnd_end": "07:00"})
+    assert resp.status_code == 200
+    me = resp.json()
+    assert me["dnd_start"] == "23:00" and me["dnd_end"] == "07:00"
+    # 非法时间格式被拒绝
+    resp = client.put("/api/me", headers=headers, json={"dnd_start": "99:99"})
+    assert resp.status_code == 400
+    # 关闭：清空
+    resp = client.put("/api/me", headers=headers, json={"dnd_start": "", "dnd_end": ""})
+    assert resp.status_code == 200
+    assert resp.json()["dnd_start"] == "" and resp.json()["dnd_end"] == ""
+
+
 def test_change_password_api():
     client = make_client()
     headers = user_headers(client, "pwuser")

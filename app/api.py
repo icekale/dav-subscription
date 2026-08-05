@@ -96,6 +96,8 @@ class MeUpdate(BaseModel):
     notify_enabled: bool | None = None
     daily_report_enabled: bool | None = None
     push_channels: str | None = None
+    dnd_start: str | None = None
+    dnd_end: str | None = None
 
 
 class PasswordChangeIn(BaseModel):
@@ -193,6 +195,8 @@ def public_user(user: dict) -> dict:
         "notify_enabled": bool(user["notify_enabled"]),
         "daily_report_enabled": bool(user.get("daily_report")),
         "push_channels": user.get("push_channels") or "",
+        "dnd_start": user.get("dnd_start") or "",
+        "dnd_end": user.get("dnd_end") or "",
         "created_at": user["created_at"],
     }
 
@@ -448,6 +452,16 @@ def create_api_router(
                     detail=f"无效的推送渠道: {', '.join(invalid)}",
                 )
             db.update_user(user["id"], push_channels=",".join(channels))
+        if "dnd_start" in body.model_fields_set:
+            value = (body.dnd_start or "").strip()
+            if value and not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", value):
+                raise HTTPException(status_code=400, detail="免打扰开始时间需为 HH:MM 格式（00:00-23:59）")
+            db.update_user(user["id"], dnd_start=value)
+        if "dnd_end" in body.model_fields_set:
+            value = (body.dnd_end or "").strip()
+            if value and not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", value):
+                raise HTTPException(status_code=400, detail="免打扰结束时间需为 HH:MM 格式（00:00-23:59）")
+            db.update_user(user["id"], dnd_end=value)
         return public_user(db.get_user(user["id"]))
 
     @router.post("/me/bind-code")

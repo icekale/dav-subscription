@@ -13,6 +13,7 @@ from .base import Notifier
 
 PLATFORM_LABELS = {"xueqiu": "雪球", "combination": "雪球组合", "weibo": "微博", "twitter": "X/Twitter"}
 DIGEST_MAX_ITEMS = 5
+DND_MAX_ITEMS = 10
 logger = logging.getLogger(__name__)
 
 _token_cache: dict[tuple[str, str], tuple[str, float]] = {}
@@ -246,6 +247,52 @@ def build_feishu_daily_card(posts: list[Post]) -> dict:
     }
 
 
+def build_feishu_dnd_summary_card(posts: list[Post]) -> dict:
+    """免打扰时段汇总卡片。"""
+    elements = []
+    for i, post in enumerate(posts[:DND_MAX_ITEMS], 1):
+        body = (post.content[:100] or post.title or "（无正文）").replace("\n", " ")
+        text = f"{i}. **{post.kol_name}** · {body}"
+        if post.published_at:
+            text += f"\n🕐 {post.published_at}"
+        elements.append({"tag": "div", "text": {"tag": "lark_md", "content": text}})
+    if len(posts) > DND_MAX_ITEMS:
+        elements.append(
+            {
+                "tag": "note",
+                "elements": [
+                    {"tag": "plain_text", "content": f"… 还有 {len(posts) - DND_MAX_ITEMS} 条未展示"}
+                ],
+            }
+        )
+    first_url = next((p.url for p in posts if p.url), "")
+    if first_url:
+        elements.append(
+            {
+                "tag": "action",
+                "actions": [
+                    {
+                        "tag": "button",
+                        "text": {"tag": "plain_text", "content": "查看全部"},
+                        "type": "primary",
+                        "url": first_url,
+                    }
+                ],
+            }
+        )
+    return {
+        "config": {"wide_screen_mode": True},
+        "header": {
+            "title": {
+                "tag": "plain_text",
+                "content": f"📵 免打扰时段汇总（{len(posts)} 条新动态）",
+            },
+            "template": "blue",
+        },
+        "elements": elements,
+    }
+
+
 class FeishuNotifier(Notifier):
     channel = "feishu"
 
@@ -366,6 +413,9 @@ class FeishuNotifier(Notifier):
 
     def send_daily(self, posts: list[Post]) -> None:
         self._send_card(build_feishu_daily_card(posts))
+
+    def send_dnd_summary(self, posts: list[Post]) -> None:
+        self._send_card(build_feishu_dnd_summary_card(posts))
 
     def send_text(self, text: str) -> None:
         if self.open_id or self.chat_id:

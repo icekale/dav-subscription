@@ -13,6 +13,7 @@ from .base import Notifier
 
 PLATFORM_LABELS = {"xueqiu": "雪球", "combination": "雪球组合", "weibo": "微博", "twitter": "X/Twitter"}
 DIGEST_MAX_ITEMS = 5
+DND_MAX_ITEMS = 10
 MAX_CONTENT_CHARS = 1800  # 保守截断，避开 4096 字节上限
 
 
@@ -106,6 +107,22 @@ def build_wecom_daily(posts: list[Post]) -> str:
     return "\n".join(lines).rstrip()
 
 
+def build_wecom_dnd_summary(posts: list[Post]) -> str:
+    lines = [f"**📵 免打扰时段汇总**（{len(posts)} 条新动态）", ""]
+    for i, post in enumerate(posts[:DND_MAX_ITEMS], 1):
+        body = _md_escape(post.content or post.title or "（无正文）")[:100]
+        line = f"{i}. **{post.kol_name}** · {body}"
+        if post.published_at:
+            line += f"\n🕐 {post.published_at}"
+        lines.append(line)
+    if len(posts) > DND_MAX_ITEMS:
+        lines.append(f"… 还有 {len(posts) - DND_MAX_ITEMS} 条未展示")
+    first_url = next((p.url for p in posts if p.url), "")
+    if first_url:
+        lines.append(f"[查看全部]({first_url})")
+    return "\n".join(lines).rstrip()
+
+
 def is_valid_wecom_webhook(url: str) -> bool:
     """校验企业微信群机器人 webhook 地址格式。"""
     return url.startswith("https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=")
@@ -148,6 +165,9 @@ class WeComNotifier(Notifier):
 
     def send_daily(self, posts: list[Post]) -> None:
         self._send_markdown(build_wecom_daily(posts))
+
+    def send_dnd_summary(self, posts: list[Post]) -> None:
+        self._send_markdown(build_wecom_dnd_summary(posts))
 
     def send_text(self, text: str) -> None:
         self._send_markdown(text)

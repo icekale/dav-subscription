@@ -15,6 +15,7 @@ from .base import Notifier
 
 PLATFORM_LABELS = {"xueqiu": "雪球", "combination": "雪球组合", "weibo": "微博", "twitter": "X/Twitter"}
 DIGEST_MAX_ITEMS = 10
+DND_MAX_ITEMS = 10
 logger = logging.getLogger(__name__)
 # Telegram 单 bot 全局约 30 条/秒；广播推送时留足余量，避免触发 429。
 # 高水位保护：发送频率低于上限时零开销，瞬时积压时自动平滑限速。
@@ -135,6 +136,23 @@ def build_telegram_daily(posts: list[Post]) -> str:
     return "\n".join(lines).rstrip()
 
 
+def build_telegram_dnd_summary(posts: list[Post]) -> str:
+    """免打扰时段汇总：一次列出缓冲的新动态（最多 10 条）。"""
+    lines = [f"<b>📵 免打扰时段汇总</b>（{len(posts)} 条新动态）", ""]
+    for i, post in enumerate(posts[:DND_MAX_ITEMS], 1):
+        body = (post.content[:100] or post.title or "（无正文）").replace("\n", " ")
+        lines.append(f"{i}. <b>{escape(post.kol_name)}</b> · {escape(body)}")
+        time_line = f"🕐 {escape(post.published_at)}" if post.published_at else ""
+        link = f'🔗 <a href="{escape(post.url)}">原文</a>' if post.url else ""
+        meta = " · ".join(x for x in (time_line, link) if x)
+        if meta:
+            lines.append(f"　{meta}")
+        lines.append("")
+    if len(posts) > DND_MAX_ITEMS:
+        lines.append(f"… 还有 {len(posts) - DND_MAX_ITEMS} 条未展示")
+    return "\n".join(lines).rstrip()
+
+
 class TelegramNotifier(Notifier):
     channel = "telegram"
 
@@ -242,6 +260,23 @@ class TelegramNotifier(Notifier):
                 "disable_web_page_preview": True,
             }
         )
+
+    def send_dnd_summary(self, posts: list[Post]) -> None:
+        keyboard = None
+        first_url = next((p.url for p in posts if p.url), "")
+        if first_url:
+            keyboard = json.dumps(
+                {"inline_keyboard": [[{"text": "🔗 查看全部", "url": first_url}]]},
+                ensure_ascii=False,
+            )
+        data = {
+            "text": build_telegram_dnd_summary(posts),
+            "parse_mode": "HTML",
+            "disable_web_page_preview": True,
+        }
+        if keyboard:
+            data["reply_markup"] = keyboard
+        self._send(data)
 
     def send_text(self, text: str) -> None:
         self._send({"text": text})

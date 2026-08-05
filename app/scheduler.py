@@ -292,6 +292,19 @@ def _channel_enabled(user: dict, channel: str) -> bool:
     return channel in {c.strip() for c in selected.split(",") if c.strip()}
 
 
+def _in_dnd_window(user: dict, now=None) -> bool:
+    """用户是否处于免打扰时段（支持跨午夜；start/end 留空或相同时关闭）。"""
+    start = (user.get("dnd_start") or "").strip()
+    end = (user.get("dnd_end") or "").strip()
+    if not start or not end or start == end:
+        return False
+    now = now or datetime.now()
+    cur = now.strftime("%H:%M")
+    if start < end:
+        return start <= cur < end
+    return cur >= start or cur < end  # 跨午夜（如 23:00-07:00）
+
+
 class PlatformState:
     """每个平台连续失败次数与退避截止时间。"""
 
@@ -421,6 +434,7 @@ def notify_subscribers(
     notifiers=None,
     retry_queue: PushRetryQueue | None = None,
     client=None,
+    dnd_buffer: dict[int, list[Post]] | None = None,
 ) -> None:
     """把新帖推送给订阅了该大V的用户（各自绑定的渠道）。"""
     if notifiers_config is None:
@@ -438,6 +452,10 @@ def notify_subscribers(
             sub_type = user.get("subscribe_type") or "post"
             if not _sub_type_matches(sub_type, post.post_type):
                 continue  # 订阅类型不覆盖该动态（帖子/回复分订）
+            if dnd_buffer is not None and _in_dnd_window(user):
+                # 免打扰时段：缓冲，结束时统一补一条汇总
+                dnd_buffer.setdefault(user["id"], []).append(post)
+                continue
             if user["telegram_chat_id"] and _channel_enabled(user, "telegram") and (
                 notifiers_config.telegram.bot_token or user.get("telegram_bot_token")
             ):
@@ -511,6 +529,7 @@ def poll_once(
     priority_interval_seconds: int = 60,
     digest: dict[int, list[Post]] | None = None,
     retry_queue: PushRetryQueue | None = None,
+    dnd_buffer: dict[int, list[Post]] | None = None,
 ) -> None:
     """执行一轮：并发抓取启用 KOL → 去重 → 推送。"""
     states = states if states is not None else {}
@@ -563,6 +582,7 @@ def poll_once(
                     retry_queue,
                     platform_lock[kol["platform"]],
                     client,
+                    dnd_buffer,
                 )
 
         with ThreadPoolExecutor(max_workers=min(8, len(jobs))) as ex:
@@ -589,6 +609,7 @@ def _fetch_kol_once(
     retry_queue: PushRetryQueue | None,
     state_lock: threading.Lock,
     client=None,
+    dnd_buffer: dict[int, list[Post]] | None = None,
 ) -> None:
     """并发 worker：抓取单个大V并处理新帖（状态读写加锁保护）。"""
     effective = priority_interval_seconds if kol.get("priority") else interval_seconds
@@ -669,7 +690,10 @@ def _fetch_kol_once(
             # 普通大V进入合并摘要缓冲，按 digest_interval 周期统一推送
             digest.setdefault(kol["id"], []).append(post)
         else:
-            notify_subscribers(db, post_id, post, notifiers_config, notifiers, retry_queue, client=client)
+            notify_subscribers(
+                db, post_id, post, notifiers_config, notifiers, retry_queue,
+                client=client, dnd_buffer=dnd_buffer,
+            )
 
 
 def notify_digest_subscribers(
@@ -679,6 +703,7 @@ def notify_digest_subscribers(
     notifiers_config,
     notifiers=None,
     retry_queue: PushRetryQueue | None = None,
+    dnd_buffer: dict[int, list[Post]] | None = None,
 ) -> None:
     """把合并摘要推送给订阅了该大V的用户（各自绑定的渠道，带退订按钮）。"""
     if notifiers_config is None or not posts:
@@ -695,6 +720,10 @@ def notify_digest_subscribers(
             sub_type = user.get("subscribe_type") or "post"
             matched = [p for p in posts if _sub_type_matches(sub_type, p.post_type)]
             if not matched:
+                continue
+            if dnd_buffer is not None and _in_dnd_window(user):
+                # 免打扰时段：摘要也进入免打扰缓冲，结束时统一补推
+                dnd_buffer.setdefault(user["id"], []).extend(matched)
                 continue
             if user["telegram_chat_id"] and _channel_enabled(user, "telegram") and (
                 notifiers_config.telegram.bot_token or user.get("telegram_bot_token")
@@ -798,6 +827,7 @@ def flush_digest(
     notifiers: list[Notifier],
     notifiers_config,
     retry_queue: PushRetryQueue | None = None,
+    dnd_buffer: dict[int, list[Post]] | None = None,
 ) -> None:
     """到点把缓冲的摘要统一推送给订阅者（不再做全局推送）。"""
     if not digest:
@@ -808,7 +838,9 @@ def flush_digest(
         kol = db.get_kol(kol_id)
         if kol is None or not posts:
             continue
-        notify_digest_subscribers(db, posts, kol, notifiers_config, notifiers, retry_queue)
+        notify_digest_subscribers(
+            db, posts, kol, notifiers_config, notifiers, retry_queue, dnd_buffer
+        )
 
 
 def probe_xueqiu(db: DB, notifiers: list[Notifier], source_config) -> None:
@@ -1068,6 +1100,7 @@ class Scheduler:
         self.weibo_config = weibo_config
         self.states: dict[str, PlatformState] = {}
         self._digest: dict[int, list[Post]] = {}
+        self._dnd_buffer: dict[int, list[Post]] = {}
         self.retry_queue = PushRetryQueue()
         self._stop = asyncio.Event()
         self._last_cleanup = 0.0
@@ -1080,9 +1113,17 @@ class Scheduler:
         self._stop.set()
         # 尽力把缓冲中未推送的合并摘要发出去，避免重启/关闭丢消息
         try:
-            flush_digest(self.db, self._digest, self.notifiers, self.notifiers_config)
+            flush_digest(
+                self.db, self._digest, self.notifiers, self.notifiers_config,
+                dnd_buffer=self._dnd_buffer,
+            )
         except Exception:  # noqa: BLE001
             logger.exception("关闭时摘要推送失败")
+        # 免打扰缓冲也尽量补推（关闭时立即发汇总，避免丢失）
+        try:
+            self._flush_dnd_buffers(force=True)
+        except Exception:  # noqa: BLE001
+            logger.exception("关闭时免打扰汇总推送失败")
 
     async def _send_startup_message(self):
         """启动提示只推送给管理员（走管理员各自绑定的渠道），普通用户不推送。"""
@@ -1171,6 +1212,7 @@ class Scheduler:
                     priority_interval,
                     self._digest if digest_interval > 0 else None,
                     self.retry_queue,
+                    self._dnd_buffer,
                 )
                 self.db.set_setting("stats_last_poll_at", str(int(time.time())))
                 self.db.set_setting(
@@ -1205,9 +1247,16 @@ class Scheduler:
                         self._digest,
                         self.notifiers,
                         self.notifiers_config,
+                        None,
+                        self._dnd_buffer,
                     )
                 except Exception:  # noqa: BLE001
                     logger.exception("摘要推送失败")
+            # 免打扰时段结束：补推汇总
+            try:
+                self._flush_dnd_buffers()
+            except Exception:  # noqa: BLE001
+                logger.exception("免打扰汇总推送失败")
             # 雪球 cookie 主动探测
             probe_interval = _polling_setting(
                 self.db,
@@ -1337,6 +1386,12 @@ class Scheduler:
 
     def _retry_push(self, item: dict) -> None:
         post = item["post"]
+        user = self.db.get_user(item["user_id"]) if item["user_id"] is not None else None
+        if user is not None and _in_dnd_window(user):
+            # 免打扰时段内的重试也进免打扰缓冲，避免深夜打扰
+            self._dnd_buffer.setdefault(user["id"], []).append(post)
+            self.retry_queue.drop(item)
+            return
         notifier = self._build_retry_notifier(item["channel"], item["user_id"])
         try:
             notifier.notify(post)
@@ -1349,6 +1404,78 @@ class Scheduler:
         if post_id:
             self.db.mark_failed_push_success(post_id, item["channel"], item["user_id"])
         self.retry_queue.drop(item)
+
+    def _flush_dnd_buffers(self, force: bool = False) -> None:
+        """免打扰时段结束后，给每个用户补推一条汇总。"""
+        if not self._dnd_buffer:
+            return
+        now = datetime.now()
+        for user_id in list(self._dnd_buffer):
+            posts = self._dnd_buffer.get(user_id) or []
+            if not posts:
+                continue
+            user = self.db.get_user(user_id)
+            if user is None:
+                self._dnd_buffer.pop(user_id, None)
+                continue
+            if not force and _in_dnd_window(user, now):
+                continue  # 仍在免打扰时段，等时段结束再推
+            self._dnd_buffer.pop(user_id, None)
+            try:
+                self._send_dnd_summary(user, posts)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("免打扰汇总推送失败 user=%s err=%s", user["username"], exc)
+
+    def _send_dnd_summary(self, user: dict, posts: list[Post]) -> None:
+        """把免打扰时段缓冲的动态汇总成一条推送给用户（按所选通道）。"""
+        if self.notifiers_config is None or not posts:
+            return
+        import httpx
+
+        from .notifiers.feishu import FeishuNotifier
+        from .notifiers.telegram import TelegramNotifier
+        from .notifiers.wecom import WeComNotifier
+
+        client = httpx.Client(timeout=15)
+        try:
+            if user["telegram_chat_id"] and _channel_enabled(user, "telegram") and (
+                self.notifiers_config.telegram.bot_token or user.get("telegram_bot_token")
+            ):
+                notifier = TelegramNotifier(
+                    self.notifiers_config.telegram,
+                    client=client,
+                    chat_id=user["telegram_chat_id"],
+                    bot_token=user.get("telegram_bot_token") or None,
+                )
+                try:
+                    notifier.send_dnd_summary(posts)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("免打扰汇总 TG 发送失败 user=%s err=%s", user["username"], exc)
+            if _channel_enabled(user, "feishu") and (
+                user.get("feishu_open_id") or user.get("feishu_chat_id")
+            ):
+                notifier = FeishuNotifier(
+                    self.notifiers_config.feishu,
+                    client=client,
+                    open_id=user["feishu_open_id"] if not user.get("feishu_chat_id") else None,
+                    chat_id=user.get("feishu_chat_id") or None,
+                )
+                try:
+                    notifier.send_dnd_summary(posts)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("免打扰汇总飞书发送失败 user=%s err=%s", user["username"], exc)
+            if user.get("wecom_webhook") and _channel_enabled(user, "wecom"):
+                notifier = WeComNotifier(
+                    self.notifiers_config.wecom,
+                    client=client,
+                    webhook_url=user["wecom_webhook"],
+                )
+                try:
+                    notifier.send_dnd_summary(posts)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("免打扰汇总企业微信发送失败 user=%s err=%s", user["username"], exc)
+        finally:
+            client.close()
 
     def _build_retry_notifier(self, channel: str, user_id: int | None):
         from .notifiers.feishu import FeishuNotifier
