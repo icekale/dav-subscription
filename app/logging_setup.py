@@ -6,6 +6,7 @@ import logging.handlers
 import os
 import threading
 from collections import deque
+from pathlib import Path
 
 LOG_FORMAT = "%(asctime)s.%(msecs)03d %(levelname)s %(name)s [%(threadName)s] %(message)s"
 DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
@@ -29,9 +30,31 @@ class RingBufferHandler(logging.Handler):
             pass
 
 
-def recent_logs(limit: int = 200) -> list[str]:
+LEVEL_RANK = {"DEBUG": 10, "INFO": 20, "WARNING": 30, "ERROR": 40, "CRITICAL": 50}
+
+
+def recent_logs(limit: int = 200, level: str | None = None, q: str | None = None) -> list[str]:
+    """返回内存环形缓冲里的最近日志行，可按级别（含更高级别）与关键词过滤。"""
     with _ring_lock:
-        return list(_ring)[-limit:]
+        lines = list(_ring)
+    if level:
+        min_rank = LEVEL_RANK.get(level.upper(), 0)
+        lines = [
+            line for line in lines
+            if _line_rank(line) is not None and _line_rank(line) >= min_rank
+        ]
+    if q:
+        needle = q.lower()
+        lines = [line for line in lines if needle in line.lower()]
+    return lines[-limit:]
+
+
+def _line_rank(line: str) -> int | None:
+    # 日志格式：2026-08-05 22:14:58.091 LEVEL app.name [thread] message
+    try:
+        return LEVEL_RANK.get(line.split()[2].upper())
+    except (IndexError, AttributeError):
+        return None
 
 
 def setup_logging(level: str | None = None, log_file: str | None = None) -> None:
@@ -52,6 +75,7 @@ def setup_logging(level: str | None = None, log_file: str | None = None) -> None
             ring.setFormatter(formatter)
             root.addHandler(ring)
             if log_file:
+                Path(log_file).parent.mkdir(parents=True, exist_ok=True)
                 file_handler = logging.handlers.RotatingFileHandler(
                     log_file,
                     maxBytes=5 * 1024 * 1024,

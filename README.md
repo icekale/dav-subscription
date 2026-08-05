@@ -98,7 +98,7 @@ cp .env.example .env
 | `WEIBO_COOKIE` | 可选 | 浏览器登录微博后复制的 Cookie，可后台扫码登录替代 |
 | `TWITTER_COOKIE` | 可选 | 浏览器登录 x.com 后复制的完整 Cookie（直抓 X + 自动翻译中文） |
 | `LOG_LEVEL` | 可选 | 日志级别 `INFO`/`DEBUG`（DEBUG 记录每次 API 请求与慢请求告警，便于排查） |
-| `LOG_FILE` | 可选 | 把日志同时写入文件（滚动 5MB×3），留空则仅输出容器 stdout |
+| `LOG_FILE` | 可选 | 日志文件，默认 `/data/logs/app.log`（随数据卷持久化，滚动 5MB×3，重启不丢） |
 
 也可以用 YAML 配置：复制 `config.example.yaml` 为 `config.yaml` 后修改（环境变量优先级更高）。
 

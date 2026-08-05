@@ -2041,6 +2041,14 @@ async function loadAdminAudit() {
           <p class="section-meta">内存环形缓冲的最近 500 条日志，每 5 秒自动刷新；更完整历史见 docker logs（LOG_LEVEL=DEBUG 可开启更详细日志）。</p>
         </div>
         <div class="toolbar" style="margin-top:12px">
+          <select id="syslog-level" class="form-control" style="width:auto" onchange="loadAdminSysLogsPanel()">
+            <option value="">全部级别</option>
+            <option value="ERROR">ERROR+</option>
+            <option value="WARNING">WARNING+</option>
+            <option value="INFO">INFO+</option>
+            <option value="DEBUG">DEBUG</option>
+          </select>
+          <input id="syslog-q" class="form-control" style="width:220px" placeholder="关键词过滤（如 推送失败 / 大V名）" onkeydown="if(event.key==='Enter')loadAdminSysLogsPanel()">
           <button class="btn-normal" onclick="loadAdminSysLogsPanel()">刷新</button>
         </div>
       </header>
@@ -2079,10 +2087,17 @@ function stopSysLogsTimer() {
 
 async function loadAdminSysLogsPanel() {
   try {
-    const data = await api("/api/admin/system-logs?limit=500");
+    const params = new URLSearchParams({ limit: "500" });
+    const levelEl = $("#syslog-level");
+    const qEl = $("#syslog-q");
+    const level = levelEl ? levelEl.value : "";
+    const q = qEl ? qEl.value.trim() : "";
+    if (level) params.set("level", level);
+    if (q) params.set("q", q);
+    const data = await api(`/api/admin/system-logs?${params.toString()}`);
     const lines = data.lines || [];
     const el = $("#syslog-pre");
-    if (el) el.textContent = lines.join("\n") || "（暂无日志）";
+    if (el) el.textContent = lines.join("\n") || "（没有匹配的日志）";
   } catch (err) {
     const el = $("#syslog-pre");
     if (el) el.textContent = "加载失败: " + err.message;

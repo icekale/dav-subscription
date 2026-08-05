@@ -268,6 +268,18 @@ def test_system_logs_api():
     resp = client.get("/api/admin/system-logs?limit=50", headers=admin_headers)
     assert resp.status_code == 200
     assert isinstance(resp.json()["lines"], list)
+    # 级别 + 关键词过滤参数（供网页/Agent 精准取数）
+    resp = client.get(
+        "/api/admin/system-logs?level=ERROR&q=test&limit=50",
+        headers=admin_headers,
+    )
+    assert resp.status_code == 200
+    assert isinstance(resp.json()["lines"], list)
+    # 非法级别拒绝
+    assert (
+        client.get("/api/admin/system-logs?level=BOGUS", headers=admin_headers).status_code
+        == 400
+    )
     # 普通用户无权限
     uh = user_headers(client, "syslog_user")
     assert client.get("/api/admin/system-logs", headers=uh).status_code == 403

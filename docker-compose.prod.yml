@@ -38,7 +38,7 @@ services:
       - POLLING_COOKIE_KEEPALIVE_INTERVAL_SECONDS=${POLLING_COOKIE_KEEPALIVE_INTERVAL_SECONDS:-21600}
       - POLLING_DAILY_REPORT_HOUR=${POLLING_DAILY_REPORT_HOUR:-20}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - LOG_FILE=${LOG_FILE:-}
+      - LOG_FILE=${LOG_FILE:-/data/logs/app.log}
     volumes:
       - ./data:/data
     expose:

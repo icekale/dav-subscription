@@ -895,11 +895,23 @@ def create_api_router(
         return db.list_admin_logs(limit=min(limit, 500))
 
     @router.get("/admin/system-logs", dependencies=[Depends(require_admin)])
-    def list_system_logs(limit: int = 200):
-        """返回内存环形缓冲里的最近日志行（用于网页调试）。"""
+    def list_system_logs(
+        limit: int = 200,
+        level: str | None = None,
+        q: str | None = None,
+    ):
+        """返回内存环形缓冲里的最近日志行，可按级别与关键词过滤（用于网页/Agent 调试）。"""
         from .logging_setup import recent_logs
 
-        return {"lines": recent_logs(min(max(limit, 10), 2000))}
+        if level and level.upper() not in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
+            raise HTTPException(status_code=400, detail="level 需为 DEBUG/INFO/WARNING/ERROR/CRITICAL")
+        return {
+            "lines": recent_logs(
+                min(max(limit, 10), 2000),
+                level=level,
+                q=(q or "").strip() or None,
+            )
+        }
 
     # ---- 管理（管理员）----
     @router.get("/kols", dependencies=[Depends(require_admin)])
