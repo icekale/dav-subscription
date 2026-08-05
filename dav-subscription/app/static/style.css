@@ -283,6 +283,14 @@ textarea.form-control {
   font-size: var(--text-xs);
   padding: 6px 14px;
 }
+.hero-pill-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 36px; height: 36px; padding: 0;
+}
+.hero-pill-icon .ch-icon { width: 18px; height: 18px; }
+.hero-pill-icon[data-channel="telegram"] .ch-icon { color: #26a5e4; }
+.hero-pill-icon[data-channel="feishu"] .ch-icon { color: #3370ff; }
+.hero-pill-icon[data-channel="wecom"] .ch-icon { color: #07c160; }
 
 .section-panel {
   background: var(--color-surface);

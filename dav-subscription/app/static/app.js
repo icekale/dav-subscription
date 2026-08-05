@@ -127,7 +127,9 @@ function heroPanel(eyebrow, title, subtitle = "", pills = []) {
         <h2 class="hero-title">${escapeHtml(title)}</h2>
         ${subtitle ? `<p class="hero-subtitle">${escapeHtml(subtitle)}</p>` : ""}
       </div>
-      ${pills.length ? `<div class="hero-pills">${pills.map((p) => `<span class="hero-pill">${escapeHtml(p)}</span>`).join("")}</div>` : ""}
+      ${pills.length ? `<div class="hero-pills">${pills.map((p) => typeof p === "object"
+        ? `<span class="hero-pill hero-pill-icon" data-channel="${p.channel}" title="${escapeHtml(p.label)}">${p.icon}</span>`
+        : `<span class="hero-pill">${escapeHtml(p)}</span>`).join("")}</div>` : ""}
     </section>`;
 }
 
@@ -716,7 +718,12 @@ async function renderSettings() {
       : "你的机器人";
     const fsTarget = fsBot ? `<b>${escapeHtml(fsBot)}</b>` : "你的机器人应用名";
     $("#main").innerHTML = `
-      ${heroPanel("Push Settings", "推送设置", "跟着步骤走，2 分钟完成：绑定 Telegram / 飞书 / 企业微信，新帖就会自动推给你。", ["Telegram", "飞书", "企业微信"])}
+      ${heroPanel("Push Settings", "推送设置", "跟着步骤走，2 分钟完成：绑定 Telegram / 飞书 / 企业微信，新帖就会自动推给你。",
+        [
+          { channel: "telegram", label: "Telegram", icon: CHANNEL_ICONS.telegram },
+          { channel: "feishu", label: "飞书", icon: CHANNEL_ICONS.feishu },
+          { channel: "wecom", label: "企业微信", icon: CHANNEL_ICONS.wecom },
+        ])}
       <section class="section-panel">
         <header class="section-head">
           <div>
