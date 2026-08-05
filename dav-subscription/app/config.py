@@ -77,7 +77,6 @@ class PollingConfig:
 
 @dataclass
 class WebConfig:
-    password: str = ""
     allow_register: bool = True
     admin_password: str = ""
     token_secret: str = ""
@@ -126,7 +125,6 @@ _ENV_MAP = {
     "POLLING_COOKIE_KEEPALIVE_INTERVAL_SECONDS": ("polling", "cookie_keepalive_interval_seconds"),
     "POLLING_DAILY_REPORT_HOUR": ("polling", "daily_report_hour"),
     "NOTIFY_ON_START": ("polling", "notify_on_start"),
-    "WEB_PASSWORD": ("web", "password"),
     "WEB_ALLOW_REGISTER": ("web", "allow_register"),
     "WEB_ADMIN_PASSWORD": ("web", "admin_password"),
     "WEB_TOKEN_SECRET": ("web", "token_secret"),

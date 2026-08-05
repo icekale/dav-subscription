@@ -1,204 +1,151 @@
-# 大V订阅（自托管版）
+# 大V订阅 DaV Subscription
 
-聚合订阅雪球 / 微博 / X(Twitter) 大V公开动态，新帖实时推送到**Telegram**、**飞书**与**企业微信群**。
+自托管的社交大V动态聚合订阅系统：抓取 **雪球 / 微博 / X(Twitter)** 大V公开动态（含雪球组合调仓），新帖实时推送到 **Telegram / 飞书 / 企业微信**。支持多用户注册，每个用户自选订阅的大V与推送渠道，管理员在网页后台统一管理。
 
-架构：
-
-- **微信小程序**（`miniprogram/`）：客户前端——微信登录，首页广场发现大V并自助订阅、动态时间线、我的订阅、推送绑定
-- **Docker 服务**：后端 API + 网页后台管理（大V目录、分类、推送记录、用户与管理员指定）
-- **推送**：Telegram bot、飞书（群 webhook + 自建应用直聊）与企业微信群机器人三通道，按订阅关系逐人推送
-
-## 文档
-
-- [用户指南](docs/用户指南.md)：在 Telegram / 飞书里怎么订阅大V、怎么绑定账号
-- [管理员手册](docs/管理员手册.md)：部署、大V/用户管理、配置项、常见问题
-
-## Telegram bot 订阅命令
-
-推送设置页支持两种 Telegram 模式：官方共享机器人（默认，一键绑定）或
-用户自建机器人（@BotFather 创建后粘贴 token，系统自动识别会话，推送走自己的
-机器人，不受共享机器人广播限速影响）。
-
-配置 `notifiers.telegram.bot_token` 后，用户可直接在 Telegram 里给机器人发命令订阅大V（首次使用自动创建账号并绑定 chat_id）：
-
-- `/list` — 查看可订阅的大V（含 ID 与订阅状态，`/list 2` 翻页）
-- `/sub 1` / `/sub https://xueqiu.com/8790885129` / `/sub 8790885129` — 订阅（支持按 ID、雪球主页链接或 UID）
-- `/unsub 1` / `/unsub https://xueqiu.com/8790885129` / `/unsub 8790885129` — 取消订阅
-- `/mysubs` — 我的订阅
-- `/help` — 帮助
-
-> 说明：本项目为自托管替代方案，仅抓取公开可见的动态，不包含任何平台会员/付费内容；无订阅名额与推送次数限制。
+> 仅抓取公开可见的动态，不含任何平台会员/付费内容；自托管无订阅名额与推送次数限制。
 
 ## 功能
 
-- 订阅管理：网页增删改大V、启停（雪球 user_id / 微博 uid / X RSS 地址）
-- 多用户：注册/登录，客户自助订阅自己喜欢的大V，各看各的动态流
-- 逐人推送：新帖按订阅关系推送给每个用户绑定的 Telegram / 飞书
-- 大V分类：分类管理、按分类筛选、推送消息带分类标签
-- 定时轮询：默认 180s，带随机抖动与失败退避
-- 优先抓取：把重点大V标记为「优先」后按 `polling.priority_interval_seconds`（默认 60s）抓取，其余保持全局间隔，兼顾时效与风控
-- 消息推送：新帖去重后推送飞书（卡片）与 Telegram（HTML 消息）
-- 帖子历史与推送记录：Web 页面可浏览
-- Docker 一键部署，SQLite 持久化
+- **多源聚合**：雪球帖子/回复、雪球组合调仓、微博、X，自动去重、按发布时间顺序推送
+- **多用户**：注册码注册，用户自助订阅/退订，各自独立的动态流与推送
+- **多通道推送**：Telegram（官方共享机器人或用户自建机器人）、飞书私聊/群、企业微信群机器人；绑定多个渠道时可自选接收通道
+- **网页后台**：大V目录、分类、优先级抓取、注册码、用户与管理员、推送记录、操作日志、数据源状态
+- **抓取策略**：优先大V短间隔（默认 60s）+ 普通大V全局间隔（默认 180s），随机抖动与失败退避；雪球/微博 cookie 自动续期保活
+- **X 翻译**：配置 X 登录 Cookie 后走官方翻译接口（同网页版），内容自动翻译成中文
+- **微信小程序**（可选）：`miniprogram/` 提供微信登录的客户端，可后接
 
-## 快速开始
+## 快速 Docker 部署
+
+### 1. 前置要求
+
+- Docker 20.10+ 与 Docker Compose v2（`docker compose version` 可验证）
+- 一个可访问的服务器（NAS / VPS / 群晖 / Unraid 均可），推荐 2 核 1G 以上
+- 想收推送至少需要一个渠道的凭据：Telegram Bot Token、飞书应用或企业微信群机器人 webhook
+
+### 2. 获取代码并准备配置
 
 ```bash
-cp config.example.yaml config.yaml
-# 编辑 config.yaml，填入飞书/Telegram 配置
+git clone https://github.com/icekale/dav-subscription.git
+cd dav-subscription
+cp .env.example .env
+```
+
+编辑 `.env`，把下面的关键项填上（其余可留空，不影响启动）：
+
+| 环境变量 | 必填 | 说明 |
+| --- | --- | --- |
+| `TELEGRAM_BOT_TOKEN` | 推荐 | Telegram 机器人 token，[BotFather](https://t.me/BotFather) 创建 |
+| `TELEGRAM_CHAT_ID` | 推荐 | 管理员接收系统告警的会话 ID（可用 [@userinfobot](https://t.me/userinfobot) 查询） |
+| `TELEGRAM_BOT_USERNAME` | 推荐 | 机器人 @username，用于推送设置页的一键绑定链接 |
+| `FEISHU_APP_ID` / `FEISHU_APP_SECRET` | 可选 | 飞书自建应用凭据（用于机器人命令与私聊推送），配置见下文 |
+| `FEISHU_WEBHOOK_URL` | 可选 | 飞书群机器人 webhook（系统告警用，用户可自行在网页绑定各自的群机器人） |
+| `WECOM_WEBHOOK_URL` | 可选 | 企业微信群机器人 webhook（系统告警用） |
+| `WEB_ADMIN_PASSWORD` | 推荐 | 启动时创建 `admin` 管理员账号，登录后台管理 |
+| `WEB_ALLOW_REGISTER` | 可选 | 是否开放注册；`false` 时只能凭后台生成的注册码注册 |
+| `XUEQIU_COOKIE` | 可选 | 浏览器登录 xueqiu.com 后复制的 Cookie，防止反爬拦截 |
+| `WEIBO_COOKIE` | 可选 | 浏览器登录微博后复制的 Cookie，可后台扫码登录替代 |
+| `TWITTER_COOKIE` | 可选 | 浏览器登录 x.com 后复制的完整 Cookie（直抓 X + 自动翻译中文） |
+
+也可以用 YAML 配置：复制 `config.example.yaml` 为 `config.yaml` 后修改（环境变量优先级更高）。
+
+### 3. 启动
+
+```bash
 docker compose up -d --build
 ```
 
-打开 http://localhost:8000 进入网页后台。**管理员只能通过后台指定**：注册用户一律是普通用户；启动时配置 `web.admin_password` 会创建 `admin` 管理员账号，管理员登录后可在「管理后台 → 用户」里把其他用户设为/取消管理员。数据保存在 `./data/dav.db`，重启不丢。
+启动后访问：
 
-## 微信小程序
+- Web 后台：http://localhost:8000 （首次用 `admin` + `WEB_ADMIN_PASSWORD` 登录）
+- Telegram / 飞书里给机器人发 `/list` 即可开始订阅大V
 
-小程序代码在 `miniprogram/`，用微信开发者工具打开即可预览：
+数据保存在 `./data/dav.db`（SQLite），重启不丢；升级只需 `git pull && docker compose up -d --build`。
 
-1. 在 [微信公众平台](https://mp.weixin.qq.com) 注册小程序，拿到 `appid`/`appsecret`，填入 `wechat.app_id` / `wechat.app_secret`
-2. 修改 `miniprogram/utils/api.js` 里的 `BASE_URL` 为后端地址；本地开发勾选开发者工具「不校验合法域名」
-3. 首次使用走 `wx.login` 自动登录（未配置微信凭据时登录页会降级为账号密码登录）
+## 生产部署（HTTPS）
 
-上线前需要把后端部署到 HTTPS 域名，并在小程序后台配置 request 合法域名。
+仓库提供了带 Caddy 自动 HTTPS 的完整编排 `docker-compose.prod.yml`：
 
-## 飞书机器人（申请 webhook）
+```bash
+cp .env.example .env
+# 编辑 .env，至少设置：DOMAIN=your.domain.com、WEB_ADMIN_PASSWORD、推送渠道凭据
+docker compose -f docker-compose.prod.yml up -d --build
+```
 
-1. 打开目标飞书群 → 设置 → 群机器人 → 添加机器人 → 自定义机器人
-2. 复制 Webhook 地址，填入 `notifiers.feishu.webhook_url`
-
-## Telegram 机器人（申请 token 与 chat_id）
-
-1. 与 [@BotFather](https://t.me/BotFather) 对话：`/newbot`，按提示创建，拿到 `bot_token`
-2. 把 bot 拉进目标会话，发一条消息
-3. 访问 `https://api.telegram.org/bot<你的token>/getUpdates`，在返回的 JSON 里找 `chat.id`，填入 `notifiers.telegram.chat_id`
-
-## 配置说明
-
-| 配置项 | 说明 |
-| --- | --- |
-| `notifiers.feishu.webhook_url` | 飞书群机器人 webhook（全局推送） |
-| `notifiers.feishu.app_id` / `app_secret` | 飞书自建应用凭据（逐人直聊推送需要，未配置则跳过） |
-| `notifiers.telegram.bot_token` | Telegram Bot token |
-| `notifiers.telegram.chat_id` | 接收消息的会话 ID |
-| `notifiers.telegram.proxy` | 可选：Telegram API 代理地址（如 `http://127.0.0.1:7890`，被墙网络建议配置） |
-| `sources.xueqiu.cookie` | 可选，雪球 Cookie 初始值；过期后需手动更新（自动续期会尝试，但受 WAF 限制通常需要浏览器） |
-| `sources.weibo.cookie` | 可选，微博 Cookie 初始值（未配置账号密码时的兜底） |
-| `sources.weibo.token` | 可选，x-xsrf-token |
-| `sources.weibo.username` | 可选，微博账号；配置后自动登录并自动续期 cookie |
-| `sources.weibo.password` | 可选，微博密码 |
-| `polling.interval_seconds` | 轮询间隔（默认 180） |
-| `polling.jitter_seconds` | 随机抖动（默认 30） |
-| `polling.notify_on_start` | 启动时发上线消息（默认 true） |
-| `polling.digest_interval_seconds` | 普通大V合并推送周期（默认 600；0 = 关闭合并，实时推） |
-| `polling.push_logs_retention_days` | 推送日志保留天数（默认 90，独立于帖子保留期） |
-| `polling.source_probe_interval_seconds` | 雪球 cookie 主动探测周期（默认 600；0 = 关闭） |
-| `web.allow_register` | 是否开放自助注册（默认 true） |
-| `web.admin_password` | 可选，启动时创建 `admin` 管理员账号（密码） |
-| `web.token_secret` | 可选，token 签名密钥，留空自动生成并持久化 |
-| `wechat.app_id` / `app_secret` | 微信小程序登录凭据（小程序端用） |
-
-所有配置项均可通过环境变量覆盖（见 `.env.example`）。注意 `.env` 文件本身不会被程序自动读取，环境变量需由运行环境注入（Docker compose 已处理，直接 `python app/main.py` 本地运行不会读取 `.env`）。
-
-## Cookie 获取与自动续期
-
-- **雪球**：抓取走 `user_timeline.json` JSON 接口，普通 HTTP 请求即可，不受 WAF 挑战影响。Cookie 约 30 天有效；过期后服务会尝试自动续期，但雪球首页受阿里云 WAF 保护（需要浏览器执行 JS 验证），自动续期通常无法成功，此时会清晰报错，请手动更新 `sources.xueqiu.cookie`。
-- **微博**：推荐配置 `sources.weibo.username/password`，服务会自动走 weibo.cn 登录流程获取 cookie 并续期（可能偶尔遇到验证码导致登录失败，失败时会推送告警并在次日重试）。不想用账号密码时，也可手动填 cookie：浏览器登录 weibo.cn → 开发者工具 → Network → 复制请求头里的 `Cookie` 整串。
-
-手动 cookie 过期后重新复制即可，无需重启容器（改 `config.yaml` 后 `docker compose restart`）。
-
-## 用户与订阅
-
-- 管理员只能在网页后台指定（`web.admin_password` 引导 + 后台用户页设置），注册/小程序登录用户一律为普通用户
-- 管理员在「我的 → 管理后台」维护大V目录、分类、查看推送记录、指定管理员
-- 普通用户在首页/搜索中浏览大V并点击「订阅」，动态页只显示自己订阅的大V的新帖
-- 「我的 → 推送设置」绑定 Telegram chat_id / 飞书 open_id 并开启推送，新帖会按订阅关系逐人推送
-
-## 配置校验
-
-程序启动时会校验配置：数字/布尔字段会自动归一化类型（如引号包裹的 `"60"`），类型错误或取值非法会直接启动报错并指明具体配置项；环境变量解析失败也会提示变量名。
-
-## X (Twitter) 订阅
-
-主通道通过 X 官方内部 GraphQL 接口直抓（需配置 `TWITTER_COOKIE` 登录 Cookie），
-内容默认自动翻译成中文（同 X 网页版）。每个 X 大V 添加时填主页链接即可，例如
-`https://x.com/elonmusk`（或直接填用户名 `elonmusk`）。
-
-直抓接口被 X 风控/轮换导致暂时失败时，自动回退到 RSSHub 备用 RSS 通道
-（`RSSHUB_BASE`，默认公共实例 `https://rsshub.app`），抓取不中断。
-
-## 生产部署（HTTPS + 正式域名）
-
-1. 复制环境变量模板并填好密钥（域名、bot token、飞书/微信凭据、管理员密码等）：
-
-   ```bash
-   cp .env.example .env.prod
-   # 编辑 .env.prod：DOMAIN、TELEGRAM_BOT_TOKEN、FEISHU_APP_ID/SECRET、
-   # WECHAT_APP_ID/SECRET、WEB_ADMIN_PASSWORD、WEB_TOKEN_SECRET、XUEQIU_COOKIE
-   ```
-
-2. 用生产 compose 启动（Caddy 自动申请/续期 HTTPS 证书）：
-
-   ```bash
-   set -a; source .env.prod; set +a
-   docker compose -f docker-compose.prod.yml up -d --build
-   ```
-
-3. 数据备份（SQLite 在线备份，WAL 安全）：
-
-   ```bash
-   python3 scripts/backup.py data/dav.db backups 14
-   ```
-
-   可加入 crontab 每天自动备份：`0 3 * * * cd /path/to/project && python3 scripts/backup.py data/dav.db backups 14`
-
-4. 小程序上线：把小程序 `miniprogram/utils/api.js` 的 `BASE_URL` 改为 `https://你的域名`，在微信公众平台配置 request 合法域名后提审。
+Caddy 会自动申请并续期 Let's Encrypt 证书，无需额外配置。需要把域名 A 记录指向服务器，并开放 80/443 端口。
 
 ## Unraid 部署
 
-把整个项目目录放到 Unraid 的 appdata 下，例如 `/mnt/user/appdata/dav-subscription`，然后：
-
-1. 在 Unraid 里装好 Docker Compose（或使用 Docker Compose Manager 插件），添加项目 `/mnt/user/appdata/dav-subscription/docker-compose.unraid.yml`
-2. 在 compose 的「环境变量」里填好密钥：`FEISHU_APP_ID/SECRET`、`TELEGRAM_BOT_TOKEN`、`WECHAT_APP_ID/SECRET`（暂无微信可留空）、`XUEQIU_COOKIE`、`WEB_ADMIN_PASSWORD`、`WEB_TOKEN_SECRET`；或在该目录建一个 `.env` 文件
-3. 启动后访问 `http://<Unraid IP>:18084`（宿主机 8000 常被占用，Unraid 用 18084 对外）
-4. 数据保存在 `/mnt/user/appdata/dav-subscription/data/dav.db`，备份用 `python3 scripts/backup.py`（或在 Unraid 上定期复制该目录）
-
-> 局域网 HTTP 部署即可，不需要 HTTPS；如要对外提供小程序服务再走生产 compose（Caddy + 域名）。
-
-## 数据保留
-
-帖子默认保留 30 天（`polling.posts_retention_days`，0 表示永久保留），推送日志默认保留 90 天
-（`polling.push_logs_retention_days`），调度器每 6 小时自动清理超期数据，避免 SQLite 无限膨胀。
-
-## 数据源健康与备份
-
-- 后台「数据源」页展示每个平台最近成功/失败时间、连续失败次数与雪球 cookie 状态；平台连续失败 3 次会通过
-  Telegram 告警，恢复后自动通知。
-- 雪球 cookie 支持后台直接写入（数据源页），调度器会按 `source_probe_interval_seconds` 主动探测反爬状态。
-- Unraid 定时备份：在 User Scripts 里配置 daily，命令
-  `bash /mnt/user/appdata/dav-subscription/scripts/backup_unraid.sh`（保留最近 14 份，可设 `KEEP`）。
-- X 采集默认走官方直抓 + RSSHub 备用，无需单独部署 RSSHub 容器。
-
-## 安全提示
-
-默认监听所有网卡。建议：
-
-- 仅在内网使用，或置于反向代理后
-- 如暴露公网，务必通过生产 compose（HTTPS）部署，并设置 `WEB_ADMIN_PASSWORD`、`WEB_TOKEN_SECRET`
-
-## 开发与测试
+在 Unraid 的「Apps」里添加自定义 Compose 栈，或直接使用 `docker-compose.unraid.yml`：
 
 ```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-python -m pytest
+cp docker-compose.unraid.yml /mnt/user/appdata/dav-subscription/docker-compose.yml
+cd /mnt/user/appdata/dav-subscription
+# 在同目录创建 .env（内容同 .env.example）并填写凭据
+docker compose up -d --build
 ```
+
+默认对外端口 **18084**（宿主机 8000 常被占用）：访问 `http://<NAS IP>:18084`。数据目录为 `./data`。
+
+## 推送渠道配置
+
+### Telegram
+
+1. 找 [@BotFather](https://t.me/BotFather) 发 `/newbot`，拿到 token 与 @username
+2. 填入 `.env`：`TELEGRAM_BOT_TOKEN`、`TELEGRAM_BOT_USERNAME`、`TELEGRAM_CHAT_ID`
+3. 用户加机器人后发 `/start`，再发 `/list` 浏览订阅
+
+用户也可以在网页「推送设置」里粘贴自己的 Bot Token，用自己的机器人收推送（不受共享机器人广播限速影响）。
+
+### 飞书
+
+用户需要飞书应用机器人用于私聊命令与推送，配置一次即可所有用户共用：
+
+1. 打开[飞书开放平台](https://open.feishu.cn)，创建「企业自建应用」
+2. 应用能力 → 开启「机器人」；权限管理 → 开通：`im:message`、`im:message:send_as_bot`、`im:chat`（读会话）、`contact:user.base:readonly` 等
+3. 事件与回调 → 订阅方式选「长连接」，添加事件 `接收消息 im.message.receive_v1`
+4. 发布版本并等待审核通过
+5. 把 `FEISHU_APP_ID` / `FEISHU_APP_SECRET` / `FEISHU_BOT_NAME` 填入 `.env`
+
+> 关键：用户必须在机器人的**私聊**会话里发消息/命令，群聊不会收到新帖推送；网页「推送设置」里有分步引导。
+
+### 企业微信
+
+企业微信任意群里添加「群机器人」，复制 webhook 粘贴到网页推送设置即可（用户各自绑定，互不影响）。
+
+## 数据源配置
+
+- **雪球**：后台「数据源」页可直接粘贴 Cookie；配置 `WEIBO_USERNAME/PASSWORD` 可自动登录续期微博 Cookie，微博也支持网页扫码登录
+- **X**：配置 `TWITTER_COOKIE` 后直抓 X 官方接口并把内容翻译成中文；直抓失败会自动降级 RSSHub 备用通道
+- **抓取频率**：后台「数据源」页可实时调整轮询间隔、优先大V间隔、合并推送周期等，即时生效
+
+## 微信小程序（可选）
+
+`miniprogram/` 是微信小程序客户端。用微信开发者工具打开，把 `miniprogram/config.js` 的 `BASE_URL` 改为后端地址，并在微信公众平台配置 `WECHAT_APP_ID` / `WECHAT_APP_SECRET` 即可；未配置微信凭据时登录页自动降级为账号密码登录。
+
+## 备份与运维
+
+- 数据库为单文件 `data/dav.db`，直接复制即备份
+- `scripts/backup.py` 提供带保留周期的备份脚本；`scripts/backup_unraid.sh` 为 Unraid 定时任务示例
+- 推送失败会自动重试（1m/5m/15m），数据源连续失败会通过系统渠道向管理员告警
+
+## 开发
+
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+cp config.example.yaml config.yaml   # 填入本地配置
+uvicorn app.main:app --reload
+```
+
+测试：`python -m pytest -q`
 
 ## 常见问题
 
-**微博抓不到内容？** 检查是否配置了 `sources.weibo.username/password`；如未配置，手动更新 `sources.weibo.cookie`。自动登录失败时飞书/Telegram 会收到告警。
+- **收不到推送？** 先到网页「推送设置」确认状态为已绑定；飞书必须是私聊会话；Telegram 先给机器人发 `/start`
+- **绑定了多个渠道只收到一部分？** 在「推送设置 → 推送通道选择」勾选想接收的渠道
+- **雪球抓取失败？** 后台「数据源」更新雪球 Cookie
+- **X 抓不到？** 后台开启「X 内容自动翻译」并配置 `TWITTER_COOKIE`
 
-**飞书收不到推送？** 确认 webhook 正确且机器人未被移出群。
+## License
 
-**Telegram 收不到推送？** 确认 bot 已拉入会话、`chat_id` 正确。
-
-**推送记录里大量 failed？** 查看该条目的错误信息，通常是渠道配置问题。
+MIT

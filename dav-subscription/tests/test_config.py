@@ -20,7 +20,6 @@ ALL_ENV = [
     "POLLING_JITTER_SECONDS",
     "POLLING_POSTS_RETENTION_DAYS",
     "NOTIFY_ON_START",
-    "WEB_PASSWORD",
     "WEB_ALLOW_REGISTER",
     "WEB_ADMIN_PASSWORD",
     "WEB_TOKEN_SECRET",
@@ -41,13 +40,13 @@ def test_defaults_without_file(tmp_path, monkeypatch):
 
 def test_yaml_and_env_overrides(tmp_path, monkeypatch):
     (tmp_path / "config.yaml").write_text(
-        "polling:\n  interval_seconds: 60\nweb:\n  password: secret\n",
+        "polling:\n  interval_seconds: 60\nweb:\n  admin_password: secret\n",
         encoding="utf-8",
     )
     monkeypatch.setenv("POLLING_INTERVAL_SECONDS", "90")
     config = load_config(tmp_path / "config.yaml")
     assert config.polling.interval_seconds == 90
-    assert config.web.password == "secret"
+    assert config.web.admin_password == "secret"
 
 
 def test_telegram_proxy_env(tmp_path, monkeypatch):

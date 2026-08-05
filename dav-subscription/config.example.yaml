@@ -33,4 +33,6 @@ polling:
   daily_report_hour: 20   # 每日精选推送小时（0-23），用户需在推送设置里开启
 
 web:
-  password: ""        # 可选：管理界面 Basic Auth 密码
+  allow_register: true   # 关闭后仅管理员后台生成的注册码可注册
+  admin_password: ""     # 启动时创建 admin 管理员账号（推荐设置，部署后可在后台管理用户）
+  token_secret: ""       # 可选：登录令牌签名密钥，不设置则自动生成并持久化到数据库
