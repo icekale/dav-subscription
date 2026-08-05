@@ -954,6 +954,33 @@ def test_wechat_login(monkeypatch):
     assert resp2.json()["user"]["id"] == data["user"]["id"]
 
 
+def test_add_combination_kol_auto_fills_name(monkeypatch):
+    client = make_client()
+    admin_headers = auth_headers(client)
+    monkeypatch.setattr(
+        "app.api.resolve_combination_profile",
+        lambda symbol, cookie="": {
+            "name": "伯言-A股",
+            "owner_name": "伯言2020",
+            "avatar_url": "",
+        },
+    )
+    resp = client.post(
+        "/api/kols",
+        headers=admin_headers,
+        json={
+            "platform": "combination",
+            "name": "",
+            "external_id": "https://xueqiu.com/P/ZH3623878",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    kol = resp.json()
+    assert kol["external_id"] == "ZH3623878"
+    assert kol["name"] == "伯言-A股"
+    assert kol["platform"] == "combination"
+
+
 def test_old_db_migrates_category_column():
     tmp = tempfile.mkdtemp()
     path = Path(tmp) / "old.db"

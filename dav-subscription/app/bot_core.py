@@ -182,9 +182,12 @@ class SubscriptionBot:
             return
         platform, external_id = "xueqiu", arg
         xueqiu_match = re.search(r"xueqiu\.com/(?:u/)?(\d+)", arg)
+        combination_match = re.search(r"xueqiu\.com/P/(ZH\d+)|(?:^|\s)(ZH\d+)", arg)
         weibo_match = re.search(r"weibo\.com/u/(\d+)", arg)
         if xueqiu_match:
             platform, external_id = "xueqiu", xueqiu_match.group(1)
+        elif combination_match:
+            platform, external_id = "combination", (combination_match.group(1) or combination_match.group(2))
         elif weibo_match:
             platform, external_id = "weibo", weibo_match.group(1)
         elif not arg.isdigit():
@@ -217,11 +220,22 @@ class SubscriptionBot:
             return None
         if "xueqiu.com" in arg:
             match = re.search(r"xueqiu\.com/(?:u/)?(\d+)", arg)
-            if not match:
+            combo = re.search(r"xueqiu\.com/P/(ZH\d+)", arg)
+            if combo:
+                symbol = combo.group(1)
+                for kol in self.db.list_kols():
+                    if kol["platform"] == "combination" and kol["external_id"] == symbol:
+                        return kol if self._visible_to(user, kol["id"]) else None
                 return None
-            uid = match.group(1)
+            if match:
+                uid = match.group(1)
+                for kol in self.db.list_kols():
+                    if kol["platform"] == "xueqiu" and kol["external_id"] == uid:
+                        return kol if self._visible_to(user, kol["id"]) else None
+                return None
+        if re.fullmatch(r"ZH\d+", arg):
             for kol in self.db.list_kols():
-                if kol["platform"] == "xueqiu" and kol["external_id"] == uid:
+                if kol["platform"] == "combination" and kol["external_id"] == arg:
                     return kol if self._visible_to(user, kol["id"]) else None
             return None
         weibo_match = re.search(r"weibo\.com/u/(\d+)", arg)

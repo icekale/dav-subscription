@@ -13,6 +13,7 @@ from . import auth
 from . import wechat
 from .bot_core import BIND_CODE_TTL
 from .db import ALLOWED_PLATFORMS, DB
+from .fetchers.combination import extract_cube_symbol, resolve_combination_profile
 from .fetchers.xueqiu import (
     XUEQIU_COOKIE_KEY,
     XUEQIU_COOKIE_TIME_KEY,
@@ -468,6 +469,10 @@ def create_api_router(
             match = re.search(r"xueqiu\.com/(?:u/)?(\d+)", external_id)
             if match:
                 external_id = match.group(1)
+        elif body.platform == "combination":
+            symbol = extract_cube_symbol(external_id)
+            if symbol:
+                external_id = symbol
         elif body.platform == "weibo":
             external_id = _normalize_weibo_id(external_id)
         if not external_id:
@@ -634,28 +639,47 @@ def create_api_router(
         if body.platform not in ALLOWED_PLATFORMS:
             raise HTTPException(status_code=400, detail=f"不支持的平台: {body.platform}")
         external_id = body.external_id.strip()
+        name = body.name.strip()
         if body.platform == "xueqiu":
             # 支持直接粘贴雪球主页链接，自动提取 UID
             match = re.search(r"xueqiu\.com/(?:u/)?(\d+)", external_id)
             if match:
                 external_id = match.group(1)
+        elif body.platform == "combination":
+            # 支持直接粘贴组合主页链接，自动提取组合编码 ZHxxxxxx
+            symbol = extract_cube_symbol(external_id)
+            if symbol:
+                external_id = symbol
         elif body.platform == "weibo":
             # 支持直接粘贴微博主页链接，自动提取 UID
             external_id = _normalize_weibo_id(external_id)
-        if not body.name.strip() or not external_id:
+        if not external_id:
             raise HTTPException(status_code=400, detail="昵称与外部ID不能为空")
+        if not name and body.platform == "combination":
+            # 没填昵称时自动查组合名称（失败退回占位名）
+            cookie = db.get_setting(XUEQIU_COOKIE_KEY) or os.environ.get("XUEQIU_COOKIE", "")
+            profile = resolve_combination_profile(external_id, cookie)
+            name = profile.get("name") or f"combination_{external_id}"
         if body.category_id is not None and db.get_category(body.category_id) is None:
             raise HTTPException(status_code=400, detail="分类不存在")
         kid = db.add_kol(
             body.platform,
-            body.name.strip(),
+            name,
             external_id,
             category_id=body.category_id,
             priority=body.priority,
             original_only=body.original_only,
         )
-        _audit(admin, "add_kol", str(kid), f"{body.platform} {body.name.strip()} {external_id}")
-        return db.get_kol(kid)
+        _audit(admin, "add_kol", str(kid), f"{body.platform} {name} {external_id}")
+        kol = db.get_kol(kid)
+        if body.platform == "combination" and not kol["avatar_url"]:
+            profile = resolve_combination_profile(
+                external_id, db.get_setting(XUEQIU_COOKIE_KEY) or ""
+            )
+            if profile.get("avatar_url"):
+                db.update_kol_avatar(kid, profile["avatar_url"])
+                kol = db.get_kol(kid)
+        return kol
 
     @router.post("/kols/batch", dependencies=[Depends(require_admin)])
     def batch_add_kols(body: KolBatchIn, admin: dict = Depends(require_admin)):
@@ -673,9 +697,14 @@ def create_api_router(
             nickname = ""
             for token in line.split():
                 xueqiu_match = re.search(r"xueqiu\.com/(?:u/)?(\d+)", token)
+                combination_match = re.search(r"xueqiu\.com/P/(ZH\d+)", token)
                 weibo_match = re.search(r"weibo\.com/u/(\d+)", token)
                 if xueqiu_match:
                     external_id = xueqiu_match.group(1)
+                elif combination_match:
+                    external_id = combination_match.group(1)
+                elif re.fullmatch(r"ZH\d+", token):
+                    external_id = token
                 elif weibo_match:
                     external_id = weibo_match.group(1)
                 elif token.startswith(("http://", "https://")) and not external_id:
@@ -695,6 +724,13 @@ def create_api_router(
                 profile = resolve_profile(external_id, cookie)
                 if profile.get("screen_name"):
                     name = profile["screen_name"]
+                avatar_url = profile.get("avatar_url") or ""
+            elif not nickname and body.platform == "combination":
+                # 没填昵称时自动查组合名称与主理人头像
+                cookie = db.get_setting(XUEQIU_COOKIE_KEY) or os.environ.get("XUEQIU_COOKIE", "")
+                profile = resolve_combination_profile(external_id, cookie)
+                if profile.get("name"):
+                    name = profile["name"]
                 avatar_url = profile.get("avatar_url") or ""
             try:
                 kid = db.add_kol(

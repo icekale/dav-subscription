@@ -1,6 +1,6 @@
 const $ = (sel) => document.querySelector(sel);
 
-const PLATFORM_LABELS = { xueqiu: "雪球", weibo: "微博", twitter: "X" };
+const PLATFORM_LABELS = { xueqiu: "雪球", combination: "雪球组合", weibo: "微博", twitter: "X" };
 const APP_VERSION = "1.4.0";
 const state = {
   token: localStorage.getItem("dav_token") || "",
@@ -204,7 +204,7 @@ function kolCard(kol) {
       <button class="btn-sub ${kol.subscribed ? "subscribed" : ""}" onclick="toggleSubscribe(${kol.id}, this)">
         ${kol.subscribed ? "✓ 已订阅" : "订阅"}
       </button>
-      ${kol.subscribed ? subTypeSwitchesHtml(kol.id, kol.subscribe_type || "post") : ""}
+      ${kol.subscribed && kol.platform === "xueqiu" ? subTypeSwitchesHtml(kol.id, kol.subscribe_type || "post") : ""}
       ${state.user?.is_admin ? `<button class="btn-sm danger" onclick="adminDeleteKolFromHome(${kol.id})" title="删除该大V">删除</button>` : ""}
     </div>`;
 }
@@ -378,6 +378,7 @@ async function renderSearch() {
         <div class="toolbar" style="margin-top:12px">
           <select id="ask-platform" class="form-control" style="margin:0;width:auto">
             <option value="xueqiu">雪球</option>
+            <option value="combination">雪球组合</option>
             <option value="weibo">微博</option>
             <option value="twitter">X (RSS)</option>
           </select>
@@ -470,7 +471,7 @@ async function renderKolPage(kolId) {
             <h3 class="section-title">最近动态</h3>
           </div>
           <div class="toolbar" style="margin-top:12px">
-            ${kol.subscribed ? subTypeSwitchesHtml(kol.id, kol.subscribe_type || "post") : ""}
+            ${kol.subscribed && kol.platform === "xueqiu" ? subTypeSwitchesHtml(kol.id, kol.subscribe_type || "post") : ""}
             <button class="btn-sub ${kol.subscribed ? "subscribed" : ""}" id="kol-sub-btn" onclick="toggleKolPageSubscribe(${kol.id})">
               ${kol.subscribed ? "✓ 已订阅" : "订阅"}
             </button>
@@ -938,6 +939,7 @@ async function loadAdminKols() {
         <div class="toolbar" style="margin-top:12px">
           <select id="ad-platform" class="form-control" style="margin:0;width:auto">
             <option value="xueqiu">雪球</option>
+            <option value="combination">雪球组合</option>
             <option value="weibo">微博</option>
             <option value="twitter">X (RSS)</option>
           </select>
@@ -957,6 +959,7 @@ async function loadAdminKols() {
       <div class="toolbar" style="margin-top:12px">
         <select id="ad-batch-platform" class="form-control" style="margin:0;width:auto">
           <option value="xueqiu">雪球</option>
+          <option value="combination">雪球组合</option>
           <option value="weibo">微博</option>
           <option value="twitter">X (RSS)</option>
         </select>

@@ -9,7 +9,7 @@ import httpx
 from ..fetchers.base import Post
 from .base import Notifier
 
-PLATFORM_LABELS = {"xueqiu": "雪球", "weibo": "微博", "twitter": "X/Twitter"}
+PLATFORM_LABELS = {"xueqiu": "雪球", "combination": "雪球组合", "weibo": "微博", "twitter": "X/Twitter"}
 DIGEST_MAX_ITEMS = 10
 
 

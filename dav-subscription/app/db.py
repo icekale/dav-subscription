@@ -112,7 +112,7 @@ CREATE TABLE IF NOT EXISTS admin_logs (
 );
 """
 
-ALLOWED_PLATFORMS = {"xueqiu", "weibo", "twitter"}
+ALLOWED_PLATFORMS = {"xueqiu", "combination", "weibo", "twitter"}
 
 
 class DB:

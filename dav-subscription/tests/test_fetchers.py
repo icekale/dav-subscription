@@ -7,6 +7,7 @@ import rsa
 
 from app.config import XueqiuConfig
 from app.db import DB
+from app.fetchers.combination import CombinationFetcher, extract_cube_symbol
 from app.fetchers.rss import RssFetcher
 from app.fetchers.xueqiu import XueqiuFetcher, classify_status
 
@@ -118,6 +119,64 @@ def test_xueqiu_cookie_refresh_on_401():
     posts = fetcher.fetch({"id": 1, "name": "大V", "external_id": "123"})
     assert len(posts) == 2
     assert "xq_a_token=newtoken" in db.get_setting("xueqiu_cookie")
+
+
+def test_extract_cube_symbol():
+    assert extract_cube_symbol("https://xueqiu.com/P/ZH3623878") == "ZH3623878"
+    assert extract_cube_symbol("ZH3623878") == "ZH3623878"
+    assert extract_cube_symbol("  ZH123456  ") == "ZH123456"
+    assert extract_cube_symbol("") == ""
+
+
+def test_combination_fetch_parses_rebalancing():
+    payload = {
+        "list": [
+            {
+                "id": 237035355,
+                "status": "success",
+                "cash": 80.0,
+                "updated_at": 1785822205799,
+                "rebalancing_histories": [
+                    {
+                        "stock_name": "永杉锂业",
+                        "stock_symbol": "SH603399",
+                        "prev_weight": 21.15,
+                        "target_weight": 0.0,
+                    },
+                    {
+                        "stock_name": "贵州茅台",
+                        "stock_symbol": "SH600519",
+                        "prev_weight": 0.0,
+                        "target_weight": 5.2,
+                    },
+                ],
+            },
+            {"id": 999, "status": "failed", "rebalancing_histories": [{"stock_name": "X"}]},
+            {"id": 888, "status": "success", "rebalancing_histories": []},
+        ]
+    }
+
+    def handler(request):
+        assert request.url.path == "/cubes/rebalancing/history.json"
+        assert request.url.params.get("cube_symbol") == "ZH3623878"
+        return httpx.Response(200, json=payload)
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    fetcher = CombinationFetcher(
+        XueqiuConfig(cookie="xq_a_token=abc"), db=DB(":memory:"), client=client
+    )
+    posts = fetcher.fetch(
+        {"id": 1, "name": "伯言-A股", "external_id": "https://xueqiu.com/P/ZH3623878"}
+    )
+    assert len(posts) == 1
+    p = posts[0]
+    assert p.external_id == "237035355"
+    assert p.platform == "combination"
+    assert p.url == "https://xueqiu.com/P/ZH3623878"
+    assert "永杉锂业 21.1% ➖ 0.0%" in p.content
+    assert "贵州茅台 0.0% ➕ 5.2%" in p.content
+    assert "现金 80.0%" in p.content
+    assert p.title == "伯言-A股 调仓"
 
 
 def test_xueqiu_refresh_waf_html_raises_clear_error():
