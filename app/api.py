@@ -250,6 +250,66 @@ def create_api_router(
     def _audit(admin: dict, action: str, target: str = "", detail: str = "") -> None:
         db.log_admin_action(admin["id"], action, target, detail)
 
+    def _notify_admins_new_request(platform: str, ref: str, requester: dict) -> None:
+        """新的大V添加申请：按管理员各自绑定的渠道通知。"""
+        if notifiers_config is None:
+            return
+        import httpx
+
+        from .notifiers.feishu import FeishuNotifier
+        from .notifiers.telegram import TelegramNotifier
+        from .notifiers.wecom import WeComNotifier
+
+        label = {"xueqiu": "雪球", "combination": "雪球组合", "weibo": "微博", "twitter": "X"}.get(
+            platform, platform
+        )
+        message = (
+            f"🆕 新的大V添加申请：{label}「{ref}」\n"
+            f"申请人：{requester['username']}\n"
+            "请到管理后台「求添加」审批。"
+        )
+        client = httpx.Client(timeout=15)
+        try:
+            for user in db.list_users():
+                if not user.get("is_admin"):
+                    continue
+                if user["telegram_chat_id"] and (
+                    notifiers_config.telegram.bot_token or user.get("telegram_bot_token")
+                ):
+                    notifier = TelegramNotifier(
+                        notifiers_config.telegram,
+                        client=client,
+                        chat_id=user["telegram_chat_id"],
+                        bot_token=user.get("telegram_bot_token") or None,
+                    )
+                    try:
+                        notifier.send_text(message)
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning("大V申请通知 TG 失败 user=%s err=%s", user["username"], exc)
+                if user.get("feishu_open_id") or user.get("feishu_chat_id"):
+                    notifier = FeishuNotifier(
+                        notifiers_config.feishu,
+                        client=client,
+                        open_id=user["feishu_open_id"] if not user.get("feishu_chat_id") else None,
+                        chat_id=user.get("feishu_chat_id") or None,
+                    )
+                    try:
+                        notifier.send_text(message)
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning("大V申请通知飞书失败 user=%s err=%s", user["username"], exc)
+                if user.get("wecom_webhook"):
+                    notifier = WeComNotifier(
+                        notifiers_config.wecom,
+                        client=client,
+                        webhook_url=user["wecom_webhook"],
+                    )
+                    try:
+                        notifier.send_text(message)
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning("大V申请通知企业微信失败 user=%s err=%s", user["username"], exc)
+        finally:
+            client.close()
+
     POLLING_FIELDS = [
         ("interval_seconds", "config_interval_seconds", "stats_polling_interval", 1, 3600),
         (
@@ -308,6 +368,19 @@ def create_api_router(
         return user
 
     # ---- 认证 ----
+    @router.get("/version")
+    def version_info():
+        """当前版本与 GitHub 最新版本（带缓存），用于前端更新提示。"""
+        from .version import APP_VERSION, is_newer, latest_github_version
+
+        latest, has = latest_github_version(db)
+        return {
+            "current": APP_VERSION,
+            "latest": latest,
+            "update_available": bool(has and is_newer(latest, APP_VERSION)),
+            "url": "https://github.com/icekale/dav-subscription/releases",
+        }
+
     @router.post("/auth/register")
     def register(body: RegisterIn, request: Request):
         if not allow_register:
@@ -622,6 +695,11 @@ def create_api_router(
             db.add_kol_request(body.platform, external_id, user["id"], name=body.name)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from None
+        # 通知管理员有新申请（通知失败不影响申请提交）
+        try:
+            _notify_admins_new_request(body.platform, body.name or external_id, user)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("大V申请通知管理员失败 err=%s", exc)
         return {"ok": True}
 
     @router.get("/my/kol-requests")

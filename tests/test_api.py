@@ -2,6 +2,7 @@ import json
 import sqlite3
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
@@ -270,6 +271,43 @@ def test_system_logs_api():
     # 普通用户无权限
     uh = user_headers(client, "syslog_user")
     assert client.get("/api/admin/system-logs", headers=uh).status_code == 403
+
+
+def test_version_api(monkeypatch):
+    monkeypatch.setattr("app.version.latest_github_version", lambda db: ("1.5.0", True))
+    client = make_client()
+    resp = client.get("/api/version")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["current"] == "1.4.0"
+    assert data["latest"] == "1.5.0"
+    assert data["update_available"] is True
+    assert "github.com" in data["url"]
+
+
+def test_kol_request_notifies_admins(monkeypatch):
+    client = make_client()
+    auth_headers(client)
+    admin = client.app.state.db.get_user_by_username("admin")
+    client.app.state.db.update_user(admin["id"], telegram_chat_id="111")
+    sent = []
+
+    class FakeTG:
+        def __init__(self, *args, **kwargs):
+            self.client = SimpleNamespace(close=lambda: None)
+
+        def send_text(self, text):
+            sent.append(text)
+
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FakeTG)
+    headers = user_headers(client, "requser")
+    resp = client.post(
+        "/api/kol-requests",
+        headers=headers,
+        json={"platform": "xueqiu", "external_id": "https://xueqiu.com/u/999999"},
+    )
+    assert resp.status_code == 200
+    assert any("新的大V添加申请" in t and "999999" in t for t in sent)
 
 
 def test_push_channels_api():

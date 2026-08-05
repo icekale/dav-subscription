@@ -248,7 +248,7 @@ textarea.form-control {
 .nav-item:hover { background: var(--color-surface-accent-soft); }
 .nav-item.active { background: var(--color-accent-soft); color: var(--color-accent-strong); font-weight: var(--font-weight-semibold); }
 .nav-item .nav-icon { width: 20px; text-align: center; font-size: var(--text-body); }
-.sidebar-foot { padding: 16px 12px 14px; }
+.sidebar-foot { padding: 24px 12px 14px; }
 .sidebar-user { font-size: var(--text-xs); color: var(--color-text-muted); display: block; }
 .sidebar-foot-links { display: flex; flex-direction: column; align-items: center; gap: 5px; }
 .sidebar-gh-link {
@@ -259,8 +259,16 @@ textarea.form-control {
   transition: all var(--ease-standard);
 }
 .sidebar-gh-link:hover { border-color: var(--color-accent); color: var(--color-accent); }
+.sidebar-gh-link.has-update { position: relative; border-color: var(--color-accent); color: var(--color-accent); }
+.sidebar-gh-link.has-update::after {
+  content: ""; position: absolute; top: -2px; right: -2px;
+  width: 9px; height: 9px; border-radius: 50%;
+  background: var(--color-accent); border: 2px solid var(--color-surface-soft);
+}
 .sidebar-gh-icon { width: 14px; height: 14px; }
 .sidebar-user-meta { font-size: 11px; color: var(--color-text-faint); letter-spacing: 0.3px; }
+.sidebar-update { color: var(--color-accent); font-weight: 600; text-decoration: none; margin-left: 2px; }
+.sidebar-update:hover { text-decoration: underline; }
 
 .main-col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .topbar {

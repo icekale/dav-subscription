@@ -101,10 +101,26 @@ function renderSidebar(user) {
   $("#sidebar-nav").innerHTML = html;
   $("#sidebar-user").innerHTML = `
     <div class="sidebar-foot-links">
-      <a class="sidebar-gh-link" href="https://github.com/icekale/dav-subscription" target="_blank" rel="noopener" title="GitHub 项目">${GITHUB_ICON}</a>
-      <span class="sidebar-user-meta">v${APP_VERSION}</span>
+      <a id="sidebar-gh-link" class="sidebar-gh-link" href="https://github.com/icekale/dav-subscription" target="_blank" rel="noopener" title="GitHub 项目">${GITHUB_ICON}</a>
+      <span class="sidebar-user-meta" id="sidebar-version">v${APP_VERSION}</span>
     </div>
   `;
+  checkUpdate();
+}
+
+async function checkUpdate() {
+  try {
+    const v = await api("/api/version");
+    const link = $("#sidebar-gh-link");
+    const meta = $("#sidebar-version");
+    if (!link || !meta) return;
+    if (v.update_available && v.latest) {
+      link.classList.add("has-update");
+      meta.innerHTML = `v${escapeHtml(v.current)} <a class="sidebar-update" href="${escapeHtml(v.url)}" target="_blank" rel="noopener" title="有新版本">↑ ${escapeHtml(v.latest)}</a>`;
+    }
+  } catch {
+    /* 更新检查失败不打扰 */
+  }
 }
 
 function renderTopbar(user) {
