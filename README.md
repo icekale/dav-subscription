@@ -75,6 +75,8 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
+> 国内网络构建较慢时，可在 compose 的 `build.args.PIP_INDEX_URL` 指定清华镜像（Unraid 模板已默认配置）。
+
 启动后访问：
 
 - Web 后台：http://localhost:8000 （首次用 `admin` + `WEB_ADMIN_PASSWORD` 登录）

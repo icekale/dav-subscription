@@ -1,6 +1,10 @@
 services:
   dav-subscription:
-    build: .
+    build:
+      context: .
+      # 国内网络用清华镜像加速，海外环境可移除或改为官方源
+      args:
+        PIP_INDEX_URL: https://pypi.tuna.tsinghua.edu.cn/simple
     container_name: dav-subscription
     network_mode: bridge
     ports:
