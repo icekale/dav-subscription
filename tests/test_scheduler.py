@@ -718,10 +718,13 @@ def test_insert_post_persists_detail_and_recovery_restores_fields():
         "cash": "5.0%",
     }
     pid = db.insert_post(
-        "combination", kid, "c1", "组合A 调仓", "内容", "u", "", detail=detail
+        "combination", kid, "c1", "组合A 调仓", "内容", "u", "",
+        detail=detail,
+        images=["https://x.img/a.jpg", "https://x.img/b.jpg"],
     )
     row = db.get_post(pid)
     assert json.loads(row["detail"]) == detail
+    assert json.loads(row["images"]) == ["https://x.img/a.jpg", "https://x.img/b.jpg"]
 
     uid = db.add_user("u", "h", telegram_chat_id="111")
     db.add_push_log(pid, "telegram", "failed", "boom", user_id=uid)
@@ -742,6 +745,7 @@ def test_insert_post_persists_detail_and_recovery_restores_fields():
     assert item["post"].post_type == ""
     assert item["post"].category == "实盘"
     assert item["post"].detail == detail
+    assert item["post"].images == ["https://x.img/a.jpg", "https://x.img/b.jpg"]
 
 
 def test_retry_recovery_restores_post_type():

@@ -131,6 +131,20 @@ def extract_screen_name(external_id: str) -> str:
     return ""
 
 
+def extract_twitter_images(legacy: dict) -> list[str]:
+    """X 推文图片：extended_entities.media 里的照片 URL（最多 4 张）。"""
+    out: list[str] = []
+    for media in ((legacy.get("extended_entities") or {}).get("media") or []):
+        if media.get("type") != "photo":
+            continue
+        url = media.get("media_url_https") or media.get("media_url") or ""
+        if url and url not in out:
+            out.append(url)
+        if len(out) >= 4:
+            break
+    return out
+
+
 def resolve_x_profile(external_id: str, cookie: str = "") -> dict:
     """按 X 用户名/主页链接解析昵称与头像（UserByScreenName，需登录 Cookie）。
 
@@ -322,6 +336,7 @@ class TwitterFetcher(Fetcher):
                     url=f"https://x.com/{screen_name}/status/{tweet_id}",
                     published_at=str(legacy.get("created_at") or ""),
                     post_type=post_type,
+                    images=extract_twitter_images(legacy),
                 )
             )
         if user.get("avatar") and self.db is not None:

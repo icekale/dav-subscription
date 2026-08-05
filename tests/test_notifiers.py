@@ -142,6 +142,56 @@ def test_telegram_unsub_button():
     assert "退订" in markup and '"callback_data": "unsub:7"' in markup
 
 
+def test_telegram_notify_sends_images():
+    calls = []
+
+    class FakeTelegram(TelegramNotifier):
+        def _send(self, data):
+            calls.append(("text", data.get("text")))
+
+        def _send_photo_url(self, url, caption=""):
+            calls.append(("photo", url, caption))
+
+    tg = FakeTelegram(
+        TelegramConfig(bot_token="t", chat_id="1"),
+        client=httpx.Client(),
+    )
+    post = make_post()
+    post.images = ["https://a/1.jpg", "https://a/2.jpg"]
+    tg.notify(post)
+    assert calls[0][0] == "text"
+    assert calls[1:] == [
+        ("photo", "https://a/1.jpg", "📷 1/2"),
+        ("photo", "https://a/2.jpg", "📷 2/2"),
+    ]
+
+
+def test_feishu_notify_adds_images(monkeypatch):
+    client = httpx.Client(
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, json={"code": 0, "msg": "success"}))
+    )
+    notifier = FeishuNotifier(
+        FeishuConfig(
+            app_id="a",
+            app_secret="s",
+            webhook_url="https://open.feishu.cn/open-apis/bot/v2/hook/x",
+        ),
+        client=client,
+    )
+    post = make_post()
+    post.images = ["https://a/1.jpg"]
+    monkeypatch.setattr(notifier, "_upload_images", lambda urls: ["img_key_1"])
+    card_sent = {}
+    monkeypatch.setattr(notifier, "_send_card", lambda card: card_sent.update(card=card))
+
+    notifier.notify(post)
+
+    assert any(
+        el.get("tag") == "img" and el.get("img_key") == "img_key_1"
+        for el in card_sent["card"]["elements"]
+    )
+
+
 def test_telegram_rate_limiter_smooths_burst():
     limiter = _RateLimiter(max_per_second=5)
     started = time.monotonic()

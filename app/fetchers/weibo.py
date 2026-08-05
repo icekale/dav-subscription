@@ -105,6 +105,25 @@ def cookie_header(cookies: httpx.Cookies) -> str:
     return "; ".join(f"{k}={v}" for k, v in preferred.items())
 
 
+def extract_weibo_images(mblog: dict) -> list[str]:
+    """微博动态图片：pics 里的 large/original 图（最多 4 张）。"""
+    out: list[str] = []
+    for pic in mblog.get("pics") or []:
+        url = (
+            (pic.get("large") or {}).get("url")
+            or (pic.get("original") or {}).get("url")
+            or pic.get("url")
+            or ""
+        )
+        if url.startswith("//"):
+            url = f"https:{url}"
+        if url and url not in out:
+            out.append(url)
+        if len(out) >= 4:
+            break
+    return out
+
+
 class WeiboFetcher(Fetcher):
     platform = "weibo"
 
@@ -263,6 +282,7 @@ class WeiboFetcher(Fetcher):
                     content=text,
                     url=f"https://weibo.com/detail/{mid}",
                     published_at=str(mblog.get("created_at") or ""),
+                    images=extract_weibo_images(mblog),
                 )
             )
         if mblogs:

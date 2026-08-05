@@ -48,6 +48,21 @@ def _avatar_url(user: dict) -> str:
     return ""
 
 
+def _extract_images(status: dict) -> list[str]:
+    """雪球动态图片：original_pictures / pics 里的 url（最多 4 张）。"""
+    out: list[str] = []
+    for pics_key in ("original_pictures", "pics"):
+        for pic in status.get(pics_key) or []:
+            url = (pic or {}).get("url") or ""
+            if url.startswith("//"):
+                url = f"https:{url}"
+            if url and url not in out:
+                out.append(url)
+            if len(out) >= 4:
+                return out
+    return out
+
+
 def resolve_profile(external_id: str, cookie: str = "") -> dict:
     """查询雪球用户昵称与头像（取最新一条动态里的 user 信息），失败返回空 dict。"""
     import httpx
@@ -173,6 +188,7 @@ class XueqiuFetcher(Fetcher):
                     url=url,
                     published_at=format_published_at(str(s.get("created_at") or "")),
                     post_type=post_type,
+                    images=_extract_images(s),
                 )
             )
         if statuses:

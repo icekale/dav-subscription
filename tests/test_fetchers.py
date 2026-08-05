@@ -244,6 +244,61 @@ def test_format_published_at():
     assert format_published_at("") == ""
 
 
+def test_xueqiu_extract_images():
+    from app.fetchers.xueqiu import _extract_images
+
+    status = {
+        "original_pictures": [
+            {"url": "https://x.img/a.jpg"},
+            {"url": "//x.img/b.jpg"},
+        ],
+        "pics": [{"url": "https://x.img/c.jpg"}],
+    }
+    assert _extract_images(status) == [
+        "https://x.img/a.jpg",
+        "https://x.img/b.jpg",
+        "https://x.img/c.jpg",
+    ]
+    assert _extract_images({}) == []
+
+
+def test_weibo_extract_images():
+    from app.fetchers.weibo import extract_weibo_images
+
+    mblog = {
+        "pics": [
+            {"large": {"url": "//w/p1.jpg"}},
+            {"original": {"url": "https://w/p2.jpg"}},
+            {"url": "https://w/p3.jpg"},
+        ]
+    }
+    assert extract_weibo_images(mblog) == [
+        "https://w/p1.jpg",
+        "https://w/p2.jpg",
+        "https://w/p3.jpg",
+    ]
+    assert extract_weibo_images({}) == []
+
+
+def test_twitter_extract_images():
+    from app.fetchers.twitter import extract_twitter_images
+
+    legacy = {
+        "extended_entities": {
+            "media": [
+                {"type": "photo", "media_url_https": "https://pbs.twimg.com/1.jpg"},
+                {"type": "video", "media_url_https": "https://pbs.twimg.com/v.mp4"},
+                {"type": "photo", "media_url_https": "https://pbs.twimg.com/2.jpg"},
+            ]
+        }
+    }
+    assert extract_twitter_images(legacy) == [
+        "https://pbs.twimg.com/1.jpg",
+        "https://pbs.twimg.com/2.jpg",
+    ]
+    assert extract_twitter_images({}) == []
+
+
 def test_rss_resolve_x_url():
     fetcher = RssFetcher(SimpleNamespace(rsshub_base="https://rsshub.app"))
     assert (

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import time
 
@@ -12,6 +13,7 @@ from .base import Notifier
 
 PLATFORM_LABELS = {"xueqiu": "雪球", "combination": "雪球组合", "weibo": "微博", "twitter": "X/Twitter"}
 DIGEST_MAX_ITEMS = 5
+logger = logging.getLogger(__name__)
 
 _token_cache: dict[tuple[str, str], tuple[str, float]] = {}
 _token_lock = threading.Lock()
@@ -296,6 +298,19 @@ class FeishuNotifier(Notifier):
             card = build_feishu_combination_card(post)["card"]
         else:
             card = build_feishu_card(post)["card"]
+        # 帖子图片：上传后插入 img 元素（最多 2 张），失败不影响文本卡片
+        if post.images and self.app_id and self.app_secret:
+            try:
+                keys = self._upload_images(post.images[:2])
+                if keys:
+                    img_elements = [
+                        {"tag": "img", "img_key": key, "alt": ""} for key in keys
+                    ]
+                    card["elements"] = (
+                        [card["elements"][0]] + img_elements + card["elements"][1:]
+                    )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("飞书图片上传失败 err=%s", exc)
         if self.unsub_kol_id is not None:
             card["elements"].append(
                 {
@@ -311,6 +326,30 @@ class FeishuNotifier(Notifier):
                 }
             )
         self._send_card(card)
+
+    def _upload_images(self, image_urls: list[str]) -> list[str]:
+        """下载远端图片并上传到飞书，返回 image_key 列表（失败项跳过）。"""
+        token = self._tenant_access_token()
+        keys: list[str] = []
+        headers = {"Authorization": f"Bearer {token}"}
+        for url in image_urls:
+            try:
+                img_resp = self.client.get(url, timeout=12)
+                if img_resp.status_code != 200 or not img_resp.content:
+                    continue
+                resp = self.client.post(
+                    "https://open.feishu.cn/open-apis/im/v1/images",
+                    headers=headers,
+                    data={"image_type": "message"},
+                    files={"image": ("img.jpg", img_resp.content, "image/jpeg")},
+                )
+                data = resp.json()
+                key = ((data or {}).get("data") or {}).get("image_key") or ""
+                if key:
+                    keys.append(key)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("飞书图片上传失败 url=%s err=%s", url, exc)
+        return keys
 
     def send_digest(self, posts: list[Post], kol_name: str, platform: str) -> None:
         self._send_card(build_feishu_digest_card(posts, kol_name, platform))

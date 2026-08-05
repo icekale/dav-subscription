@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
 # 项目面向中文社交平台，发布时间统一按北京时间展示，避免依赖服务器时区
@@ -22,6 +22,7 @@ class Post:
     category: str = ""
     post_type: str = ""
     detail: dict | None = None
+    images: list[str] = field(default_factory=list)
 
 
 def strip_html(text: str) -> str:

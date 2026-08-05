@@ -60,6 +60,7 @@ CREATE TABLE IF NOT EXISTS posts (
     title TEXT NOT NULL DEFAULT '',
     content TEXT NOT NULL DEFAULT '',
     post_type TEXT NOT NULL DEFAULT '',
+    images TEXT NOT NULL DEFAULT '',
     url TEXT NOT NULL DEFAULT '',
     published_at TEXT NOT NULL DEFAULT '',
     fetched_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -150,6 +151,10 @@ class DB:
         if "detail" not in post_cols:
             self._conn.execute(
                 "ALTER TABLE posts ADD COLUMN detail TEXT NOT NULL DEFAULT ''"
+            )
+        if "images" not in post_cols:
+            self._conn.execute(
+                "ALTER TABLE posts ADD COLUMN images TEXT NOT NULL DEFAULT ''"
             )
         sub_cols = {row["name"] for row in self._rows("PRAGMA table_info(subscriptions)")}
         if "type" not in sub_cols:
@@ -740,14 +745,16 @@ class DB:
         published_at,
         post_type: str = "",
         detail: dict | None = None,
+        images: list[str] | None = None,
     ) -> int | None:
         if self.post_exists(platform, external_id):
             return None
         detail_json = json.dumps(detail, ensure_ascii=False) if detail else ""
+        images_json = json.dumps(images, ensure_ascii=False) if images else ""
         try:
             return self._execute(
-                "INSERT INTO posts (platform, kol_id, external_id, title, content, post_type, url, published_at, detail) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO posts (platform, kol_id, external_id, title, content, post_type, images, url, published_at, detail) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     platform,
                     kol_id,
@@ -755,6 +762,7 @@ class DB:
                     title,
                     content,
                     post_type,
+                    images_json,
                     url,
                     published_at,
                     detail_json,

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import time
 from collections import deque
@@ -14,6 +15,7 @@ from .base import Notifier
 
 PLATFORM_LABELS = {"xueqiu": "雪球", "combination": "雪球组合", "weibo": "微博", "twitter": "X/Twitter"}
 DIGEST_MAX_ITEMS = 10
+logger = logging.getLogger(__name__)
 # Telegram 单 bot 全局约 30 条/秒；广播推送时留足余量，避免触发 429。
 # 高水位保护：发送频率低于上限时零开销，瞬时积压时自动平滑限速。
 TG_MAX_MESSAGES_PER_SECOND = 15
@@ -188,6 +190,28 @@ class TelegramNotifier(Notifier):
                 "reply_markup": json.dumps({"inline_keyboard": keyboard}, ensure_ascii=False),
             }
         )
+        # 帖子图片：文本卡片后逐张发送（最多 4 张），单张失败不影响主推送
+        for i, image_url in enumerate(post.images[:4], 1):
+            try:
+                self._send_photo_url(image_url, caption=f"📷 {i}/{min(len(post.images), 4)}")
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Telegram 图片发送失败 url=%s err=%s", image_url, exc)
+
+    def _send_photo_url(self, photo_url: str, caption: str = "") -> None:
+        if not self.bot_token or not self.chat_id:
+            raise RuntimeError("未配置 telegram bot_token/chat_id")
+        _tg_rate_limiter.wait()
+        data = {"chat_id": self.chat_id, "photo": photo_url}
+        if caption:
+            data["caption"] = caption
+        resp = self.client.post(
+            f"https://api.telegram.org/bot{self.bot_token}/sendPhoto",
+            data=data,
+        )
+        resp.raise_for_status()
+        result = resp.json()
+        if not result.get("ok"):
+            raise RuntimeError(f"Telegram 返回错误: {result}")
 
     def send_digest(self, posts: list[Post], kol_name: str, platform: str) -> None:
         keyboard = None

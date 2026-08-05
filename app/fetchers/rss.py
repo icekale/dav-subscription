@@ -58,6 +58,13 @@ class RssFetcher(Fetcher):
         feed = feedparser.parse(resp.content)
         posts = []
         for entry in feed.entries:
+            images: list[str] = []
+            for media in entry.get("media_content") or []:
+                if media.get("url") and media["url"] not in images:
+                    images.append(media["url"])
+            for thumb in entry.get("media_thumbnail") or []:
+                if thumb.get("url") and thumb["url"] not in images:
+                    images.append(thumb["url"])
             posts.append(
                 Post(
                     platform=self.platform,
@@ -68,6 +75,7 @@ class RssFetcher(Fetcher):
                     content=strip_html(entry.get("summary") or entry.get("description") or ""),
                     url=entry.get("link") or "",
                     published_at=str(entry.get("published") or entry.get("updated") or ""),
+                    images=images[:4],
                 )
             )
         if self.db is not None:

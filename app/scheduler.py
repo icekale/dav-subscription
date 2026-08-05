@@ -657,6 +657,7 @@ def _fetch_kol_once(
             post.published_at,
             post.post_type,
             post.detail,
+            post.images,
         )
         if post_id is None:
             continue
@@ -1306,6 +1307,12 @@ class Scheduler:
                 detail = json.loads(post_row["detail"]) if post_row.get("detail") else None
             except (TypeError, ValueError):
                 detail = None
+            try:
+                images = json.loads(post_row["images"]) if post_row.get("images") else []
+            except (TypeError, ValueError):
+                images = []
+            if not isinstance(images, list):
+                images = []
             post = Post(
                 platform=post_row["platform"],
                 kol_id=post_row["kol_id"],
@@ -1318,6 +1325,7 @@ class Scheduler:
                 category=(kol or {}).get("category_name") or "",
                 post_type=post_row.get("post_type") or "",
                 detail=detail,
+                images=images,
             )
             self.retry_queue.add(post, row["channel"], user_id)
             recovered += 1
