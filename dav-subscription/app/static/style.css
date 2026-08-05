@@ -305,12 +305,22 @@ textarea.form-control {
   border-radius: var(--radius-pill);
   background: var(--color-surface);
   color: var(--color-text);
-  font-size: var(--text-sm);
-  padding: 7px 18px;
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
   transition: all var(--ease-standard);
 }
 .platform-tab:hover { border-color: var(--color-accent); color: var(--color-accent); }
 .platform-tab.selected { background: var(--color-accent); border-color: var(--color-accent); color: #fff; }
+.platform-tab.selected .pt-icon { filter: brightness(0) invert(1); }
+.pt-icon { width: 18px; height: 18px; }
+.platform-tab[data-platform="xueqiu"]:not(.selected) .pt-icon { color: #287dff; }
+.platform-tab[data-platform="combination"]:not(.selected) .pt-icon { color: var(--color-accent); }
+.platform-tab[data-platform="weibo"]:not(.selected) .pt-icon { color: #e6162d; }
+.platform-tab[data-platform="twitter"]:not(.selected) .pt-icon { color: #000; }
 
 /* 搜索 */
 .search-bar {
