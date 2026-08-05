@@ -23,6 +23,7 @@ class Post:
     post_type: str = ""
     detail: dict | None = None
     images: list[str] = field(default_factory=list)
+    favorite: bool = False
 
 
 def strip_html(text: str) -> str:

@@ -306,6 +306,38 @@ def test_dnd_api_validation():
     assert resp.json()["dnd_start"] == "" and resp.json()["dnd_end"] == ""
 
 
+def test_favorite_api():
+    client = make_client()
+    admin = auth_headers(client)
+    headers = user_headers(client, "favuser")
+    kid = client.post(
+        "/api/kols", headers=admin, json={"platform": "xueqiu", "name": "A", "external_id": "fav1"}
+    ).json()["id"]
+    kid2 = client.post(
+        "/api/kols", headers=admin, json={"platform": "xueqiu", "name": "B", "external_id": "fav2"}
+    ).json()["id"]
+    client.post("/api/subscriptions", headers=headers, json={"kol_id": kid})
+
+    resp = client.put(f"/api/subscriptions/{kid}/favorite", headers=headers, json={"favorite": True})
+    assert resp.status_code == 200
+    cat = client.get("/api/catalog", headers=headers).json()
+    assert next(k for k in cat if k["id"] == kid)["favorite"] is True
+    assert next(k for k in cat if k["id"] == kid2)["favorite"] is False
+    # 未订阅的大V不能标星
+    assert (
+        client.put(f"/api/subscriptions/{kid2}/favorite", headers=headers, json={"favorite": True}).status_code
+        == 404
+    )
+    # 取消特别关注
+    client.put(f"/api/subscriptions/{kid}/favorite", headers=headers, json={"favorite": False})
+    cat = client.get("/api/catalog", headers=headers).json()
+    assert next(k for k in cat if k["id"] == kid)["favorite"] is False
+    # 免打扰穿透开关
+    resp = client.put("/api/me", headers=headers, json={"dnd_allow_favorite": True})
+    assert resp.status_code == 200
+    assert resp.json()["dnd_allow_favorite"] is True
+
+
 def test_change_password_api():
     client = make_client()
     headers = user_headers(client, "pwuser")

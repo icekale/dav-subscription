@@ -884,6 +884,38 @@ def test_notify_subscribers_buffers_during_dnd(monkeypatch):
     assert db.list_push_logs() == []
 
 
+def test_notify_subscribers_favorite_passthrough_dnd(monkeypatch):
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.update_user(uid, dnd_start="23:00", dnd_end="07:00", dnd_allow_favorite=True)
+    db.add_subscription(uid, kid)
+    db.set_subscription_favorite(uid, kid, True)
+    post = make_post(kid)
+    dnd = {}
+    ncfg = SimpleNamespace(
+        telegram=SimpleNamespace(bot_token="t", chat_id=""),
+        feishu=SimpleNamespace(),
+        wecom=SimpleNamespace(),
+    )
+    monkeypatch.setattr("app.scheduler._in_dnd_window", lambda user, now=None: True)
+    hits = []
+
+    class FakeTG:
+        def __init__(self, *args, **kwargs):
+            self.client = SimpleNamespace(close=lambda: None)
+            hits.append(("init", kwargs.get("favorite")))
+
+        def notify(self, post):
+            hits.append(("notify",))
+
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FakeTG)
+    notify_subscribers(db, 1, post, ncfg, notifiers=[], retry_queue=None, dnd_buffer=dnd)
+    assert dnd == {}  # 特别关注 + 允许穿透：不缓冲
+    assert ("init", True) in hits
+    assert any(h[0] == "notify" for h in hits)
+
+
 def test_flush_dnd_buffers_sends_summary(monkeypatch):
     db = make_db()
     kid = db.add_kol("xueqiu", "A", "1")
@@ -924,6 +956,17 @@ def test_flush_dnd_buffers_sends_summary(monkeypatch):
     scheduler._flush_dnd_buffers()
     assert sent == [1]
     assert scheduler._dnd_buffer == {}
+
+
+def test_transfer_subscriptions_preserves_favorite():
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    target = db.add_user("web", "h")
+    bot = db.add_user("bot", "h")
+    db.add_subscription(bot, kid)
+    db.set_subscription_favorite(bot, kid, True)
+    db.transfer_subscriptions(bot, target)
+    assert db.subscribed_favorite_ids(target) == {kid}
 
 
 def test_daily_report_sent_to_enabled_user(monkeypatch):
@@ -1401,7 +1444,7 @@ def test_subscriber_push_uses_user_channels(monkeypatch):
             pass
 
     class FakeFeishu:
-        def __init__(self, config, open_id=None, chat_id=None, client=None):
+        def __init__(self, config, open_id=None, chat_id=None, client=None, **kwargs):
             calls.append(("feishu", chat_id or open_id))
 
         def notify(self, post):

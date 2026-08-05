@@ -140,6 +140,39 @@ textarea.form-control {
 .btn-ghost:hover { border-color: var(--color-text-muted); }
 .btn-ghost:active { background: var(--color-surface-button-active); }
 
+/* 特别关注 ⭐ */
+.fav-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; border-radius: var(--radius-pill);
+  border: var(--border-strong); background: var(--color-surface);
+  color: var(--color-text-muted); cursor: pointer;
+  transition: all var(--ease-standard);
+  vertical-align: middle;
+}
+.fav-btn:hover { border-color: var(--color-accent); color: var(--color-accent); }
+.fav-btn.fav-on {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+}
+.star-icon { width: 18px; height: 18px; fill: currentColor; display: block; }
+.fav-toggle {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 36px; padding: 0 14px;
+  border: var(--border-strong); border-radius: var(--radius-pill);
+  background: var(--color-surface); color: var(--color-text-muted);
+  font-size: var(--text-sm); cursor: pointer;
+  transition: all var(--ease-standard);
+}
+.fav-toggle:hover { border-color: var(--color-accent); color: var(--color-accent); }
+.fav-toggle.fav-on {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+  font-weight: var(--font-weight-semibold);
+}
+.fav-toggle .star-icon { width: 16px; height: 16px; }
+
 /* ---------- 申请添加大V 邀请横幅 ---------- */
 .request-banner {
   display: flex;

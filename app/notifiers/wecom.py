@@ -27,11 +27,12 @@ def _md_escape(text: str) -> str:
     return text[:MAX_CONTENT_CHARS]
 
 
-def build_wecom_text(post: Post) -> str:
+def build_wecom_text(post: Post, favorite: bool = False) -> str:
     platform = PLATFORM_LABELS.get(post.platform, post.platform)
     body = _md_escape(post.content or post.title or "（无正文）")
     kind = " · 回复" if post.post_type == "reply" else ""
-    lines = [f"**📌 {post.kol_name} · {platform}{kind}**", "", body]
+    star = "⭐ " if favorite else ""
+    lines = [f"**📌 {star}{post.kol_name} · {platform}{kind}**", "", body]
     if post.category:
         lines.append(f"🗂 {post.category}")
     if post.published_at:
@@ -91,9 +92,11 @@ def build_wecom_digest(posts: list[Post], kol_name: str, platform: str) -> str:
 
 def build_wecom_daily(posts: list[Post]) -> str:
     lines = ["**📊 今日大V精选**", ""]
-    for i, post in enumerate(posts[:DIGEST_MAX_ITEMS], 1):
+    ordered = [p for p in posts if p.favorite] + [p for p in posts if not p.favorite]
+    for i, post in enumerate(ordered[:DIGEST_MAX_ITEMS], 1):
+        star = "⭐ " if post.favorite else ""
         body = _md_escape(post.content or post.title or "（无正文）")[:100]
-        lines.append(f"{i}. **{post.kol_name}**：{body}")
+        lines.append(f"{i}. **{star}{post.kol_name}**：{body}")
         meta_parts = []
         if post.published_at:
             meta_parts.append(f"🕐 {post.published_at}")
@@ -136,9 +139,11 @@ class WeComNotifier(Notifier):
         config,
         client: httpx.Client | None = None,
         webhook_url: str | None = None,
+        favorite: bool = False,
     ):
         self.webhook_url = webhook_url or config.webhook_url
         self.client = client or httpx.Client(timeout=15)
+        self.favorite = favorite
 
     def _send_markdown(self, content: str) -> None:
         if not self.webhook_url:
@@ -156,7 +161,7 @@ class WeComNotifier(Notifier):
         text = (
             build_wecom_combination_text(post)
             if post.platform == "combination" and post.detail
-            else build_wecom_text(post)
+            else build_wecom_text(post, self.favorite)
         )
         self._send_markdown(text)
 

@@ -305,6 +305,11 @@ def _in_dnd_window(user: dict, now=None) -> bool:
     return cur >= start or cur < end  # 跨午夜（如 23:00-07:00）
 
 
+def _dnd_favorite_passthrough(user: dict) -> bool:
+    """用户是否允许「特别关注」的大V穿透免打扰（默认不穿透）。"""
+    return bool(user.get("dnd_allow_favorite"))
+
+
 class PlatformState:
     """每个平台连续失败次数与退避截止时间。"""
 
@@ -452,7 +457,12 @@ def notify_subscribers(
             sub_type = user.get("subscribe_type") or "post"
             if not _sub_type_matches(sub_type, post.post_type):
                 continue  # 订阅类型不覆盖该动态（帖子/回复分订）
-            if dnd_buffer is not None and _in_dnd_window(user):
+            favorite = bool(user.get("favorite"))
+            if (
+                dnd_buffer is not None
+                and _in_dnd_window(user)
+                and not (favorite and _dnd_favorite_passthrough(user))
+            ):
                 # 免打扰时段：缓冲，结束时统一补一条汇总
                 dnd_buffer.setdefault(user["id"], []).append(post)
                 continue
@@ -464,6 +474,7 @@ def notify_subscribers(
                     client=client,
                     chat_id=user["telegram_chat_id"],
                     bot_token=user.get("telegram_bot_token") or None,
+                    favorite=favorite,
                 )
                 try:
                     notifier.notify(post)
@@ -485,6 +496,7 @@ def notify_subscribers(
                     client=client,
                     open_id=user["feishu_open_id"] if not user.get("feishu_chat_id") else None,
                     chat_id=user.get("feishu_chat_id") or None,
+                    favorite=favorite,
                 )
                 try:
                     notifier.notify(post)
@@ -502,6 +514,7 @@ def notify_subscribers(
                     notifiers_config.wecom,
                     client=client,
                     webhook_url=user["wecom_webhook"],
+                    favorite=favorite,
                 )
                 try:
                     notifier.notify(post)
@@ -721,7 +734,12 @@ def notify_digest_subscribers(
             matched = [p for p in posts if _sub_type_matches(sub_type, p.post_type)]
             if not matched:
                 continue
-            if dnd_buffer is not None and _in_dnd_window(user):
+            favorite = bool(user.get("favorite"))
+            if (
+                dnd_buffer is not None
+                and _in_dnd_window(user)
+                and not (favorite and _dnd_favorite_passthrough(user))
+            ):
                 # 免打扰时段：摘要也进入免打扰缓冲，结束时统一补推
                 dnd_buffer.setdefault(user["id"], []).extend(matched)
                 continue
@@ -734,6 +752,7 @@ def notify_digest_subscribers(
                     chat_id=user["telegram_chat_id"],
                     unsub_kol_id=kol["id"],
                     bot_token=user.get("telegram_bot_token") or None,
+                    favorite=favorite,
                 )
                 try:
                     notifier.send_digest(matched, kol["name"], kol["platform"])
@@ -766,6 +785,7 @@ def notify_digest_subscribers(
                     open_id=user["feishu_open_id"] if not user.get("feishu_chat_id") else None,
                     chat_id=user.get("feishu_chat_id") or None,
                     unsub_kol_id=kol["id"],
+                    favorite=favorite,
                 )
                 try:
                     notifier.send_digest(matched, kol["name"], kol["platform"])
@@ -794,6 +814,7 @@ def notify_digest_subscribers(
                     notifiers_config.wecom,
                     client=client,
                     webhook_url=user["wecom_webhook"],
+                    favorite=favorite,
                 )
                 try:
                     notifier.send_digest(matched, kol["name"], kol["platform"])
@@ -1536,7 +1557,7 @@ class Scheduler:
         since = int(datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
         for user in self.db.daily_report_users():
             kol_ids = sorted(self.db.subscribed_kol_ids(user["id"]))
-            rows = self.db.list_daily_posts(kol_ids, since, 15)
+            rows = self.db.list_daily_posts(kol_ids, since, 15, user_id=user["id"])
             if not rows:
                 continue
             posts = [
@@ -1549,6 +1570,7 @@ class Scheduler:
                     content=r["content"],
                     url=r["url"],
                     published_at=r["published_at"],
+                    favorite=bool(r.get("favorite")),
                 )
                 for r in rows
             ]

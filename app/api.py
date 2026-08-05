@@ -98,6 +98,7 @@ class MeUpdate(BaseModel):
     push_channels: str | None = None
     dnd_start: str | None = None
     dnd_end: str | None = None
+    dnd_allow_favorite: bool | None = None
 
 
 class PasswordChangeIn(BaseModel):
@@ -171,6 +172,10 @@ class SubscriptionTypeIn(BaseModel):
     type: str
 
 
+class SubscriptionFavoriteIn(BaseModel):
+    favorite: bool
+
+
 class UserUpdate(BaseModel):
     is_admin: bool | None = None
     password: str | None = None
@@ -197,6 +202,7 @@ def public_user(user: dict) -> dict:
         "push_channels": user.get("push_channels") or "",
         "dnd_start": user.get("dnd_start") or "",
         "dnd_end": user.get("dnd_end") or "",
+        "dnd_allow_favorite": bool(user.get("dnd_allow_favorite")),
         "created_at": user["created_at"],
     }
 
@@ -462,6 +468,8 @@ def create_api_router(
             if value and not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", value):
                 raise HTTPException(status_code=400, detail="免打扰结束时间需为 HH:MM 格式（00:00-23:59）")
             db.update_user(user["id"], dnd_end=value)
+        if "dnd_allow_favorite" in body.model_fields_set:
+            db.update_user(user["id"], dnd_allow_favorite=body.dnd_allow_favorite)
         return public_user(db.get_user(user["id"]))
 
     @router.post("/me/bind-code")
@@ -496,11 +504,13 @@ def create_api_router(
             reverse=True,
         )
         subscribed_types = db.subscribed_kol_types(user["id"])
+        favorite_ids = db.subscribed_favorite_ids(user["id"])
         return [
             {
                 **kol,
                 "subscribed": kol["id"] in subscribed_types,
                 "subscribe_type": subscribed_types.get(kol["id"], "post"),
+                "favorite": kol["id"] in favorite_ids,
             }
             for kol in kols
         ]
@@ -544,6 +554,14 @@ def create_api_router(
             raise HTTPException(status_code=404, detail="尚未订阅该大V")
         return {"ok": True}
 
+    @router.put("/subscriptions/{kol_id}/favorite")
+    def set_subscription_favorite(kol_id: int, body: SubscriptionFavoriteIn, user: dict = Depends(get_current_user)):
+        if db.get_kol(kol_id) is None:
+            raise HTTPException(status_code=404, detail="大V不存在")
+        if not db.set_subscription_favorite(user["id"], kol_id, body.favorite):
+            raise HTTPException(status_code=404, detail="尚未订阅该大V")
+        return {"ok": True}
+
     @router.delete("/subscriptions/{kol_id}")
     def unsubscribe(kol_id: int, user: dict = Depends(get_current_user)):
         db.remove_subscription(user["id"], kol_id)
@@ -556,7 +574,7 @@ def create_api_router(
     @router.get("/my/feed")
     def my_feed(limit: int = 100, user: dict = Depends(get_current_user)):
         kol_ids = sorted(db.subscribed_kol_ids(user["id"]))
-        return db.list_feed_posts(kol_ids, limit=min(limit, 500))
+        return db.list_feed_posts(kol_ids, limit=min(limit, 500), user_id=user["id"])
 
     @router.get("/kols/{kol_id}")
     def get_kol(kol_id: int, user: dict = Depends(get_current_user)):
@@ -567,6 +585,7 @@ def create_api_router(
             raise HTTPException(status_code=404, detail="大V不存在")
         kol["subscribed"] = kol_id in db.subscribed_kol_ids(user["id"])
         kol["subscribe_type"] = db.subscribed_kol_types(user["id"]).get(kol_id, "post")
+        kol["favorite"] = kol_id in db.subscribed_favorite_ids(user["id"])
         if user["is_admin"]:
             acl_ids = set(db.acl_user_ids(kol_id))
             kol["visible_users"] = [u["username"] for u in db.list_users() if u["id"] in acl_ids]

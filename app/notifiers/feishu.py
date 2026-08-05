@@ -44,10 +44,10 @@ def _tenant_access_token(app_id: str, app_secret: str, client: httpx.Client) -> 
     return token
 
 
-def build_feishu_card(post: Post) -> dict:
+def build_feishu_card(post: Post, favorite: bool = False) -> dict:
     platform = PLATFORM_LABELS.get(post.platform, post.platform)
     content = truncate_text(post.content, 2000) or post.title or "（无正文）"
-    title = f"📌 {post.kol_name} · {platform}"
+    title = f"📌 {'⭐ ' if favorite else ''}{post.kol_name} · {platform}"
     if post.post_type == "reply":
         title += " · 回复"
     category = post.category or ""
@@ -208,9 +208,11 @@ def build_feishu_digest_card(posts: list[Post], kol_name: str, platform: str) ->
 
 def build_feishu_daily_card(posts: list[Post]) -> dict:
     elements = []
-    for i, post in enumerate(posts[:DIGEST_MAX_ITEMS], 1):
+    ordered = [p for p in posts if p.favorite] + [p for p in posts if not p.favorite]
+    for i, post in enumerate(ordered[:DIGEST_MAX_ITEMS], 1):
+        star = "⭐ " if post.favorite else ""
         body = (post.content[:100] or post.title or "（无正文）").replace("\n", " ")
-        text = f"{i}. **{post.kol_name}**：{body}"
+        text = f"{i}. **{star}{post.kol_name}**：{body}"
         if post.published_at:
             text += f"\n🕐 {post.published_at}"
         elements.append({"tag": "div", "text": {"tag": "lark_md", "content": text}})
@@ -303,6 +305,7 @@ class FeishuNotifier(Notifier):
         open_id: str | None = None,
         chat_id: str | None = None,
         unsub_kol_id: int | None = None,
+        favorite: bool = False,
     ):
         self.webhook_url = config.webhook_url
         self.app_id = config.app_id
@@ -310,6 +313,7 @@ class FeishuNotifier(Notifier):
         self.open_id = open_id
         self.chat_id = chat_id
         self.unsub_kol_id = unsub_kol_id
+        self.favorite = favorite
         self.client = client or httpx.Client(timeout=15)
 
     def _tenant_access_token(self) -> str:
@@ -349,7 +353,7 @@ class FeishuNotifier(Notifier):
         if post.platform == "combination" and post.detail:
             card = build_feishu_combination_card(post)["card"]
         else:
-            card = build_feishu_card(post)["card"]
+            card = build_feishu_card(post, self.favorite)["card"]
         # 帖子图片：上传后插入 img 元素（最多 2 张），失败不影响文本卡片
         if post.images and self.app_id and self.app_secret:
             try:

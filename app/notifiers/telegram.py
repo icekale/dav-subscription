@@ -47,12 +47,13 @@ class _RateLimiter:
 _tg_rate_limiter = _RateLimiter(TG_MAX_MESSAGES_PER_SECOND)
 
 
-def build_telegram_text(post: Post) -> str:
+def build_telegram_text(post: Post, favorite: bool = False) -> str:
     platform = PLATFORM_LABELS.get(post.platform, post.platform)
     body = truncate_text(post.content, 2000) or post.title or "（无正文）"
     kind = " · 回复" if post.post_type == "reply" else ""
+    star = "⭐ " if favorite else ""
     lines = [
-        f"<b>📌 {escape(post.kol_name)} · {platform}{kind}</b>",
+        f"<b>📌 {star}{escape(post.kol_name)} · {platform}{kind}</b>",
         "",
         escape(body),
     ]
@@ -120,9 +121,11 @@ def build_telegram_digest(posts: list[Post], kol_name: str, platform: str) -> st
 def build_telegram_daily(posts: list[Post]) -> str:
     """每日精选：把用户订阅的所有大V今日动态汇总成一条。"""
     lines = ["<b>📊 今日大V精选</b>", ""]
-    for i, post in enumerate(posts[:DIGEST_MAX_ITEMS], 1):
+    ordered = [p for p in posts if p.favorite] + [p for p in posts if not p.favorite]
+    for i, post in enumerate(ordered[:DIGEST_MAX_ITEMS], 1):
+        star = "⭐ " if post.favorite else ""
         body = (post.content[:100] or post.title or "（无正文）").replace("\n", " ")
-        lines.append(f"{i}. <b>{escape(post.kol_name)}</b>：{escape(body)}")
+        lines.append(f"{i}. <b>{star}{escape(post.kol_name)}</b>：{escape(body)}")
         meta_parts = []
         if post.published_at:
             meta_parts.append(f"🕐 {escape(post.published_at)}")
@@ -163,12 +166,14 @@ class TelegramNotifier(Notifier):
         chat_id: str | None = None,
         unsub_kol_id: int | None = None,
         bot_token: str | None = None,
+        favorite: bool = False,
     ):
         # 用户自建 bot 时用用户自己的 token；否则用全局共享 bot
         self.bot_token = bot_token or config.bot_token
         self.chat_id = chat_id or config.chat_id
         self.client = client or httpx.Client(timeout=15, proxy=config.proxy or None)
         self.unsub_kol_id = unsub_kol_id
+        self.favorite = favorite
 
     def _send(self, data: dict) -> None:
         if not self.bot_token or not self.chat_id:
@@ -205,7 +210,7 @@ class TelegramNotifier(Notifier):
         text = (
             build_combination_text(post)
             if post.platform == "combination" and post.detail
-            else build_telegram_text(post)
+            else build_telegram_text(post, self.favorite)
         )
         self._send(
             {

@@ -117,6 +117,21 @@ def test_telegram_success():
     assert "reply_markup" in sent
 
 
+def test_telegram_text_marks_favorite():
+    from app.notifiers.telegram import build_telegram_text
+
+    assert "⭐" in build_telegram_text(make_post(), favorite=True)
+    assert "⭐" not in build_telegram_text(make_post())
+
+
+def test_feishu_card_marks_favorite():
+    from app.notifiers.feishu import build_feishu_card
+
+    card = build_feishu_card(make_post(), favorite=True)
+    assert "⭐" in card["card"]["header"]["title"]["content"]
+    assert "⭐" not in build_feishu_card(make_post())["card"]["header"]["title"]["content"]
+
+
 def test_telegram_unconfigured_raises():
     notifier = TelegramNotifier(TelegramConfig())
     with pytest.raises(RuntimeError):

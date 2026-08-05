@@ -95,6 +95,7 @@ CREATE TABLE IF NOT EXISTS users (
     push_channels TEXT NOT NULL DEFAULT '',
     dnd_start TEXT NOT NULL DEFAULT '',
     dnd_end TEXT NOT NULL DEFAULT '',
+    dnd_allow_favorite INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE TABLE IF NOT EXISTS subscriptions (
@@ -102,6 +103,7 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     user_id INTEGER NOT NULL,
     kol_id INTEGER NOT NULL,
     type TEXT NOT NULL DEFAULT 'post',
+    favorite INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE (user_id, kol_id)
 );
@@ -171,6 +173,10 @@ class DB:
             self._conn.execute(
                 "ALTER TABLE subscriptions ADD COLUMN type TEXT NOT NULL DEFAULT 'post'"
             )
+        if "favorite" not in sub_cols:
+            self._conn.execute(
+                "ALTER TABLE subscriptions ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0"
+            )
         cols = {row["name"] for row in self._rows("PRAGMA table_info(kols)")}
         if "category_id" not in cols:
             self._conn.execute("ALTER TABLE kols ADD COLUMN category_id INTEGER")
@@ -190,6 +196,10 @@ class DB:
             self._conn.execute("ALTER TABLE users ADD COLUMN dnd_start TEXT NOT NULL DEFAULT ''")
         if "dnd_end" not in user_cols:
             self._conn.execute("ALTER TABLE users ADD COLUMN dnd_end TEXT NOT NULL DEFAULT ''")
+        if "dnd_allow_favorite" not in user_cols:
+            self._conn.execute(
+                "ALTER TABLE users ADD COLUMN dnd_allow_favorite INTEGER NOT NULL DEFAULT 0"
+            )
         if "wecom_webhook" not in user_cols:
             self._conn.execute("ALTER TABLE users ADD COLUMN wecom_webhook TEXT NOT NULL DEFAULT ''")
         if "telegram_bot_token" not in user_cols:
@@ -640,7 +650,7 @@ class DB:
 
     def list_subscriptions(self, user_id: int) -> list[dict]:
         return self._rows(
-            "SELECT k.*, s.type AS subscribe_type, c.name AS category_name, "
+            "SELECT k.*, s.type AS subscribe_type, s.favorite AS favorite, c.name AS category_name, "
             "s.created_at AS subscribed_at "
             "FROM subscriptions s JOIN kols k ON k.id = s.kol_id "
             "LEFT JOIN categories c ON c.id = k.category_id "
@@ -661,7 +671,7 @@ class DB:
     def subscribers_of_kol(self, kol_id: int) -> list[dict]:
         """该大V的订阅者（启用通知且绑定了渠道的用户）。"""
         return self._rows(
-            "SELECT u.*, s.type AS subscribe_type FROM subscriptions s "
+            "SELECT u.*, s.type AS subscribe_type, s.favorite AS favorite FROM subscriptions s "
             "JOIN users u ON u.id = s.user_id "
             "JOIN kols k ON k.id = s.kol_id "
             "WHERE s.kol_id = ? AND u.notify_enabled = 1 "
@@ -671,6 +681,22 @@ class DB:
             "(SELECT 1 FROM kol_acl a WHERE a.kol_id = k.id AND a.user_id = u.id))",
             (kol_id,),
         )
+
+    def set_subscription_favorite(self, user_id: int, kol_id: int, favorite: bool) -> bool:
+        with self._lock:
+            cur = self._conn.execute(
+                "UPDATE subscriptions SET favorite = ? WHERE user_id = ? AND kol_id = ?",
+                (1 if favorite else 0, user_id, kol_id),
+            )
+            self._conn.commit()
+            return cur.rowcount > 0
+
+    def subscribed_favorite_ids(self, user_id: int) -> set[int]:
+        rows = self._rows(
+            "SELECT kol_id FROM subscriptions WHERE user_id = ? AND favorite = 1",
+            (user_id,),
+        )
+        return {row["kol_id"] for row in rows}
 
     # ---- 绑定码 ----
     def create_bind_code(self, code: str, user_id: int, expires_at: int) -> None:
@@ -701,24 +727,25 @@ class DB:
             try:
                 self._conn.execute("BEGIN")
                 rows = self._conn.execute(
-                    "SELECT kol_id, type FROM subscriptions WHERE user_id = ?",
+                    "SELECT kol_id, type, favorite FROM subscriptions WHERE user_id = ?",
                     (from_user_id,),
                 ).fetchall()
                 for row in rows:
                     existing = self._conn.execute(
-                        "SELECT type FROM subscriptions WHERE user_id = ? AND kol_id = ?",
+                        "SELECT type, favorite FROM subscriptions WHERE user_id = ? AND kol_id = ?",
                         (to_user_id, row["kol_id"]),
                     ).fetchone()
                     if existing is None:
                         self._conn.execute(
-                            "INSERT INTO subscriptions (user_id, kol_id, type) VALUES (?, ?, ?)",
-                            (to_user_id, row["kol_id"], row["type"] or "post"),
+                            "INSERT INTO subscriptions (user_id, kol_id, type, favorite) VALUES (?, ?, ?, ?)",
+                            (to_user_id, row["kol_id"], row["type"] or "post", row["favorite"]),
                         )
                     else:
                         merged = _merge_sub_types(row["type"], existing["type"])
+                        favorite = 1 if (row["favorite"] or existing["favorite"]) else 0
                         self._conn.execute(
-                            "UPDATE subscriptions SET type = ? WHERE user_id = ? AND kol_id = ?",
-                            (merged, to_user_id, row["kol_id"]),
+                            "UPDATE subscriptions SET type = ?, favorite = ? WHERE user_id = ? AND kol_id = ?",
+                            (merged, favorite, to_user_id, row["kol_id"]),
                         )
                 self._conn.execute(
                     "DELETE FROM subscriptions WHERE user_id = ?", (from_user_id,)
@@ -893,32 +920,37 @@ class DB:
         self._execute(f"DELETE FROM posts WHERE id IN ({placeholders})", ids)
         return len(ids)
 
-    def list_feed_posts(self, kol_ids: list[int], limit: int = 100) -> list[dict]:
+    def list_feed_posts(self, kol_ids: list[int], limit: int = 100, user_id: int | None = None) -> list[dict]:
         if not kol_ids:
             return []
         placeholders = ", ".join("?" * len(kol_ids))
         return self._rows(
             "SELECT p.*, k.name AS kol_name, k.category_id AS category_id, "
-            "k.avatar_url AS avatar_url, c.name AS category_name FROM posts p "
+            "k.avatar_url AS avatar_url, c.name AS category_name, "
+            "COALESCE(s.favorite, 0) AS favorite FROM posts p "
             "JOIN kols k ON k.id = p.kol_id "
             "LEFT JOIN categories c ON c.id = k.category_id "
+            "LEFT JOIN subscriptions s ON s.kol_id = p.kol_id AND s.user_id = ? "
             f"WHERE p.kol_id IN ({placeholders}) ORDER BY p.id DESC LIMIT ?",
-            (*kol_ids, limit),
+            (user_id, *kol_ids, limit),
         )
 
-    def list_daily_posts(self, kol_ids: list[int], since_ts: int, limit: int = 15) -> list[dict]:
+    def list_daily_posts(
+        self, kol_ids: list[int], since_ts: int, limit: int = 15, user_id: int | None = None
+    ) -> list[dict]:
         """用户订阅大V在 since_ts（本地零点）之后的帖子，用于每日精选。"""
         if not kol_ids:
             return []
         placeholders = ", ".join("?" * len(kol_ids))
         return self._rows(
             "SELECT p.*, k.name AS kol_name, k.avatar_url AS avatar_url, "
-            "c.name AS category_name FROM posts p "
+            "c.name AS category_name, COALESCE(s.favorite, 0) AS favorite FROM posts p "
             "JOIN kols k ON k.id = p.kol_id "
             "LEFT JOIN categories c ON c.id = k.category_id "
+            "LEFT JOIN subscriptions s ON s.kol_id = p.kol_id AND s.user_id = ? "
             f"WHERE p.kol_id IN ({placeholders}) AND strftime('%s', p.fetched_at) >= ? "
             "ORDER BY p.id DESC LIMIT ?",
-            (*kol_ids, since_ts, limit),
+            (user_id, *kol_ids, since_ts, limit),
         )
 
     def daily_report_users(self) -> list[dict]:

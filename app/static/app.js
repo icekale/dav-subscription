@@ -15,13 +15,17 @@ const CHANNEL_ICONS = {
 };
 const APP_VERSION = "1.4.0";
 const PLATFORM_TABS = ["", "xueqiu", "combination", "weibo", "twitter"];
+const STAR_SVG = `<svg class="star-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5l2.95 5.98 6.6.96-4.78 4.66 1.13 6.58L12 17.6l-5.9 3.1 1.13-6.58L2.45 9.44l6.6-.96L12 2.5z"/></svg>`;
 const state = {
   token: localStorage.getItem("dav_token") || "",
   user: null,
   catalog: [],
   platform: "",
   mysubsPlatform: "",
+  mysubsFavorite: false,
   adminKolsPlatform: "",
+  timelineFavorite: false,
+  timelinePosts: [],
 };
 
 function escapeHtml(text) {
@@ -271,6 +275,7 @@ function kolCard(kol) {
       <button class="btn-sub ${kol.subscribed ? "subscribed" : ""}" onclick="toggleSubscribe(${kol.id}, this)">
         ${kol.subscribed ? "✓ 已订阅" : "订阅"}
       </button>
+      ${kol.subscribed ? `<button class="fav-btn ${kol.favorite ? "fav-on" : ""}" onclick="toggleFavorite(${kol.id}, this)" title="特别关注：优先推送 ⭐">${STAR_SVG}</button>` : ""}
       ${kol.subscribed && kol.platform === "xueqiu" ? subTypeSwitchesHtml(kol.id, kol.subscribe_type || "post") : ""}
       ${state.user?.is_admin ? `<button class="btn-sm danger" onclick="adminDeleteKolFromHome(${kol.id})" title="删除该大V">删除</button>` : ""}
     </div>`;
@@ -296,6 +301,21 @@ async function toggleSubscribe(kolId, btn) {
       await api("/api/subscriptions", { method: "POST", body: JSON.stringify({ kol_id: kolId, type: "post" }) });
     }
     refreshKolsView();
+  } catch (err) {
+    alert("操作失败: " + err.message);
+  }
+}
+
+async function toggleFavorite(kolId, btn) {
+  const kol = state.catalog.find((k) => k.id === kolId);
+  const next = !(kol ? kol.favorite : false);
+  try {
+    await api(`/api/subscriptions/${kolId}/favorite`, {
+      method: "PUT",
+      body: JSON.stringify({ favorite: next }),
+    });
+    if (kol) kol.favorite = next;
+    if (btn) btn.classList.toggle("fav-on", next);
   } catch (err) {
     alert("操作失败: " + err.message);
   }
@@ -374,7 +394,10 @@ async function renderMySubs() {
           <h3 class="section-title">已订阅</h3>
         </div>
       </header>
-      <div class="platform-tabs" id="mysubs-tabs" style="margin-top:12px"></div>
+      <div class="toolbar" style="margin-top:12px">
+        <div class="platform-tabs" id="mysubs-tabs"></div>
+        <button id="mysubs-fav-toggle" class="fav-toggle ${state.mysubsFavorite ? "fav-on" : ""}" onclick="toggleMySubsFav()">${STAR_SVG} 特别关注</button>
+      </div>
       <div id="mysubs-list"></div>
     </section>`;
   try {
@@ -398,12 +421,24 @@ function switchMySubsPlatform(platform) {
 }
 
 function renderMySubsList() {
-  const kols = state.catalog.filter(
+  let kols = state.catalog.filter(
     (k) => !state.mysubsPlatform || k.platform === state.mysubsPlatform
   );
+  if (state.mysubsFavorite) {
+    kols = kols.filter((k) => k.favorite);
+  } else {
+    kols = [...kols].sort((a, b) => (b.favorite ? 1 : 0) - (a.favorite ? 1 : 0));
+  }
   $("#mysubs-list").innerHTML = kols.length
     ? kols.map(kolCard).join("")
     : emptyState("这里还没有订阅", `<div><button class="btn-normal btn-add" onclick="location.hash='#/home'">去订阅广场看看</button></div>`);
+}
+
+function toggleMySubsFav() {
+  state.mysubsFavorite = !state.mysubsFavorite;
+  const btn = $("#mysubs-fav-toggle");
+  if (btn) btn.classList.toggle("fav-on", state.mysubsFavorite);
+  renderMySubsList();
 }
 
 async function renderCombinations() {
@@ -447,17 +482,36 @@ async function renderTimeline() {
           <p class="section-eyebrow">Feed</p>
           <h3 class="section-title">最新动态</h3>
         </div>
+        <div class="toolbar" style="margin-top:12px">
+          <button id="timeline-fav-toggle" class="fav-toggle ${state.timelineFavorite ? "fav-on" : ""}" onclick="toggleTimelineFav()">${STAR_SVG} 特别关注</button>
+        </div>
       </header>
       <div id="feed"></div>
     </section>`;
   try {
     const posts = await api("/api/my/feed?limit=100");
-    $("#feed").innerHTML = posts.length
-      ? posts.map(postCard).join("")
-      : emptyState("还没有订阅任何大V", `<div><button class="btn-normal btn-add" onclick="location.hash='#/home'">去订阅</button></div>`);
+    state.timelinePosts = posts;
+    renderTimelineFeed();
   } catch (err) {
     $("#feed").innerHTML = emptyState(err.message);
   }
+}
+
+function renderTimelineFeed() {
+  const posts = state.timelinePosts || [];
+  const shown = state.timelineFavorite ? posts.filter((p) => p.favorite) : posts;
+  $("#feed").innerHTML = shown.length
+    ? shown.map(postCard).join("")
+    : emptyState(state.timelineFavorite
+        ? "还没有特别关注大V的动态"
+        : "还没有订阅任何大V", `<div><button class="btn-normal btn-add" onclick="location.hash='#/home'">去订阅</button></div>`);
+}
+
+function toggleTimelineFav() {
+  state.timelineFavorite = !state.timelineFavorite;
+  const btn = $("#timeline-fav-toggle");
+  if (btn) btn.classList.toggle("fav-on", state.timelineFavorite);
+  renderTimelineFeed();
 }
 
 function postCard(post) {
@@ -750,7 +804,7 @@ async function renderSettings() {
           <div>
             <p class="section-eyebrow">DND</p>
             <h3 class="section-title">免打扰时段</h3>
-            <p class="section-meta">时段内不推送新帖（支持跨午夜），结束后一次性补一条汇总；系统告警不受影响。</p>
+            <p class="section-meta">时段内不推送新帖（支持跨午夜），结束后一次性补一条汇总；系统告警不受影响。特别关注可设为穿透免打扰。</p>
           </div>
         </header>
         <div class="row" style="gap:12px;align-items:flex-end;flex-wrap:wrap">
@@ -762,6 +816,9 @@ async function renderSettings() {
           </label>
           <label style="display:inline-flex;align-items:center;gap:8px;font-size:var(--text-sm);color:var(--color-text-strong);height:36px">
             <input id="dnd-enabled" type="checkbox" ${state.user.dnd_start ? "checked" : ""}> 开启免打扰
+          </label>
+          <label style="display:inline-flex;align-items:center;gap:8px;font-size:var(--text-sm);color:var(--color-text-strong);height:36px">
+            <input id="dnd-fav" type="checkbox" ${state.user.dnd_allow_favorite ? "checked" : ""}> 特别关注可穿透免打扰
           </label>
           <button class="btn-normal" onclick="saveDnd()">保存</button>
           <span id="dnd-result" class="muted"></span>
@@ -973,6 +1030,7 @@ async function saveDnd() {
   const enabled = $("#dnd-enabled").checked;
   const start = $("#dnd-start").value;
   const end = $("#dnd-end").value;
+  const allowFav = $("#dnd-fav").checked;
   if (enabled && (!start || !end || start === end)) {
     alert("请设置不同的开始与结束时间");
     return;
@@ -980,10 +1038,15 @@ async function saveDnd() {
   try {
     await api("/api/me", {
       method: "PUT",
-      body: JSON.stringify({ dnd_start: enabled ? start : "", dnd_end: enabled ? end : "" }),
+      body: JSON.stringify({
+        dnd_start: enabled ? start : "",
+        dnd_end: enabled ? end : "",
+        dnd_allow_favorite: allowFav,
+      }),
     });
     state.user.dnd_start = enabled ? start : "";
     state.user.dnd_end = enabled ? end : "";
+    state.user.dnd_allow_favorite = allowFav;
     $("#dnd-result").textContent = "已保存 ✅ 时段内新帖会汇总到结束后一次推送";
   } catch (err) {
     alert("保存失败: " + err.message);
