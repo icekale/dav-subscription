@@ -714,6 +714,12 @@ async function refreshSettingsStatus() {
       return;
     }
     el.innerHTML = channelStatusHtml(user);
+    // 状态轮询会重绘卡片，把未过期的绑定码重新显示，避免刚生成的码被刷掉
+    if (pendingBind && Date.now() < pendingBind.expiresAt) {
+      renderBindResult(pendingBind.channel, pendingBind.code);
+    } else if (pendingBind) {
+      pendingBind = null;
+    }
     if (user.telegram_chat_id && user.feishu_open_id && user.feishu_chat_id && user.wecom_webhook) stopSettingsPoll();
   } catch {
     /* 轮询失败忽略 */
@@ -941,24 +947,35 @@ async function saveDailyReport() {
   }
 }
 
+let pendingBind = null; // { channel, code, expiresAt }——轮询重绘后恢复显示
+
+function renderBindResult(channel, code) {
+  const el = channel === "telegram" ? $("#bind-result-telegram") : $("#bind-result-feishu");
+  if (!el) return;
+  const guide = state.user.push_guide || {};
+  if (channel === "telegram" && guide.telegram_bot_username) {
+    const link = `https://t.me/${encodeURIComponent(guide.telegram_bot_username)}?start=bind_${code}`;
+    el.innerHTML = `
+      <p style="margin:10px 0 6px">点击下方按钮，Telegram 会自动打开机器人并完成绑定：</p>
+      <a class="btn-normal" href="${link}" target="_blank" rel="noopener">一键绑定 Telegram</a>
+      <p class="muted" style="margin-top:8px">按钮没反应？复制 <b>${escapeHtml(code)}</b> 粘贴给机器人也可以。</p>`;
+  } else {
+    const label = channel === "telegram" ? "Telegram" : "飞书";
+    el.innerHTML = `
+      <p style="margin:10px 0 6px">复制绑定码，粘贴发送给${label}机器人（自动识别，无需命令）：</p>
+      <b style="font-size:20px;letter-spacing:3px">${escapeHtml(code)}</b>`;
+  }
+}
+
 async function bindChannel(channel) {
   try {
     const data = await api("/api/me/bind-code", { method: "POST" });
-    const code = data.code;
-    const guide = state.user.push_guide || {};
-    const el = channel === "telegram" ? $("#bind-result-telegram") : $("#bind-result-feishu");
-    if (channel === "telegram" && guide.telegram_bot_username) {
-      const link = `https://t.me/${encodeURIComponent(guide.telegram_bot_username)}?start=bind_${code}`;
-      el.innerHTML = `
-        <p style="margin:10px 0 6px">点击下方按钮，Telegram 会自动打开机器人并完成绑定：</p>
-        <a class="btn-normal" href="${link}" target="_blank" rel="noopener">一键绑定 Telegram</a>
-        <p class="muted" style="margin-top:8px">按钮没反应？复制 <b>${escapeHtml(code)}</b> 粘贴给机器人也可以。</p>`;
-    } else {
-      const label = channel === "telegram" ? "Telegram" : "飞书";
-      el.innerHTML = `
-        <p style="margin:10px 0 6px">复制绑定码，粘贴发送给${label}机器人（自动识别，无需命令）：</p>
-        <b style="font-size:20px;letter-spacing:3px">${escapeHtml(code)}</b>`;
-    }
+    pendingBind = {
+      channel,
+      code: data.code,
+      expiresAt: Date.now() + (data.expires_in_seconds || 600) * 1000,
+    };
+    renderBindResult(channel, data.code);
   } catch (err) {
     alert("生成绑定码失败: " + err.message);
   }
