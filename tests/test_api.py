@@ -688,7 +688,9 @@ def test_weibo_qr_login(monkeypatch):
     assert client.app.state.db.get_setting("weibo_cookie") == "SUB=s1; SUBP=p1"
 
 
-def test_batch_import_kols():
+def test_batch_import_kols(monkeypatch):
+    # 昵称已填的行也会补查头像，测试里避免真实网络请求
+    monkeypatch.setattr("app.api.resolve_profile", lambda uid, cookie="": {})
     client = make_client()
     headers = auth_headers(client)
     resp = client.post(
@@ -808,7 +810,9 @@ def test_xueqiu_cookie_write_and_batch_rss_url():
     assert any(k["external_id"] == "https://rsshub.app/twitter/user/elonmusk" for k in kols)
 
 
-def test_kol_request_flow():
+def test_kol_request_flow(monkeypatch):
+    # 审批时会自动解析昵称/头像，测试里避免真实网络请求
+    monkeypatch.setattr("app.api.resolve_profile", lambda uid, cookie="": {})
     client = make_client()
     admin_headers = auth_headers(client)
     u1 = register(client, "user1", "pass123456")
@@ -1417,3 +1421,71 @@ def test_old_db_migrates_wecom_column():
 def test_healthz():
     client = make_client("api3.db")
     assert client.get("/healthz").json() == {"status": "ok"}
+
+
+def test_update_kol_duplicate_external_id_rejected():
+    client = make_client()
+    headers = auth_headers(client)
+    db = client.app.state.db
+    kid = db.add_kol("xueqiu", "A", "111")
+    db.add_kol("xueqiu", "B", "222")
+    resp = client.put(
+        f"/api/kols/{kid}",
+        headers=headers,
+        json={"external_id": "222"},
+    )
+    assert resp.status_code == 400 and "相同的外部ID" in resp.json()["detail"]
+    # 改成不冲突的 ID 允许
+    resp = client.put(
+        f"/api/kols/{kid}",
+        headers=headers,
+        json={"external_id": "333"},
+    )
+    assert resp.status_code == 200
+
+
+def test_approve_request_auto_resolves_name_and_avatar(monkeypatch):
+    client = make_client()
+    admin_headers = auth_headers(client)
+    u1 = register(client, "user1", "pass123456")
+    u_headers = {"Authorization": f"Bearer {u1.json()['token']}"}
+    client.post(
+        "/api/kol-requests",
+        headers=u_headers,
+        json={"platform": "xueqiu", "external_id": "https://xueqiu.com/u/55555"},
+    )
+    monkeypatch.setattr(
+        "app.api.resolve_profile",
+        lambda uid, cookie="": {"screen_name": "自动昵称", "avatar_url": ""},
+    )
+    req_id = client.get("/api/admin/kol-requests?status=pending", headers=admin_headers).json()[0]["id"]
+    approved = client.post(f"/api/admin/kol-requests/{req_id}/approve", headers=admin_headers)
+    assert approved.status_code == 200
+    assert approved.json()["name"] == "自动昵称"
+    assert approved.json()["external_id"] == "55555"
+
+
+def test_batch_import_xueqiu_fetches_avatar_even_with_nickname(monkeypatch):
+    client = make_client()
+    headers = auth_headers(client)
+    monkeypatch.setattr(
+        "app.api.resolve_profile",
+        lambda uid, cookie="": {
+            "screen_name": "自动昵称",
+            "avatar_url": "https://xueqiu.com/avatar.png",
+        },
+    )
+    monkeypatch.setattr(
+        "app.api.cache_avatar",
+        lambda db, kid, url: url,
+    )
+    resp = client.post(
+        "/api/kols/batch",
+        headers=headers,
+        json={"platform": "xueqiu", "lines": "段永平 https://xueqiu.com/u/12345"},
+    )
+    assert resp.status_code == 200 and resp.json()["ok"] == 1
+    kols = client.get("/api/kols", headers=headers).json()
+    target = next(k for k in kols if k["platform"] == "xueqiu")
+    assert target["name"] == "段永平"
+    assert target["avatar_url"] == "https://xueqiu.com/avatar.png"

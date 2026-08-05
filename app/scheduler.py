@@ -211,7 +211,8 @@ class PushRetryQueue:
         self._lock = threading.Lock()
 
     def add(self, post: Post, channel: str, user_id: int | None = None) -> None:
-        key = (channel, user_id, post.external_id)
+        # external_id 在不同平台可能相同（如数字 UID），key 必须带上平台避免互相覆盖
+        key = (channel, user_id, post.platform, post.external_id)
         with self._lock:
             if key not in self._items:
                 self._items[key] = {
@@ -1268,7 +1269,7 @@ class Scheduler:
                         self._digest,
                         self.notifiers,
                         self.notifiers_config,
-                        None,
+                        self.retry_queue,
                         self._dnd_buffer,
                     )
                 except Exception:  # noqa: BLE001

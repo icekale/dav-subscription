@@ -652,6 +652,20 @@ def test_push_retry_queue_enqueued_on_failure_and_backoff_drops(monkeypatch):
     assert q.due() == []
 
 
+def test_retry_queue_keys_include_platform():
+    """不同平台相同 external_id 的帖子不能互相覆盖重试任务。"""
+    q = PushRetryQueue()
+    p1 = make_post(1)
+    p1.platform = "xueqiu"
+    p1.external_id = "123"
+    p2 = make_post(1)
+    p2.platform = "weibo"
+    p2.external_id = "123"
+    q.add(p1, "telegram", 1)
+    q.add(p2, "telegram", 1)
+    assert q.pending() == 2
+
+
 def test_poll_once_fetches_never_fetched_kol_with_small_monotonic(monkeypatch):
     """容器启动早期 monotonic 可能小于轮询间隔，首轮不应被误跳过（CI 回归）。"""
     db = make_db()

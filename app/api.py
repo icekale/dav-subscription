@@ -715,9 +715,39 @@ def create_api_router(
         req = db.get_kol_request(request_id)
         if req is None or req["status"] != "pending":
             raise HTTPException(status_code=404, detail="申请不存在或已处理")
-        name = req["name"] or f"{req['platform']}_{req['external_id']}"
+        name = (req["name"] or "").strip()
+        avatar_url = ""
+        # 申请通常只填了主页链接，审批时自动补昵称与头像，避免上架占位名
+        if req["platform"] == "xueqiu":
+            profile = resolve_profile(
+                req["external_id"],
+                db.get_setting(XUEQIU_COOKIE_KEY) or os.environ.get("XUEQIU_COOKIE", ""),
+            )
+            name = name or profile.get("screen_name") or ""
+            avatar_url = profile.get("avatar_url") or ""
+        elif req["platform"] == "combination":
+            profile = resolve_combination_profile(
+                req["external_id"],
+                db.get_setting(XUEQIU_COOKIE_KEY) or os.environ.get("XUEQIU_COOKIE", ""),
+            )
+            name = name or profile.get("name") or ""
+            avatar_url = profile.get("avatar_url") or ""
+        elif req["platform"] == "weibo":
+            profile = resolve_weibo_profile(
+                req["external_id"],
+                db.get_setting(WEIBO_COOKIE_KEY) or os.environ.get("WEIBO_COOKIE", ""),
+            )
+            name = name or profile.get("name") or ""
+            avatar_url = profile.get("avatar_url") or ""
+        elif req["platform"] == "twitter":
+            profile = resolve_x_profile(req["external_id"])
+            name = name or profile.get("name") or ""
+            avatar_url = profile.get("avatar_url") or ""
+        name = name or f"{req['platform']}_{req['external_id']}"
         try:
             kid = db.add_kol(req["platform"], name, req["external_id"])
+            if avatar_url:
+                db.update_kol_avatar(kid, cache_avatar(db, kid, avatar_url))
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from None
         db.set_kol_request_status(request_id, "approved")
@@ -989,17 +1019,22 @@ def create_api_router(
                 if profile.get("screen_name"):
                     name = profile["screen_name"]
                 avatar_url = profile.get("avatar_url") or ""
-            elif not nickname and body.platform == "combination":
-                # 没填昵称时自动查组合名称与主理人头像
+            elif body.platform == "xueqiu" and external_id.isdigit():
+                # 已填昵称也补头像（与微博批量行为一致）
+                cookie = db.get_setting(XUEQIU_COOKIE_KEY) or os.environ.get("XUEQIU_COOKIE", "")
+                profile = resolve_profile(external_id, cookie)
+                avatar_url = profile.get("avatar_url") or ""
+            elif body.platform == "combination":
+                # 自动查组合名称（没填昵称时）与主理人头像
                 cookie = db.get_setting(XUEQIU_COOKIE_KEY) or os.environ.get("XUEQIU_COOKIE", "")
                 profile = resolve_combination_profile(external_id, cookie)
-                if profile.get("name"):
+                if not nickname and profile.get("name"):
                     name = profile["name"]
                 avatar_url = profile.get("avatar_url") or ""
-            elif not nickname and body.platform == "twitter":
-                # 没填昵称时自动查 X 显示名与头像（需 TWITTER_COOKIE）
+            elif body.platform == "twitter":
+                # 自动查 X 显示名（没填昵称时）与头像（需 TWITTER_COOKIE）
                 profile = resolve_x_profile(external_id)
-                if profile.get("name"):
+                if not nickname and profile.get("name"):
                     name = profile["name"]
                 avatar_url = profile.get("avatar_url") or ""
             elif body.platform == "weibo":
@@ -1046,6 +1081,10 @@ def create_api_router(
         kol = db.get_kol(kol_id)
         if external_id is not None and kol["platform"] == "weibo":
             external_id = _normalize_weibo_id(external_id)
+        if external_id is not None:
+            dup = db.get_kol_by_external(kol["platform"], external_id)
+            if dup is not None and dup["id"] != kol_id:
+                raise HTTPException(status_code=400, detail="该平台已存在相同的外部ID")
         db.update_kol(
             kol_id,
             name=name,

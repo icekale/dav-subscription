@@ -140,6 +140,36 @@ def test_xueqiu_cookie_refresh_on_401():
     assert "xq_a_token=newtoken" in db.get_setting("xueqiu_cookie")
 
 
+def test_xueqiu_cookie_refresh_merges_old_tokens():
+    """续期只回发部分 token 时，旧会话的其他字段（u/device_id 等）不能被丢掉。"""
+    fixture = json.loads((FIXTURES / "xueqiu_sample.json").read_text(encoding="utf-8"))
+    timeline_hits = {"n": 0}
+
+    def handler(request):
+        if request.url.path == "/":
+            return httpx.Response(
+                200,
+                headers={"set-cookie": "xq_a_token=newtoken; Path=/; Domain=.xueqiu.com"},
+            )
+        timeline_hits["n"] += 1
+        if timeline_hits["n"] == 1:
+            return httpx.Response(401)
+        assert "device_id=d1" in request.headers.get("Cookie", "")
+        return httpx.Response(200, json=fixture)
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    db = DB(":memory:")
+    fetcher = XueqiuFetcher(
+        XueqiuConfig(cookie="xq_a_token=old; u=2964068165; device_id=d1"),
+        db=db,
+        client=client,
+    )
+    fetcher.fetch({"id": 1, "name": "大V", "external_id": "123"})
+    saved = db.get_setting("xueqiu_cookie")
+    assert "xq_a_token=newtoken" in saved
+    assert "u=2964068165" in saved and "device_id=d1" in saved
+
+
 def test_extract_cube_symbol():
     assert extract_cube_symbol("https://xueqiu.com/P/ZH3623878") == "ZH3623878"
     assert extract_cube_symbol("ZH3623878") == "ZH3623878"

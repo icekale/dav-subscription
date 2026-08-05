@@ -312,6 +312,14 @@ class DB:
         sql += " ORDER BY k.id"
         return self._rows(sql, params)
 
+    def get_kol_by_external(self, platform: str, external_id: str) -> dict | None:
+        """按平台 + 外部ID 查大V（更新 external_id 时的唯一性校验用）。"""
+        rows = self._rows(
+            "SELECT * FROM kols WHERE platform = ? AND external_id = ?",
+            (platform, external_id),
+        )
+        return rows[0] if rows else None
+
     def recommended_kols(self, user_id: int, limit: int = 4) -> list[dict]:
         """新用户引导推荐：启用且公开的大V，按订阅人数倒序。"""
         return self._rows(

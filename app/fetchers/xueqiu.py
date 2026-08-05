@@ -35,6 +35,23 @@ def _is_waf_html(resp: httpx.Response) -> bool:
     )
 
 
+def merge_cookie_strings(old: str, cookies) -> str:
+    """把旧 Cookie 与本次会话新下发的 cookie 合并（同名以新值为准）。
+
+    雪球首页刷新只会回发部分 token（如 xq_a_token），直接覆盖会丢掉
+    u / device_id / xqat 等其他会话字段，合并可完整保留登录态。
+    """
+    items: dict[str, str] = {}
+    for part in (old or "").split(";"):
+        if "=" in part:
+            key, value = part.strip().split("=", 1)
+            items[key] = value
+    jar = getattr(cookies, "jar", cookies)
+    for cookie in jar:
+        items[cookie.name] = cookie.value
+    return "; ".join(f"{k}={v}" for k, v in items.items())
+
+
 def _avatar_url(user: dict) -> str:
     """从雪球 user 对象拼头像地址（photo_domain + profile_image_url 180x180 变体）。"""
     photo_domain = user.get("photo_domain") or ""
@@ -148,7 +165,8 @@ class XueqiuFetcher(Fetcher):
             )
         if not self.client.cookies.get("xq_a_token"):
             raise RuntimeError("雪球首页未返回 xq_a_token，cookie 续期失败")
-        cookie = "; ".join(f"{k}={v}" for k, v in self.client.cookies.items())
+        old = self.client.headers.get("Cookie") or ""
+        cookie = merge_cookie_strings(old, self.client.cookies)
         self.db.set_setting(XUEQIU_COOKIE_KEY, cookie)
         self.db.set_setting(XUEQIU_COOKIE_TIME_KEY, str(int(time.time())))
 

@@ -7,7 +7,12 @@ import time
 import httpx
 
 from .base import Fetcher, Post, format_published_at
-from .xueqiu import XUEQIU_COOKIE_KEY, XUEQIU_COOKIE_TIME_KEY, _is_waf_html
+from .xueqiu import (
+    XUEQIU_COOKIE_KEY,
+    XUEQIU_COOKIE_TIME_KEY,
+    _is_waf_html,
+    merge_cookie_strings,
+)
 
 REBALANCING_URL = "https://xueqiu.com/cubes/rebalancing/history.json"
 CUBE_SEARCH_URL = "https://xueqiu.com/query/v1/cube/search.json"
@@ -99,7 +104,8 @@ class CombinationFetcher(Fetcher):
         resp.raise_for_status()
         if _is_waf_html(resp):
             raise RuntimeError("雪球 cookie 续期被反爬拦截，请到后台更新雪球 cookie")
-        cookie = "; ".join(f"{k}={v}" for k, v in self.client.cookies.items())
+        old = self.client.headers.get("Cookie") or ""
+        cookie = merge_cookie_strings(old, self.client.cookies)
         if cookie:
             self.db.set_setting(XUEQIU_COOKIE_KEY, cookie)
             self.db.set_setting(XUEQIU_COOKIE_TIME_KEY, str(int(time.time())))
