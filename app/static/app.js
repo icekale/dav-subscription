@@ -539,7 +539,12 @@ function postCard(post) {
       <div class="p-header">
         ${avatarHtml(post.kol_name, post.avatar_url)}
         <div>
-          <div class="p-name">${escapeHtml(post.kol_name)}</div>
+          <div class="p-name-line">
+            <span class="p-name">${escapeHtml(post.kol_name)}</span>
+            <span class="p-platform" data-platform="${escapeHtml(post.platform)}" title="${escapeHtml(PLATFORM_LABELS[post.platform] || post.platform)}">
+              ${PLATFORM_ICONS[post.platform] || ""}
+            </span>
+          </div>
           <div class="p-time">${escapeHtml(post.published_at)}</div>
         </div>
       </div>
@@ -552,9 +557,6 @@ function postCard(post) {
         </div>` : ""}
       <div class="p-meta">
         ${post.category_name ? `<span class="cat">${escapeHtml(post.category_name)}</span>` : ""}
-        <span class="p-platform" data-platform="${escapeHtml(post.platform)}" title="${escapeHtml(PLATFORM_LABELS[post.platform] || post.platform)}">
-          ${PLATFORM_ICONS[post.platform] || ""}
-        </span>
         ${post.post_type === "reply" ? `<span class="cat">回复</span>` : ""}
         <a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener">查看原文 →</a>
       </div>
