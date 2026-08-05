@@ -22,7 +22,8 @@ services:
       - WEIBO_TOKEN=${WEIBO_TOKEN}
       - WEIBO_USERNAME=${WEIBO_USERNAME}
       - WEIBO_PASSWORD=${WEIBO_PASSWORD}
-      - RSSHUB_BASE=${RSSHUB_BASE:-https://rsshub.app}
+      # X 备用通道：指向同 compose 内的自建 RSSHub（不对外暴露）
+      - RSSHUB_BASE=${RSSHUB_BASE:-http://rsshub:1200}
       - XAI_API_KEY=${XAI_API_KEY}
       - XAI_MODEL=${XAI_MODEL:-grok-2-latest}
       # X 登录 Cookie（完整串）：主通道直抓 X 官方接口 + 官方翻译，免 API key
@@ -59,6 +60,19 @@ services:
       - caddy_config:/config
     depends_on:
       - dav-subscription
+    networks: [dav]
+
+  # X 直抓失败时的备用通道
+  rsshub:
+    image: diygod/rsshub:latest
+    container_name: dav-rsshub
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      # X 用户时间线路由稳定抓取需要登录 cookie，与主服务共用同一个
+      - TWITTER_COOKIE=${TWITTER_COOKIE}
+      # 新版 RSSHub 的 X 路由要求 auth_token（登录态 cookie 中的 auth_token= 值）
+      - TWITTER_AUTH_TOKEN=${TWITTER_AUTH_TOKEN}
     networks: [dav]
 
 volumes:

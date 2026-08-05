@@ -6,10 +6,10 @@ services:
       args:
         PIP_INDEX_URL: https://pypi.tuna.tsinghua.edu.cn/simple
     container_name: dav-subscription
-    network_mode: bridge
     ports:
       # 宿主机 8000 常被其他服务占用，Unraid 部署用 18084 对外
       - "18084:8000"
+    networks: [dav-net]
     environment:
       TZ: Asia/Shanghai
       CONFIG_PATH: /app/config.yaml
@@ -31,7 +31,8 @@ services:
       WEIBO_TOKEN: "${WEIBO_TOKEN}"
       WEIBO_USERNAME: "${WEIBO_USERNAME}"
       WEIBO_PASSWORD: "${WEIBO_PASSWORD}"
-      RSSHUB_BASE: "${RSSHUB_BASE:-https://rsshub.app}"
+      # X 备用通道：指向同 compose 内的自建 RSSHub（不对外暴露）
+      RSSHUB_BASE: "${RSSHUB_BASE:-http://rsshub:1200}"
       XAI_API_KEY: "${XAI_API_KEY}"
       XAI_MODEL: "${XAI_MODEL:-grok-2-latest}"
       # X 登录 Cookie（完整串）：主通道直抓 X 官方接口 + 官方翻译，免 API key
@@ -52,3 +53,20 @@ services:
       # 如需用配置文件（轮询间隔等），把 config.yaml 放到 appdata 目录再启用：
       # - /mnt/user/appdata/dav-subscription/config.yaml:/app/config.yaml:ro
     restart: unless-stopped
+
+  # X 直抓失败时的备用通道（RSSHub 公共实例对数据中心 IP 有 Cloudflare 风控，自建更可靠）
+  rsshub:
+    image: diygod/rsshub:latest
+    container_name: dav-rsshub
+    restart: unless-stopped
+    networks: [dav-net]
+    environment:
+      - NODE_ENV=production
+      # X 用户时间线路由稳定抓取需要登录 cookie，与主服务共用同一个
+      - TWITTER_COOKIE=${TWITTER_COOKIE}
+      # 新版 RSSHub 的 X 路由要求 auth_token（登录态 cookie 中的 auth_token= 值）
+      - TWITTER_AUTH_TOKEN=${TWITTER_AUTH_TOKEN}
+
+networks:
+  dav-net:
+    driver: bridge

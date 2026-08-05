@@ -157,7 +157,7 @@ docker compose up -d --build
 ## 数据源配置
 
 - **雪球**：后台「数据源」页可直接粘贴 Cookie；配置 `WEIBO_USERNAME/PASSWORD` 可自动登录续期微博 Cookie，微博也支持网页扫码登录
-- **X**：配置 `TWITTER_COOKIE` 后直抓 X 官方接口并把内容翻译成中文；直抓失败会自动降级 RSSHub 备用通道
+- **X**：配置 `TWITTER_COOKIE` 后直抓 X 官方接口并把内容翻译成中文；直抓失败会自动降级 RSSHub 备用通道（compose 已内置自建 RSSHub 服务，默认指向 `http://rsshub:1200`，不再依赖被 Cloudflare 风控的公共实例）
 - **抓取频率**：后台「数据源」页可实时调整轮询间隔、优先大V间隔、合并推送周期等，即时生效
 
 ## 微信小程序（可选）
