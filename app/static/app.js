@@ -748,6 +748,28 @@ async function renderSettings() {
       <section class="section-panel">
         <header class="section-head">
           <div>
+            <p class="section-eyebrow">DND</p>
+            <h3 class="section-title">免打扰时段</h3>
+            <p class="section-meta">时段内不推送新帖（支持跨午夜），结束后一次性补一条汇总；系统告警不受影响。</p>
+          </div>
+        </header>
+        <div class="row" style="gap:12px;align-items:flex-end;flex-wrap:wrap">
+          <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)">开始时间
+            <input id="dnd-start" type="time" class="form-control" style="margin:0" value="${escapeHtml(state.user.dnd_start || "23:00")}">
+          </label>
+          <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)">结束时间
+            <input id="dnd-end" type="time" class="form-control" style="margin:0" value="${escapeHtml(state.user.dnd_end || "07:00")}">
+          </label>
+          <label style="display:inline-flex;align-items:center;gap:8px;font-size:var(--text-sm);color:var(--color-text-strong);height:36px">
+            <input id="dnd-enabled" type="checkbox" ${state.user.dnd_start ? "checked" : ""}> 开启免打扰
+          </label>
+          <button class="btn-normal" onclick="saveDnd()">保存</button>
+          <span id="dnd-result" class="muted"></span>
+        </div>
+      </section>
+      <section class="section-panel">
+        <header class="section-head">
+          <div>
             <p class="section-eyebrow">Channels</p>
             <h3 class="section-title">推送渠道状态</h3>
             <p class="section-meta">新帖会推送到你绑定的渠道；状态每 10 秒自动刷新。</p>
@@ -859,28 +881,6 @@ async function renderSettings() {
           </select>
         </div>
         <p class="muted">开启后，每天 20:00 把你订阅大V当天的新动态汇总成一条推送。</p>
-      </section>
-      <section class="section-panel">
-        <header class="section-head">
-          <div>
-            <p class="section-eyebrow">DND</p>
-            <h3 class="section-title">免打扰时段</h3>
-            <p class="section-meta">时段内不推送新帖（支持跨午夜），结束后一次性补一条汇总；系统告警不受影响。</p>
-          </div>
-        </header>
-        <div class="row" style="gap:12px;align-items:flex-end;flex-wrap:wrap">
-          <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)">开始时间
-            <input id="dnd-start" type="time" class="form-control" style="margin:0" value="${escapeHtml(state.user.dnd_start || "23:00")}">
-          </label>
-          <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)">结束时间
-            <input id="dnd-end" type="time" class="form-control" style="margin:0" value="${escapeHtml(state.user.dnd_end || "07:00")}">
-          </label>
-          <label style="display:inline-flex;align-items:center;gap:8px;font-size:var(--text-sm);color:var(--color-text-strong);height:36px">
-            <input id="dnd-enabled" type="checkbox" ${state.user.dnd_start ? "checked" : ""}> 开启免打扰
-          </label>
-          <button class="btn-normal" onclick="saveDnd()">保存</button>
-          <span id="dnd-result" class="muted"></span>
-        </div>
       </section>
       <section class="section-panel">
         <header class="section-head">
