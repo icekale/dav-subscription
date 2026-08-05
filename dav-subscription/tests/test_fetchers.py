@@ -189,9 +189,12 @@ def test_combination_fetch_parses_rebalancing():
     assert p.url == "https://xueqiu.com/P/ZH3623878"
     assert "年化 27.1%" in p.content and "净值 1.847" in p.content
     assert "🗑 永杉锂业 清仓 21.1%" in p.content
-    assert "贵州茅台 0.0% ➕ 5.2%" in p.content
+    assert "➕ 贵州茅台 0.0% → 5.2%" in p.content
     assert "现金 80.0%" in p.content
     assert p.title == "伯言-A股 调仓"
+    assert p.detail["actions"][0]["type"] == "清仓"
+    assert p.detail["actions"][1]["type"] == "增持"
+    assert p.detail["cash"] == "80.0%"
 
 
 def test_xueqiu_refresh_waf_html_raises_clear_error():

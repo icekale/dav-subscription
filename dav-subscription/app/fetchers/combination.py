@@ -105,20 +105,20 @@ class CombinationFetcher(Fetcher):
             self.db.set_setting(XUEQIU_COOKIE_TIME_KEY, str(int(time.time())))
 
     def fetch(self, kol: dict) -> list[Post]:
-        symbol = extract_cube_symbol(kol["external_id"])
-        if not symbol:
+        cube_symbol = extract_cube_symbol(kol["external_id"])
+        if not cube_symbol:
             raise RuntimeError(f"无效的组合编码: {kol['external_id']}")
         self._apply_cookie()
         resp = self.client.get(
             REBALANCING_URL,
-            params={"cube_symbol": symbol, "page": 1, "count": 20},
+            params={"cube_symbol": cube_symbol, "page": 1, "count": 20},
         )
         if resp.status_code in (401, 403):
             self._refresh_cookie()
             self._apply_cookie()
             resp = self.client.get(
                 REBALANCING_URL,
-                params={"cube_symbol": symbol, "page": 1, "count": 20},
+                params={"cube_symbol": cube_symbol, "page": 1, "count": 20},
             )
         resp.raise_for_status()
         try:
@@ -127,7 +127,7 @@ class CombinationFetcher(Fetcher):
             raise RuntimeError("雪球组合接口返回异常（可能被反爬拦截）") from None
         name = kol["name"]
         posts = []
-        profile = resolve_combination_profile(symbol, client=self.client)
+        profile = resolve_combination_profile(cube_symbol, client=self.client)
         stats_line = ""
         parts = []
         if profile.get("annualized_gain"):
@@ -141,21 +141,39 @@ class CombinationFetcher(Fetcher):
             if item.get("status") != "success" or not histories:
                 continue
             lines = []
+            actions = []
             for h in histories:
                 prev_w = h.get("prev_weight")
                 target_w = h.get("target_weight")
                 prev_ok = isinstance(prev_w, (int, float))
                 target_ok = isinstance(target_w, (int, float))
                 stock = h.get("stock_name") or ""
+                stock_symbol = h.get("stock_symbol") or ""
+                action = ""
+                prev_s = f"{prev_w:.1f}%" if prev_ok else ""
+                target_s = f"{target_w:.1f}%" if target_ok else ""
                 if not prev_ok and target_ok:
-                    lines.append(f"🆕 {stock} 新建 {target_w:.1f}%")
+                    action = "新建"
+                    lines.append(f"🆕 {stock} 新建 {target_s}")
                 elif prev_ok and (not target_ok or target_w <= 0):
-                    lines.append(f"🗑 {stock} 清仓 {prev_w:.1f}%")
+                    action = "清仓"
+                    lines.append(f"🗑 {stock} 清仓 {prev_s}")
                 elif prev_ok and target_ok:
-                    action = "➕" if target_w > prev_w else "➖"
-                    lines.append(f"{stock} {prev_w:.1f}% {action} {target_w:.1f}%")
+                    action = "增持" if target_w > prev_w else "减持"
+                    icon = "➕" if target_w > prev_w else "➖"
+                    lines.append(f"{icon} {stock} {prev_s} → {target_s}")
+                actions.append(
+                    {
+                        "type": action,
+                        "stock": stock,
+                        "symbol": stock_symbol,
+                        "prev": prev_s or "0.0%",
+                        "target": target_s or "0.0%",
+                    }
+                )
             cash = item.get("cash")
-            cash_line = f"现金 {cash:.1f}%" if isinstance(cash, (int, float)) else ""
+            cash_pct = f"{cash:.1f}%" if isinstance(cash, (int, float)) else ""
+            cash_line = f"现金 {cash_pct}" if cash_pct else ""
             content = "\n".join(lines)
             if cash_line:
                 content = f"{content}\n{cash_line}" if content else cash_line
@@ -169,9 +187,21 @@ class CombinationFetcher(Fetcher):
                     external_id=str(item.get("id") or ""),
                     title=f"{name} 调仓",
                     content=content,
-                    url=f"https://xueqiu.com/P/{symbol}",
+                    url=f"https://xueqiu.com/P/{cube_symbol}",
                     published_at=format_published_at(str(item.get("updated_at") or "")),
                     post_type="",
+                    detail={
+                        "stats": [
+                            (k, v)
+                            for k, v in (
+                                ("年化", f"{profile['annualized_gain']:.1f}%" if profile.get("annualized_gain") else ""),
+                                ("净值", f"{profile['net_value']:.3f}" if profile.get("net_value") else ""),
+                            )
+                            if v
+                        ],
+                        "actions": actions,
+                        "cash": cash_pct,
+                    },
                 )
             )
         return posts

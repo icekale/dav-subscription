@@ -33,6 +33,35 @@ def build_telegram_text(post: Post) -> str:
     return "\n".join(lines)
 
 
+def build_combination_text(post: Post) -> str:
+    """组合调仓专用排版：收益统计 + 分组调仓明细，信息分层、留白更清晰。"""
+    detail = post.detail or {}
+    stats = detail.get("stats") or []
+    actions = detail.get("actions") or []
+    cash = detail.get("cash") or ""
+    lines = [f"<b>📌 {escape(post.kol_name)} · 雪球组合 · 调仓</b>", ""]
+    if stats:
+        lines.append("　".join(f"<b>{escape(k)}</b> {escape(v)}" for k, v in stats))
+        lines.append("")
+    for a in actions:
+        a_type = a.get("type") or "调整"
+        icon = {"清仓": "🗑", "新建": "🆕", "增持": "➕", "减持": "➖"}.get(a_type, "•")
+        head = f"{icon} <b>{escape(a_type)}</b>　{escape(a.get('stock') or '')}"
+        symbol = a.get("symbol") or ""
+        if symbol:
+            head += f"（{escape(symbol)}）"
+        lines.append(head)
+        lines.append(f"　　{escape(a.get('prev') or '0.0%')} → {escape(a.get('target') or '0.0%')}")
+        lines.append("")
+    if cash:
+        lines.append(f"💵 现金 <b>{escape(cash)}</b>")
+    if post.published_at:
+        lines.append(f"🕐 {escape(post.published_at)}")
+    if post.url:
+        lines.append(f'🔗 <a href="{escape(post.url)}">查看原文</a>')
+    return "\n".join(lines).rstrip()
+
+
 def build_telegram_digest(posts: list[Post], kol_name: str, platform: str) -> str:
     """合并摘要：同一大V多条新动态合并成一条消息。"""
     platform_label = PLATFORM_LABELS.get(platform, platform)
@@ -102,9 +131,14 @@ class TelegramNotifier(Notifier):
         keyboard = [[{"text": "🔗 查看原文", "url": post.url}]]
         if self.unsub_kol_id is not None:
             keyboard.append([{"text": "退订", "callback_data": f"unsub:{self.unsub_kol_id}"}])
+        text = (
+            build_combination_text(post)
+            if post.platform == "combination" and post.detail
+            else build_telegram_text(post)
+        )
         self._send(
             {
-                "text": build_telegram_text(post),
+                "text": text,
                 "parse_mode": "HTML",
                 "disable_web_page_preview": True,
                 "reply_markup": json.dumps({"inline_keyboard": keyboard}, ensure_ascii=False),

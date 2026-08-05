@@ -81,6 +81,77 @@ def build_feishu_card(post: Post) -> dict:
     }
 
 
+def build_feishu_combination_card(post: Post) -> dict:
+    """组合调仓专用卡片：收益统计一行、每次操作独立卡片块，层次更清楚。"""
+    detail = post.detail or {}
+    stats = detail.get("stats") or []
+    actions = detail.get("actions") or []
+    cash = detail.get("cash") or ""
+    elements: list[dict] = []
+    if stats:
+        elements.append(
+            {
+                "tag": "div",
+                "text": {
+                    "tag": "lark_md",
+                    "content": "　".join(f"**{k}** {v}" for k, v in stats),
+                },
+            }
+        )
+        elements.append({"tag": "hr"})
+    for a in actions:
+        a_type = a.get("type") or "调整"
+        icon = {"清仓": "🗑", "新建": "🆕", "增持": "➕", "减持": "➖"}.get(a_type, "•")
+        stock = a.get("stock") or ""
+        symbol = a.get("symbol") or ""
+        stock_text = f"{stock}（{symbol}）" if symbol else stock
+        elements.append(
+            {
+                "tag": "div",
+                "text": {
+                    "tag": "lark_md",
+                    "content": (
+                        f"{icon} **{a_type}** {stock_text}\n"
+                        f"{a.get('prev') or '0.0%'} → {a.get('target') or '0.0%'}"
+                    ),
+                },
+            }
+        )
+    if cash:
+        elements.append({"tag": "div", "text": {"tag": "lark_md", "content": f"💵 现金 **{cash}**"}})
+    elements.append({"tag": "hr"})
+    elements.append(
+        {
+            "tag": "note",
+            "elements": [{"tag": "plain_text", "content": f"发布时间：{post.published_at}"}],
+        }
+    )
+    elements.append(
+        {
+            "tag": "action",
+            "actions": [
+                {
+                    "tag": "button",
+                    "text": {"tag": "plain_text", "content": "查看原文"},
+                    "type": "primary",
+                    "url": post.url,
+                }
+            ],
+        }
+    )
+    return {
+        "msg_type": "interactive",
+        "card": {
+            "config": {"wide_screen_mode": True},
+            "header": {
+                "title": {"tag": "plain_text", "content": f"📌 {post.kol_name} · 雪球组合 · 调仓"},
+                "template": "blue",
+            },
+            "elements": elements,
+        },
+    }
+
+
 def build_feishu_digest_card(posts: list[Post], kol_name: str, platform: str) -> dict:
     platform_label = PLATFORM_LABELS.get(platform, platform)
     elements = []
@@ -221,7 +292,10 @@ class FeishuNotifier(Notifier):
         self._post({"msg_type": "interactive", "card": card})
 
     def notify(self, post: Post) -> None:
-        card = build_feishu_card(post)["card"]
+        if post.platform == "combination" and post.detail:
+            card = build_feishu_combination_card(post)["card"]
+        else:
+            card = build_feishu_card(post)["card"]
         if self.unsub_kol_id is not None:
             card["elements"].append(
                 {

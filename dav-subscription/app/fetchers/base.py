@@ -18,6 +18,7 @@ class Post:
     published_at: str
     category: str = ""
     post_type: str = ""
+    detail: dict | None = None
 
 
 def strip_html(text: str) -> str:

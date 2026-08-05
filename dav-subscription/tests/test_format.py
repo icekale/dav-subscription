@@ -1,6 +1,8 @@
 from app.fetchers.base import Post
+from app.notifiers.feishu import build_feishu_combination_card
 from app.notifiers.feishu import build_feishu_card
 from app.notifiers.feishu import build_feishu_daily_card
+from app.notifiers.telegram import build_combination_text
 from app.notifiers.telegram import build_telegram_text
 from app.notifiers.telegram import build_telegram_daily
 
@@ -46,3 +48,48 @@ def test_daily_builders():
     assert "今日大V精选" in text and "张三" in text
     card = build_feishu_daily_card(posts)
     assert "今日大V精选" in card["header"]["title"]["content"]
+
+
+def make_combination_post() -> Post:
+    return Post(
+        platform="combination",
+        kol_id=2,
+        kol_name="伯言-A股",
+        external_id="1",
+        title="伯言-A股 调仓",
+        content="年化 27.1% · 净值 1.271\n🗑 永杉锂业 清仓 21.1%",
+        url="https://xueqiu.com/P/ZH3623878",
+        published_at="2026-08-04",
+        detail={
+            "stats": [("年化", "27.1%"), ("净值", "1.271")],
+            "actions": [
+                {"type": "清仓", "stock": "永杉锂业", "symbol": "SH603399", "prev": "21.1%", "target": "0.0%"},
+                {"type": "新建", "stock": "天华新能", "symbol": "SZ300390", "prev": "0.0%", "target": "20.0%"},
+            ],
+            "cash": "80.0%",
+        },
+    )
+
+
+def test_combination_text_layout():
+    text = build_combination_text(make_combination_post())
+    assert "<b>📌 伯言-A股 · 雪球组合 · 调仓</b>" in text
+    assert "<b>年化</b> 27.1%　<b>净值</b> 1.271" in text
+    assert "🗑 <b>清仓</b>　永杉锂业（SH603399）" in text
+    assert "　　21.1% → 0.0%" in text
+    assert "💵 现金 <b>80.0%</b>" in text
+    # 每个操作独立成块，避免挤在一行
+    assert text.count("→") == 2
+
+
+def test_combination_feishu_card():
+    card = build_feishu_combination_card(make_combination_post())
+    assert card["card"]["header"]["title"]["content"] == "📌 伯言-A股 · 雪球组合 · 调仓"
+    contents = [
+        e["text"]["content"]
+        for e in card["card"]["elements"]
+        if e.get("tag") == "div" and e.get("text")
+    ]
+    assert any("**年化** 27.1%" in c for c in contents)
+    assert any("🗑 **清仓** 永杉锂业（SH603399）" in c for c in contents)
+    assert any("💵 现金 **80.0%**" in c for c in contents)
