@@ -1078,11 +1078,62 @@ class Scheduler:
             logger.exception("关闭时摘要推送失败")
 
     async def _send_startup_message(self):
-        for notifier in self.notifiers:
-            try:
-                await asyncio.to_thread(notifier.send_text, "✅ 大V订阅服务已启动")
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("启动消息发送失败 channel=%s err=%s", notifier.channel, exc)
+        """启动提示只推送给管理员（走管理员各自绑定的渠道），普通用户不推送。"""
+        if self.notifiers_config is None:
+            return
+        import httpx
+
+        from .notifiers.feishu import FeishuNotifier
+        from .notifiers.telegram import TelegramNotifier
+        from .notifiers.wecom import WeComNotifier
+
+        message = "✅ 大V订阅服务已启动"
+        client = httpx.Client(timeout=15)
+        sent_any = False
+        try:
+            admins = [u for u in self.db.list_users() if u.get("is_admin")]
+            for user in admins:
+                if user["telegram_chat_id"] and (
+                    self.notifiers_config.telegram.bot_token or user.get("telegram_bot_token")
+                ):
+                    notifier = TelegramNotifier(
+                        self.notifiers_config.telegram,
+                        client=client,
+                        chat_id=user["telegram_chat_id"],
+                        bot_token=user.get("telegram_bot_token") or None,
+                    )
+                    try:
+                        await asyncio.to_thread(notifier.send_text, message)
+                        sent_any = True
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning("启动提示 TG 发送失败 user=%s err=%s", user["username"], exc)
+                if user.get("feishu_open_id") or user.get("feishu_chat_id"):
+                    notifier = FeishuNotifier(
+                        self.notifiers_config.feishu,
+                        client=client,
+                        open_id=user["feishu_open_id"] if not user.get("feishu_chat_id") else None,
+                        chat_id=user.get("feishu_chat_id") or None,
+                    )
+                    try:
+                        await asyncio.to_thread(notifier.send_text, message)
+                        sent_any = True
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning("启动提示飞书发送失败 user=%s err=%s", user["username"], exc)
+                if user.get("wecom_webhook"):
+                    notifier = WeComNotifier(
+                        self.notifiers_config.wecom,
+                        client=client,
+                        webhook_url=user["wecom_webhook"],
+                    )
+                    try:
+                        await asyncio.to_thread(notifier.send_text, message)
+                        sent_any = True
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning("启动提示企业微信发送失败 user=%s err=%s", user["username"], exc)
+        finally:
+            client.close()
+        if not sent_any:
+            logger.info("没有可接收启动提示的管理员绑定渠道")
 
     async def run(self):
         if self.polling_config.notify_on_start:

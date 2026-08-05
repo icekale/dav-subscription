@@ -790,6 +790,43 @@ def test_scheduler_stop_flushes_pending_digest(monkeypatch):
     assert scheduler._digest == {}
 
 
+def test_startup_message_only_to_admins(monkeypatch):
+    import asyncio
+
+    db = make_db()
+    db.add_user("kale", "h", telegram_chat_id="111", is_admin=True)
+    db.add_user("user", "h", telegram_chat_id="222")
+    sent = []
+
+    class FakeTG:
+        def __init__(self, config, chat_id=None, client=None, **kwargs):
+            self.client = SimpleNamespace(close=lambda: None)
+            self.chat_id = chat_id
+
+        def send_text(self, text):
+            sent.append((self.chat_id, text))
+
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FakeTG)
+    ncfg = SimpleNamespace(
+        telegram=SimpleNamespace(bot_token="t", chat_id=""),
+        feishu=SimpleNamespace(),
+        wecom=SimpleNamespace(),
+    )
+    scheduler = Scheduler(
+        db,
+        {},
+        [],
+        SimpleNamespace(),
+        notifiers_config=ncfg,
+        xueqiu_config=SimpleNamespace(cookie=""),
+        weibo_config=SimpleNamespace(cookie="", username="", password=""),
+    )
+
+    asyncio.run(scheduler._send_startup_message())
+
+    assert sent == [("111", "✅ 大V订阅服务已启动")]
+
+
 def test_daily_report_sent_to_enabled_user(monkeypatch):
     db = make_db()
     kid = db.add_kol("xueqiu", "A", "1")
