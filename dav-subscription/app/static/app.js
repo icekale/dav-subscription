@@ -560,6 +560,7 @@ function channelStatusHtml(user) {
   const tg = user.telegram_chat_id;
   const fsOpen = user.feishu_open_id;
   const fsChat = user.feishu_chat_id;
+  const wc = user.wecom_webhook;
   const fsOk = !!(fsOpen && fsChat);
   return `
     <div class="row" style="gap:16px;flex-wrap:wrap">
@@ -583,6 +584,14 @@ function channelStatusHtml(user) {
         </p>
         ${fsOpen ? `<button class="btn-sm" style="margin-top:10px" onclick="unbindChannel('feishu')">解绑</button>` : ""}
       </div>
+      <div class="channel-card">
+        <div class="channel-head">
+          <b>企业微信</b>
+          <span class="${wc ? "status-ok" : "status-fail"}">${wc ? "已绑定 ✅" : "未绑定"}</span>
+        </div>
+        <p class="muted" style="margin:8px 0 0">${wc ? "群机器人推送已启用" : "在企业微信群添加群机器人，把 webhook 粘贴到下方输入框即可"}</p>
+        ${wc ? `<button class="btn-sm" style="margin-top:10px" onclick="unbindChannel('wecom')">解绑</button>` : ""}
+      </div>
     </div>`;
 }
 
@@ -597,7 +606,7 @@ async function refreshSettingsStatus() {
       return;
     }
     el.innerHTML = channelStatusHtml(user);
-    if (user.telegram_chat_id && user.feishu_open_id && user.feishu_chat_id) stopSettingsPoll();
+    if (user.telegram_chat_id && user.feishu_open_id && user.feishu_chat_id && user.wecom_webhook) stopSettingsPoll();
   } catch {
     /* 轮询失败忽略 */
   }
@@ -616,7 +625,7 @@ async function renderSettings() {
       : "你的机器人";
     const fsTarget = fsBot ? `<b>${escapeHtml(fsBot)}</b>` : "你的机器人应用名";
     $("#main").innerHTML = `
-      ${heroPanel("Push Settings", "推送设置", "跟着步骤走，2 分钟完成：先与机器人建立会话，新帖就会自动推给你。", ["Telegram", "飞书"])}
+      ${heroPanel("Push Settings", "推送设置", "跟着步骤走，2 分钟完成：绑定 Telegram / 飞书 / 企业微信，新帖就会自动推给你。", ["Telegram", "飞书", "企业微信"])}
       <section class="section-panel">
         <header class="section-head">
           <div>
@@ -644,8 +653,33 @@ async function renderSettings() {
       <section class="section-panel">
         <header class="section-head">
           <div>
+            <p class="section-eyebrow">WeCom</p>
+            <h3 class="section-title">② 绑定企业微信群机器人</h3>
+            <p class="section-meta">无需申请应用；在企业微信任意群里添加「群机器人」即可，推送会发到这个群。</p>
+          </div>
+        </header>
+        <ol style="padding-left:20px;line-height:2">
+          <li>打开企业微信，进入一个群（没有就新建一个，例如「大V推送」）。</li>
+          <li>点右上角 <code>...</code> → 「群机器人」→「添加机器人」，按提示创建并起名。</li>
+          <li>创建完成后复制 webhook 地址（<code>https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...</code>）。</li>
+          <li>粘贴到下方输入框，点「保存绑定」，状态即变为「已绑定 ✅」。</li>
+        </ol>
+        <div class="form-row" style="margin-top:14px">
+          <label for="set-wecom-webhook">群机器人 webhook 地址</label>
+          <div class="row" style="gap:10px;flex-wrap:wrap">
+            <input id="set-wecom-webhook" class="form-control" style="flex:1;min-width:280px"
+              type="text" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..."
+              value="${escapeHtml(state.user.wecom_webhook || "")}">
+            <button class="btn-normal" onclick="saveWecomWebhook()">保存绑定</button>
+          </div>
+        </div>
+        <p class="muted">⚠️ webhook 等同群管理权限，请勿泄露给他人；不同用户应使用各自的群机器人。</p>
+      </section>
+      <section class="section-panel">
+        <header class="section-head">
+          <div>
             <p class="section-eyebrow">Feishu</p>
-            <h3 class="section-title">② 打开飞书机器人（重要：请用私聊）</h3>
+            <h3 class="section-title">③ 打开飞书机器人（重要：请用私聊）</h3>
           </div>
         </header>
         <ol style="padding-left:20px;line-height:2">
@@ -659,13 +693,13 @@ async function renderSettings() {
         <header class="section-head">
           <div>
             <p class="section-eyebrow">Sync</p>
-            <h3 class="section-title">③ 与网页/小程序账号同步（可选）</h3>
+            <h3 class="section-title">④ 与网页/小程序账号同步（可选）</h3>
             <p class="section-meta">机器人是独立账号；想让机器人订阅与网页账号合并，用绑定码。</p>
           </div>
         </header>
         <ol style="padding-left:20px;line-height:2">
           <li>点下方「生成绑定码」。</li>
-          <li>把 <code>/bind 6位码</code> 发给 Telegram / 飞书机器人。</li>
+          <li>把 <code>/bind 6位码</code> 发给 Telegram / 飞书机器人（企业微信群机器人是单向 webhook，不支持指令）。</li>
           <li>绑定后机器人账号合并到当前账号，订阅与推送同步，一处订阅处处同步。</li>
         </ol>
         <div class="row">
@@ -744,16 +778,36 @@ async function saveDailyReport() {
 }
 
 async function unbindChannel(channel) {
-  const label = channel === "telegram_chat_id" ? "Telegram" : "飞书";
+  const label = channel === "telegram_chat_id" ? "Telegram" : channel === "wecom" ? "企业微信" : "飞书";
   if (!confirm(`确认解绑 ${label}？解绑后将不再往该渠道推送。`)) return;
   try {
     const body = channel === "feishu"
       ? { feishu_open_id: "", feishu_chat_id: "" }
-      : { telegram_chat_id: "" };
+      : channel === "wecom"
+        ? { wecom_webhook: "" }
+        : { telegram_chat_id: "" };
     await api("/api/me", { method: "PUT", body: JSON.stringify(body) });
     renderSettings();
   } catch (err) {
     alert("解绑失败: " + err.message);
+  }
+}
+
+async function saveWecomWebhook() {
+  const webhook = ($("#set-wecom-webhook").value || "").trim();
+  if (webhook && !/^https:\/\/qyapi\.weixin\.qq\.com\/cgi-bin\/webhook\/send\?key=/.test(webhook)) {
+    alert("webhook 地址无效，应为 https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=... 格式");
+    return;
+  }
+  try {
+    await api("/api/me", {
+      method: "PUT",
+      body: JSON.stringify({ wecom_webhook: webhook }),
+    });
+    renderSettings();
+    if (webhook) alert("企业微信绑定成功 ✅");
+  } catch (err) {
+    alert("保存失败: " + err.message);
   }
 }
 
@@ -1415,6 +1469,7 @@ async function loadAdminLogs() {
             <option value="">全部渠道</option>
             <option value="telegram" ${state.adminLogsChannel === "telegram" ? "selected" : ""}>Telegram</option>
             <option value="feishu" ${state.adminLogsChannel === "feishu" ? "selected" : ""}>飞书</option>
+            <option value="wecom" ${state.adminLogsChannel === "wecom" ? "selected" : ""}>企业微信</option>
           </select>
           <select id="ad-logs-status" class="form-control" style="margin:0;width:auto">
             <option value="">全部状态</option>
@@ -1486,13 +1541,14 @@ async function loadAdminUsers() {
       <header class="section-head"><div><p class="section-eyebrow">Users</p><h3 class="section-title">注册用户</h3></div></header>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>ID</th><th>用户名</th><th>角色</th><th>Telegram</th><th>飞书</th><th>推送</th><th>注册时间</th><th>操作</th></tr></thead>
+          <thead><tr><th>ID</th><th>用户名</th><th>角色</th><th>Telegram</th><th>飞书</th><th>企业微信</th><th>推送</th><th>注册时间</th><th>操作</th></tr></thead>
           <tbody>${users.map((u) => `
             <tr>
               <td>${u.id}</td><td>${escapeHtml(u.username)}</td>
               <td>${u.is_admin ? "管理员" : "用户"}</td>
               <td>${escapeHtml(u.telegram_chat_id || "-")}</td>
               <td>${escapeHtml(u.feishu_open_id || "-")}</td>
+              <td>${u.wecom_webhook ? "已绑定" : "-"}</td>
               <td>${u.notify_enabled ? "开启" : "关闭"}</td>
               <td>${escapeHtml(u.created_at)}</td>
               <td>
@@ -1524,7 +1580,7 @@ async function adminTestPush(userId) {
       body: JSON.stringify({ user_id: userId, message: msg }),
     });
     const lines = data.results.map((r) => {
-      const label = r.channel === "telegram" ? "Telegram" : "飞书";
+      const label = r.channel === "telegram" ? "Telegram" : r.channel === "wecom" ? "企业微信" : "飞书";
       return `${label}：${r.ok ? "✅ 成功" : "❌ 失败：" + r.error}`;
     });
     alert(lines.join("\n"));

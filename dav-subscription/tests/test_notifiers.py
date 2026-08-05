@@ -4,10 +4,15 @@ from urllib.parse import parse_qs
 import httpx
 import pytest
 
-from app.config import FeishuConfig, TelegramConfig
+from app.config import FeishuConfig, TelegramConfig, WeComConfig
 from app.fetchers.base import Post
 from app.notifiers.feishu import FeishuNotifier, build_feishu_digest_card
 from app.notifiers.telegram import TelegramNotifier, build_telegram_digest
+from app.notifiers.wecom import (
+    WeComNotifier,
+    build_wecom_digest,
+    is_valid_wecom_webhook,
+)
 
 
 def make_post() -> Post:
@@ -129,6 +134,58 @@ def test_telegram_unsub_button():
     notifier.notify(make_post())
     markup = sent["reply_markup"][0]
     assert "退订" in markup and '"callback_data": "unsub:7"' in markup
+
+
+def test_wecom_success():
+    sent = {}
+
+    def handler(request):
+        payload = json.loads(request.read())
+        assert "qyapi.weixin.qq.com" in str(request.url)
+        assert payload["msgtype"] == "markdown"
+        content = payload["markdown"]["content"]
+        assert "**📌 李四 · 微博**" in content
+        assert "实盘" in content
+        assert "[查看原文](https://weibo.com/1)" in content
+        sent.update(payload)
+        return httpx.Response(200, json={"errcode": 0, "errmsg": "ok"})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    notifier = WeComNotifier(
+        WeComConfig(webhook_url="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=x"),
+        client=client,
+    )
+    notifier.notify(make_post())
+    assert sent["msgtype"] == "markdown"
+
+
+def test_wecom_business_error_raises():
+    def handler(request):
+        return httpx.Response(200, json={"errcode": 45009, "errmsg": "rate limited"})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    notifier = WeComNotifier(
+        WeComConfig(webhook_url="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=x"),
+        client=client,
+    )
+    with pytest.raises(RuntimeError, match="企业微信"):
+        notifier.notify(make_post())
+
+
+def test_wecom_unconfigured_raises():
+    notifier = WeComNotifier(WeComConfig())
+    with pytest.raises(RuntimeError):
+        notifier.notify(make_post())
+
+
+def test_wecom_digest_and_webhook_validation():
+    posts = [make_post(), make_post()]
+    text = build_wecom_digest(posts, "李四", "weibo")
+    assert "（2 条新动态）" in text
+    assert "[查看原文](https://weibo.com/1)" in text
+    assert is_valid_wecom_webhook("https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=abc") is True
+    assert is_valid_wecom_webhook("https://example.com/hook") is False
+    assert is_valid_wecom_webhook("") is False
 
 
 def test_feishu_unsub_button():

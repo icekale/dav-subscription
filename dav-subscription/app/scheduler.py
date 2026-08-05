@@ -408,6 +408,7 @@ def notify_subscribers(
 
     from .notifiers.feishu import FeishuNotifier
     from .notifiers.telegram import TelegramNotifier
+    from .notifiers.wecom import WeComNotifier
 
     # 全局 TG 通知（config.chat_id）已覆盖的接收者，避免同一条帖子推两次
     global_tg_chat = notifiers_config.telegram.chat_id
@@ -455,6 +456,23 @@ def notify_subscribers(
                         retry_queue.add(post, "feishu", user["id"])
                     maybe_alert_push_failure(
                         db, notifiers or [], f"user={user['username']} channel=feishu err={exc}"
+                    )
+            if user.get("wecom_webhook"):
+                notifier = WeComNotifier(
+                    notifiers_config.wecom,
+                    client=client,
+                    webhook_url=user["wecom_webhook"],
+                )
+                try:
+                    notifier.notify(post)
+                    db.add_push_log(post_id, "wecom", "success", user_id=user["id"])
+                except Exception as exc:  # noqa: BLE001
+                    db.add_push_log(post_id, "wecom", "failed", str(exc), user_id=user["id"])
+                    logger.warning("用户推送失败 user=%s channel=wecom err=%s", user["username"], exc)
+                    if retry_queue is not None:
+                        retry_queue.add(post, "wecom", user["id"])
+                    maybe_alert_push_failure(
+                        db, notifiers or [], f"user={user['username']} channel=wecom err={exc}"
                     )
     finally:
         client.close()
@@ -585,6 +603,7 @@ def notify_digest_subscribers(
 
     from .notifiers.feishu import FeishuNotifier
     from .notifiers.telegram import TelegramNotifier
+    from .notifiers.wecom import WeComNotifier
 
     global_tg_chat = notifiers_config.telegram.chat_id
     global_tg_active = bool(notifiers_config.telegram.bot_token and global_tg_chat)
@@ -652,6 +671,34 @@ def notify_digest_subscribers(
                         db.add_push_log(
                             db.get_post_id(post.platform, post.external_id),
                             "feishu",
+                            "failed",
+                            str(exc),
+                            user_id=user["id"],
+                        )
+            if user.get("wecom_webhook"):
+                notifier = WeComNotifier(
+                    notifiers_config.wecom,
+                    client=client,
+                    webhook_url=user["wecom_webhook"],
+                )
+                try:
+                    notifier.send_digest(matched, kol["name"], kol["platform"])
+                    for post in matched:
+                        db.add_push_log(
+                            db.get_post_id(post.platform, post.external_id),
+                            "wecom",
+                            "success",
+                            user_id=user["id"],
+                        )
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("摘要推送失败 user=%s channel=wecom err=%s", user["username"], exc)
+                    if retry_queue is not None:
+                        for post in matched:
+                            retry_queue.add(post, "wecom", user["id"])
+                    for post in matched:
+                        db.add_push_log(
+                            db.get_post_id(post.platform, post.external_id),
+                            "wecom",
                             "failed",
                             str(exc),
                             user_id=user["id"],
@@ -1148,6 +1195,8 @@ class Scheduler:
                     user.get("feishu_open_id") or user.get("feishu_chat_id")
                 ):
                     continue
+                if row["channel"] == "wecom" and not user.get("wecom_webhook"):
+                    continue
             post = Post(
                 platform=post_row["platform"],
                 kol_id=post_row["kol_id"],
@@ -1181,6 +1230,7 @@ class Scheduler:
     def _build_retry_notifier(self, channel: str, user_id: int | None):
         from .notifiers.feishu import FeishuNotifier
         from .notifiers.telegram import TelegramNotifier
+        from .notifiers.wecom import WeComNotifier
 
         if user_id is None:
             for notifier in self.notifiers:
@@ -1202,6 +1252,13 @@ class Scheduler:
                 open_id=user["feishu_open_id"] if not user.get("feishu_chat_id") else None,
                 chat_id=user.get("feishu_chat_id") or None,
             )
+        if channel == "wecom":
+            if not user.get("wecom_webhook"):
+                raise RuntimeError("用户未绑定企业微信")
+            return WeComNotifier(
+                self.notifiers_config.wecom,
+                webhook_url=user["wecom_webhook"],
+            )
         raise RuntimeError(f"未知渠道: {channel}")
 
     def _daily_report_due(self) -> bool:
@@ -1220,6 +1277,7 @@ class Scheduler:
         from .fetchers.base import Post
         from .notifiers.feishu import FeishuNotifier
         from .notifiers.telegram import TelegramNotifier
+        from .notifiers.wecom import WeComNotifier
 
         since = int(datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
         for user in self.db.daily_report_users():
@@ -1268,5 +1326,20 @@ class Scheduler:
                             self.db.add_push_log(post_id, "feishu", "success", user_id=user["id"])
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("每日精选推送失败 user=%s channel=feishu err=%s", user["username"], exc)
+                finally:
+                    notifier.client.close()
+            if user.get("wecom_webhook"):
+                notifier = WeComNotifier(
+                    self.notifiers_config.wecom,
+                    webhook_url=user["wecom_webhook"],
+                )
+                try:
+                    notifier.send_daily(posts)
+                    for post in posts:
+                        post_id = self.db.get_post_id(post.platform, post.external_id)
+                        if post_id:
+                            self.db.add_push_log(post_id, "wecom", "success", user_id=user["id"])
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("每日精选推送失败 user=%s channel=wecom err=%s", user["username"], exc)
                 finally:
                     notifier.client.close()

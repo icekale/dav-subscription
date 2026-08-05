@@ -205,6 +205,36 @@ def test_notify_subscribers_feishu_chat_only(monkeypatch):
     assert sent["ok"] is True
 
 
+def test_notify_subscribers_wecom_webhook_only(monkeypatch):
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    uid = db.add_user("wc_user", "h")
+    db.update_user(uid, wecom_webhook="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=wc1")
+    db.add_subscription(uid, kid)
+    post = Post(
+        platform="xueqiu", kol_id=kid, kol_name="A",
+        external_id="p1", title="t", content="c", url="u", published_at="",
+    )
+    sent = {"ok": False}
+
+    class FakeWC:
+        def __init__(self, *args, **kwargs):
+            self.client = SimpleNamespace(close=lambda: None)
+            self.channel = "wecom"
+
+        def notify(self, post):
+            sent["ok"] = True
+
+    notifiers_config = SimpleNamespace(
+        telegram=SimpleNamespace(bot_token="", chat_id=""),
+        feishu=SimpleNamespace(),
+        wecom=SimpleNamespace(),
+    )
+    monkeypatch.setattr("app.notifiers.wecom.WeComNotifier", FakeWC)
+    notify_subscribers(db, 1, post, notifiers_config, notifiers=[], retry_queue=None)
+    assert sent["ok"] is True
+
+
 def test_subscription_type_db_ops():
     db = make_db()
     kid = db.add_kol("xueqiu", "A", "1")
@@ -441,6 +471,39 @@ def test_daily_report_sent_to_enabled_user(monkeypatch):
     scheduler._send_daily_report()
     assert len(fake.daily) == 1 and fake.daily[0][0].kol_name == "A"
     assert len(db.list_push_logs(channel="telegram")) == 1
+
+
+def test_daily_report_wecom_user(monkeypatch):
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    db.insert_post("xueqiu", kid, "p1", "t", "今日内容", "u", "")
+    uid = db.add_user("wc", "h")
+    db.update_user(
+        uid,
+        daily_report=True,
+        wecom_webhook="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=wc1",
+    )
+    db.add_subscription(uid, kid)
+
+    fake = FakeDailyNotifier()
+    fake.channel = "wecom"
+    monkeypatch.setattr("app.notifiers.wecom.WeComNotifier", lambda *a, **k: fake)
+    scheduler = Scheduler(
+        db,
+        {},
+        [],
+        SimpleNamespace(daily_report_hour=20),
+        notifiers_config=SimpleNamespace(
+            telegram=SimpleNamespace(bot_token="", chat_id=""),
+            feishu=SimpleNamespace(app_id="", app_secret=""),
+            wecom=SimpleNamespace(webhook_url=""),
+        ),
+        xueqiu_config=SimpleNamespace(cookie=""),
+        weibo_config=SimpleNamespace(cookie="", username="", password=""),
+    )
+    scheduler._send_daily_report()
+    assert len(fake.daily) == 1 and fake.daily[0][0].kol_name == "A"
+    assert len(db.list_push_logs(channel="wecom")) == 1
 
 
 def test_daily_report_skips_user_without_posts():

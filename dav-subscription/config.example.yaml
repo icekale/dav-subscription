@@ -7,6 +7,8 @@ notifiers:
     chat_id: ""       # 接收推送的会话 ID（可用 @userinfobot 查询）
     proxy: ""         # 可选：Telegram 被墙时填 http://<host>:<port> 代理（支持认证）
     bot_username: ""  # 可选：机器人 @username，用于推送设置页的引导链接
+  wecom:
+    webhook_url: ""   # 可选：企业微信群机器人 webhook（系统级告警用，用户可在网页自行绑定各自的群机器人）
 
 sources:
   xueqiu:

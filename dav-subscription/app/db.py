@@ -77,6 +77,7 @@ CREATE TABLE IF NOT EXISTS users (
     telegram_chat_id TEXT NOT NULL DEFAULT '',
     feishu_open_id TEXT NOT NULL DEFAULT '',
     feishu_chat_id TEXT NOT NULL DEFAULT '',
+    wecom_webhook TEXT NOT NULL DEFAULT '',
     notify_enabled INTEGER NOT NULL DEFAULT 1,
     daily_report INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -153,6 +154,8 @@ class DB:
             self._conn.execute("ALTER TABLE users ADD COLUMN feishu_chat_id TEXT NOT NULL DEFAULT ''")
         if "daily_report" not in user_cols:
             self._conn.execute("ALTER TABLE users ADD COLUMN daily_report INTEGER NOT NULL DEFAULT 0")
+        if "wecom_webhook" not in user_cols:
+            self._conn.execute("ALTER TABLE users ADD COLUMN wecom_webhook TEXT NOT NULL DEFAULT ''")
         kol_cols = {row["name"] for row in self._rows("PRAGMA table_info(kols)")}
         if "priority" not in kol_cols:
             self._conn.execute("ALTER TABLE kols ADD COLUMN priority INTEGER NOT NULL DEFAULT 0")
@@ -164,7 +167,13 @@ class DB:
             self._conn.execute("ALTER TABLE kols ADD COLUMN original_only INTEGER NOT NULL DEFAULT 0")
         # 渠道绑定唯一化：先清理重复（保留最早注册的用户），再建唯一索引，
         # 避免两个账号绑定同一个 chat_id/open_id 导致重复推送或 /bind 合并错账号。
-        for column in ("telegram_chat_id", "feishu_open_id", "feishu_chat_id", "wechat_openid"):
+        for column in (
+            "telegram_chat_id",
+            "feishu_open_id",
+            "feishu_chat_id",
+            "wechat_openid",
+            "wecom_webhook",
+        ):
             seen = set()
             for row in self._rows(
                 f"SELECT id, {column} AS v FROM users WHERE {column} != '' ORDER BY id"
@@ -412,6 +421,10 @@ class DB:
         rows = self._rows("SELECT * FROM users WHERE feishu_chat_id = ?", (chat_id,))
         return rows[0] if rows else None
 
+    def get_user_by_wecom_webhook(self, webhook: str) -> dict | None:
+        rows = self._rows("SELECT * FROM users WHERE wecom_webhook = ?", (webhook,))
+        return rows[0] if rows else None
+
     def get_user_by_openid(self, openid: str) -> dict | None:
         rows = self._rows("SELECT * FROM users WHERE wechat_openid = ?", (openid,))
         return rows[0] if rows else None
@@ -588,7 +601,8 @@ class DB:
             "JOIN users u ON u.id = s.user_id "
             "JOIN kols k ON k.id = s.kol_id "
             "WHERE s.kol_id = ? AND u.notify_enabled = 1 "
-            "AND (u.telegram_chat_id != '' OR u.feishu_open_id != '' OR u.feishu_chat_id != '') "
+            "AND (u.telegram_chat_id != '' OR u.feishu_open_id != '' OR u.feishu_chat_id != '' "
+            "OR u.wecom_webhook != '') "
             "AND (k.is_private = 0 OR EXISTS "
             "(SELECT 1 FROM kol_acl a WHERE a.kol_id = k.id AND a.user_id = u.id))",
             (kol_id,),
@@ -760,7 +774,8 @@ class DB:
         """开启每日精选、启用通知且绑定过渠道的用户。"""
         return self._rows(
             "SELECT * FROM users WHERE notify_enabled = 1 AND daily_report = 1 "
-            "AND (telegram_chat_id != '' OR feishu_open_id != '' OR feishu_chat_id != '')"
+            "AND (telegram_chat_id != '' OR feishu_open_id != '' OR feishu_chat_id != '' "
+            "OR wecom_webhook != '')"
         )
 
     # ---- Push log ----

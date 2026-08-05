@@ -17,6 +17,11 @@ class FeishuConfig:
 
 
 @dataclass
+class WeComConfig:
+    webhook_url: str = ""
+
+
+@dataclass
 class TelegramConfig:
     bot_token: str = ""
     chat_id: str = ""
@@ -28,6 +33,7 @@ class TelegramConfig:
 class NotifiersConfig:
     feishu: FeishuConfig = field(default_factory=FeishuConfig)
     telegram: TelegramConfig = field(default_factory=TelegramConfig)
+    wecom: WeComConfig = field(default_factory=WeComConfig)
 
 
 @dataclass
@@ -103,6 +109,7 @@ _ENV_MAP = {
     "TELEGRAM_PROXY": ("notifiers", "telegram", "proxy"),
     "TELEGRAM_BOT_USERNAME": ("notifiers", "telegram", "bot_username"),
     "FEISHU_BOT_NAME": ("notifiers", "feishu", "bot_name"),
+    "WECOM_WEBHOOK_URL": ("notifiers", "wecom", "webhook_url"),
     "XUEQIU_COOKIE": ("sources", "xueqiu", "cookie"),
     "WEIBO_COOKIE": ("sources", "weibo", "cookie"),
     "WEIBO_TOKEN": ("sources", "weibo", "token"),

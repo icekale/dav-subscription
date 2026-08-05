@@ -161,6 +161,7 @@ def test_channel_claim_conflict():
     client = make_client()
     headers_a = user_headers(client, "user_a")
     headers_b = user_headers(client, "user_b")
+    wc_hook = "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=wc1"
 
     assert client.put("/api/me", headers=headers_a, json={"telegram_chat_id": "111"}).status_code == 200
     resp = client.put("/api/me", headers=headers_b, json={"telegram_chat_id": "111"})
@@ -170,8 +171,17 @@ def test_channel_claim_conflict():
     resp = client.put("/api/me", headers=headers_b, json={"feishu_open_id": "ou_1"})
     assert resp.status_code == 400
 
+    assert client.put("/api/me", headers=headers_a, json={"wecom_webhook": wc_hook}).status_code == 200
+    resp = client.put("/api/me", headers=headers_b, json={"wecom_webhook": wc_hook})
+    assert resp.status_code == 400 and "企业微信" in resp.json()["detail"]
+
+    # 非法 webhook 地址被拒绝
+    resp = client.put("/api/me", headers=headers_b, json={"wecom_webhook": "https://example.com/x"})
+    assert resp.status_code == 400
+
     # 解绑自己的渠道不受影响
     assert client.put("/api/me", headers=headers_a, json={"telegram_chat_id": ""}).status_code == 200
+    assert client.put("/api/me", headers=headers_a, json={"wecom_webhook": ""}).status_code == 200
 
 
 def test_login_rate_limit():
@@ -1039,6 +1049,37 @@ def test_old_db_migrates_category_column():
     uid = db.add_user("admin", "hash", is_admin=True)
     db.add_subscription(uid, 1)
     assert db.subscribers_of_kol(1) == []
+    db.close()
+
+
+def test_old_db_migrates_wecom_column():
+    tmp = tempfile.mkdtemp()
+    path = Path(tmp) / "old.db"
+    conn = sqlite3.connect(path)
+    conn.executescript(
+        """
+        CREATE TABLE users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            is_admin INTEGER NOT NULL DEFAULT 0,
+            wechat_openid TEXT NOT NULL DEFAULT '',
+            telegram_chat_id TEXT NOT NULL DEFAULT '',
+            feishu_open_id TEXT NOT NULL DEFAULT '',
+            feishu_chat_id TEXT NOT NULL DEFAULT '',
+            notify_enabled INTEGER NOT NULL DEFAULT 1,
+            daily_report INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    db = DB(path)
+    uid = db.add_user("wc", "hash")
+    db.update_user(uid, wecom_webhook="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=wc1")
+    assert db.get_user_by_wecom_webhook("https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=wc1")["id"] == uid
     db.close()
 
 

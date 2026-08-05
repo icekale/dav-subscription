@@ -8,6 +8,7 @@ ALL_ENV = [
     "FEISHU_WEBHOOK_URL",
     "FEISHU_APP_ID",
     "FEISHU_APP_SECRET",
+    "WECOM_WEBHOOK_URL",
     "TELEGRAM_BOT_TOKEN",
     "TELEGRAM_CHAT_ID",
     "TELEGRAM_PROXY",
@@ -53,6 +54,12 @@ def test_telegram_proxy_env(tmp_path, monkeypatch):
     monkeypatch.setenv("TELEGRAM_PROXY", "http://127.0.0.1:7890")
     config = load_config(tmp_path / "nope.yaml")
     assert config.notifiers.telegram.proxy == "http://127.0.0.1:7890"
+
+
+def test_wecom_webhook_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("WECOM_WEBHOOK_URL", "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=x")
+    config = load_config(tmp_path / "nope.yaml")
+    assert config.notifiers.wecom.webhook_url == "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=x"
 
 
 def test_quoted_yaml_types_normalized(tmp_path):

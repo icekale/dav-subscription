@@ -50,6 +50,7 @@ class MeUpdate(BaseModel):
     telegram_chat_id: str | None = None
     feishu_open_id: str | None = None
     feishu_chat_id: str | None = None
+    wecom_webhook: str | None = None
     notify_enabled: bool | None = None
     daily_report_enabled: bool | None = None
 
@@ -144,6 +145,7 @@ def public_user(user: dict) -> dict:
         "telegram_chat_id": user["telegram_chat_id"],
         "feishu_open_id": user["feishu_open_id"],
         "feishu_chat_id": user["feishu_chat_id"],
+        "wecom_webhook": user["wecom_webhook"],
         "notify_enabled": bool(user["notify_enabled"]),
         "daily_report_enabled": bool(user.get("daily_report")),
         "created_at": user["created_at"],
@@ -354,6 +356,20 @@ def create_api_router(
                 if owner is not None and owner["id"] != user["id"]:
                     raise HTTPException(status_code=400, detail="该飞书会话已绑定其他账号")
             db.update_user(user["id"], feishu_chat_id=value)
+        if "wecom_webhook" in body.model_fields_set:
+            value = (body.wecom_webhook or "").strip()
+            if value:
+                from .notifiers.wecom import is_valid_wecom_webhook
+
+                if not is_valid_wecom_webhook(value):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="企业微信 webhook 地址无效，应为 https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=... 格式",
+                    )
+                owner = db.get_user_by_wecom_webhook(value)
+                if owner is not None and owner["id"] != user["id"]:
+                    raise HTTPException(status_code=400, detail="该企业微信群机器人已绑定其他账号")
+            db.update_user(user["id"], wecom_webhook=value)
         if "notify_enabled" in body.model_fields_set:
             db.update_user(user["id"], notify_enabled=body.notify_enabled)
         if "daily_report_enabled" in body.model_fields_set and body.daily_report_enabled is not None:
@@ -512,6 +528,7 @@ def create_api_router(
         if notifiers_config is not None:
             from .notifiers.feishu import FeishuNotifier
             from .notifiers.telegram import TelegramNotifier
+            from .notifiers.wecom import WeComNotifier
 
             requester = db.get_user(req["user_id"])
             message = f"✅ 你申请的大V「{name}」已通过审批，已自动为你订阅"
@@ -538,6 +555,19 @@ def create_api_router(
                     notifier.send_text(message)
                 except Exception:  # noqa: BLE001
                     logger.warning("审批通知飞书发送失败 user=%s", requester["username"], exc_info=True)
+                finally:
+                    if notifier is not None:
+                        notifier.client.close()
+            if requester and requester.get("wecom_webhook"):
+                notifier = None
+                try:
+                    notifier = WeComNotifier(
+                        notifiers_config.wecom,
+                        webhook_url=requester["wecom_webhook"],
+                    )
+                    notifier.send_text(message)
+                except Exception:  # noqa: BLE001
+                    logger.warning("审批通知企业微信发送失败 user=%s", requester["username"], exc_info=True)
                 finally:
                     if notifier is not None:
                         notifier.client.close()
@@ -959,6 +989,7 @@ def create_api_router(
             raise HTTPException(status_code=400, detail="未配置推送渠道")
         from .notifiers.feishu import FeishuNotifier
         from .notifiers.telegram import TelegramNotifier
+        from .notifiers.wecom import WeComNotifier
 
         results = []
         if user["telegram_chat_id"] and notifiers_config.telegram.bot_token:
@@ -984,6 +1015,18 @@ def create_api_router(
                 results.append({"channel": "feishu", "ok": True})
             except Exception as exc:  # noqa: BLE001
                 results.append({"channel": "feishu", "ok": False, "error": str(exc)})
+            finally:
+                notifier.client.close()
+        if user.get("wecom_webhook"):
+            notifier = WeComNotifier(
+                notifiers_config.wecom,
+                webhook_url=user["wecom_webhook"],
+            )
+            try:
+                notifier.send_text(f"【测试推送】{body.message}")
+                results.append({"channel": "wecom", "ok": True})
+            except Exception as exc:  # noqa: BLE001
+                results.append({"channel": "wecom", "ok": False, "error": str(exc)})
             finally:
                 notifier.client.close()
         if not results:
