@@ -237,15 +237,15 @@ async function loadHomeKols() {
 function groupedKolCards(kols) {
   const groups = {};
   for (const kol of kols) {
-    const key = kol.category_name || "未分类";
+    const key = kol.category_name || "";
     (groups[key] = groups[key] || []).push(kol);
   }
   return Object.entries(groups)
     .map(([name, items]) => `
-      <div class="group-head" style="display:flex;justify-content:space-between;align-items:baseline;margin:18px 2px 8px">
+      ${name ? `<div class="group-head" style="display:flex;justify-content:space-between;align-items:baseline;margin:18px 2px 8px">
         <span style="font-weight:600;color:var(--color-text-strong)">${escapeHtml(name)}</span>
         <span class="muted">${items.length} 位</span>
-      </div>
+      </div>` : ""}
       ${items.map(kolCard).join("")}`)
     .join("");
 }
