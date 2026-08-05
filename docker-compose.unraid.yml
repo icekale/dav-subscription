@@ -55,7 +55,7 @@ services:
       # - /mnt/user/appdata/dav-subscription/config.yaml:/app/config.yaml:ro
     restart: unless-stopped
 
-  # X 直抓失败时的备用通道（RSSHub 公共实例对数据中心 IP 有 Cloudflare 风控，自建更可靠）
+  # X 直抓失败时的备用通道（公共实例对数据中心 IP 限制较多，自建更可靠）
   rsshub:
     image: diygod/rsshub:latest
     container_name: dav-rsshub
