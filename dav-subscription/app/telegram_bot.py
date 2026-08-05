@@ -8,6 +8,7 @@ import logging
 import httpx
 
 from .bot_core import SubscriptionBot
+from .notifiers.telegram import _tg_rate_limiter
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,7 @@ class TelegramBot:
         return f"https://api.telegram.org/bot{self.bot_token}/{method}"
 
     def _call(self, method: str, **params):
+        _tg_rate_limiter.wait()
         resp = self.client.post(self._url(method), data=params)
         resp.raise_for_status()
         data = resp.json()

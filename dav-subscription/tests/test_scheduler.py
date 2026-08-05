@@ -1,4 +1,6 @@
 import tempfile
+import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -124,6 +126,52 @@ def test_fetch_error_does_not_crash():
     poll_once(db, {"xueqiu": FakeFetcherError()}, [notifier])
     assert len(db.list_posts()) == 0
     assert len(notifier.calls) == 0
+
+
+def test_poll_once_fetches_platforms_concurrently():
+    db = make_db()
+    kids = {}
+    for platform in ("xueqiu", "weibo", "twitter"):
+        kids[platform] = db.add_kol(platform, platform, platform)
+    lock = threading.Lock()
+    stats = {"active": 0, "max": 0}
+
+    def make_fetcher(post):
+        class SlowFetcher:
+            def fetch(self, kol):
+                with lock:
+                    stats["active"] += 1
+                    stats["max"] = max(stats["max"], stats["active"])
+                time.sleep(0.15)
+                with lock:
+                    stats["active"] -= 1
+                return [post]
+
+        return SlowFetcher()
+
+    posts = [
+        Post(
+            platform=platform,
+            kol_id=kid,
+            kol_name=platform,
+            external_id=f"p{i}",
+            title="t",
+            content="c",
+            url="u",
+            published_at="",
+        )
+        for i, (platform, kid) in enumerate(kids.items(), 1)
+    ]
+    fetchers = {
+        "xueqiu": make_fetcher(posts[0]),
+        "weibo": make_fetcher(posts[1]),
+        "twitter": make_fetcher(posts[2]),
+    }
+    notifier = FakeNotifier()
+    poll_once(db, fetchers, [notifier])
+    # 跨平台并行抓取：峰值并发应大于 1（串行时为 1）
+    assert stats["max"] >= 2
+    assert len(notifier.calls) == 3
 
 
 def test_posts_pushed_in_time_order():

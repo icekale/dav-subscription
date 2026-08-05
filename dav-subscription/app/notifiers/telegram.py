@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import json
+import threading
+import time
+from collections import deque
 from html import escape
 
 import httpx
@@ -11,6 +14,34 @@ from .base import Notifier
 
 PLATFORM_LABELS = {"xueqiu": "雪球", "combination": "雪球组合", "weibo": "微博", "twitter": "X/Twitter"}
 DIGEST_MAX_ITEMS = 10
+# Telegram 单 bot 全局约 30 条/秒；广播推送时留足余量，避免触发 429。
+# 高水位保护：发送频率低于上限时零开销，瞬时积压时自动平滑限速。
+TG_MAX_MESSAGES_PER_SECOND = 15
+
+
+class _RateLimiter:
+    """滑动窗口限速器：窗口内未超限时立即放行（高水位保护）。"""
+
+    def __init__(self, max_per_second: int):
+        self._max = max_per_second
+        self._times: deque[float] = deque()
+        self._lock = threading.Lock()
+
+    def wait(self) -> None:
+        while True:
+            with self._lock:
+                now = time.monotonic()
+                cutoff = now - 1.0
+                while self._times and self._times[0] <= cutoff:
+                    self._times.popleft()
+                if len(self._times) < self._max:
+                    self._times.append(now)
+                    return
+                delay = self._times[0] + 1.0 - now
+            time.sleep(max(delay, 0.01))
+
+
+_tg_rate_limiter = _RateLimiter(TG_MAX_MESSAGES_PER_SECOND)
 
 
 def build_telegram_text(post: Post) -> str:
@@ -120,10 +151,21 @@ class TelegramNotifier(Notifier):
     def _send(self, data: dict) -> None:
         if not self.bot_token or not self.chat_id:
             raise RuntimeError("未配置 telegram bot_token/chat_id")
+        _tg_rate_limiter.wait()
         url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
         resp = self.client.post(url, data={"chat_id": self.chat_id, **data})
         resp.raise_for_status()
         result = resp.json()
+        # 429 限流：按 Telegram 给出的 retry_after 等待后重试一次
+        if not result.get("ok") and result.get("error_code") == 429:
+            retry_after = int(
+                (result.get("parameters") or {}).get("retry_after") or 1
+            )
+            time.sleep(retry_after)
+            _tg_rate_limiter.wait()
+            resp = self.client.post(url, data={"chat_id": self.chat_id, **data})
+            resp.raise_for_status()
+            result = resp.json()
         if not result.get("ok"):
             raise RuntimeError(f"Telegram 返回错误: {result}")
 
@@ -181,6 +223,7 @@ class TelegramNotifier(Notifier):
     def send_photo(self, photo: bytes, caption: str = "") -> None:
         if not self.bot_token or not self.chat_id:
             raise RuntimeError("未配置 telegram bot_token/chat_id")
+        _tg_rate_limiter.wait()
         url = f"https://api.telegram.org/bot{self.bot_token}/sendPhoto"
         resp = self.client.post(
             url,

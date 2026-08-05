@@ -9,6 +9,7 @@ import random
 import re
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
 from .db import DB
@@ -489,9 +490,10 @@ def poll_once(
     digest: dict[int, list[Post]] | None = None,
     retry_queue: PushRetryQueue | None = None,
 ) -> None:
-    """执行一轮：遍历启用 KOL → 抓取 → 去重 → 推送。"""
+    """执行一轮：并发抓取启用 KOL → 去重 → 推送。"""
     states = states if states is not None else {}
     now = time.monotonic()
+    jobs = []
     for kol in db.list_kols():
         if not kol["enabled"]:
             continue
@@ -505,9 +507,62 @@ def poll_once(
         effective = priority_interval_seconds if kol.get("priority") else interval_seconds
         if now - state.last_fetched.get(kol["id"], 0) < effective:
             continue
-        try:
-            posts = fetcher.fetch(kol)
-        except Exception as exc:  # noqa: BLE001 - 单源失败不影响其他
+        jobs.append((kol, fetcher, state))
+    if not jobs:
+        return
+    # 并发抓取：跨平台并行、同平台最多 2 个并发，兼顾提速与反爬风控
+    platforms = {kol["platform"] for kol, _, _ in jobs}
+    platform_sem = {p: threading.Semaphore(2) for p in platforms}
+    platform_lock = {p: threading.Lock() for p in platforms}
+
+    def _worker(job):
+        kol, fetcher, state = job
+        with platform_sem[kol["platform"]]:
+            _fetch_kol_once(
+                db,
+                fetchers,
+                notifiers,
+                states,
+                kol,
+                fetcher,
+                state,
+                now,
+                interval_seconds,
+                priority_interval_seconds,
+                notifiers_config,
+                digest,
+                retry_queue,
+                platform_lock[kol["platform"]],
+            )
+
+    with ThreadPoolExecutor(max_workers=min(8, len(jobs))) as ex:
+        list(ex.map(_worker, jobs))
+
+
+def _fetch_kol_once(
+    db: DB,
+    fetchers: dict[str, Fetcher],
+    notifiers: list[Notifier],
+    states: dict[str, PlatformState],
+    kol: dict,
+    fetcher: Fetcher,
+    state: PlatformState,
+    now: float,
+    interval_seconds: int,
+    priority_interval_seconds: int,
+    notifiers_config,
+    digest: dict[int, list[Post]] | None,
+    retry_queue: PushRetryQueue | None,
+    state_lock: threading.Lock,
+) -> None:
+    """并发 worker：抓取单个大V并处理新帖（状态读写加锁保护）。"""
+    effective = priority_interval_seconds if kol.get("priority") else interval_seconds
+    if now - state.last_fetched.get(kol["id"], 0) < effective:
+        return
+    try:
+        posts = fetcher.fetch(kol)
+    except Exception as exc:  # noqa: BLE001 - 单源失败不影响其他
+        with state_lock:
             state.fail_count += 1
             delay = min(30 * (2 ** (state.fail_count - 1)), 600)
             state.skip_until = time.monotonic() + delay
@@ -516,76 +571,77 @@ def poll_once(
                     db, notifiers, kol["platform"], kol["name"], str(exc), state.fail_count
                 )
                 state.alerted = True
-            logger.warning(
-                "抓取失败 platform=%s kol=%s err=%s 下次尝试 %.0fs 后",
-                kol["platform"],
-                kol["name"],
-                exc,
-                delay,
-            )
-            if kol["platform"] == "weibo" and ("登录" in str(exc) or "login" in str(exc).lower()):
-                maybe_warn_weibo_login(db, notifiers, str(exc))
-            if kol["platform"] == "xueqiu" and any(
-                kw in str(exc) for kw in ("cookie", "WAF", "反爬")
-            ):
-                maybe_warn_xueqiu_cookie(db, notifiers, str(exc))
-            db.set_setting(SOURCE_ERR_KEY.format(platform=kol["platform"]), str(exc)[:300])
-            db.set_setting(SOURCE_FAILS_KEY.format(platform=kol["platform"]), str(state.fail_count))
-            continue
+        logger.warning(
+            "抓取失败 platform=%s kol=%s err=%s 下次尝试 %.0fs 后",
+            kol["platform"],
+            kol["name"],
+            exc,
+            delay,
+        )
+        if kol["platform"] == "weibo" and ("登录" in str(exc) or "login" in str(exc).lower()):
+            maybe_warn_weibo_login(db, notifiers, str(exc))
+        if kol["platform"] == "xueqiu" and any(
+            kw in str(exc) for kw in ("cookie", "WAF", "反爬")
+        ):
+            maybe_warn_xueqiu_cookie(db, notifiers, str(exc))
+        db.set_setting(SOURCE_ERR_KEY.format(platform=kol["platform"]), str(exc)[:300])
+        db.set_setting(SOURCE_FAILS_KEY.format(platform=kol["platform"]), str(state.fail_count))
+        return
+    with state_lock:
         if state.alerted:
             maybe_alert_source_recovered(db, notifiers, kol["platform"], kol["name"])
             state.alerted = False
         state.fail_count = 0
-        db.set_setting(SOURCE_OK_KEY.format(platform=kol["platform"]), str(int(time.time())))
-        db.set_setting(SOURCE_FAILS_KEY.format(platform=kol["platform"]), "0")
-        db.set_setting(SOURCE_ERR_KEY.format(platform=kol["platform"]), "")
         state.last_fetched[kol["id"]] = now
-        # 按发布时间升序推送，避免各平台返回顺序（置顶/反爬兜底）导致乱序
-        posts = sorted(posts, key=_post_sort_key)
-        for post in posts:
-            post.category = kol.get("category_name") or ""
-            if (
-                post.platform == "twitter"
-                and _polling_bool(db, "config_translate_twitter_content", False)
-                and db.get_post_id(post.platform, post.external_id) is None
-            ):
-                # 仅翻译新帖，避免每轮重复调用翻译接口
-                try:
-                    tweet_id = extract_tweet_id(post.external_id)
-                    x_cookie = parse_twitter_cookie(os.environ.get("TWITTER_COOKIE", ""))
-                    if tweet_id and x_cookie.get("auth_token") and x_cookie.get("ct0"):
-                        # X 官方翻译按整条推文返回，翻译一次后拆出标题
-                        translated = translate_text(
-                            post.content or "",
-                            tweet_id=tweet_id,
-                            twitter_cookie=os.environ.get("TWITTER_COOKIE", ""),
-                        )
-                        post.content = translated
-                        post.title = translated.splitlines()[0][:80] if translated else (post.title or "")
-                    else:
-                        post.title = translate_text(post.title or "")
-                        post.content = translate_text(post.content or "")
-                except Exception as exc:  # noqa: BLE001 - 翻译失败退回原文
-                    logger.warning("X 内容翻译失败 post=%s err=%s", post.external_id, exc)
-            post_id = db.insert_post(
-                post.platform,
-                post.kol_id,
-                post.external_id,
-                post.title,
-                post.content,
-                post.url,
-                post.published_at,
-                post.post_type,
-            )
-            if post_id is None:
-                continue
-            logger.info("新帖 platform=%s kol=%s id=%s", post.platform, post.kol_name, post.external_id)
-            if digest is not None and not kol.get("priority"):
-                # 普通大V进入合并摘要缓冲，按 digest_interval 周期统一推送
-                digest.setdefault(kol["id"], []).append(post)
-            else:
-                notify_post(db, post_id, post, notifiers, retry_queue)
-                notify_subscribers(db, post_id, post, notifiers_config, notifiers, retry_queue)
+    db.set_setting(SOURCE_OK_KEY.format(platform=kol["platform"]), str(int(time.time())))
+    db.set_setting(SOURCE_FAILS_KEY.format(platform=kol["platform"]), "0")
+    db.set_setting(SOURCE_ERR_KEY.format(platform=kol["platform"]), "")
+    # 按发布时间升序推送，避免各平台返回顺序（置顶/反爬兜底）导致乱序
+    posts = sorted(posts, key=_post_sort_key)
+    for post in posts:
+        post.category = kol.get("category_name") or ""
+        if (
+            post.platform == "twitter"
+            and _polling_bool(db, "config_translate_twitter_content", False)
+            and db.get_post_id(post.platform, post.external_id) is None
+        ):
+            # 仅翻译新帖，避免每轮重复调用翻译接口
+            try:
+                tweet_id = extract_tweet_id(post.external_id)
+                x_cookie = parse_twitter_cookie(os.environ.get("TWITTER_COOKIE", ""))
+                if tweet_id and x_cookie.get("auth_token") and x_cookie.get("ct0"):
+                    # X 官方翻译按整条推文返回，翻译一次后拆出标题
+                    translated = translate_text(
+                        post.content or "",
+                        tweet_id=tweet_id,
+                        twitter_cookie=os.environ.get("TWITTER_COOKIE", ""),
+                    )
+                    post.content = translated
+                    post.title = translated.splitlines()[0][:80] if translated else (post.title or "")
+                else:
+                    post.title = translate_text(post.title or "")
+                    post.content = translate_text(post.content or "")
+            except Exception as exc:  # noqa: BLE001 - 翻译失败退回原文
+                logger.warning("X 内容翻译失败 post=%s err=%s", post.external_id, exc)
+        post_id = db.insert_post(
+            post.platform,
+            post.kol_id,
+            post.external_id,
+            post.title,
+            post.content,
+            post.url,
+            post.published_at,
+            post.post_type,
+        )
+        if post_id is None:
+            continue
+        logger.info("新帖 platform=%s kol=%s id=%s", post.platform, post.kol_name, post.external_id)
+        if digest is not None and not kol.get("priority"):
+            # 普通大V进入合并摘要缓冲，按 digest_interval 周期统一推送
+            digest.setdefault(kol["id"], []).append(post)
+        else:
+            notify_post(db, post_id, post, notifiers, retry_queue)
+            notify_subscribers(db, post_id, post, notifiers_config, notifiers, retry_queue)
 
 
 def notify_digest_subscribers(

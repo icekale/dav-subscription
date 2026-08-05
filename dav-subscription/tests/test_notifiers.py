@@ -1,4 +1,5 @@
 import json
+import time
 from urllib.parse import parse_qs
 
 import httpx
@@ -7,7 +8,12 @@ import pytest
 from app.config import FeishuConfig, TelegramConfig, WeComConfig
 from app.fetchers.base import Post
 from app.notifiers.feishu import FeishuNotifier, build_feishu_digest_card
-from app.notifiers.telegram import TelegramNotifier, build_telegram_digest
+from app.notifiers.telegram import (
+    TelegramNotifier,
+    _RateLimiter,
+    _tg_rate_limiter,
+    build_telegram_digest,
+)
 from app.notifiers.wecom import (
     WeComNotifier,
     build_wecom_digest,
@@ -134,6 +140,50 @@ def test_telegram_unsub_button():
     notifier.notify(make_post())
     markup = sent["reply_markup"][0]
     assert "退订" in markup and '"callback_data": "unsub:7"' in markup
+
+
+def test_telegram_rate_limiter_smooths_burst():
+    limiter = _RateLimiter(max_per_second=5)
+    started = time.monotonic()
+    for _ in range(20):
+        limiter.wait()
+    elapsed = time.monotonic() - started
+    # 20 条按 5 条/秒需要至少 3 秒
+    assert elapsed >= 2.8
+
+
+def test_telegram_rate_limiter_free_flow_under_limit():
+    limiter = _RateLimiter(max_per_second=100)
+    started = time.monotonic()
+    for _ in range(20):
+        limiter.wait()
+    assert time.monotonic() - started < 0.5
+
+
+def test_telegram_429_retry_once():
+    calls = {"n": 0}
+
+    def handler(request):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return httpx.Response(
+                200,
+                json={"ok": False, "error_code": 429, "parameters": {"retry_after": 0}},
+            )
+        return httpx.Response(200, json={"ok": True})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    notifier = TelegramNotifier(
+        TelegramConfig(bot_token="123:abc", chat_id="456"),
+        client=client,
+    )
+    notifier.send_text("hi")
+    assert calls["n"] == 2
+
+
+def test_tg_limiter_is_shared_singleton():
+    # 全局限速器是进程级单例，所有 TG 发送共享额度
+    assert _tg_rate_limiter is not None and isinstance(_tg_rate_limiter, _RateLimiter)
 
 
 def test_wecom_success():
