@@ -647,8 +647,8 @@ function channelStatusHtml(user) {
         <p class="muted channel-desc">${tg ? (tgCustom ? "使用你自己的机器人推送" : "官方机器人推送已启用") : "按下方步骤操作"}</p>
         <div class="channel-actions">
           ${tg
-            ? `<button class="btn-sm" onclick="unbindChannel('${tgCustom ? "telegram_bot_token" : "telegram_chat_id"}')">解绑</button>`
-            : `<button class="btn-sm" onclick="bindChannel('telegram')">一键绑定官方机器人</button>
+            ? `<button class="channel-btn secondary" onclick="unbindChannel('${tgCustom ? "telegram_bot_token" : "telegram_chat_id"}')">解绑</button>`
+            : `<button class="channel-btn primary" onclick="bindChannel('telegram')">一键绑定官方机器人</button>
                <div id="bind-result-telegram"></div>
                <details>
                  <summary class="muted" style="cursor:pointer">或使用自己的机器人（推荐）</summary>
@@ -677,8 +677,8 @@ function channelStatusHtml(user) {
         </p>
         <div class="channel-actions">
           ${fsOpen
-            ? `<button class="btn-sm" onclick="unbindChannel('feishu')">解绑</button>`
-            : `<button class="btn-sm" onclick="bindChannel('feishu')">绑定</button>
+            ? `<button class="channel-btn secondary" onclick="unbindChannel('feishu')">解绑</button>`
+            : `<button class="channel-btn primary" onclick="bindChannel('feishu')">绑定</button>
                <div id="bind-result-feishu"></div>`}
         </div>
       </div>
@@ -690,8 +690,8 @@ function channelStatusHtml(user) {
         <p class="muted channel-desc">${wc ? "群机器人推送已启用" : "在企业微信群添加群机器人，把 webhook 粘贴到下方输入框即可"}</p>
         <div class="channel-actions">
           ${wc
-            ? `<button class="btn-sm" onclick="unbindChannel('wecom')">解绑</button>`
-            : `<button class="btn-sm" onclick="document.getElementById('wecom-bind').scrollIntoView({behavior:'smooth'})">去绑定</button>`}
+            ? `<button class="channel-btn secondary" onclick="unbindChannel('wecom')">解绑</button>`
+            : `<button class="channel-btn primary" onclick="document.getElementById('wecom-bind').scrollIntoView({behavior:'smooth'})">去绑定</button>`}
         </div>
       </div>
     </div>`;

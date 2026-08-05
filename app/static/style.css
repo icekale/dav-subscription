@@ -494,7 +494,21 @@ td .btn-sm.danger { color: var(--color-danger); border-color: rgba(220, 38, 38, 
 .channel-card[data-channel="wecom"] .ch-icon { color: #07c160; }
 .channel-desc { margin-top: 10px; line-height: 1.6; flex: 1; }
 .channel-actions { margin-top: 14px; display: flex; flex-direction: column; gap: 8px; }
-.channel-actions .btn-sm { align-self: flex-start; }
+.channel-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 100%; height: var(--control-height-xl);
+  border: none; border-radius: var(--radius-control);
+  font-size: var(--text-sm); font-weight: var(--font-weight-semibold);
+  cursor: pointer; transition: all var(--ease-standard);
+}
+.channel-btn.primary { background: var(--color-accent); color: #fff; }
+.channel-btn.primary:hover { background: var(--color-accent-strong); }
+.channel-btn.secondary {
+  background: var(--color-surface);
+  border: var(--border-strong);
+  color: var(--color-text-strong);
+}
+.channel-btn.secondary:hover { border-color: var(--color-accent); color: var(--color-accent); }
 .channel-status {
   display: inline-flex; align-items: center; gap: 6px;
   font-size: var(--text-xs); font-weight: var(--font-weight-semibold);
