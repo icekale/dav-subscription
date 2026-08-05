@@ -102,7 +102,9 @@ class FeishuBot:
                 self._send(
                     "feishu_chat_id",
                     chat_id,
-                    "✅ 推送渠道已自动绑定：订阅大V后，新帖会直接发到这个私聊会话。发 /list 查看可订阅的大V。",
+                    "✅ 会话已建立：订阅大V后，新帖会直接发到这个私聊会话。发 /list 可查看大V。\n\n"
+                    "💡 如果你同时使用网页/小程序，请到网页「推送设置」生成绑定码，"
+                    "然后把 /bind 6位码 发给我，两个渠道的订阅与推送会合并。",
                 )
 
     def _send_card(self, chat_id: str, card: dict) -> None:
