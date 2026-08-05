@@ -1,8 +1,29 @@
+<div align="center">
+
 # 大V订阅 DaV Subscription
 
 自托管的社交大V动态聚合订阅系统：抓取 **雪球 / 微博 / X(Twitter)** 大V公开动态（含雪球组合调仓），新帖实时推送到 **Telegram / 飞书 / 企业微信**。支持多用户注册，每个用户自选订阅的大V与推送渠道，管理员在网页后台统一管理。
 
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Docker](https://img.shields.io/badge/Docker-ready-2496ed.svg?logo=docker&logoColor=white)](Dockerfile)
+[![GHCR](https://img.shields.io/badge/GHCR-镜像-2496ed.svg?logo=github&logoColor=white)](https://github.com/icekale/dav-subscription/pkgs/container/dav-subscription)
+[![Platform](https://img.shields.io/badge/Platform-amd64%20%7C%20arm64-blue.svg)]()
+
+</div>
+
 > 仅抓取公开可见的动态，不含任何平台会员/付费内容；自托管无订阅名额与推送次数限制。
+
+## 产品截图
+
+<div align="center">
+
+| | |
+|---|---|
+| <img src="docs/screenshots/home.png" width="420"><br>订阅广场 · 平台筛选与分类目录 | <img src="docs/screenshots/settings.png" width="420"><br>推送设置 · 多渠道状态与通道选择 |
+| <img src="docs/screenshots/mysubs.png" width="420"><br>我的订阅 · 帖子/回复分订 | <img src="docs/screenshots/combinations.png" width="420"><br>组合订阅 · 雪球模拟仓调仓 |
+| <img src="docs/screenshots/login.png" width="420"><br>登录注册 · 注册码邀请 | <img src="docs/screenshots/admin-stats.png" width="420"><br>管理后台 · 数据源与抓取状态 |
+
+</div>
 
 ## 功能
 
