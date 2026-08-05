@@ -6,6 +6,7 @@ import re
 import feedparser
 import httpx
 
+from ..avatar_cache import cache_avatar
 from .base import Fetcher, Post, strip_html
 
 
@@ -81,5 +82,5 @@ class RssFetcher(Fetcher):
         if self.db is not None:
             avatar = self._extract_avatar(feed)
             if avatar and avatar != (self.db.get_kol(kol["id"]) or {}).get("avatar_url"):
-                self.db.update_kol_avatar(kol["id"], avatar)
+                self.db.update_kol_avatar(kol["id"], cache_avatar(self.db, kol["id"], avatar))
         return posts

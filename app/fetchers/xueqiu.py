@@ -5,6 +5,7 @@ import time
 
 import httpx
 
+from ..avatar_cache import cache_avatar
 from .base import Fetcher, Post, format_published_at, strip_html
 
 XUEQIU_COOKIE_KEY = "xueqiu_cookie"
@@ -219,5 +220,5 @@ class XueqiuFetcher(Fetcher):
             user = statuses[0].get("user") or {}
             avatar = _avatar_url(user)
             if avatar and avatar != (self.db.get_kol(kol["id"]) or {}).get("avatar_url"):
-                self.db.update_kol_avatar(kol["id"], avatar)
+                self.db.update_kol_avatar(kol["id"], cache_avatar(self.db, kol["id"], avatar))
         return posts

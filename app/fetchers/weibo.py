@@ -11,6 +11,7 @@ import time
 import httpx
 import rsa
 
+from ..avatar_cache import cache_avatar
 from .base import Fetcher, Post, strip_html
 
 logger = logging.getLogger(__name__)
@@ -304,5 +305,5 @@ class WeiboFetcher(Fetcher):
             user = (mblogs[0].get("user") or {})
             avatar = user.get("avatar_large") or user.get("profile_image_url") or ""
             if avatar and avatar != (self.db.get_kol(kol["id"]) or {}).get("avatar_url"):
-                self.db.update_kol_avatar(kol["id"], avatar)
+                self.db.update_kol_avatar(kol["id"], cache_avatar(self.db, kol["id"], avatar))
         return posts

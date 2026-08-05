@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS kols (
     name TEXT NOT NULL,
     external_id TEXT NOT NULL,
     avatar_url TEXT NOT NULL DEFAULT '',
+    avatar_source TEXT NOT NULL DEFAULT '',
     enabled INTEGER NOT NULL DEFAULT 1,
     is_private INTEGER NOT NULL DEFAULT 0,
     original_only INTEGER NOT NULL DEFAULT 0,
@@ -187,6 +188,8 @@ class DB:
             self._conn.execute("ALTER TABLE kols ADD COLUMN is_private INTEGER NOT NULL DEFAULT 0")
         if "avatar_url" not in kol_cols:
             self._conn.execute("ALTER TABLE kols ADD COLUMN avatar_url TEXT NOT NULL DEFAULT ''")
+        if "avatar_source" not in kol_cols:
+            self._conn.execute("ALTER TABLE kols ADD COLUMN avatar_source TEXT NOT NULL DEFAULT ''")
         if "original_only" not in kol_cols:
             self._conn.execute("ALTER TABLE kols ADD COLUMN original_only INTEGER NOT NULL DEFAULT 0")
         # 渠道绑定唯一化：先清理重复（保留最早注册的用户），再建唯一索引，
@@ -264,6 +267,12 @@ class DB:
         self._execute(
             "UPDATE kols SET avatar_url = ? WHERE id = ?",
             (avatar_url or "", kol_id),
+        )
+
+    def update_kol_avatar_source(self, kol_id: int, source: str) -> None:
+        self._execute(
+            "UPDATE kols SET avatar_source = ? WHERE id = ?",
+            (source or "", kol_id),
         )
 
     def list_kols(self, platform: str | None = None, category_id: int | None = None) -> list[dict]:

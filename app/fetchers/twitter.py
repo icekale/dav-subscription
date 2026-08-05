@@ -15,6 +15,7 @@ import time
 
 import httpx
 
+from ..avatar_cache import cache_avatar
 from .base import Fetcher, Post
 from .rss import RssFetcher
 
@@ -342,5 +343,5 @@ class TwitterFetcher(Fetcher):
         if user.get("avatar") and self.db is not None:
             current = (self.db.get_kol(kol["id"]) or {}).get("avatar_url") or ""
             if user["avatar"] != current:
-                self.db.update_kol_avatar(kol["id"], user["avatar"])
+                self.db.update_kol_avatar(kol["id"], cache_avatar(self.db, kol["id"], user["avatar"]))
         return posts

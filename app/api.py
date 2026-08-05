@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 
 from . import auth, wechat
+from .avatar_cache import cache_avatar
 from .bot_core import BIND_CODE_TTL
 from .db import ALLOWED_PLATFORMS, DB
 from .fetchers.combination import extract_cube_symbol, resolve_combination_profile
@@ -822,7 +823,7 @@ def create_api_router(
             else:
                 profile = {}
             if profile.get("avatar_url"):
-                db.update_kol_avatar(kid, profile["avatar_url"])
+                db.update_kol_avatar(kid, cache_avatar(db, kid, profile["avatar_url"]))
                 kol = db.get_kol(kid)
         return kol
 
@@ -902,7 +903,7 @@ def create_api_router(
                     original_only=body.original_only,
                 )
                 if avatar_url:
-                    db.update_kol_avatar(kid, avatar_url)
+                    db.update_kol_avatar(kid, cache_avatar(db, kid, avatar_url))
                 results.append({"ok": True, "id": kid, "name": name, "external_id": external_id})
             except ValueError as exc:
                 results.append({"ok": False, "line": line[:80], "error": str(exc)})

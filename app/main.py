@@ -112,6 +112,10 @@ def create_app(config=None, db_path: str | Path | None = None) -> FastAPI:
             notifiers_config=config.notifiers,
         )
     )
+    # 本地头像缓存（数据目录/avatars），避免第三方图床过期/外链失效
+    avatars_dir = Path(config.db_path).parent / "avatars"
+    avatars_dir.mkdir(parents=True, exist_ok=True)
+    app.mount("/avatars", StaticFiles(directory=avatars_dir), name="avatars")
     app.mount("/", StaticFiles(directory=Path(__file__).parent / "static", html=True), name="static")
     return app
 
