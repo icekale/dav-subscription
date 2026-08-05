@@ -309,7 +309,12 @@ class FeishuNotifier(Notifier):
                 keys = self._upload_images(post.images[:2])
                 if keys:
                     img_elements = [
-                        {"tag": "img", "img_key": key, "alt": ""} for key in keys
+                        {
+                            "tag": "img",
+                            "img_key": key,
+                            "alt": {"tag": "plain_text", "content": ""},
+                        }
+                        for key in keys
                     ]
                     card["elements"] = (
                         [card["elements"][0]] + img_elements + card["elements"][1:]
