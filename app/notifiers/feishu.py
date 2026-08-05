@@ -50,9 +50,10 @@ def build_feishu_card(post: Post) -> dict:
     if post.post_type == "reply":
         title += " · 回复"
     category = post.category or ""
-    note_elements = [{"tag": "plain_text", "content": f"发布时间：{post.published_at}"}]
+    meta_lines = []
     if category:
-        note_elements.append({"tag": "plain_text", "content": f"🗂 {category}"})
+        meta_lines.append(f"🗂 {category}")
+    meta_lines.append(f"🕐 {post.published_at}")
     return {
         "msg_type": "interactive",
         "card": {
@@ -66,7 +67,11 @@ def build_feishu_card(post: Post) -> dict:
                     "tag": "div",
                     "text": {"tag": "lark_md", "content": content},
                 },
-                {"tag": "note", "elements": note_elements},
+                {"tag": "hr"},
+                {
+                    "tag": "div",
+                    "text": {"tag": "lark_md", "content": "\n".join(meta_lines)},
+                },
                 {
                     "tag": "action",
                     "actions": [
@@ -124,8 +129,8 @@ def build_feishu_combination_card(post: Post) -> dict:
     elements.append({"tag": "hr"})
     elements.append(
         {
-            "tag": "note",
-            "elements": [{"tag": "plain_text", "content": f"发布时间：{post.published_at}"}],
+            "tag": "div",
+            "text": {"tag": "lark_md", "content": f"🕐 {post.published_at}"},
         }
     )
     elements.append(
