@@ -50,7 +50,7 @@ def _avatar_url(user: dict) -> str:
 
 
 def _extract_images(status: dict) -> list[str]:
-    """雪球动态图片：original_pictures / pics 里的 url（最多 4 张）。"""
+    """雪球动态图片：original_pictures / pics / pic 字段（最多 4 张）。"""
     out: list[str] = []
     for pics_key in ("original_pictures", "pics"):
         for pic in status.get(pics_key) or []:
@@ -61,6 +61,17 @@ def _extract_images(status: dict) -> list[str]:
                 out.append(url)
             if len(out) >= 4:
                 return out
+    # 新版接口：pic 为逗号分隔的图片列表（带 !thumb 缩略图后缀，去掉取原图）
+    for url in (status.get("pic") or "").split(","):
+        url = url.strip()
+        if url.startswith("//"):
+            url = f"https:{url}"
+        if "!" in url:
+            url = url.split("!")[0]
+        if url and url not in out:
+            out.append(url)
+        if len(out) >= 4:
+            break
     return out
 
 

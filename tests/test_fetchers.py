@@ -279,6 +279,16 @@ def test_xueqiu_extract_images():
         "https://x.img/c.jpg",
     ]
     assert _extract_images({}) == []
+    # 新版接口：pic 字段逗号分隔 + !thumb 缩略图后缀
+    assert _extract_images(
+        {
+            "pic": (
+                "https://x.img/a.jpg!thumb.jpg,"
+                "//x.img/b.jpg!thumb.jpg,"
+                "https://x.img/c.jpg!thumb.jpg"
+            )
+        }
+    ) == ["https://x.img/a.jpg", "https://x.img/b.jpg", "https://x.img/c.jpg"]
 
 
 def test_weibo_extract_images():
