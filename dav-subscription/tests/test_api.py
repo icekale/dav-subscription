@@ -97,6 +97,41 @@ def test_stats_api():
     assert stats["users"] == 1
     assert stats["posts"] == 0
     assert "polling_interval_seconds" in stats
+
+
+def test_recommendations_api_sorted_by_subscribers():
+    client = make_client()
+    admin = auth_headers(client)
+    hot = client.post(
+        "/api/kols", headers=admin, json={"platform": "xueqiu", "name": "热门", "external_id": "1"}
+    ).json()["id"]
+    cold = client.post(
+        "/api/kols", headers=admin, json={"platform": "weibo", "name": "冷门", "external_id": "2"}
+    ).json()["id"]
+    u1 = user_headers(client, "sub_a")
+    u2 = user_headers(client, "sub_b")
+    for h in (u1, u2):
+        assert client.post("/api/subscriptions", headers=h, json={"kol_id": hot, "type": "post"}).status_code == 200
+    recs = client.get("/api/recommendations", headers=u1).json()
+    assert [r["id"] for r in recs] == [hot, cold]
+    assert recs[0]["subscriber_count"] == 2
+    assert recs[0]["subscribed"] is True
+    assert recs[1]["subscribed"] is False
+
+
+def test_stats_x_direct_mode():
+    client = make_client()
+    headers = auth_headers(client)
+    data = client.get("/api/stats", headers=headers).json()
+    twitter = next(s for s in data["sources"] if s["platform"] == "twitter")
+    assert twitter["direct_mode"] == "unknown"
+
+    client.app.state.db.set_setting("x_direct_last_fallback_at", "1785900000")
+    client.app.state.db.set_setting("x_direct_fallback_reason", "401 Unauthorized")
+    data = client.get("/api/stats", headers=headers).json()
+    twitter = next(s for s in data["sources"] if s["platform"] == "twitter")
+    assert twitter["direct_mode"] == "fallback"
+    assert "401" in twitter["direct_fallback_reason"]
     # 普通用户无权访问
     normal = user_headers(client, "viewer")
     assert client.get("/api/stats", headers=normal).status_code == 403

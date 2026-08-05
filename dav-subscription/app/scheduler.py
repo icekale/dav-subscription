@@ -24,6 +24,8 @@ PUSH_ALERT_KEY = "push_alert_last_at"
 PUSH_ALERT_INTERVAL = 3600
 SOURCE_ALERT_INTERVAL = 6 * 3600
 SOURCE_FAIL_THRESHOLD = 3
+X_DIRECT_ALERT_KEY = "x_direct_alert_at"
+X_DIRECT_ALERT_INTERVAL = 6 * 3600
 PLATFORM_LABELS = {"xueqiu": "雪球", "combination": "雪球组合", "weibo": "微博", "twitter": "X"}
 SOURCE_OK_KEY = "source_ok_{platform}"
 SOURCE_ERR_KEY = "source_err_{platform}"
@@ -369,6 +371,39 @@ def maybe_alert_push_failure(db: DB, notifiers: list[Notifier], detail: str) -> 
             logger.warning("推送告警发送失败 channel=%s err=%s", notifier.channel, exc)
 
 
+def maybe_alert_x_fallback(db: DB, notifiers: list[Notifier]) -> None:
+    """X 直抓降级到 RSSHub 备用通道时通知管理员（每 6 小时最多一次）。"""
+    fallback_at = db.get_setting("x_direct_last_fallback_at")
+    if not fallback_at:
+        return
+    try:
+        fallback_ts = int(fallback_at)
+    except (TypeError, ValueError):
+        return
+    now = int(time.time())
+    last = db.get_setting(X_DIRECT_ALERT_KEY)
+    if last:
+        try:
+            if int(last) >= fallback_ts:
+                return  # 本次降级已告警过
+            if now - int(last) < X_DIRECT_ALERT_INTERVAL:
+                return  # 仍在告警冷却期
+        except (TypeError, ValueError):
+            pass
+    reason = db.get_setting("x_direct_fallback_reason") or "X 官方接口不可用"
+    message = (
+        "⚠️ X 直抓已降级到 RSSHub 备用通道\n"
+        f"原因：{reason[:200]}\n"
+        "请检查 TWITTER_COOKIE 是否失效，必要时重新登录 X 更新 Cookie。"
+    )
+    for notifier in notifiers:
+        try:
+            notifier.send_text(message)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("X 降级告警发送失败 channel=%s err=%s", notifier.channel, exc)
+    db.set_setting(X_DIRECT_ALERT_KEY, str(now))
+
+
 def notify_post(
     db: DB,
     post_id: int,
@@ -509,6 +544,7 @@ def poll_once(
             continue
         jobs.append((kol, fetcher, state))
     if not jobs:
+        maybe_alert_x_fallback(db, notifiers)
         return
     # 并发抓取：跨平台并行、同平台最多 2 个并发，兼顾提速与反爬风控
     platforms = {kol["platform"] for kol, _, _ in jobs}
@@ -537,6 +573,7 @@ def poll_once(
 
     with ThreadPoolExecutor(max_workers=min(8, len(jobs))) as ex:
         list(ex.map(_worker, jobs))
+    maybe_alert_x_fallback(db, notifiers)
 
 
 def _fetch_kol_once(

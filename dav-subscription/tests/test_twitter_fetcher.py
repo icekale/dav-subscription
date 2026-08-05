@@ -137,6 +137,7 @@ def test_twitter_direct_fetch_parses_tweets_and_avatar(monkeypatch):
     assert posts[1].post_type == "reply"
     assert posts[2].content == "模块帖"
     assert db.get_kol(kid)["avatar_url"] == "https://pbs.twimg.com/profile_images/1_400x400.jpg"
+    assert db.get_setting("x_direct_last_ok_at")
 
 
 def test_twitter_falls_back_to_rsshub(monkeypatch):
@@ -168,3 +169,5 @@ def test_twitter_falls_back_to_rsshub(monkeypatch):
     assert len(posts) == 1
     assert posts[0].title == "备用源"
     assert posts[0].url == "https://x.com/SemiAnalysis_/status/999"
+    assert db.get_setting("x_direct_last_fallback_at")
+    assert "queryId 已失效" in (db.get_setting("x_direct_fallback_reason") or "")

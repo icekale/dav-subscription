@@ -18,6 +18,7 @@ from app.scheduler import (
     flush_digest,
     keepalive_weibo_cookie,
     keepalive_xueqiu_cookie,
+    maybe_alert_x_fallback,
     notify_subscribers,
     parse_twitter_cookie,
     poll_once,
@@ -126,6 +127,27 @@ def test_fetch_error_does_not_crash():
     poll_once(db, {"xueqiu": FakeFetcherError()}, [notifier])
     assert len(db.list_posts()) == 0
     assert len(notifier.calls) == 0
+
+
+def test_maybe_alert_x_fallback_once_per_episode():
+    db = make_db()
+    notifier = FakeNotifier()
+    db.set_setting("x_direct_last_fallback_at", str(int(time.time())))
+    db.set_setting("x_direct_fallback_reason", "HTTP 401")
+
+    maybe_alert_x_fallback(db, [notifier])
+    assert len(notifier.texts) == 1
+    assert "HTTP 401" in notifier.texts[0]
+
+    # 同一降级事件不会重复告警
+    maybe_alert_x_fallback(db, [notifier])
+    assert len(notifier.texts) == 1
+
+    # 新的降级事件（时间更新）且已过冷却期后再次告警
+    db.set_setting("x_direct_alert_at", str(int(time.time()) - 7 * 3600))
+    db.set_setting("x_direct_last_fallback_at", str(int(time.time()) + 60))
+    maybe_alert_x_fallback(db, [notifier])
+    assert len(notifier.texts) == 2
 
 
 def test_poll_once_fetches_platforms_concurrently():

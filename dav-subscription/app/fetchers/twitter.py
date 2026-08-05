@@ -172,8 +172,14 @@ class TwitterFetcher(Fetcher):
         """优先 X 直抓；失败（cookie 失效/接口轮换/风控）自动回退 RSSHub。"""
         cookie = os.environ.get("TWITTER_COOKIE", "")
         try:
-            return self._fetch_direct(kol, cookie)
+            posts = self._fetch_direct(kol, cookie)
+            if self.db is not None:
+                self.db.set_setting("x_direct_last_ok_at", str(int(time.time())))
+            return posts
         except Exception as exc:  # noqa: BLE001 - 回退备用通道
+            if self.db is not None:
+                self.db.set_setting("x_direct_last_fallback_at", str(int(time.time())))
+                self.db.set_setting("x_direct_fallback_reason", str(exc)[:300])
             logger.warning(
                 "X 直抓失败，回退 RSSHub kol=%s err=%s",
                 kol["name"],

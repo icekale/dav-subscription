@@ -417,6 +417,22 @@ def create_api_router(
             for kol in kols
         ]
 
+    @router.get("/recommendations")
+    def recommendations(user: dict = Depends(get_current_user)):
+        """新用户引导：按订阅人数推荐大V（仅首次引导使用）。"""
+        return [
+            {
+                "id": k["id"],
+                "name": k["name"],
+                "platform": k["platform"],
+                "avatar_url": k["avatar_url"],
+                "category_name": k["category_name"],
+                "subscriber_count": int(k["subscriber_count"] or 0),
+                "subscribed": bool(k["subscribed"]),
+            }
+            for k in db.recommended_kols(user["id"], 4)
+        ]
+
     @router.post("/subscriptions")
     def subscribe(body: SubscriptionIn, user: dict = Depends(get_current_user)):
         kol = db.get_kol(body.kol_id)
@@ -898,15 +914,28 @@ def create_api_router(
             ok_at = db.get_setting(f"source_ok_{platform}")
             err = db.get_setting(f"source_err_{platform}") or ""
             fails = db.get_setting(f"source_fails_{platform}") or "0"
-            sources.append(
-                {
-                    "platform": platform,
-                    "ok": bool(ok_at),
-                    "last_ok_at": ok_at,
-                    "last_error": err,
-                    "consecutive_fails": int(fails),
-                }
-            )
+            src = {
+                "platform": platform,
+                "ok": bool(ok_at),
+                "last_ok_at": ok_at,
+                "last_error": err,
+                "consecutive_fails": int(fails),
+            }
+            if platform == "twitter":
+                # X 通道状态：直抓（官方接口）为主，降级时用 RSSHub 备用
+                direct_ok = db.get_setting("x_direct_last_ok_at")
+                fallback_at = db.get_setting("x_direct_last_fallback_at")
+                if fallback_at and (not direct_ok or fallback_at > direct_ok):
+                    src["direct_mode"] = "fallback"
+                elif direct_ok:
+                    src["direct_mode"] = "direct"
+                else:
+                    src["direct_mode"] = "unknown"
+                src["direct_last_ok_at"] = direct_ok
+                src["direct_fallback_reason"] = (
+                    db.get_setting("x_direct_fallback_reason") or ""
+                )
+            sources.append(src)
         xueqiu_cookie = db.get_setting("xueqiu_cookie") or ""
         xueqiu_updated = db.get_setting("xueqiu_cookie_updated_at") or ""
         weibo_cookie = db.get_setting("weibo_cookie") or ""

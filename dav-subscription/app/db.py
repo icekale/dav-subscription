@@ -255,6 +255,19 @@ class DB:
         sql += " ORDER BY k.id"
         return self._rows(sql, params)
 
+    def recommended_kols(self, user_id: int, limit: int = 4) -> list[dict]:
+        """新用户引导推荐：启用且公开的大V，按订阅人数倒序。"""
+        return self._rows(
+            "SELECT k.*, c.name AS category_name, "
+            "(SELECT COUNT(*) FROM subscriptions s WHERE s.kol_id = k.id) AS subscriber_count, "
+            "EXISTS(SELECT 1 FROM subscriptions mine "
+            "       WHERE mine.kol_id = k.id AND mine.user_id = ?) AS subscribed "
+            "FROM kols k LEFT JOIN categories c ON c.id = k.category_id "
+            "WHERE k.enabled = 1 AND k.is_private = 0 "
+            "ORDER BY subscriber_count DESC, k.id DESC LIMIT ?",
+            (user_id, limit),
+        )
+
     def last_post_time_by_kol(self) -> dict[int, str]:
         """每个大V最近一次抓到帖子的时间（fetched_at），用于活跃度排序。"""
         rows = self._rows(

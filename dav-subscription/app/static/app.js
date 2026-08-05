@@ -126,9 +126,45 @@ function emptyState(text, actionHtml = "") {
 // ---------- 订阅广场 ----------
 async function renderHome() {
   setPageTitle("订阅广场");
+  let onboardingHtml = "";
+  if (state.user && !state.user.subscription_count) {
+    try {
+      const recs = await api("/api/recommendations");
+      if (recs.length) {
+        onboardingHtml = `
+          <section class="section-panel" style="border-color:var(--color-primary)">
+            <header class="section-head"><div>
+              <p class="section-eyebrow">Welcome</p>
+              <h3 class="section-title">👋 欢迎！先订阅几位大V</h3>
+              <p class="section-meta">以下是最热门的大V；订阅后新帖会自动推送到你绑定的渠道。</p>
+            </div></header>
+            <div class="row" style="gap:12px;flex-wrap:wrap">${recs.map((rec) => `
+              <div class="kol-item" style="flex:1;min-width:230px">
+                ${avatarHtml(rec.name, rec.avatar_url)}
+                <div class="kol-info" onclick="location.hash='#/kol/${rec.id}'">
+                  <div class="base">
+                    <span class="name">${escapeHtml(rec.name)}</span>
+                    <span class="tag">${PLATFORM_LABELS[rec.platform] || rec.platform}</span>
+                    ${rec.category_name ? `<span class="tag">${escapeHtml(rec.category_name)}</span>` : ""}
+                  </div>
+                  <div class="desc">${rec.subscriber_count} 人订阅</div>
+                </div>
+                <button class="btn-sub ${rec.subscribed ? "subscribed" : ""}" onclick="quickSubscribe(${rec.id}, this)">
+                  ${rec.subscribed ? "✓ 已订阅" : "订阅"}
+                </button>
+              </div>`).join("")}
+            </div>
+            <p class="muted" style="margin-top:12px">💡 也可以先去<a href="#/settings">绑定推送渠道</a>，再回来订阅。</p>
+          </section>`;
+      }
+    } catch {
+      /* 推荐加载失败不阻塞页面 */
+    }
+  }
   $("#main").innerHTML = `
     ${heroPanel("DaV Catalog", "订阅广场", "浏览大V目录，点击卡片查看动态，一键订阅你关注的人。",
       ["雪球", "雪球组合", "微博", "X"])}
+    ${onboardingHtml}
     <section class="section-panel">
       <header class="section-head">
         <div>
@@ -235,6 +271,18 @@ async function toggleSubscribe(kolId, btn) {
     refreshKolsView();
   } catch (err) {
     alert("操作失败: " + err.message);
+  }
+}
+
+async function quickSubscribe(kolId, btn) {
+  try {
+    await api("/api/subscriptions", { method: "POST", body: JSON.stringify({ kol_id: kolId, type: "post" }) });
+    btn.classList.add("subscribed");
+    btn.textContent = "✓ 已订阅";
+    btn.disabled = true;
+    state.user.subscription_count = (state.user.subscription_count || 0) + 1;
+  } catch (err) {
+    alert("订阅失败: " + err.message);
   }
 }
 
@@ -877,15 +925,25 @@ async function loadAdminStats() {
       ${s.last_poll_error ? `<div class="notice" style="margin-top:16px">最近轮询异常：${escapeHtml(s.last_poll_error)}</div>` : ""}
       <div class="table-wrap" style="margin-top:16px">
         <table>
-          <thead><tr><th>平台</th><th>状态</th><th>最近成功</th><th>最近失败</th><th>连续失败</th></tr></thead>
-          <tbody>${(s.sources || []).map((src) => `
-            <tr>
-              <td>${PLATFORM_LABELS[src.platform] || src.platform}</td>
-              <td class="${src.ok ? "status-ok" : "status-fail"}">${src.ok ? "正常" : "无成功记录"}</td>
-              <td>${src.last_ok_at ? fmtTime(src.last_ok_at) : "-"}</td>
-              <td class="muted">${src.last_error ? escapeHtml(src.last_error.slice(0, 60)) : "-"}</td>
-              <td class="${src.consecutive_fails >= 3 ? "status-fail" : ""}">${src.consecutive_fails}</td>
-            </tr>`).join("")}</tbody>
+          <thead><tr><th>平台</th><th>状态</th><th>通道</th><th>最近成功</th><th>最近失败</th><th>连续失败</th></tr></thead>
+          <tbody>${(s.sources || []).map((src) => {
+            const channel = src.platform === "twitter"
+              ? (src.direct_mode === "direct"
+                  ? '<span class="status-ok">直抓</span>'
+                  : src.direct_mode === "fallback"
+                    ? '<span class="status-warn" title="' + escapeHtml(src.direct_fallback_reason || "") + '">备用RSS</span>'
+                    : '<span class="muted">-</span>')
+              : '<span class="muted">-</span>';
+            return `
+              <tr>
+                <td>${PLATFORM_LABELS[src.platform] || src.platform}</td>
+                <td class="${src.ok ? "status-ok" : "status-fail"}">${src.ok ? "正常" : "无成功记录"}</td>
+                <td>${channel}</td>
+                <td>${src.last_ok_at ? fmtTime(src.last_ok_at) : "-"}</td>
+                <td class="muted">${src.last_error ? escapeHtml(src.last_error.slice(0, 60)) : "-"}</td>
+                <td class="${src.consecutive_fails >= 3 ? "status-fail" : ""}">${src.consecutive_fails}</td>
+              </tr>`;
+          }).join("")}</tbody>
         </table>
       </div>
       <div class="row" style="gap:14px;align-items:flex-end;margin-top:18px;flex-wrap:wrap">
