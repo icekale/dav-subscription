@@ -606,6 +606,7 @@ function stopSettingsPoll() {
 
 function channelStatusHtml(user) {
   const tg = user.telegram_chat_id;
+  const tgCustom = user.custom_telegram_bot;
   const fsOpen = user.feishu_open_id;
   const fsChat = user.feishu_chat_id;
   const wc = user.wecom_webhook;
@@ -614,14 +615,27 @@ function channelStatusHtml(user) {
     <div class="row" style="gap:16px;flex-wrap:wrap">
       <div class="channel-card">
         <div class="channel-head">
-          <b>Telegram</b>
+          <b>Telegram${tgCustom ? ' <span class="tag">自建</span>' : ""}</b>
           <span class="${tg ? "status-ok" : "status-fail"}">${tg ? "已绑定 ✅" : "未绑定"}</span>
         </div>
-        <p class="muted" style="margin:8px 0 0">${tg ? "推送已启用" : "按下方步骤操作，本页会自动刷新状态"}</p>
+        <p class="muted" style="margin:8px 0 0">${tg ? (tgCustom ? "使用你自己的机器人推送" : "官方机器人推送已启用") : "按下方步骤操作"}</p>
         ${tg
-          ? `<button class="btn-sm" style="margin-top:10px" onclick="unbindChannel('telegram_chat_id')">解绑</button>`
-          : `<button class="btn-sm" style="margin-top:10px" onclick="bindChannel('telegram')">绑定</button>
-             <div id="bind-result-telegram"></div>`}
+          ? `<button class="btn-sm" style="margin-top:10px" onclick="unbindChannel('${tgCustom ? "telegram_bot_token" : "telegram_chat_id"}')">解绑</button>`
+          : `<button class="btn-sm" style="margin-top:10px" onclick="bindChannel('telegram')">一键绑定官方机器人</button>
+             <div id="bind-result-telegram"></div>
+             <details style="margin-top:10px">
+               <summary class="muted" style="cursor:pointer">或使用自己的机器人（推荐）</summary>
+               <ol style="padding-left:18px;line-height:1.8;margin-top:8px">
+                 <li>打开 Telegram 搜索 <b>@BotFather</b>，发 <code>/newbot</code> 创建机器人，拿到 token</li>
+                 <li>给你的新机器人发任意消息（如 <code>/start</code>）</li>
+                 <li>把 token 粘贴到下方点「保存」，系统自动识别你的会话，无需手动填 ID</li>
+               </ol>
+               <div class="row" style="gap:8px;margin-top:10px">
+                 <input id="set-custom-tg" class="form-control" style="flex:1;min-width:220px" type="password" placeholder="123456:ABC-DEF...">
+                 <button class="btn-normal" onclick="saveCustomTgBot()">保存</button>
+               </div>
+               <p id="custom-tg-result" class="muted"></p>
+             </details>`}
       </div>
       <div class="channel-card">
         <div class="channel-head">
@@ -855,14 +869,33 @@ async function bindChannel(channel) {
   }
 }
 
+async function saveCustomTgBot() {
+  const token = ($("#set-custom-tg").value || "").trim();
+  if (!token) {
+    alert("请先粘贴你的 bot token");
+    return;
+  }
+  try {
+    await api("/api/me", { method: "PUT", body: JSON.stringify({ telegram_bot_token: token }) });
+    renderSettings();
+    alert("自建机器人绑定成功 ✅ 之后推送会通过你的机器人发送");
+  } catch (err) {
+    $("#custom-tg-result").textContent = "绑定失败：" + err.message;
+  }
+}
+
 async function unbindChannel(channel) {
-  const label = channel === "telegram_chat_id" ? "Telegram" : channel === "wecom" ? "企业微信" : "飞书";
+  const label = channel === "telegram_chat_id" ? "Telegram"
+    : channel === "telegram_bot_token" ? "Telegram（自建机器人）"
+    : channel === "wecom" ? "企业微信" : "飞书";
   if (!confirm(`确认解绑 ${label}？解绑后将不再往该渠道推送。`)) return;
   try {
     const body = channel === "feishu"
       ? { feishu_open_id: "", feishu_chat_id: "" }
       : channel === "wecom"
         ? { wecom_webhook: "" }
+        : channel === "telegram_bot_token"
+          ? { telegram_bot_token: "", telegram_chat_id: "" }
         : { telegram_chat_id: "" };
     await api("/api/me", { method: "PUT", body: JSON.stringify(body) });
     renderSettings();

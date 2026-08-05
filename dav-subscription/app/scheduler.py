@@ -455,13 +455,16 @@ def notify_subscribers(
             sub_type = user.get("subscribe_type") or "post"
             if not _sub_type_matches(sub_type, post.post_type):
                 continue  # 订阅类型不覆盖该动态（帖子/回复分订）
-            if user["telegram_chat_id"] and notifiers_config.telegram.bot_token:
+            if user["telegram_chat_id"] and (
+                notifiers_config.telegram.bot_token or user.get("telegram_bot_token")
+            ):
                 if global_tg_active and user["telegram_chat_id"] == global_tg_chat:
                     continue  # 已由全局推送覆盖
                 notifier = TelegramNotifier(
                     notifiers_config.telegram,
                     client=client,
                     chat_id=user["telegram_chat_id"],
+                    bot_token=user.get("telegram_bot_token") or None,
                 )
                 try:
                     notifier.notify(post)
@@ -707,7 +710,9 @@ def notify_digest_subscribers(
             matched = [p for p in posts if _sub_type_matches(sub_type, p.post_type)]
             if not matched:
                 continue
-            if user["telegram_chat_id"] and notifiers_config.telegram.bot_token:
+            if user["telegram_chat_id"] and (
+                notifiers_config.telegram.bot_token or user.get("telegram_bot_token")
+            ):
                 if global_tg_active and user["telegram_chat_id"] == global_tg_chat:
                     continue
                 notifier = TelegramNotifier(
@@ -715,6 +720,7 @@ def notify_digest_subscribers(
                     client=client,
                     chat_id=user["telegram_chat_id"],
                     unsub_kol_id=kol["id"],
+                    bot_token=user.get("telegram_bot_token") or None,
                 )
                 try:
                     notifier.send_digest(matched, kol["name"], kol["platform"])
@@ -1336,7 +1342,11 @@ class Scheduler:
         if channel == "telegram":
             if not user.get("telegram_chat_id"):
                 raise RuntimeError("用户未绑定 Telegram")
-            return TelegramNotifier(self.notifiers_config.telegram, chat_id=user["telegram_chat_id"])
+            return TelegramNotifier(
+                self.notifiers_config.telegram,
+                chat_id=user["telegram_chat_id"],
+                bot_token=user.get("telegram_bot_token") or None,
+            )
         if channel == "feishu":
             if not (user.get("feishu_open_id") or user.get("feishu_chat_id")):
                 raise RuntimeError("用户未绑定飞书")
@@ -1391,9 +1401,13 @@ class Scheduler:
                 )
                 for r in rows
             ]
-            if user.get("telegram_chat_id") and self.notifiers_config.telegram.bot_token:
+            if user.get("telegram_chat_id") and (
+                self.notifiers_config.telegram.bot_token or user.get("telegram_bot_token")
+            ):
                 notifier = TelegramNotifier(
-                    self.notifiers_config.telegram, chat_id=user["telegram_chat_id"]
+                    self.notifiers_config.telegram,
+                    chat_id=user["telegram_chat_id"],
+                    bot_token=user.get("telegram_bot_token") or None,
                 )
                 try:
                     notifier.send_daily(posts)

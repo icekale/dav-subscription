@@ -142,8 +142,10 @@ class TelegramNotifier(Notifier):
         client: httpx.Client | None = None,
         chat_id: str | None = None,
         unsub_kol_id: int | None = None,
+        bot_token: str | None = None,
     ):
-        self.bot_token = config.bot_token
+        # 用户自建 bot 时用用户自己的 token；否则用全局共享 bot
+        self.bot_token = bot_token or config.bot_token
         self.chat_id = chat_id or config.chat_id
         self.client = client or httpx.Client(timeout=15, proxy=config.proxy or None)
         self.unsub_kol_id = unsub_kol_id

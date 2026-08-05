@@ -75,6 +75,7 @@ CREATE TABLE IF NOT EXISTS users (
     is_admin INTEGER NOT NULL DEFAULT 0,
     wechat_openid TEXT NOT NULL DEFAULT '',
     telegram_chat_id TEXT NOT NULL DEFAULT '',
+    telegram_bot_token TEXT NOT NULL DEFAULT '',
     feishu_open_id TEXT NOT NULL DEFAULT '',
     feishu_chat_id TEXT NOT NULL DEFAULT '',
     wecom_webhook TEXT NOT NULL DEFAULT '',
@@ -156,6 +157,8 @@ class DB:
             self._conn.execute("ALTER TABLE users ADD COLUMN daily_report INTEGER NOT NULL DEFAULT 0")
         if "wecom_webhook" not in user_cols:
             self._conn.execute("ALTER TABLE users ADD COLUMN wecom_webhook TEXT NOT NULL DEFAULT ''")
+        if "telegram_bot_token" not in user_cols:
+            self._conn.execute("ALTER TABLE users ADD COLUMN telegram_bot_token TEXT NOT NULL DEFAULT ''")
         kol_cols = {row["name"] for row in self._rows("PRAGMA table_info(kols)")}
         if "priority" not in kol_cols:
             self._conn.execute("ALTER TABLE kols ADD COLUMN priority INTEGER NOT NULL DEFAULT 0")
@@ -173,6 +176,7 @@ class DB:
             "feishu_chat_id",
             "wechat_openid",
             "wecom_webhook",
+            "telegram_bot_token",
         ):
             seen = set()
             for row in self._rows(
@@ -424,6 +428,10 @@ class DB:
 
     def get_user_by_telegram(self, chat_id: str) -> dict | None:
         rows = self._rows("SELECT * FROM users WHERE telegram_chat_id = ?", (chat_id,))
+        return rows[0] if rows else None
+
+    def get_user_by_telegram_bot(self, bot_token: str) -> dict | None:
+        rows = self._rows("SELECT * FROM users WHERE telegram_bot_token = ?", (bot_token,))
         return rows[0] if rows else None
 
     def get_user_by_feishu(self, open_id: str) -> dict | None:

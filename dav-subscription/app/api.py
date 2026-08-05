@@ -31,6 +31,45 @@ def _normalize_weibo_id(external_id: str) -> str:
     return match.group(1) if match else external_id
 
 
+def _resolve_telegram_bot(token: str) -> tuple[str, str, str]:
+    """验证用户自建 bot token：返回 (bot_username, chat_id, error)。
+
+    自动通过 getUpdates 识别用户给自己 bot 发消息时的 chat_id，
+    用户无需手动填写 chat_id。
+    """
+    import httpx
+
+    try:
+        with httpx.Client(timeout=15) as client:
+            me = client.get(f"https://api.telegram.org/bot{token}/getMe")
+            me.raise_for_status()
+            me_data = me.json()
+            if not me_data.get("ok"):
+                return "", "", f"token 无效：{me_data.get('description', '未知错误')}"
+            bot_username = (me_data.get("result") or {}).get("username") or ""
+            updates = client.get(
+                f"https://api.telegram.org/bot{token}/getUpdates",
+                params={"limit": 5},
+            )
+            updates.raise_for_status()
+            up_data = updates.json()
+            if not up_data.get("ok"):
+                return bot_username, "", (
+                    f"获取会话失败：{up_data.get('description', '未知错误')}"
+                )
+            chat_ids = []
+            for update in up_data.get("result") or []:
+                msg = update.get("message") or {}
+                chat_id = (msg.get("chat") or {}).get("id")
+                if chat_id:
+                    chat_ids.append(str(chat_id))
+            if not chat_ids:
+                return bot_username, "", "请先给你的机器人发一条消息（如 /start），再点保存"
+            return bot_username, chat_ids[-1], ""
+    except Exception as exc:  # noqa: BLE001
+        return "", "", f"无法连接 Telegram：{exc}"
+
+
 class RegisterIn(BaseModel):
     username: str
     password: str
@@ -48,6 +87,7 @@ class WechatLoginIn(BaseModel):
 
 class MeUpdate(BaseModel):
     telegram_chat_id: str | None = None
+    telegram_bot_token: str | None = None
     feishu_open_id: str | None = None
     feishu_chat_id: str | None = None
     wecom_webhook: str | None = None
@@ -143,6 +183,7 @@ def public_user(user: dict) -> dict:
         "username": user["username"],
         "is_admin": bool(user["is_admin"]),
         "telegram_chat_id": user["telegram_chat_id"],
+        "custom_telegram_bot": bool(user.get("telegram_bot_token")),
         "feishu_open_id": user["feishu_open_id"],
         "feishu_chat_id": user["feishu_chat_id"],
         "wecom_webhook": user["wecom_webhook"],
@@ -342,6 +383,25 @@ def create_api_router(
                 if owner is not None and owner["id"] != user["id"]:
                     raise HTTPException(status_code=400, detail="该 Telegram 已绑定其他账号")
             db.update_user(user["id"], telegram_chat_id=value)
+        if "telegram_bot_token" in body.model_fields_set:
+            value = (body.telegram_bot_token or "").strip()
+            if value:
+                owner = db.get_user_by_telegram_bot(value)
+                if owner is not None and owner["id"] != user["id"]:
+                    raise HTTPException(status_code=400, detail="该机器人 token 已被其他账号使用")
+                _bot_username, chat_id, error = _resolve_telegram_bot(value)
+                if not chat_id:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"自建机器人绑定失败：{error}",
+                    )
+                db.update_user(
+                    user["id"],
+                    telegram_bot_token=value,
+                    telegram_chat_id=chat_id,
+                )
+            else:
+                db.update_user(user["id"], telegram_bot_token="")
         if "feishu_open_id" in body.model_fields_set:
             value = (body.feishu_open_id or "").strip()
             if value:
@@ -552,7 +612,9 @@ def create_api_router(
                 notifier = None
                 try:
                     notifier = TelegramNotifier(
-                        notifiers_config.telegram, chat_id=requester["telegram_chat_id"]
+                        notifiers_config.telegram,
+                        chat_id=requester["telegram_chat_id"],
+                        bot_token=requester.get("telegram_bot_token") or None,
                     )
                     notifier.send_text(message)
                 except Exception:  # noqa: BLE001
@@ -1021,10 +1083,13 @@ def create_api_router(
         from .notifiers.wecom import WeComNotifier
 
         results = []
-        if user["telegram_chat_id"] and notifiers_config.telegram.bot_token:
+        if user["telegram_chat_id"] and (
+            notifiers_config.telegram.bot_token or user.get("telegram_bot_token")
+        ):
             notifier = TelegramNotifier(
                 notifiers_config.telegram,
                 chat_id=user["telegram_chat_id"],
+                bot_token=user.get("telegram_bot_token") or None,
             )
             try:
                 notifier.send_text(f"【测试推送】{body.message}")

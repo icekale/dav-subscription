@@ -219,6 +219,85 @@ def test_channel_claim_conflict():
     assert client.put("/api/me", headers=headers_a, json={"wecom_webhook": ""}).status_code == 200
 
 
+def test_custom_telegram_bot_bind(monkeypatch):
+    from app import api as api_mod
+
+    monkeypatch.setattr(
+        api_mod,
+        "_resolve_telegram_bot",
+        lambda token: ("my_bot", "777", ""),
+    )
+    client = make_client()
+    h = user_headers(client, "custom_bot")
+    assert client.put("/api/me", headers=h, json={"telegram_bot_token": "123:abc"}).status_code == 200
+    me = client.get("/api/me", headers=h).json()
+    assert me["custom_telegram_bot"] is True
+    assert me["telegram_chat_id"] == "777"
+
+    # 未先给自己的 bot 发消息 → 绑定失败并提示
+    monkeypatch.setattr(
+        api_mod,
+        "_resolve_telegram_bot",
+        lambda token: ("", "", "请先给你的机器人发一条消息"),
+    )
+    resp = client.put(
+        "/api/me", headers=h, json={"telegram_bot_token": "999:abc"}
+    )
+    assert resp.status_code == 400 and "请先" in resp.json()["detail"]
+
+    # 解绑自建机器人
+    assert client.put("/api/me", headers=h, json={"telegram_bot_token": ""}).status_code == 200
+    assert client.get("/api/me", headers=h).json()["custom_telegram_bot"] is False
+
+
+def test_resolve_telegram_bot_parses_chat_id(monkeypatch):
+    from app import api as api_mod
+
+    calls = []
+
+    class FakeResp:
+        def __init__(self, data):
+            self._data = data
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self._data
+
+    class FakeClient:
+        def __init__(self, *a, **k):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def get(self, url, params=None):
+            calls.append(url)
+            if "getMe" in url:
+                return FakeResp({"ok": True, "result": {"username": "my_bot"}})
+            return FakeResp(
+                {
+                    "ok": True,
+                    "result": [
+                        {"message": {"chat": {"id": 111}}},
+                        {"message": {"chat": {"id": 777}}},
+                    ],
+                }
+            )
+
+    monkeypatch.setattr("httpx.Client", FakeClient)
+    username, chat_id, err = api_mod._resolve_telegram_bot("tok")
+    assert username == "my_bot"
+    assert chat_id == "777"  # 取最新的会话
+    assert err == ""
+    assert any("getMe" in u for u in calls)
+    assert any("getUpdates" in u for u in calls)
+
+
 def test_login_rate_limit():
     client = make_client()
     for _ in range(8):
@@ -284,7 +363,7 @@ def test_admin_test_push(monkeypatch):
     sent = []
 
     class FakeTelegram:
-        def __init__(self, config, chat_id=None, client=None):
+        def __init__(self, config, chat_id=None, client=None, **kwargs):
             self.chat_id = chat_id
             self.client = type("C", (), {"close": lambda self: None})()
 
@@ -1115,6 +1194,8 @@ def test_old_db_migrates_wecom_column():
     uid = db.add_user("wc", "hash")
     db.update_user(uid, wecom_webhook="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=wc1")
     assert db.get_user_by_wecom_webhook("https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=wc1")["id"] == uid
+    db.update_user(uid, telegram_bot_token="123:custom")
+    assert db.get_user_by_telegram_bot("123:custom")["id"] == uid
     db.close()
 
 

@@ -305,6 +305,38 @@ def test_notify_subscribers_wecom_webhook_only(monkeypatch):
     assert sent["ok"] is True
 
 
+def test_notify_subscribers_uses_custom_tg_bot_token(monkeypatch):
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    uid = db.add_user("tg_user", "h", telegram_chat_id="999")
+    db.update_user(uid, telegram_bot_token="123:custom")
+    db.add_subscription(uid, kid)
+    post = Post(
+        platform="xueqiu", kol_id=kid, kol_name="A",
+        external_id="p1", title="t", content="c", url="u", published_at="",
+    )
+    received = {}
+
+    class FakeTG:
+        def __init__(self, *args, **kwargs):
+            received.update(kwargs)
+            self.client = SimpleNamespace(close=lambda: None)
+            self.channel = "telegram"
+
+        def notify(self, post):
+            pass
+
+    notifiers_config = SimpleNamespace(
+        telegram=SimpleNamespace(bot_token="shared", chat_id=""),
+        feishu=SimpleNamespace(),
+        wecom=SimpleNamespace(),
+    )
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FakeTG)
+    notify_subscribers(db, 1, post, notifiers_config, notifiers=[], retry_queue=None)
+    assert received.get("bot_token") == "123:custom"
+    assert received.get("chat_id") == "999"
+
+
 def test_subscription_type_db_ops():
     db = make_db()
     kid = db.add_kol("xueqiu", "A", "1")
@@ -974,7 +1006,7 @@ def test_subscriber_push_uses_user_channels(monkeypatch):
     calls = []
 
     class FakeTelegram:
-        def __init__(self, config, chat_id=None, client=None):
+        def __init__(self, config, chat_id=None, client=None, **kwargs):
             calls.append(("telegram", chat_id))
 
         def notify(self, post):
@@ -1020,7 +1052,7 @@ def test_global_tg_chat_not_pushed_twice(monkeypatch):
     calls = []
 
     class FakeTelegram:
-        def __init__(self, config, chat_id=None, client=None):
+        def __init__(self, config, chat_id=None, client=None, **kwargs):
             calls.append(("telegram", chat_id))
 
         def notify(self, post):
@@ -1070,7 +1102,7 @@ def test_global_tg_chat_not_pushed_twice(monkeypatch):
 
 def test_push_failure_alert_throttled(monkeypatch):
     class FailingTelegram:
-        def __init__(self, config, chat_id=None, client=None):
+        def __init__(self, config, chat_id=None, client=None, **kwargs):
             pass
 
         def notify(self, post):
