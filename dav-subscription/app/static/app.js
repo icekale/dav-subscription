@@ -300,7 +300,7 @@ async function renderMySubs() {
     const subs = await api("/api/my/subscriptions");
     state.catalog = subs.map((k) => ({ ...k, subscribed: true }));
     $("#mysubs-list").innerHTML = subs.length
-      ? subs.map(kolCard).join("")
+      ? state.catalog.map(kolCard).join("")
       : emptyState("还没有订阅任何大V", `<div><button class="btn-normal btn-add" onclick="location.hash='#/home'">去发现大V</button></div>`);
   } catch (err) {
     $("#mysubs-list").innerHTML = emptyState(err.message);
