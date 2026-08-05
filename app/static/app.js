@@ -79,6 +79,7 @@ const NAV = [
     { route: "admin/posts", icon: "▤", label: "帖子" },
     { route: "admin/logs", icon: "☰", label: "推送记录" },
     { route: "admin/audit", icon: "◈", label: "操作日志" },
+    { route: "admin/syslogs", icon: "📜", label: "系统日志" },
     { route: "admin/users", icon: "◉", label: "用户" },
   ]},
 ];
@@ -1076,7 +1077,7 @@ async function renderAdmin(tab) {
   $("#main").innerHTML = `
     ${heroPanel("Admin Console", "管理后台", "维护大V目录、分类与推送记录，查看注册用户。")}
     <div id="admin-body"></div>`;
-  const loaders = { stats: loadAdminStats, kols: loadAdminKols, requests: loadAdminRequests, codes: loadAdminCodes, categories: loadAdminCategories, posts: loadAdminPosts, logs: loadAdminLogs, audit: loadAdminAudit, users: loadAdminUsers };
+  const loaders = { stats: loadAdminStats, kols: loadAdminKols, requests: loadAdminRequests, codes: loadAdminCodes, categories: loadAdminCategories, posts: loadAdminPosts, logs: loadAdminLogs, audit: loadAdminAudit, syslogs: loadAdminSysLogs, users: loadAdminUsers };
   try {
     await loaders[tab]();
   } catch (err) {
@@ -1777,6 +1778,42 @@ async function loadAdminAudit() {
     </section>`;
 }
 
+let sysLogsTimer = null;
+
+function stopSysLogsTimer() {
+  if (sysLogsTimer) {
+    clearInterval(sysLogsTimer);
+    sysLogsTimer = null;
+  }
+}
+
+async function loadAdminSysLogs() {
+  try {
+    const data = await api("/api/admin/system-logs?limit=500");
+    const lines = data.lines || [];
+    const body = $("#admin-body");
+    if (!body) return;
+    body.innerHTML = `
+      <section class="section-panel">
+        <header class="section-head">
+          <div>
+            <p class="section-eyebrow">System Logs</p>
+            <h3 class="section-title">系统日志</h3>
+            <p class="section-meta">内存环形缓冲的最近 ${lines.length} 条日志，每 5 秒自动刷新；更完整的历史请查看 docker logs（LOG_LEVEL=DEBUG 可开启更详细日志）。</p>
+          </div>
+          <div class="toolbar" style="margin-top:12px">
+            <button class="btn-normal" onclick="loadAdminSysLogs()">刷新</button>
+          </div>
+        </header>
+        <pre class="syslog">${escapeHtml(lines.join("\n")) || "（暂无日志）"}</pre>
+      </section>`;
+    stopSysLogsTimer();
+    sysLogsTimer = setInterval(loadAdminSysLogs, 5000);
+  } catch (err) {
+    $("#admin-body").innerHTML = emptyState("加载失败: " + err.message);
+  }
+}
+
 async function adminFilterLogs() {
   const params = new URLSearchParams({ limit: "100" });
   const userId = $("#ad-logs-user").value;
@@ -1919,6 +1956,7 @@ async function adminToggleAdmin(userId, makeAdmin) {
 // ---------- 路由 ----------
 async function router() {
   stopSettingsPoll();
+  stopSysLogsTimer();
   const hash = location.hash.replace(/^#\/?/, "") || "home";
   const [page, param] = hash.split("/");
   if (!state.token) {

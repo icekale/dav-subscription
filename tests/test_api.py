@@ -261,6 +261,17 @@ def test_bind_code_api():
     assert row["user_id"] == me["id"]
 
 
+def test_system_logs_api():
+    client = make_client()
+    admin_headers = auth_headers(client)
+    resp = client.get("/api/admin/system-logs?limit=50", headers=admin_headers)
+    assert resp.status_code == 200
+    assert isinstance(resp.json()["lines"], list)
+    # 普通用户无权限
+    uh = user_headers(client, "syslog_user")
+    assert client.get("/api/admin/system-logs", headers=uh).status_code == 403
+
+
 def test_push_channels_api():
     client = make_client()
     headers = user_headers(client, "chuser")

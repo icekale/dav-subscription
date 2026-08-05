@@ -569,6 +569,7 @@ def poll_once(
             list(ex.map(_worker, jobs))
     finally:
         client.close()
+    logger.info("轮询完成：%d 个大V，耗时 %.0fms", len(jobs), (time.monotonic() - now) * 1000)
     maybe_alert_x_fallback(db, notifiers)
 
 

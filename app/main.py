@@ -3,10 +3,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 
 from . import auth
@@ -14,12 +15,12 @@ from .api import create_api_router
 from .config import load_config
 from .db import DB
 from .fetchers import build_fetchers
+from .logging_setup import setup_logging
 from .notifiers import build_notifiers
 from .scheduler import Scheduler
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
-# httpx 访问日志会打印完整 URL（含 bot token），降到 WARNING 防泄露
-logging.getLogger("httpx").setLevel(logging.WARNING)
+setup_logging()
+access_logger = logging.getLogger("app.access")
 
 
 def create_app(config=None, db_path: str | Path | None = None) -> FastAPI:
@@ -41,6 +42,7 @@ def create_app(config=None, db_path: str | Path | None = None) -> FastAPI:
     )
     db.set_setting("stats_daily_report_hour", str(config.polling.daily_report_hour))
     secret = auth.get_or_create_secret(db, config.web.token_secret)
+
     if config.web.admin_password:
         admin = db.get_user_by_username("admin")
         if admin is None:
@@ -98,6 +100,28 @@ def create_app(config=None, db_path: str | Path | None = None) -> FastAPI:
 
     app = FastAPI(title="大V订阅", lifespan=lifespan)
     app.state.db = db
+
+    @app.middleware("http")
+    async def access_log(request: Request, call_next):
+        """API 请求日志：默认 DEBUG；超过 1 秒的慢请求 WARNING 提醒（方便排查）。"""
+        start = time.perf_counter()
+        response = await call_next(request)
+        duration_ms = (time.perf_counter() - start) * 1000
+        user = ""
+        auth_header = request.headers.get("authorization", "")
+        if auth_header.startswith("Bearer "):
+            payload = auth.verify_token(auth_header[7:], secret)
+            if payload:
+                user = payload.get("name") or ""
+        line = (
+            f"{request.method} {request.url.path} -> {response.status_code} "
+            f"({duration_ms:.0f}ms) user={user}"
+        )
+        if duration_ms >= 1000:
+            access_logger.warning("SLOW %s", line)
+        else:
+            access_logger.debug("%s", line)
+        return response
 
     @app.get("/healthz")
     def healthz():

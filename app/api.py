@@ -753,6 +753,13 @@ def create_api_router(
     def list_audit_logs(limit: int = 100):
         return db.list_admin_logs(limit=min(limit, 500))
 
+    @router.get("/admin/system-logs", dependencies=[Depends(require_admin)])
+    def list_system_logs(limit: int = 200):
+        """返回内存环形缓冲里的最近日志行（用于网页调试）。"""
+        from .logging_setup import recent_logs
+
+        return {"lines": recent_logs(min(max(limit, 10), 2000))}
+
     # ---- 管理（管理员）----
     @router.get("/kols", dependencies=[Depends(require_admin)])
     def list_kols(platform: str | None = None, category_id: int | None = None):

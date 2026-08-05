@@ -526,6 +526,22 @@ td .btn-sm.danger { color: var(--color-danger); border-color: rgba(220, 38, 38, 
 .channel-status.status-ok { color: var(--color-success); background: rgba(22, 163, 74, 0.1); }
 .channel-status.status-warn { color: var(--color-warning, #d97706); background: rgba(217, 119, 6, 0.1); }
 .channel-status.status-fail { color: var(--color-danger); background: rgba(220, 38, 38, 0.1); }
+
+/* 系统日志 */
+.syslog {
+  background: var(--color-bg-muted);
+  border: var(--border-soft);
+  border-radius: var(--radius-control);
+  padding: 14px 16px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 62vh;
+  overflow-y: auto;
+  color: var(--color-text-strong);
+}
 pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260px; font-family: inherit; }
 
 .empty { text-align: center; color: var(--color-text-muted); padding: 56px 20px; }
