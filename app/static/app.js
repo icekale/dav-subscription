@@ -637,7 +637,7 @@ async function loadMyAsks() {
               <td>${PLATFORM_LABELS[a.platform] || a.platform}</td>
               <td>${escapeHtml(a.external_id)}</td>
               <td class="${a.status === "approved" ? "status-ok" : a.status === "rejected" ? "status-fail" : ""}">${statusMap[a.status] || escapeHtml(a.status)}</td>
-              <td>${escapeHtml(a.created_at)}</td>
+              <td>${escapeHtml(fmtDbTime(a.created_at))}</td>
             </tr>`).join("")}</tbody>
         </table></div>`
       : emptyState("还没有提交过申请");
@@ -1221,6 +1221,18 @@ function fmtTs(ts) {
   return ts ? new Date(Number(ts) * 1000).toLocaleString() : "-";
 }
 
+// 数据库里 SQLite 生成的 created_at/fetched_at 是 UTC（datetime('now')），
+// 展示时按 UTC 解析并转成浏览器本地时间（北京时间），避免慢 8 小时
+function fmtDbTime(s) {
+  if (!s) return "-";
+  const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/.exec(String(s));
+  if (!m) return s;
+  const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]));
+  if (Number.isNaN(d.getTime())) return s;
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
 function rateBar(rate) {
   if (rate === null || rate === undefined) return `<span class="muted">暂无数据</span>`;
   const color = rate >= 95 ? "var(--color-success)" : rate >= 70 ? "var(--color-warning)" : "var(--color-danger)";
@@ -1398,7 +1410,7 @@ function renderStatsData(s) {
           <thead><tr><th>时间</th><th>平台</th><th>状态</th><th>详情</th></tr></thead>
           <tbody>${rows.map((e) => `
             <tr>
-              <td class="muted">${escapeHtml(e.created_at)}</td>
+              <td class="muted">${escapeHtml(fmtDbTime(e.created_at))}</td>
               <td>${PLATFORM_LABELS[e.platform] || e.platform}</td>
               <td>${e.status === "ok"
                 ? '<span class="status-ok">正常</span>'
@@ -1425,7 +1437,7 @@ function renderStatsData(s) {
                     ? '<span class="status-ok">正常</span>'
                     : '<span class="status-warn">从未抓到</span>')
                 : '<span class="status-fail">已停用</span>'}</td>
-              <td class="muted">${h.last_post_at ? escapeHtml(h.last_post_at) : "-"}</td>
+              <td class="muted">${h.last_post_at ? escapeHtml(fmtDbTime(h.last_post_at)) : "-"}</td>
             </tr>`).join("")}</tbody>
         </table></div>`
       : emptyState("还没有添加大V");
@@ -1745,7 +1757,7 @@ async function loadAdminRequests() {
         <tr>
           <td>${r.id}</td><td>${PLATFORM_LABELS[r.platform] || r.platform}</td>
           <td>${escapeHtml(r.name || "（未填）")}</td><td>${escapeHtml(r.external_id)}</td>
-          <td>${escapeHtml(r.requester || r.user_id)}</td><td>${escapeHtml(r.created_at)}</td>
+          <td>${escapeHtml(r.requester || r.user_id)}</td><td>${escapeHtml(fmtDbTime(r.created_at))}</td>
           <td>
             <button class="btn-sm" onclick="adminApproveRequest(${r.id})">通过</button>
             <button class="btn-sm danger" onclick="adminRejectRequest(${r.id})">拒绝</button>
@@ -1759,7 +1771,7 @@ async function loadAdminRequests() {
           <td>${escapeHtml(r.name || "（未填）")}</td><td>${escapeHtml(r.external_id)}</td>
           <td>${escapeHtml(r.requester || r.user_id)}</td>
           <td class="${r.status === "approved" ? "status-ok" : "status-fail"}">${r.status === "approved" ? "已通过" : "已拒绝"}</td>
-          <td>${escapeHtml(r.handled_at || "")}</td>
+          <td>${escapeHtml(fmtDbTime(r.handled_at))}</td>
         </tr>`).join("");
   $("#admin-body").innerHTML = `
     <section class="section-panel">
@@ -1833,8 +1845,8 @@ async function loadAdminCodes() {
               <td>${escapeHtml(c.note || "")}</td>
               <td class="${c.used_by ? "status-fail" : "status-ok"}">${c.used_by ? "已使用" : "可用"}</td>
               <td>${escapeHtml(c.used_by_name || "")}</td>
-              <td>${escapeHtml(c.created_at)}</td>
-              <td>${escapeHtml(c.used_at || "")}</td>
+              <td>${escapeHtml(fmtDbTime(c.created_at))}</td>
+              <td>${escapeHtml(fmtDbTime(c.used_at))}</td>
               <td>${c.used_by ? "" : `<button class="btn-sm danger" onclick="adminRevokeCode('${escapeHtml(c.code)}')">作废</button>`}</td>
             </tr>`).join("")}</tbody>
         </table>
@@ -2002,7 +2014,7 @@ async function loadAdminLogs() {
           <thead><tr><th>时间</th><th>用户</th><th>大V</th><th>渠道</th><th>状态</th><th>错误</th></tr></thead>
           <tbody>${logs.map((l) => `
             <tr>
-              <td>${escapeHtml(l.created_at)}</td>
+              <td>${escapeHtml(fmtDbTime(l.created_at))}</td>
               <td>${escapeHtml(l.user_name || "全局")}</td>
               <td>${escapeHtml(l.kol_name)}</td>
               <td>${l.channel}</td>
@@ -2038,7 +2050,7 @@ async function loadAdminAudit() {
           <thead><tr><th>时间</th><th>管理员</th><th>操作</th><th>目标</th><th>详情</th></tr></thead>
           <tbody>${logs.length === 0 ? `<tr><td colspan="5" class="muted">暂无记录</td></tr>` : logs.map((l) => `
             <tr>
-              <td>${escapeHtml(l.created_at)}</td>
+              <td>${escapeHtml(fmtDbTime(l.created_at))}</td>
               <td>${escapeHtml(l.username || "")}</td>
               <td>${escapeHtml(l.action)}</td>
               <td>${escapeHtml(l.target)}</td>
@@ -2105,7 +2117,7 @@ async function loadAdminUsers() {
               <td>${escapeHtml(u.feishu_open_id || "-")}</td>
               <td>${u.wecom_webhook ? "已绑定" : "-"}</td>
               <td>${u.notify_enabled ? "开启" : "关闭"}</td>
-              <td>${escapeHtml(u.created_at)}</td>
+              <td>${escapeHtml(fmtDbTime(u.created_at))}</td>
               <td>
                 ${u.id === state.user.id
                   ? `<span class="muted">本人</span>
