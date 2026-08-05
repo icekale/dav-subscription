@@ -883,13 +883,13 @@ def create_api_router(
                 if profile.get("name"):
                     name = profile["name"]
                 avatar_url = profile.get("avatar_url") or ""
-            elif not nickname and body.platform == "weibo":
-                # 没填昵称时自动查微博昵称与头像（公开接口）
+            elif body.platform == "weibo":
+                # 微博批量导入始终拉取头像（填了昵称也查）；昵称为空时顺带补昵称
                 profile = resolve_weibo_profile(
                     external_id,
                     db.get_setting(WEIBO_COOKIE_KEY) or os.environ.get("WEIBO_COOKIE", ""),
                 )
-                if profile.get("name"):
+                if not nickname and profile.get("name"):
                     name = profile["name"]
                 avatar_url = profile.get("avatar_url") or ""
             try:
