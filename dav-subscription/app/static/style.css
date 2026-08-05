@@ -352,18 +352,18 @@ textarea.form-control {
   transition: box-shadow var(--ease-standard), transform 120ms ease;
 }
 .btn-sub:hover { box-shadow: 0 6px 14px rgba(22, 119, 255, 0.3); }
-.btn-sub.subscribed { background: var(--color-surface); color: var(--color-text-muted); border: var(--border-strong); box-shadow: none; }
-.sub-type-row { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.sub-type-chip {
-  border: 1px solid var(--color-border, rgba(127, 127, 127, 0.25));
-  background: transparent; color: var(--color-text-muted);
-  font-size: 11px; padding: 3px 10px; border-radius: 999px; cursor: pointer;
-  transition: background var(--ease-standard), color var(--ease-standard);
+.btn-sub.subscribed {
+  background: rgba(22, 163, 74, 0.12);
+  color: #16a34a;
+  border: 1px solid rgba(22, 163, 74, 0.45);
+  box-shadow: none;
 }
-.sub-type-chip.active {
-  background: var(--color-accent-soft); color: var(--color-accent-strong);
-  border-color: transparent; font-weight: 600;
+.sub-type-switches { display: inline-flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.sub-type-switch {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 12px; color: var(--color-text-muted); cursor: pointer; user-select: none;
 }
+.sub-type-switch input { accent-color: #16a34a; cursor: pointer; }
 
 /* 帖子 */
 .post-item { padding: 16px 4px; border-bottom: var(--border-soft); }

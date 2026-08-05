@@ -202,9 +202,9 @@ function kolCard(kol) {
         <div class="desc">外部 ID：${escapeHtml(kol.external_id)}${kol.enabled ? "" : " · 已停用"}</div>
       </div>
       <button class="btn-sub ${kol.subscribed ? "subscribed" : ""}" onclick="toggleSubscribe(${kol.id}, this)">
-        ${kol.subscribed ? "已订阅" : "订阅"}
+        ${kol.subscribed ? "✓ 已订阅" : "订阅"}
       </button>
-      ${kol.subscribed ? subTypeChipsHtml(kol.id, kol.subscribe_type || "post") : ""}
+      ${kol.subscribed ? subTypeSwitchesHtml(kol.id, kol.subscribe_type || "post") : ""}
       ${state.user?.is_admin ? `<button class="btn-sm danger" onclick="adminDeleteKolFromHome(${kol.id})" title="删除该大V">删除</button>` : ""}
     </div>`;
 }
@@ -228,26 +228,47 @@ async function toggleSubscribe(kolId, btn) {
     } else {
       await api("/api/subscriptions", { method: "POST", body: JSON.stringify({ kol_id: kolId, type: "post" }) });
     }
-    const nowSubscribed = !wasSubscribed;
-    if (kol) kol.subscribed = nowSubscribed;
-    btn.textContent = nowSubscribed ? "已订阅" : "订阅";
-    btn.classList.toggle("subscribed", nowSubscribed);
+    refreshKolsView();
   } catch (err) {
     alert("操作失败: " + err.message);
   }
 }
 
-function subTypeChipsHtml(kolId, current) {
-  const labels = { post: "帖子", reply: "回复", both: "全部" };
+function refreshKolsView() {
+  const hash = location.hash;
+  if (hash.startsWith("#/mysubs")) renderMySubs();
+  else if (hash.startsWith("#/kol/")) renderKolPage(Number(hash.split("/")[2] || 0));
+  else loadHomeKols();
+}
+
+function subTypeSwitchesHtml(kolId, current) {
+  const cur = current || "post";
+  const postOn = cur !== "reply";
+  const replyOn = cur !== "post";
   return `
-    <div class="sub-type-row" data-kol="${kolId}">
-      ${Object.entries(labels).map(([type, label]) => `
-        <button class="sub-type-chip ${(current || "post") === type ? "active" : ""}"
-          onclick="setSubscribeType(${kolId}, '${type}', this)">${label}</button>`).join("")}
+    <div class="sub-type-switches" data-kol="${kolId}">
+      <label class="sub-type-switch">
+        <input type="checkbox" ${postOn ? "checked" : ""} onchange="setSubscribeType(${kolId}, 'post', this)">
+        <span>帖子</span>
+      </label>
+      <label class="sub-type-switch">
+        <input type="checkbox" ${replyOn ? "checked" : ""} onchange="setSubscribeType(${kolId}, 'reply', this)">
+        <span>回复</span>
+      </label>
     </div>`;
 }
 
-async function setSubscribeType(kolId, type, btn) {
+async function setSubscribeType(kolId, which, input) {
+  const box = input.closest(".sub-type-switches");
+  const boxes = box.querySelectorAll('input[type="checkbox"]');
+  const postOn = boxes[0].checked;
+  const replyOn = boxes[1].checked;
+  if (!postOn && !replyOn) {
+    input.checked = true; // 至少保留一种类型；取消订阅请点「已订阅」主按钮
+    alert("请至少保留一种订阅类型；取消订阅请点「已订阅」按钮");
+    return;
+  }
+  const type = postOn && replyOn ? "both" : postOn ? "post" : "reply";
   try {
     await api(`/api/subscriptions/${kolId}`, { method: "PUT", body: JSON.stringify({ type }) });
     const kol = state.catalog.find((k) => k.id === kolId);
@@ -255,10 +276,9 @@ async function setSubscribeType(kolId, type, btn) {
       kol.subscribed = true;
       kol.subscribe_type = type;
     }
-    const row = btn.closest(".sub-type-row");
-    if (row) row.querySelectorAll(".sub-type-chip").forEach((c) => c.classList.toggle("active", c === btn));
   } catch (err) {
     alert("切换订阅类型失败: " + err.message);
+    refreshKolsView();
   }
 }
 
@@ -450,9 +470,9 @@ async function renderKolPage(kolId) {
             <h3 class="section-title">最近动态</h3>
           </div>
           <div class="toolbar" style="margin-top:12px">
-            ${kol.subscribed ? subTypeChipsHtml(kol.id, kol.subscribe_type || "post") : ""}
+            ${kol.subscribed ? subTypeSwitchesHtml(kol.id, kol.subscribe_type || "post") : ""}
             <button class="btn-sub ${kol.subscribed ? "subscribed" : ""}" id="kol-sub-btn" onclick="toggleKolPageSubscribe(${kol.id})">
-              ${kol.subscribed ? "已订阅" : "订阅"}
+              ${kol.subscribed ? "✓ 已订阅" : "订阅"}
             </button>
           </div>
         </header>
@@ -465,7 +485,6 @@ async function renderKolPage(kolId) {
 
 async function toggleKolPageSubscribe(kolId) {
   await toggleSubscribe(kolId, $("#kol-sub-btn"));
-  renderKolPage(kolId);
 }
 
 // ---------- 推送设置 ----------
