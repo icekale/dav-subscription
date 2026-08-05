@@ -16,8 +16,9 @@ DIGEST_MAX_ITEMS = 10
 def build_telegram_text(post: Post) -> str:
     platform = PLATFORM_LABELS.get(post.platform, post.platform)
     body = post.content[:200] or post.title or "（无正文）"
+    kind = " · 回复" if post.post_type == "reply" else ""
     lines = [
-        f"<b>📌 {escape(post.kol_name)} · {platform}</b>",
+        f"<b>📌 {escape(post.kol_name)} · {platform}{kind}</b>",
         "",
         escape(body),
     ]

@@ -44,6 +44,9 @@ def _tenant_access_token(app_id: str, app_secret: str, client: httpx.Client) -> 
 def build_feishu_card(post: Post) -> dict:
     platform = PLATFORM_LABELS.get(post.platform, post.platform)
     content = post.content[:200] or post.title or "（无正文）"
+    title = f"📌 {post.kol_name} · {platform}"
+    if post.post_type == "reply":
+        title += " · 回复"
     category = post.category or ""
     note_elements = [{"tag": "plain_text", "content": f"发布时间：{post.published_at}"}]
     if category:
@@ -53,7 +56,7 @@ def build_feishu_card(post: Post) -> dict:
         "card": {
             "config": {"wide_screen_mode": True},
             "header": {
-                "title": {"tag": "plain_text", "content": f"📌 {post.kol_name} · {platform}"},
+                "title": {"tag": "plain_text", "content": title},
                 "template": "blue",
             },
             "elements": [
