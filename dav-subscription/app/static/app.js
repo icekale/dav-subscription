@@ -180,7 +180,11 @@ async function renderHome() {
           <div class="platform-tabs" id="platform-tabs"></div>
         </div>
       </header>
-      ${state.user?.is_admin ? "" : `<p class="muted" style="margin-top:10px">没找到想要的大V？<a href="#/search">申请添加 →</a></p>`}
+      ${state.user?.is_admin ? "" : `
+        <div class="toolbar" style="margin-top:12px">
+          <button class="btn-ghost" onclick="location.hash='#/search'">＋ 申请添加大V</button>
+          <span class="muted">目录里没有想关注的大V？提交申请，管理员审批通过后自动上架</span>
+        </div>`}
       <div id="kol-list"></div>
     </section>`;
   state.platform = "";
