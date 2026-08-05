@@ -24,6 +24,8 @@ Page({
         ...k,
         platform_label: platformLabel(k.platform),
         avatar_url: resolveAvatar(k.avatar_url),
+        // /api/my/subscriptions 的 favorite 来自数据库原始 0/1，归一化为布尔
+        favorite: !!k.favorite,
       }));
       this.setData({ kols, shown: this._filter(kols, this.data.view), loading: false });
     } catch (err) {
