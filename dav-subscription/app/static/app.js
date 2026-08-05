@@ -866,7 +866,7 @@ async function saveDailyReport() {
 
 async function bindChannel(channel) {
   try {
-    const data = await api("/api/me/bind-code");
+    const data = await api("/api/me/bind-code", { method: "POST" });
     const code = data.code;
     const guide = state.user.push_guide || {};
     const el = channel === "telegram" ? $("#bind-result-telegram") : $("#bind-result-feishu");
