@@ -896,21 +896,29 @@ async function renderSettings() {
             <p class="section-meta">时段内不推送新帖（支持跨午夜），结束后一次性补一条汇总；系统告警不受影响。特别关注可设为穿透免打扰。</p>
           </div>
         </header>
-        <div class="row" style="gap:12px;align-items:flex-end;flex-wrap:wrap">
-          <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)">开始时间
-            <input id="dnd-start" type="time" class="form-control" style="margin:0" value="${escapeHtml(state.user.dnd_start || "23:00")}">
+        <div class="dnd-form">
+          <label class="switch">
+            <input id="dnd-enabled" type="checkbox" ${state.user.dnd_start ? "checked" : ""} onchange="toggleDnd()">
+            <span class="track"></span>
+            <span>开启免打扰</span>
           </label>
-          <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)">结束时间
-            <input id="dnd-end" type="time" class="form-control" style="margin:0" value="${escapeHtml(state.user.dnd_end || "07:00")}">
+          <div class="dnd-range-field" id="dnd-range-field">
+            <span class="dnd-range-label">免打扰时段</span>
+            <div class="dnd-range">
+              <input id="dnd-start" type="time" class="form-control" value="${escapeHtml(state.user.dnd_start || "23:00")}">
+              <span class="dnd-sep">至</span>
+              <input id="dnd-end" type="time" class="form-control" value="${escapeHtml(state.user.dnd_end || "07:00")}">
+            </div>
+          </div>
+          <label class="switch">
+            <input id="dnd-fav" type="checkbox" ${state.user.dnd_allow_favorite ? "checked" : ""}>
+            <span class="track"></span>
+            <span>特别关注可穿透免打扰</span>
           </label>
-          <label style="display:inline-flex;align-items:center;gap:8px;font-size:var(--text-sm);color:var(--color-text-strong);height:36px">
-            <input id="dnd-enabled" type="checkbox" ${state.user.dnd_start ? "checked" : ""}> 开启免打扰
-          </label>
-          <label style="display:inline-flex;align-items:center;gap:8px;font-size:var(--text-sm);color:var(--color-text-strong);height:36px">
-            <input id="dnd-fav" type="checkbox" ${state.user.dnd_allow_favorite ? "checked" : ""}> 特别关注可穿透免打扰
-          </label>
-          <button class="btn-normal" onclick="saveDnd()">保存</button>
-          <span id="dnd-result" class="muted"></span>
+          <div class="dnd-actions">
+            <span id="dnd-result" class="muted"></span>
+            <button class="btn-normal" onclick="saveDnd()">保存</button>
+          </div>
         </div>
       </section>
       <section class="section-panel">
@@ -1051,6 +1059,7 @@ async function renderSettings() {
         <button class="btn-normal" onclick="savePassword()">修改密码</button>
       </section>`;
     settingsPollTimer = setInterval(refreshSettingsStatus, 10000);
+    toggleDnd(); // 根据开关初始状态同步时段输入框的禁用/置灰
   } catch (err) {
     $("#main").innerHTML = emptyState(err.message);
   }
@@ -1111,6 +1120,15 @@ async function saveDailyReport() {
   } catch (err) {
     alert("保存失败: " + err.message);
   }
+}
+
+function toggleDnd() {
+  // 免打扰开关与时段输入联动：关闭时时段输入禁用并置灰
+  const on = $("#dnd-enabled").checked;
+  const field = $("#dnd-range-field");
+  if (field) field.classList.toggle("is-off", !on);
+  $("#dnd-start").disabled = !on;
+  $("#dnd-end").disabled = !on;
 }
 
 async function saveDnd() {
