@@ -662,6 +662,9 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
 .form-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
 .form-row label { font-size: var(--text-sm); font-weight: var(--font-weight-medium); color: var(--color-text-strong); }
 .form-row .form-control { margin-bottom: 0; }
+/* 横向工具栏/行内的表单控件不需要纵向间距，避免与按钮错位 */
+.toolbar .form-control,
+.row .form-control { margin-bottom: 0; }
 .form-label { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; font-size: var(--text-sm); font-weight: var(--font-weight-medium); color: var(--color-text-strong); }
 .modal-mask {
   position: fixed; inset: 0; background: rgba(15, 23, 42, 0.45);
