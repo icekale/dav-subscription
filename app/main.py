@@ -19,6 +19,16 @@ from .logging_setup import setup_logging
 from .notifiers import build_notifiers
 from .scheduler import Scheduler
 
+
+class _NoCacheStaticFiles(StaticFiles):
+    """html/js/css 每次请求都重新校验（ETag/304），避免浏览器缓存旧版本前端。"""
+
+    def file_response(self, full_path, stat_result, scope, status_code=200):
+        response = super().file_response(full_path, stat_result, scope, status_code)
+        if str(full_path).endswith((".html", ".js", ".css")):
+            response.headers["Cache-Control"] = "no-cache"
+        return response
+
 setup_logging()
 access_logger = logging.getLogger("app.access")
 
@@ -141,7 +151,11 @@ def create_app(config=None, db_path: str | Path | None = None) -> FastAPI:
     avatars_dir = Path(config.db_path).parent / "avatars"
     avatars_dir.mkdir(parents=True, exist_ok=True)
     app.mount("/avatars", StaticFiles(directory=avatars_dir), name="avatars")
-    app.mount("/", StaticFiles(directory=Path(__file__).parent / "static", html=True), name="static")
+    app.mount(
+        "/",
+        _NoCacheStaticFiles(directory=Path(__file__).parent / "static", html=True),
+        name="static",
+    )
     return app
 
 

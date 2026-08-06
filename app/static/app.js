@@ -300,15 +300,19 @@ function platformTabHTML(p, current, handler) {
     onclick="${handler}('${p}')">${PLATFORM_ICONS[p || ""]}<span class="pt-label">${label}</span></button>`;
 }
 
+let _homeKolsSeq = 0;
 async function loadHomeKols() {
+  const seq = ++_homeKolsSeq;
   try {
     const params = state.platform ? `?platform=${state.platform}` : "";
     state.catalog = await api(`/api/catalog${params}`);
+    if (seq !== _homeKolsSeq) return; // 已切换到其他平台，丢弃过期响应
     $("#catalog-meta").textContent = `共 ${state.catalog.length} 个大V`;
     $("#kol-list").innerHTML = state.catalog.length
       ? groupedKolCards(state.catalog)
       : emptyState("暂无大V，管理员可在管理后台添加");
   } catch (err) {
+    if (seq !== _homeKolsSeq) return;
     $("#kol-list").innerHTML = emptyState("加载失败: " + err.message);
   }
 }
@@ -428,17 +432,17 @@ function subTypeSwitchesHtml(kolId, current) {
   return `
     <div class="sub-type-switches" data-kol="${kolId}">
       <label class="sub-type-switch">
-        <input type="checkbox" ${postOn ? "checked" : ""} onchange="setSubscribeType(${kolId}, 'post', this)">
+        <input type="checkbox" ${postOn ? "checked" : ""} onchange="setSubscribeType(${kolId}, this)">
         <span>帖子</span>
       </label>
       <label class="sub-type-switch">
-        <input type="checkbox" ${replyOn ? "checked" : ""} onchange="setSubscribeType(${kolId}, 'reply', this)">
+        <input type="checkbox" ${replyOn ? "checked" : ""} onchange="setSubscribeType(${kolId}, this)">
         <span>回复</span>
       </label>
     </div>`;
 }
 
-async function setSubscribeType(kolId, which, input) {
+async function setSubscribeType(kolId, input) {
   const box = input.closest(".sub-type-switches");
   const boxes = box.querySelectorAll('input[type="checkbox"]');
   const postOn = boxes[0].checked;
@@ -766,7 +770,6 @@ async function toggleKolPageSubscribe(kolId) {
 
 // ---------- 推送设置 ----------
 let settingsPollTimer = null;
-let settingsPollCount = 0;
 
 function stopSettingsPoll() {
   if (settingsPollTimer) {
@@ -845,7 +848,6 @@ function channelStatusHtml(user) {
 }
 
 async function refreshSettingsStatus() {
-  settingsPollCount += 1;
   try {
     const user = await api("/api/me");
     state.user = user;
@@ -865,7 +867,6 @@ async function refreshSettingsStatus() {
   } catch {
     /* 轮询失败忽略 */
   }
-  if (settingsPollCount >= 25) stopSettingsPoll();
 }
 
 async function renderSettings() {
@@ -1048,8 +1049,6 @@ async function renderSettings() {
         </div>
         <button class="btn-normal" onclick="savePassword()">修改密码</button>
       </section>`;
-    settingsPollCount = 0;
-    stopSettingsPoll();
     settingsPollTimer = setInterval(refreshSettingsStatus, 10000);
   } catch (err) {
     $("#main").innerHTML = emptyState(err.message);
@@ -1601,7 +1600,9 @@ function statCard(label, value) {
     </div>`;
 }
 
+let _adminKolsSeq = 0;
 async function loadAdminKols() {
+  const seq = ++_adminKolsSeq;
   let kols, categories;
   try {
     [kols, categories] = await Promise.all([
@@ -1609,9 +1610,10 @@ async function loadAdminKols() {
       api("/api/categories"),
     ]);
   } catch (err) {
-    $("#admin-body").innerHTML = emptyState("加载失败: " + err.message);
+    if (seq === _adminKolsSeq) $("#admin-body").innerHTML = emptyState("加载失败: " + err.message);
     return;
   }
+  if (seq !== _adminKolsSeq) return; // 已切换平台，丢弃过期响应
   state.adminKols = kols;
   const catOptions = categories.map((c) => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
   $("#admin-body").innerHTML = `
@@ -1804,7 +1806,21 @@ async function adminEditKol(id) {
   mask.addEventListener("click", (e) => {
     if (e.target === mask) mask.remove();
   });
+  mask.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") mask.remove();
+  });
   document.body.appendChild(mask);
+  // 焦点管理：打开聚焦首个输入框；无论以哪种方式关闭，焦点都还原到触发按钮
+  const trigger = document.activeElement;
+  const firstInput = mask.querySelector("input, select, textarea, button");
+  if (firstInput) firstInput.focus();
+  const observer = new MutationObserver(() => {
+    if (!document.body.contains(mask)) {
+      observer.disconnect();
+      if (trigger && trigger.isConnected) trigger.focus();
+    }
+  });
+  observer.observe(document.body, { childList: true });
 }
 
 async function saveKolEdit(id) {
@@ -1939,7 +1955,7 @@ async function loadAdminCodes() {
               <td>${escapeHtml(c.used_by_name || "")}</td>
               <td>${escapeHtml(fmtDbTime(c.created_at))}</td>
               <td>${escapeHtml(fmtDbTime(c.used_at))}</td>
-              <td>${c.used_by ? "" : `<button class="btn-sm danger" onclick="adminRevokeCode('${escapeHtml(c.code)}')">作废</button>`}</td>
+              <td>${c.used_by ? "" : `<button class="btn-sm danger" data-code="${escapeHtml(c.code)}" onclick="adminRevokeCode(this.dataset.code)">作废</button>`}</td>
             </tr>`).join("")}</tbody>
         </table>
       </div>
@@ -2043,8 +2059,11 @@ async function adminDeleteCategory(id) {
   }
 }
 
+let _adminPostsSeq = 0;
 async function loadAdminPosts() {
+  const seq = ++_adminPostsSeq;
   const posts = await api(`/api/posts?limit=100${state.adminPostsFilter || ""}`);
+  if (seq !== _adminPostsSeq) return; // 筛选条件已变，丢弃过期响应
   $("#admin-body").innerHTML = `
     <section class="section-panel">
       <header class="section-head">
@@ -2069,7 +2088,7 @@ async function loadAdminPosts() {
               <td>${escapeHtml(p.category_name || "")}</td>
               <td><pre class="content-cell">${escapeHtml((p.title ? p.title + "\n" : "") + (p.content || "").slice(0, 120))}</pre></td>
               <td>${escapeHtml(p.published_at)}</td>
-              <td><a href="${escapeHtml(p.url)}" target="_blank" rel="noopener">原文</a></td>
+              <td><a href="${escapeHtml(/^https?:\/\//i.test(p.url || "") ? p.url : "#")}" target="_blank" rel="noopener">原文</a></td>
             </tr>`).join("")}</tbody>
         </table>
       </div>
@@ -2086,9 +2105,12 @@ async function adminFilterPosts() {
   loadAdminPosts();
 }
 
+let _adminLogsSeq = 0;
 async function loadAdminLogs() {
+  const seq = ++_adminLogsSeq;
   const users = await api("/api/users");
   const logs = await api(`/api/push-logs?limit=100${state.adminLogsFilter || ""}`);
+  if (seq !== _adminLogsSeq) return; // 筛选条件已变，丢弃过期响应
   $("#admin-body").innerHTML = `
     <section class="section-panel">
       <header class="section-head">
