@@ -300,3 +300,42 @@ def test_twitter_network_error_skips_rsshub_fallback(monkeypatch):
     assert not db.get_setting("x_direct_last_fallback_at")  # 不标记降级
     events = db.recent_source_events()
     assert any("网络抖动" in e["detail"] for e in events)
+
+
+def test_query_id_refresh_single_fetch_within_ttl(monkeypatch):
+    """TTL 内多次调用只拉取一次前端（避免并发雷群）。"""
+    from app.fetchers import twitter as tw_mod
+
+    saved_loaded = tw_mod._query_ids_loaded
+    saved_error = tw_mod._query_ids_error_until
+    tw_mod._query_ids_loaded = 0.0
+    tw_mod._query_ids_error_until = 0.0
+    clock = {"t": 100000.0}
+    monkeypatch.setattr(tw_mod.time, "time", lambda: clock["t"])
+
+    class Handler:
+        def __init__(self):
+            self.requests = 0
+
+        def __call__(self, request):
+            self.requests += 1
+            if "abs.twimg.com" in str(request.url):
+                return httpx.Response(
+                    200,
+                    text='queryId:"abc123"xxxoperationName:"UserTweets"',
+                )
+            return httpx.Response(
+                200,
+                text='<script src="https://abs.twimg.com/responsive-web/client-web/main.abc.js"></script>',
+            )
+
+    handler = Handler()
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    try:
+        tw_mod._refresh_query_ids(client, "auth_token=x; ct0=y")
+        first = handler.requests
+        tw_mod._refresh_query_ids(client, "auth_token=x; ct0=y")
+        assert handler.requests == first  # TTL 内不重复拉取
+    finally:
+        tw_mod._query_ids_loaded = saved_loaded
+        tw_mod._query_ids_error_until = saved_error

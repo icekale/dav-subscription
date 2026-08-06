@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 
 import httpx
@@ -66,6 +67,7 @@ UA = (
 _query_ids: dict[str, str] = dict(DEFAULT_QUERY_IDS)
 _query_ids_loaded = 0.0
 _query_ids_error_until = 0.0
+_query_ids_lock = threading.Lock()
 
 
 def _cookie_parts(cookie: str) -> dict[str, str]:
@@ -94,40 +96,41 @@ def _auth_headers(cookie: str) -> dict[str, str]:
 def _refresh_query_ids(client: httpx.Client, cookie: str) -> None:
     """从 X 前端 main bundle 提取最新的 UserTweets / UserByScreenName queryId。"""
     global _query_ids_loaded, _query_ids_error_until
-    now = time.time()
-    if now - _query_ids_loaded < QUERY_ID_TTL:
-        return
-    if now < _query_ids_error_until:
-        return  # 上次提取失败，冷却期内不重复打前端
-    try:
-        headers = _auth_headers(cookie)
-        page = client.get("https://x.com/", headers=headers)
-        page.raise_for_status()
-        match = re.search(
-            r'src="(https://abs\.twimg\.com/responsive-web/client-web/main\.[^"]+\.js)"',
-            page.text,
-        )
-        if not match:
+    with _query_ids_lock:
+        now = time.time()
+        if now - _query_ids_loaded < QUERY_ID_TTL:
             return
-        bundle = client.get(match.group(1))
-        bundle.raise_for_status()
-        text = bundle.text
-        for op in ("UserTweets", "UserByScreenName"):
-            found = re.search(
-                r'queryId:"([^"]+)"[^}]{0,300}?operationName:"' + re.escape(op) + r'"',
-                text,
+        if now < _query_ids_error_until:
+            return  # 上次提取失败，冷却期内不重复打前端
+        try:
+            headers = _auth_headers(cookie)
+            page = client.get("https://x.com/", headers=headers)
+            page.raise_for_status()
+            match = re.search(
+                r'src="(https://abs\.twimg\.com/responsive-web/client-web/main\.[^"]+\.js)"',
+                page.text,
             )
-            if found:
-                _query_ids[op] = found.group(1)
-        _query_ids_loaded = now
-        logger.info("X queryId 已从前端更新: %s", _query_ids)
-    except Exception as exc:  # noqa: BLE001 - 提取失败用内置默认值兜底
-        _query_ids_error_until = now + QUERY_ID_RETRY_COOLDOWN
-        logger.warning(
-            "X queryId 提取失败，使用默认值，%.0f 秒后重试: %s",
-            QUERY_ID_RETRY_COOLDOWN,
-            exc,
-        )
+            if not match:
+                return
+            bundle = client.get(match.group(1))
+            bundle.raise_for_status()
+            text = bundle.text
+            for op in ("UserTweets", "UserByScreenName"):
+                found = re.search(
+                    r'queryId:"([^"]+)"[^}]{0,300}?operationName:"' + re.escape(op) + r'"',
+                    text,
+                )
+                if found:
+                    _query_ids[op] = found.group(1)
+            _query_ids_loaded = now
+            logger.info("X queryId 已从前端更新: %s", _query_ids)
+        except Exception as exc:  # noqa: BLE001 - 提取失败用内置默认值兜底
+            _query_ids_error_until = now + QUERY_ID_RETRY_COOLDOWN
+            logger.warning(
+                "X queryId 提取失败，使用默认值，%.0f 秒后重试: %s",
+                QUERY_ID_RETRY_COOLDOWN,
+                exc,
+            )
 
 
 def extract_screen_name(external_id: str) -> str:
