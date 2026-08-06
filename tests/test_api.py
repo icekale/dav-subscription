@@ -1610,9 +1610,18 @@ def test_register_failures_count_toward_limit():
 def test_login_success_clears_failure_count():
     client = make_client()
     user_headers(client, "victim")
+    for _ in range(7):
+        assert client.post("/api/auth/login", json={"username": "victim", "password": "bad"}).status_code == 401
+    # 尚未锁定时输入正确密码：登录成功并清零
+    assert client.post("/api/auth/login", json={"username": "victim", "password": "pass123456"}).status_code == 200
+    # 清零后下一次错误回到 401 而非 429（若未清零，此处会是 8 次连续失败 → 429）
+    assert client.post("/api/auth/login", json={"username": "victim", "password": "bad"}).status_code == 401
+
+
+def test_login_locked_ip_rejects_even_correct_password():
+    client = make_client()
+    user_headers(client, "victim")
     for _ in range(8):
         assert client.post("/api/auth/login", json={"username": "victim", "password": "bad"}).status_code == 401
-    assert client.post("/api/auth/login", json={"username": "victim", "password": "bad"}).status_code == 429
-    # 输对密码成功后清零
-    assert client.post("/api/auth/login", json={"username": "victim", "password": "pass123456"}).status_code == 200
-    assert client.post("/api/auth/login", json={"username": "victim", "password": "bad"}).status_code == 401
+    # 锁定时即使密码正确也 429，不泄露密码有效性
+    assert client.post("/api/auth/login", json={"username": "victim", "password": "pass123456"}).status_code == 429

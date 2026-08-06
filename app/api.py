@@ -417,25 +417,21 @@ def create_api_router(
     @router.post("/auth/login")
     def login(body: LoginIn, request: Request):
         ip = _client_ip(request)
+        _check_login_limit(ip)
         user = db.get_user_by_username(body.username.strip())
-        # 先验证密码：输对即成功并清零，绝不能被限流锁死；限流只针对失败尝试
         if user is None:
             auth.verify_password(body.password, auth.DUMMY_HASH)
-            _check_login_limit(ip)
             _record_login_failure(ip)
             raise HTTPException(status_code=401, detail="用户名或密码错误")
         if not user["password_hash"]:
             # 机器人/微信自动创建的账号没有密码，不能通过账号密码登录
             auth.verify_password(body.password, auth.DUMMY_HASH)
-            _check_login_limit(ip)
             _record_login_failure(ip)
             raise HTTPException(status_code=401, detail="用户名或密码错误")
         if not body.password or len(body.password) > MAX_PASSWORD_LEN:
-            _check_login_limit(ip)
             _record_login_failure(ip)
             raise HTTPException(status_code=400, detail=f"密码长度需在 1-{MAX_PASSWORD_LEN} 位之间")
         if not auth.verify_password(body.password, user["password_hash"]):
-            _check_login_limit(ip)
             _record_login_failure(ip)
             raise HTTPException(status_code=401, detail="用户名或密码错误")
         login_attempts.pop(ip, None)  # 登录成功清零，避免历史失败锁住正常用户
