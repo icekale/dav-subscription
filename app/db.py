@@ -564,9 +564,19 @@ class DB:
         except sqlite3.IntegrityError:
             raise ValueError(f"用户名已存在: {username}") from None
 
+    # update_user 允许写入的字段白名单：拦截任意 key 拼接进 SQL（防注入脚枪）
+    _UPDATE_USER_COLUMNS = frozenset({
+        "username", "password_hash", "is_admin", "wechat_openid",
+        "telegram_chat_id", "telegram_bot_token", "feishu_open_id",
+        "feishu_chat_id", "wecom_webhook", "notify_enabled", "daily_report",
+        "push_channels", "dnd_start", "dnd_end", "dnd_allow_favorite",
+    })
+
     def update_user(self, user_id: int, **kwargs) -> None:
         sets, params = [], []
         for key, value in kwargs.items():
+            if key not in self._UPDATE_USER_COLUMNS:
+                raise ValueError(f"非法用户字段: {key}")
             if key in ("is_admin", "notify_enabled"):
                 value = 1 if value else 0
             sets.append(f"{key} = ?")
