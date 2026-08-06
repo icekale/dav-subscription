@@ -780,3 +780,19 @@ def test_weibo_login_lock_serializes(monkeypatch):
 
     assert counter["calls"] == 2
     assert counter["max_active"] == 1  # 串行：无并发登录
+
+
+def test_normalize_xueqiu_id():
+    from app.fetchers.xueqiu import normalize_xueqiu_id
+
+    # URL 形式 → 提取数字 ID
+    assert normalize_xueqiu_id("https://xueqiu.com/u/4514680565") == "4514680565"
+    assert normalize_xueqiu_id("https://xueqiu.com/u/4514680565/") == "4514680565"
+    assert normalize_xueqiu_id("https://www.xueqiu.com/u/123") == "123"
+    assert normalize_xueqiu_id("https://xueqiu.com/u/123?foo=bar") == "123"
+    # 纯数字原样
+    assert normalize_xueqiu_id("4514680565") == "4514680565"
+    # 无法识别时原样返回（保留原错误信息），不抛异常
+    assert normalize_xueqiu_id("https://xueqiu.com/Syedc") == "https://xueqiu.com/Syedc"
+    assert normalize_xueqiu_id("") == ""
+    assert normalize_xueqiu_id(None) == ""

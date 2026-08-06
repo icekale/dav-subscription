@@ -1,6 +1,7 @@
 """雪球用户原创动态抓取。"""
 from __future__ import annotations
 
+import re
 import time
 
 import httpx
@@ -11,6 +12,21 @@ from .base import Fetcher, Post, format_published_at, strip_html
 XUEQIU_COOKIE_KEY = "xueqiu_cookie"
 XUEQIU_COOKIE_TIME_KEY = "xueqiu_cookie_updated_at"
 XUEQIU_TIMELINE_URL = "https://xueqiu.com/statuses/user_timeline.json"
+
+
+def normalize_xueqiu_id(external_id: str) -> str:
+    """从雪球主页链接提取数字用户 ID；纯数字原样返回；其余原样返回（保留原有报错信息）。
+
+    管理后台允许粘贴「主页链接/UID」（如 https://xueqiu.com/u/4514680565），
+    若把完整 URL 直接当 user_id 传给接口会 400，这里统一归一化。
+    """
+    value = (external_id or "").strip()
+    match = re.search(r"xueqiu\.com/u/(\d+)", value)
+    if match:
+        return match.group(1)
+    if re.fullmatch(r"\d+", value):
+        return value
+    return value
 
 
 def classify_status(status: dict) -> str | None:
@@ -96,6 +112,7 @@ def resolve_profile(external_id: str, cookie: str = "") -> dict:
     """查询雪球用户昵称与头像（取最新一条动态里的 user 信息），失败返回空 dict。"""
     import httpx
 
+    uid = normalize_xueqiu_id(external_id)
     client = httpx.Client(
         timeout=15,
         follow_redirects=True,
@@ -103,14 +120,14 @@ def resolve_profile(external_id: str, cookie: str = "") -> dict:
             "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X)",
             "Accept": "application/json, text/plain, */*",
             "X-Requested-With": "XMLHttpRequest",
-            "Referer": f"https://xueqiu.com/u/{external_id}",
+            "Referer": f"https://xueqiu.com/u/{uid}",
             **({"Cookie": cookie} if cookie else {}),
         },
     )
     try:
         resp = client.get(
             XUEQIU_TIMELINE_URL,
-            params={"user_id": external_id, "page": 1, "count": 1},
+            params={"user_id": uid, "page": 1, "count": 1},
         )
         resp.raise_for_status()
         data = resp.json()
@@ -174,14 +191,15 @@ class XueqiuFetcher(Fetcher):
         self._apply_cookie()
         # 用户时间线 JSON 接口不受 WAF 挑战保护；original/timeline.json 反而会被 WAF 拦截
         url = XUEQIU_TIMELINE_URL
-        params = {"user_id": kol["external_id"], "page": 1, "count": 20}
+        uid = normalize_xueqiu_id(kol["external_id"])
+        params = {"user_id": uid, "page": 1, "count": 20}
         self.client.headers.update(
             {
                 "Accept": "application/json, text/plain, */*",
                 "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
                 "Origin": "https://xueqiu.com",
                 "X-Requested-With": "XMLHttpRequest",
-                "Referer": f"https://xueqiu.com/u/{kol['external_id']}",
+                "Referer": f"https://xueqiu.com/u/{uid}",
             }
         )
         resp = self.client.get(
