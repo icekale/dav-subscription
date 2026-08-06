@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import email.utils
+import html
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -28,19 +29,10 @@ class Post:
 
 
 def strip_html(text: str) -> str:
-    """去掉 HTML 标签、还原常见实体，<br> 转成换行。"""
+    """去掉 HTML 标签、还原实体（含 &#34; 等数字实体），<br> 转成换行。"""
     text = re.sub(r"<br\s*/?>", "\n", text)
     text = re.sub(r"<[^>]+>", "", text)
-    for old, new in (
-        ("&nbsp;", " "),
-        ("&amp;", "&"),
-        ("&lt;", "<"),
-        ("&gt;", ">"),
-        ("&quot;", '"'),
-        ("&#39;", "'"),
-    ):
-        text = text.replace(old, new)
-    return text.strip()
+    return html.unescape(text).replace("\xa0", " ").strip()
 
 
 def truncate_text(text: str, limit: int) -> str:

@@ -1,4 +1,4 @@
-from app.fetchers.base import Post, format_published_at, truncate_text
+from app.fetchers.base import Post, format_published_at, strip_html, truncate_text
 from app.notifiers.feishu import (
     build_feishu_card,
     build_feishu_combination_card,
@@ -27,6 +27,15 @@ def make_post() -> Post:
 def test_truncate_text_short_keeps_all():
     assert truncate_text("短文本", 100) == "短文本"
     assert truncate_text("", 100) == ""
+
+
+def test_strip_html_decodes_entities():
+    # 数字实体（&#34; 引号）与常见命名实体都应还原
+    assert strip_html('苹果&#34;A20 Pro&#34;处理器') == '苹果"A20 Pro"处理器'
+    assert strip_html("<b>大涨</b><br/>继续") == "大涨\n继续"
+    assert strip_html("&lt;b&gt;字面&lt;/b&gt;") == "<b>字面</b>"
+    assert strip_html("&amp;lt;") == "&lt;"
+    assert strip_html("a&nbsp;b") == "a b"
 
 
 def test_truncate_text_cuts_with_ellipsis():
