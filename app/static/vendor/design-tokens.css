@@ -124,8 +124,10 @@
   --color-line-accent: rgba(22, 119, 255, 0.18);
   --color-line-accent-soft: rgba(22, 119, 255, 0.16);
   --color-line-success-soft: rgba(22, 163, 74, 0.18);
+  --color-line-success: rgba(22, 163, 74, 0.45);
   --color-line-warning-soft: rgba(217, 119, 6, 0.18);
   --color-line-danger-soft: rgba(220, 38, 38, 0.18);
+  --color-line-danger: rgba(220, 38, 38, 0.3);
 
   --color-accent: #1677ff;
   --color-accent-strong: #155eef;

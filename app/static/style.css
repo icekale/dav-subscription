@@ -41,7 +41,7 @@ button:focus-visible {
   width: 52px; height: 52px;
   border-radius: var(--radius-md);
   background: linear-gradient(180deg, #2a86ff, var(--color-accent));
-  color: #fff;
+  color: var(--color-white);
   font-size: 26px; font-weight: 800;
   display: flex; align-items: center; justify-content: center;
   box-shadow: 0 8px 20px rgba(22, 119, 255, 0.28);
@@ -117,7 +117,7 @@ textarea.form-control {
   border: none;
   border-radius: var(--radius-control);
   background: var(--color-accent);
-  color: #fff;
+  color: var(--color-white);
   font-size: var(--text-body);
   font-weight: var(--font-weight-semibold);
   padding: 0 20px;
@@ -295,7 +295,7 @@ textarea.form-control {
   width: 32px; height: 32px;
   border-radius: 50%;
   background: linear-gradient(180deg, #2a86ff, var(--color-accent));
-  color: #fff;
+  color: var(--color-white);
   font-size: var(--text-md); font-weight: var(--font-weight-bold);
   display: flex; align-items: center; justify-content: center;
 }
@@ -371,7 +371,7 @@ textarea.form-control {
   transition: all var(--ease-standard);
 }
 .platform-tab:hover { border-color: var(--color-accent); color: var(--color-accent); }
-.platform-tab.selected { background: var(--color-accent); border-color: var(--color-accent); color: #fff; }
+.platform-tab.selected { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-white); }
 .platform-tab.selected .pt-icon { filter: brightness(0) invert(1); }
 .pt-label { display: none; }
 .pt-icon { width: 18px; height: 18px; }
@@ -405,7 +405,7 @@ textarea.form-control {
   width: 44px; height: 44px;
   border-radius: 50%;
   background: linear-gradient(180deg, #2a86ff, var(--color-accent));
-  color: #fff;
+  color: var(--color-white);
   font-size: var(--text-title-sm); font-weight: var(--font-weight-bold);
   display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;
@@ -427,7 +427,7 @@ textarea.form-control {
   border: none;
   border-radius: var(--radius-pill);
   background: var(--color-accent);
-  color: #fff;
+  color: var(--color-white);
   font-size: var(--text-sm);
   font-weight: var(--font-weight-semibold);
   padding: 0 20px;
@@ -437,12 +437,12 @@ textarea.form-control {
 .btn-sub:hover { background: var(--color-accent-strong); }
 .btn-sub:active { transform: translateY(1px); }
 .btn-sub.subscribed {
-  background: rgba(22, 163, 74, 0.12);
-  color: #16a34a;
-  border: 1px solid rgba(22, 163, 74, 0.45);
+  background: var(--color-success-soft);
+  color: var(--color-success);
+  border: 1px solid var(--color-line-success);
   box-shadow: none;
 }
-.btn-sub.subscribed:hover { background: rgba(22, 163, 74, 0.18); }
+.btn-sub.subscribed:hover { background: var(--color-success-soft); border-color: var(--color-success); }
 .sub-type-switches { display: inline-flex; align-items: center; gap: 14px; flex-wrap: wrap; }
 .sub-type-switch {
   display: inline-flex; align-items: center; gap: 5px;
@@ -477,7 +477,7 @@ textarea.form-control {
   transition: all var(--ease-standard);
 }
 .channel-pick.selected .ch-check {
-  background: var(--color-accent); border-color: var(--color-accent); color: #fff;
+  background: var(--color-accent); border-color: var(--color-accent); color: var(--color-white);
 }
 .channel-pick[data-channel="telegram"] .ch-icon { color: #26a5e4; }
 .channel-pick[data-channel="feishu"] .ch-icon { color: #3370ff; }
@@ -526,15 +526,18 @@ th, td { padding: 12px 10px; text-align: left; border-bottom: var(--border-soft)
 th { color: var(--color-text-muted); font-weight: var(--font-weight-semibold); font-size: var(--text-xs); background: var(--color-bg-table-head); }
 tbody tr { transition: background var(--ease-standard); }
 tbody tr:hover { background: var(--color-surface-row-hover); }
-td .btn-sm {
+.btn-sm {
   font-size: var(--text-xs); padding: 5px 12px;
   border: var(--border-strong);
   border-radius: var(--radius-pill);
   background: var(--color-surface);
   color: var(--color-text-strong);
-  margin-right: 6px;
+  transition: border-color var(--ease-standard), color var(--ease-standard), background var(--ease-standard);
 }
-td .btn-sm.danger { color: var(--color-danger); border-color: rgba(220, 38, 38, 0.3); }
+.btn-sm:hover { border-color: var(--color-text-muted); }
+td .btn-sm { margin-right: 6px; }
+.btn-sm.danger { color: var(--color-danger); border-color: var(--color-line-danger); }
+.btn-sm.danger:hover { border-color: var(--color-danger); color: var(--color-danger-strong); }
 .status-ok { color: var(--color-success); }
 .status-fail { color: var(--color-danger); }
 .status-warn { color: var(--color-warning, #d97706); }
@@ -601,7 +604,7 @@ td .btn-sm.danger { color: var(--color-danger); border-color: rgba(220, 38, 38, 
   font-size: var(--text-sm); font-weight: var(--font-weight-semibold);
   cursor: pointer; transition: all var(--ease-standard);
 }
-.channel-btn.primary { background: var(--color-accent); color: #fff; }
+.channel-btn.primary { background: var(--color-accent); color: var(--color-white); }
 .channel-btn.primary:hover { background: var(--color-accent-strong); }
 .channel-btn.secondary {
   background: var(--color-surface);
@@ -677,7 +680,7 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
   border-radius: var(--radius-control);
   font-size: var(--text-sm);
   font-weight: var(--font-weight-medium);
-  color: #fff;
+  color: var(--color-white);
   box-shadow: 0 12px 32px rgba(15, 23, 42, 0.28);
   white-space: pre-wrap;
   pointer-events: none;
