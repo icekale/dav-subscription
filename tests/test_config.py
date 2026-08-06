@@ -25,6 +25,7 @@ ALL_ENV = [
     "WEB_TOKEN_SECRET",
     "WECHAT_APP_ID",
     "WECHAT_APP_SECRET",
+    "WEB_TRUST_PROXY",
 ]
 
 
@@ -116,3 +117,12 @@ def test_priority_interval_seconds_must_be_positive(tmp_path, monkeypatch):
     )
     with pytest.raises(ValueError):
         load_config(tmp_path / "config.yaml")
+
+
+def test_web_trust_proxy_default_false_and_env_override(tmp_path, monkeypatch):
+    for name in ALL_ENV:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.chdir(tmp_path)
+    assert load_config(tmp_path / "nope.yaml").web.trust_proxy is False
+    monkeypatch.setenv("WEB_TRUST_PROXY", "true")
+    assert load_config(tmp_path / "nope.yaml").web.trust_proxy is True

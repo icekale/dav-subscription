@@ -80,6 +80,7 @@ class WebConfig:
     allow_register: bool = True
     admin_password: str = ""
     token_secret: str = ""
+    trust_proxy: bool = False  # 位于可信反向代理之后时置 true，才信任 X-Forwarded-For
 
 
 @dataclass
@@ -128,6 +129,7 @@ _ENV_MAP = {
     "WEB_ALLOW_REGISTER": ("web", "allow_register"),
     "WEB_ADMIN_PASSWORD": ("web", "admin_password"),
     "WEB_TOKEN_SECRET": ("web", "token_secret"),
+    "WEB_TRUST_PROXY": ("web", "trust_proxy"),
     "WECHAT_APP_ID": ("wechat", "app_id"),
     "WECHAT_APP_SECRET": ("wechat", "app_secret"),
     "DB_PATH": ("db_path",),
@@ -167,6 +169,7 @@ def _validate(config: Config) -> None:
         ("polling.daily_report_hour", config.polling, "daily_report_hour", int),
         ("polling.notify_on_start", config.polling, "notify_on_start", bool),
         ("web.allow_register", config.web, "allow_register", bool),
+        ("web.trust_proxy", config.web, "trust_proxy", bool),
     )
     for label, obj, attr, expected in checks:
         value = getattr(obj, attr)
@@ -234,7 +237,7 @@ def load_config(path: str | Path | None = None) -> Config:
                 "POLLING_DAILY_REPORT_HOUR",
             ):
                 value = int(value)
-            elif env_name in ("NOTIFY_ON_START", "WEB_ALLOW_REGISTER"):
+            elif env_name in ("NOTIFY_ON_START", "WEB_ALLOW_REGISTER", "WEB_TRUST_PROXY"):
                 value = value.strip().lower() in ("1", "true", "yes", "on")
         except ValueError as exc:
             raise ValueError(f"环境变量 {env_name} 无效: {exc}") from exc

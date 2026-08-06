@@ -213,6 +213,7 @@ def create_api_router(
     allow_register: bool = True,
     wechat_config=None,
     notifiers_config=None,
+    trust_proxy: bool = False,
 ) -> APIRouter:
     router = APIRouter(prefix="/api")
     # 登录/注册限流（内存版，单实例够用）：每 IP 窗口内失败次数超限后 429
@@ -224,12 +225,16 @@ def create_api_router(
     weibo_qr_sessions: dict[str, dict] = {}
 
     def _client_ip(request: Request) -> str:
-        """优先取 X-Forwarded-For 首段（反代场景），否则用直连 IP。"""
-        forwarded = request.headers.get("x-forwarded-for")
-        if forwarded:
-            first = forwarded.split(",")[0].strip()
-            if first:
-                return first
+        """优先取 X-Forwarded-For 首段（仅当位于可信反代之后），否则用直连 IP。
+
+        未配置 trust_proxy 时若直接信任该头，攻击者改 header 即可绕过登录/注册限流。
+        """
+        if trust_proxy:
+            forwarded = request.headers.get("x-forwarded-for")
+            if forwarded:
+                first = forwarded.split(",")[0].strip()
+                if first:
+                    return first
         return request.client.host if request.client else "unknown"
 
     def _check_login_limit(ip: str) -> None:
@@ -385,44 +390,55 @@ def create_api_router(
     def register(body: RegisterIn, request: Request):
         if not allow_register:
             raise HTTPException(status_code=403, detail="暂未开放注册")
-        _check_login_limit(_client_ip(request))
-        username = body.username.strip()
-        if len(username) < 2 or len(body.password) < 6:
-            raise HTTPException(status_code=400, detail="用户名至少2位，密码至少6位")
-        if len(username) > 30:
-            raise HTTPException(status_code=400, detail="用户名最长30位")
-        if len(body.password) > MAX_PASSWORD_LEN:
-            raise HTTPException(status_code=400, detail=f"密码最长{MAX_PASSWORD_LEN}位")
-        if not body.code.strip():
-            raise HTTPException(status_code=400, detail="注册需要邀请码，请向管理员索取")
+        ip = _client_ip(request)
+        _check_login_limit(ip)
         try:
-            # 管理员只能在网页后台指定，注册用户一律为普通用户
-            uid = db.register_with_code(body.code, username, auth.hash_password(body.password))
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from None
+            username = body.username.strip()
+            if len(username) < 2 or len(body.password) < 6:
+                raise HTTPException(status_code=400, detail="用户名至少2位，密码至少6位")
+            if len(username) > 30:
+                raise HTTPException(status_code=400, detail="用户名最长30位")
+            if len(body.password) > MAX_PASSWORD_LEN:
+                raise HTTPException(status_code=400, detail=f"密码最长{MAX_PASSWORD_LEN}位")
+            if not body.code.strip():
+                raise HTTPException(status_code=400, detail="注册需要邀请码，请向管理员索取")
+            try:
+                # 管理员只能在网页后台指定，注册用户一律为普通用户
+                uid = db.register_with_code(body.code, username, auth.hash_password(body.password))
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from None
+        except HTTPException:
+            # 注册失败同样计入限流，避免邀请码爆破
+            _record_login_failure(ip)
+            raise
         user = db.get_user(uid)
         return {"token": auth.create_token(uid, username, secret), "user": public_user(user)}
 
     @router.post("/auth/login")
     def login(body: LoginIn, request: Request):
         ip = _client_ip(request)
-        _check_login_limit(ip)
         user = db.get_user_by_username(body.username.strip())
+        # 先验证密码：输对即成功并清零，绝不能被限流锁死；限流只针对失败尝试
         if user is None:
             auth.verify_password(body.password, auth.DUMMY_HASH)
+            _check_login_limit(ip)
             _record_login_failure(ip)
             raise HTTPException(status_code=401, detail="用户名或密码错误")
         if not user["password_hash"]:
             # 机器人/微信自动创建的账号没有密码，不能通过账号密码登录
             auth.verify_password(body.password, auth.DUMMY_HASH)
+            _check_login_limit(ip)
             _record_login_failure(ip)
             raise HTTPException(status_code=401, detail="用户名或密码错误")
         if not body.password or len(body.password) > MAX_PASSWORD_LEN:
+            _check_login_limit(ip)
             _record_login_failure(ip)
             raise HTTPException(status_code=400, detail=f"密码长度需在 1-{MAX_PASSWORD_LEN} 位之间")
         if not auth.verify_password(body.password, user["password_hash"]):
+            _check_login_limit(ip)
             _record_login_failure(ip)
             raise HTTPException(status_code=401, detail="用户名或密码错误")
+        login_attempts.pop(ip, None)  # 登录成功清零，避免历史失败锁住正常用户
         return {"token": auth.create_token(user["id"], user["username"], secret), "user": public_user(user)}
 
     @router.post("/auth/wechat")

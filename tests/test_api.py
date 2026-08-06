@@ -1538,3 +1538,81 @@ def test_stats_returns_source_stability_fields():
     assert data["retry_pending"] == 2
     assert any(h["id"] == kid and h["last_post_at"] for h in data["kol_health"])
     assert "push_alert_last_at" in data["alerts"]
+
+
+def test_login_rate_limit_blocks_after_8_failures():
+    client = make_client()
+    user_headers(client, "victim")
+    for _ in range(8):
+        assert client.post("/api/auth/login", json={"username": "victim", "password": "bad"}).status_code == 401
+    assert client.post("/api/auth/login", json={"username": "victim", "password": "bad"}).status_code == 429
+
+
+def test_xff_spoof_cannot_bypass_rate_limit_without_trust_proxy():
+    """未显式信任反代时，伪造 X-Forwarded-For 不能绕过限流。"""
+    client = make_client()
+    user_headers(client, "victim")
+    for i in range(8):
+        r = client.post(
+            "/api/auth/login",
+            json={"username": "victim", "password": "bad"},
+            headers={"X-Forwarded-For": f"1.1.1.{i}"},
+        )
+        assert r.status_code == 401
+    r = client.post(
+        "/api/auth/login",
+        json={"username": "victim", "password": "bad"},
+        headers={"X-Forwarded-For": "9.9.9.9"},
+    )
+    assert r.status_code == 429
+
+
+def test_xff_trusted_when_trust_proxy_enabled():
+    """显式信任反代后，X-Forwarded-For 才作为分桶依据。"""
+    cfg = Config()
+    cfg.web.trust_proxy = True
+    client = make_client(config=cfg)
+    user_headers(client, "victim")
+    for _ in range(8):
+        assert client.post(
+            "/api/auth/login",
+            json={"username": "victim", "password": "bad"},
+            headers={"X-Forwarded-For": "1.1.1.1"},
+        ).status_code == 401
+    assert client.post(
+        "/api/auth/login",
+        json={"username": "victim", "password": "bad"},
+        headers={"X-Forwarded-For": "1.1.1.1"},
+    ).status_code == 429
+    # 不同伪造 IP 是不同桶，不受影响
+    assert client.post(
+        "/api/auth/login",
+        json={"username": "victim", "password": "bad"},
+        headers={"X-Forwarded-For": "2.2.2.2"},
+    ).status_code == 401
+
+
+def test_register_failures_count_toward_limit():
+    client = make_client()
+    for _ in range(8):
+        r = client.post(
+            "/api/auth/register",
+            json={"username": f"u{_}", "password": "secret123", "code": "INVALID"},
+        )
+        assert r.status_code == 400
+    r = client.post(
+        "/api/auth/register",
+        json={"username": "u9", "password": "secret123", "code": "INVALID"},
+    )
+    assert r.status_code == 429
+
+
+def test_login_success_clears_failure_count():
+    client = make_client()
+    user_headers(client, "victim")
+    for _ in range(8):
+        assert client.post("/api/auth/login", json={"username": "victim", "password": "bad"}).status_code == 401
+    assert client.post("/api/auth/login", json={"username": "victim", "password": "bad"}).status_code == 429
+    # 输对密码成功后清零
+    assert client.post("/api/auth/login", json={"username": "victim", "password": "pass123456"}).status_code == 200
+    assert client.post("/api/auth/login", json={"username": "victim", "password": "bad"}).status_code == 401
