@@ -602,8 +602,11 @@ async function renderSearch() {
         <header class="section-head"><div><p class="section-eyebrow">My Requests</p><h3 class="section-title">我的申请</h3></div></header>
         <div id="my-asks"></div>
       </section>`;
-    $("#main").appendChild(askSection.firstElementChild);
-    $("#main").appendChild(askSection.children[1]);
+    // 先取引用再 append：第一次 appendChild 会移动节点，children[1] 会随之失效
+    const askPanel = askSection.firstElementChild;
+    const myAskPanel = askSection.children[1];
+    $("#main").appendChild(askPanel);
+    $("#main").appendChild(myAskPanel);
     loadMyAsks();
   }
   if (query) doSearch();
