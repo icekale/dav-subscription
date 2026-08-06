@@ -170,24 +170,6 @@ class XueqiuFetcher(Fetcher):
         self.db.set_setting(XUEQIU_COOKIE_KEY, cookie)
         self.db.set_setting(XUEQIU_COOKIE_TIME_KEY, str(int(time.time())))
 
-    def _fetch_full_status(self, status_id: str) -> str:
-        """尽力拉取长文完整正文：时间线接口对长文只回约 140 字 + 省略号，
-        详情接口才有全文（可能被 WAF 拦截，失败返回空串，不影响主流程）。"""
-        if not status_id:
-            return ""
-        try:
-            resp = self.client.get(
-                "https://xueqiu.com/statuses/show.json",
-                params={"id": status_id},
-            )
-            if "application/json" not in resp.headers.get("content-type", ""):
-                return ""
-            data = resp.json()
-            status = (data or {}).get("status") or {}
-            return strip_html(status.get("description") or "")
-        except Exception:  # noqa: BLE001 - 详情拉取失败退回截断文本
-            return ""
-
     def fetch(self, kol: dict) -> list[Post]:
         self._apply_cookie()
         # 用户时间线 JSON 接口不受 WAF 挑战保护；original/timeline.json 反而会被 WAF 拦截
@@ -227,9 +209,10 @@ class XueqiuFetcher(Fetcher):
             url = f"https://xueqiu.com{target}" if target.startswith("/") else target
             content = strip_html(s.get("description") or "")
             if content.endswith(("…", "...")):
-                # 时间线长文被截断，尝试拿完整正文
-                full = self._fetch_full_status(str(s.get("id") or ""))
-                if full and len(full) > len(content):
+                # 时间线长文被截断（尾部 …）：同响应的 text 字段是完整正文，优先使用
+                # （详情接口 statuses/show.json 已被雪球下线，返回 405，不再依赖）
+                full = strip_html(s.get("text") or "")
+                if len(full) > len(content):
                     content = full
             posts.append(
                 Post(

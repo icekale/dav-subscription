@@ -60,6 +60,64 @@ def test_xueqiu_skips_reposts():
     assert [p.external_id for p in posts] == ["101"]
 
 
+def test_xueqiu_uses_full_text_for_truncated_long_post():
+    """时间线 description 截断（尾部 ...）时，用同响应的 text 完整字段补全。"""
+    payload = {
+        "statuses": [
+            {
+                "id": 201,
+                "title": "",
+                "description": (
+                    "关于明年1.6T有没有加单，今天问的比较多。我们的信息比较早，"
+                    "对市场来说是新信息，对我们来讲不一定是新信息。我们的观点，"
+                    "请参考7/24 9:30我们给各位推送的观点。总结说就是基本面一直在上行，"
+                    "订单一直在上修，但是很多投资者担忧大的..."
+                ),
+                "text": (
+                    "关于明年1.6T有没有加单，今天问的比较多。我们的信息比较早，"
+                    "对市场来说是新信息，对我们来讲不一定是新信息。我们的观点，"
+                    "请参考7/24 9:30我们给各位推送的观点。总结说就是基本面一直在上行，"
+                    "订单一直在上修，但是很多投资者担忧大的。完整结尾在这里。"
+                ),
+                "target": "/201",
+            }
+        ]
+    }
+
+    def handler(request):
+        return httpx.Response(200, json=payload)
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    fetcher = XueqiuFetcher(XueqiuConfig(cookie="xq_a_token=abc"), db=DB(":memory:"), client=client)
+    posts = fetcher.fetch({"id": 1, "name": "大V", "external_id": "123"})
+    assert len(posts) == 1
+    assert "完整结尾在这里" in posts[0].content
+    assert not posts[0].content.endswith("...")
+
+
+def test_xueqiu_truncated_post_without_text_keeps_description():
+    """text 字段缺失时退回截断的 description，不报错。"""
+    payload = {
+        "statuses": [
+            {
+                "id": 202,
+                "title": "",
+                "description": "这段被截断了，没有 text 字段兜底...",
+                "text": "",
+                "target": "/202",
+            }
+        ]
+    }
+
+    def handler(request):
+        return httpx.Response(200, json=payload)
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    fetcher = XueqiuFetcher(XueqiuConfig(cookie="xq_a_token=abc"), db=DB(":memory:"), client=client)
+    posts = fetcher.fetch({"id": 1, "name": "大V", "external_id": "123"})
+    assert posts[0].content == "这段被截断了，没有 text 字段兜底..."
+
+
 def test_classify_status():
     assert classify_status({"id": 1, "description": "正文"}) == "post"
     assert classify_status({"id": 1, "description": "正文", "retweeted_status": {"id": 2}}) is None
@@ -98,16 +156,20 @@ def test_xueqiu_fetch_keeps_replies():
 
 
 def test_xueqiu_fetch_full_text_for_truncated_long_post():
+    """长文截断时用时间线同响应的 text 字段补全（详情接口 show.json 已下线）。"""
     def handler(request):
-        if request.url.path == "/statuses/show.json":
-            return httpx.Response(
-                200,
-                json={"status": {"description": "这是完整的长文正文，远超时间线截断长度。"}},
-                headers={"content-type": "application/json"},
-            )
         return httpx.Response(
             200,
-            json={"statuses": [{"id": 101, "description": "时间线里的截断长文……", "target": "/101"}]},
+            json={
+                "statuses": [
+                    {
+                        "id": 101,
+                        "description": "时间线里的截断长文……",
+                        "text": "这是完整的长文正文，远超时间线截断长度。",
+                        "target": "/101",
+                    }
+                ]
+            },
         )
 
     client = httpx.Client(transport=httpx.MockTransport(handler))
