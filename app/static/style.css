@@ -734,4 +734,13 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
   .kol-item { flex-wrap: wrap; }
   .kol-item .btn-sub { width: 100%; min-height: 44px; }
   .search-bar { min-height: 44px; }
+  .toolbar { flex-wrap: wrap; }
+  .fav-toggle { min-height: 44px; }
+  .sub-type-switches { gap: 8px; }
+  .sub-type-switch { min-height: 44px; }
+  .post-item { padding: 14px 4px; }
+  .post-item a { min-height: 40px; display: inline-flex; align-items: center; }
+  .btn-normal, .btn-ghost { min-height: 44px; }
+  .btn-add { min-height: 44px; }
+  .hero-panel { padding: 16px; }
 }
