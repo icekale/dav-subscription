@@ -1652,3 +1652,21 @@ def test_db_busy_timeout_set():
     client = make_client()
     value = client.app.state.db._conn.execute("PRAGMA busy_timeout").fetchone()[0]
     assert value == 5000
+
+
+def test_me_subscription_count():
+    client = make_client()
+    admin_headers = auth_headers(client)
+    kid1 = client.post(
+        "/api/kols", headers=admin_headers,
+        json={"platform": "xueqiu", "name": "A", "external_id": "1"},
+    ).json()["id"]
+    kid2 = client.post(
+        "/api/kols", headers=admin_headers,
+        json={"platform": "xueqiu", "name": "B", "external_id": "2"},
+    ).json()["id"]
+    uh = user_headers(client, "user")
+    assert client.get("/api/me", headers=uh).json()["subscription_count"] == 0
+    client.post("/api/subscriptions", headers=uh, json={"kol_id": kid1})
+    client.post("/api/subscriptions", headers=uh, json={"kol_id": kid2})
+    assert client.get("/api/me", headers=uh).json()["subscription_count"] == 2

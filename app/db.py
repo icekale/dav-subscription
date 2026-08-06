@@ -693,6 +693,12 @@ class DB:
             (user_id,),
         )
 
+    def count_subscriptions(self, user_id: int) -> int:
+        rows = self._rows(
+            "SELECT COUNT(*) AS n FROM subscriptions WHERE user_id = ?", (user_id,)
+        )
+        return rows[0]["n"]
+
     def subscribed_kol_ids(self, user_id: int) -> set[int]:
         rows = self._rows("SELECT kol_id FROM subscriptions WHERE user_id = ?", (user_id,))
         return {row["kol_id"] for row in rows}

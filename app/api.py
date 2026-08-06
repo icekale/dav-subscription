@@ -465,7 +465,7 @@ def create_api_router(
     @router.get("/me")
     def me(user: dict = Depends(get_current_user)):
         profile = public_user(user)
-        profile["subscription_count"] = len(db.list_subscriptions(user["id"]))
+        profile["subscription_count"] = db.count_subscriptions(user["id"])
         if notifiers_config is not None:
             profile["push_guide"] = {
                 "telegram_bot_username": notifiers_config.telegram.bot_username,
