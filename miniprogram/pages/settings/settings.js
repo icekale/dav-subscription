@@ -50,23 +50,31 @@ Page({
 
   onShow() {
     this.wecomDirty = false;
-    this._pollCount = 0;
-    if (this._pollTimer) clearInterval(this._pollTimer);
-    this._pollTimer = setInterval(() => {
-      this._pollCount += 1;
-      this.load();
-      if (this._pollCount >= 20) {
-        clearInterval(this._pollTimer);
-        this._pollTimer = null;
-      }
-    }, 5000);
+    this.load();
   },
 
   onHide() {
+    this._stopPolling();
+  },
+
+  _stopPolling() {
     if (this._pollTimer) {
       clearInterval(this._pollTimer);
       this._pollTimer = null;
     }
+  },
+
+  // 生成绑定码后开启轮询，等待用户在机器人里 /bind 完成，绑定齐或超时后自动停止
+  _startPolling() {
+    this._stopPolling();
+    this._pollCount = 0;
+    this._pollTimer = setInterval(() => {
+      this._pollCount += 1;
+      this.load();
+      if (this._pollCount >= 20) {
+        this._stopPolling();
+      }
+    }, 5000);
   },
 
   async load() {
@@ -246,6 +254,7 @@ Page({
     try {
       const data = await request("/api/me/bind-code", { method: "POST" });
       this.setData({ bindCode: data.code, bindMinutes: Math.floor(data.expires_in_seconds / 60) });
+      this._startPolling();
     } catch (err) {
       wx.showToast({ title: err.message, icon: "none" });
     }
