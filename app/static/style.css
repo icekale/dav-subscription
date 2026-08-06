@@ -372,6 +372,7 @@ textarea.form-control {
 .platform-tab:hover { border-color: var(--color-accent); color: var(--color-accent); }
 .platform-tab.selected { background: var(--color-accent); border-color: var(--color-accent); color: #fff; }
 .platform-tab.selected .pt-icon { filter: brightness(0) invert(1); }
+.pt-label { display: none; }
 .pt-icon { width: 18px; height: 18px; }
 .platform-tab[data-platform="xueqiu"]:not(.selected) .pt-icon { color: #287dff; }
 .platform-tab[data-platform="combination"]:not(.selected) .pt-icon { color: var(--color-accent); }
@@ -729,4 +730,10 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
   .main-col { min-height: 100vh; }
   .topbar { padding: 0 12px; }
   .page-main { padding: 16px 14px calc(74px + env(safe-area-inset-bottom)); }
+  .platform-tabs { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 4px; }
+  .platform-tab { width: auto; height: auto; min-height: 38px; padding: 0 14px; gap: 6px; border-radius: var(--radius-pill); }
+  .platform-tab .pt-label { display: inline; font-size: var(--text-sm); }
+  .kol-item { flex-wrap: wrap; }
+  .kol-item .btn-sub { width: 100%; min-height: 44px; }
+  .search-bar { height: var(--control-height-xl); }
 }

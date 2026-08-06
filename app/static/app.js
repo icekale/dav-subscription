@@ -276,7 +276,7 @@ function platformTabHTML(p, current, handler) {
   const label = p ? PLATFORM_LABELS[p] : "全部";
   return `<button class="platform-tab ${p === current ? "selected" : ""}" data-platform="${p || "all"}"
     title="${label}" aria-label="${label}"
-    onclick="${handler}('${p}')">${PLATFORM_ICONS[p || ""]}</button>`;
+    onclick="${handler}('${p}')">${PLATFORM_ICONS[p || ""]}<span class="pt-label">${label}</span></button>`;
 }
 
 async function loadHomeKols() {
