@@ -449,6 +449,7 @@ def _x_fallback_advice(reason: str) -> str:
     if any(k in text for k in (
         "500", "502", "503", "504", "429", "serviceunavailable", "unavailable",
         "ssl", "timeout", "timed out", "eof", "connection", "reset", "network",
+        "deadline",  # DeadlineExceeded: X 后端超时，同 503 一类瞬时故障
     )):
         return "X 服务端暂时不可用或网络抖动，已自动回退 RSSHub，无需操作；持续出现再检查 Cookie。"
     return "已自动回退 RSSHub 备用通道，请留意后续是否持续降级。"

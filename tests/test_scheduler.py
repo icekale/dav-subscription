@@ -170,12 +170,14 @@ def test_x_fallback_advice_categorizes_reasons():
     ):
         assert qid_hint in _x_fallback_advice(reason), reason
 
-    # 瞬时故障（503/ServiceUnavailable/SSL/超时）→ 无需操作
+    # 瞬时故障（503/ServiceUnavailable/SSL/超时/DeadlineExceeded）→ 无需操作
     for reason in (
         "X GraphQL UserTweets HTTP 503",
         "X GraphQL UserTweets 错误: ServiceUnavailable: Unspecified",
         "[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol",
         "Read timed out",
+        "X GraphQL UserTweets 错误: DeadlineExceeded: Unspecified",
+        "X GraphQL UserTweets 错误: deadline exceeded (timeout)",
     ):
         assert transient_hint in _x_fallback_advice(reason), reason
         assert cookie_hint not in _x_fallback_advice(reason), reason
