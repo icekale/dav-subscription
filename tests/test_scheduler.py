@@ -1778,3 +1778,10 @@ def test_scheduler_run_loop_sleeps_priority_interval(monkeypatch):
 
     assert sleeps, "主循环应至少 sleep 一次"
     assert 59 < sleeps[0] <= 60, f"应约为优先间隔 60s，实际 {sleeps[0]}"
+
+
+def test_scheduler_loop_delay_floors_at_one():
+    from app.scheduler import _scheduler_loop_delay
+
+    assert _scheduler_loop_delay(180, 0, 0) == 1
+    assert _scheduler_loop_delay(180, -30, 0) == 1

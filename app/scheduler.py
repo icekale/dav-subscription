@@ -922,6 +922,7 @@ def _scheduler_loop_delay(
     每个 KOL 本轮是否抓取，这里只负责把轮询节奏提到最短间隔。
     """
     base = min(interval_seconds, priority_interval_seconds)
+    base = max(base, 1)  # 防御：非法配置（0/负值）不能退化成忙轮询
     return base + random.uniform(0, jitter_seconds)
 
 

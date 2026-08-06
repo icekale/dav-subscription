@@ -192,6 +192,8 @@ def _validate(config: Config) -> None:
         setattr(obj, attr, value)
     if config.polling.interval_seconds < 1:
         raise ValueError("配置项 polling.interval_seconds 必须 >= 1")
+    if config.polling.priority_interval_seconds < 1:
+        raise ValueError("配置项 polling.priority_interval_seconds 必须 >= 1")
     if config.polling.jitter_seconds < 0:
         raise ValueError("配置项 polling.jitter_seconds 必须 >= 0")
     if config.polling.posts_retention_days < 0:

@@ -107,3 +107,12 @@ def test_empty_config_path_uses_default(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     config = load_config()
     assert config.polling.interval_seconds == 180
+
+
+def test_priority_interval_seconds_must_be_positive(tmp_path, monkeypatch):
+    (tmp_path / "config.yaml").write_text(
+        "polling:\n  priority_interval_seconds: 0\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError):
+        load_config(tmp_path / "config.yaml")
