@@ -301,7 +301,8 @@ def test_kol_request_notifies_admins(monkeypatch):
     client = make_client()
     auth_headers(client)
     admin = client.app.state.db.get_user_by_username("admin")
-    client.app.state.db.update_user(admin["id"], telegram_chat_id="111")
+    # 自建 bot token 让通知分支与本地 config.yaml 解耦（CI 无 config.yaml 也能过）
+    client.app.state.db.update_user(admin["id"], telegram_chat_id="111", telegram_bot_token="tok")
     sent = []
 
     class FakeTG:
