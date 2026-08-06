@@ -683,3 +683,50 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
   .kol-item .btn-sub { width: 100%; }
   .post-item .p-title { font-size: var(--text-md); }
 }
+
+/* ---------- 移动端底部标签栏 ---------- */
+.bottom-nav {
+  display: none;
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  z-index: 50;
+  background: var(--color-surface-soft);
+  backdrop-filter: blur(var(--blur-nav)) saturate(160%);
+  border-top: var(--border-default);
+  padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
+  justify-content: space-around;
+}
+.bnav-item {
+  flex: 1;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 2px;
+  border: none; background: transparent;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  min-height: 48px;
+  border-radius: var(--radius-control);
+}
+.bnav-item .bnav-icon { font-size: 18px; line-height: 1; }
+.bnav-item.active { color: var(--color-accent-strong); font-weight: var(--font-weight-semibold); }
+
+/* 「更多」页网格 */
+.more-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 12px; }
+.more-item {
+  display: flex; align-items: center; gap: 10px;
+  min-height: 52px;
+  border: var(--border-strong); border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--text-md);
+  padding: 0 14px;
+}
+.more-item .more-icon { font-size: 16px; width: 20px; text-align: center; }
+
+/* ---------- 手机端（≤768px）壳层 ---------- */
+@media (max-width: 768px) {
+  .sidebar { display: none; }
+  .bottom-nav { display: flex; }
+  .main-col { min-height: 100vh; }
+  .topbar { padding: 0 12px; }
+  .page-main { padding: 16px 14px calc(74px + env(safe-area-inset-bottom)); }
+}
