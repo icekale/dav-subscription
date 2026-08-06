@@ -334,8 +334,63 @@ def test_query_id_refresh_single_fetch_within_ttl(monkeypatch):
     try:
         tw_mod._refresh_query_ids(client, "auth_token=x; ct0=y")
         first = handler.requests
+        assert first >= 1  # 首次调用确实请求了前端
         tw_mod._refresh_query_ids(client, "auth_token=x; ct0=y")
         assert handler.requests == first  # TTL 内不重复拉取
+    finally:
+        tw_mod._query_ids_loaded = saved_loaded
+        tw_mod._query_ids_error_until = saved_error
+
+
+def test_query_id_refresh_serialized_under_lock(monkeypatch):
+    """4 个 worker 并发刷新时只拉取一次前端（page + bundle = 2 请求）。"""
+    import threading
+    import time
+
+    from app.fetchers import twitter as tw_mod
+
+    saved_loaded = tw_mod._query_ids_loaded
+    saved_error = tw_mod._query_ids_error_until
+    tw_mod._query_ids_loaded = 0.0
+    tw_mod._query_ids_error_until = 0.0
+    clock = {"t": 100000.0}
+    monkeypatch.setattr(tw_mod.time, "time", lambda: clock["t"])
+
+    class Handler:
+        def __init__(self):
+            self.requests = 0
+            self.lock = threading.Lock()
+
+        def __call__(self, request):
+            with self.lock:
+                self.requests += 1
+            time.sleep(0.005)  # 让出 GIL，确保 4 个 worker 都越过 TTL 检查再取锁
+            if "abs.twimg.com" in str(request.url):
+                return httpx.Response(
+                    200,
+                    text='queryId:"abc123"xxxoperationName:"UserTweets"',
+                )
+            return httpx.Response(
+                200,
+                text='<script src="https://abs.twimg.com/responsive-web/client-web/main.abc.js"></script>',
+            )
+
+    handler = Handler()
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    barrier = threading.Barrier(5)  # 4 workers + 主线程
+
+    def worker():
+        barrier.wait()
+        tw_mod._refresh_query_ids(client, "auth_token=x; ct0=y")
+
+    try:
+        threads = [threading.Thread(target=worker) for _ in range(4)]
+        for t in threads:
+            t.start()
+        barrier.wait()
+        for t in threads:
+            t.join()
+        assert handler.requests == 2  # 只拉一次前端（page + bundle）
     finally:
         tw_mod._query_ids_loaded = saved_loaded
         tw_mod._query_ids_error_until = saved_error
