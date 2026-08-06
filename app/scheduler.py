@@ -912,6 +912,19 @@ def flush_digest(
         )
 
 
+def _scheduler_loop_delay(
+    interval_seconds: int, priority_interval_seconds: int, jitter_seconds: int
+) -> float:
+    """主循环单轮等待时间：取优先与全局间隔中较小者，保证优先大V更频繁被调度。
+
+    此前主循环固定按全局间隔 sleep，导致 poll_once 里对优先大V的更短到期判断
+    永远等不到下一次调用，优先间隔形同虚设。由 poll_once 的内部到期判断决定
+    每个 KOL 本轮是否抓取，这里只负责把轮询节奏提到最短间隔。
+    """
+    base = min(interval_seconds, priority_interval_seconds)
+    return base + random.uniform(0, jitter_seconds)
+
+
 def probe_xueqiu(db: DB, notifiers: list[Notifier], source_config) -> None:
     """主动探测雪球抓取接口可用性（与抓取同路径，不用首页——首页对
     数据中心 IP 常见 WAF，不能作为失效依据）。"""
@@ -1402,8 +1415,10 @@ class Scheduler:
                 except Exception:  # noqa: BLE001
                     logger.exception("数据源事件清理失败")
             elapsed = time.monotonic() - started
-            delay = interval_seconds + random.uniform(
-                0, self.polling_config.jitter_seconds
+            delay = _scheduler_loop_delay(
+                interval_seconds,
+                priority_interval,
+                self.polling_config.jitter_seconds,
             )
             await asyncio.sleep(max(0.0, delay - elapsed))
 

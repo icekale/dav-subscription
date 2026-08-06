@@ -1724,3 +1724,57 @@ def test_delete_posts_older_than():
     remaining = db._rows("SELECT external_id FROM posts ORDER BY id")
     assert [r["external_id"] for r in remaining] == ["new"]
     assert db.list_push_logs() == []
+
+
+def test_scheduler_loop_delay_uses_min_interval():
+    from app.scheduler import _scheduler_loop_delay
+
+    assert _scheduler_loop_delay(180, 60, 0) == 60
+    assert _scheduler_loop_delay(180, 180, 0) == 180
+    assert _scheduler_loop_delay(60, 180, 0) == 60
+    assert 60 <= _scheduler_loop_delay(180, 60, 30) <= 90
+
+
+def test_scheduler_run_loop_sleeps_priority_interval(monkeypatch):
+    """主循环单轮等待时长应取优先间隔，而非全局间隔。"""
+    import asyncio
+
+    db = make_db()
+    ncfg = SimpleNamespace(
+        telegram=SimpleNamespace(bot_token="", chat_id=""),
+        feishu=SimpleNamespace(),
+        wecom=SimpleNamespace(),
+    )
+    polling = SimpleNamespace(
+        notify_on_start=False,
+        jitter_seconds=0,
+        interval_seconds=180,
+        priority_interval_seconds=60,
+        digest_interval_seconds=0,
+        source_probe_interval_seconds=0,
+        cookie_keepalive_interval_seconds=0,
+        daily_report_hour=23,
+        posts_retention_days=0,
+        push_logs_retention_days=0,
+    )
+    scheduler = Scheduler(
+        db,
+        {},
+        [],
+        polling,
+        notifiers_config=ncfg,
+        xueqiu_config=SimpleNamespace(cookie=""),
+        weibo_config=SimpleNamespace(cookie="", username="", password=""),
+    )
+    sleeps = []
+
+    async def fake_sleep(delay):
+        sleeps.append(delay)
+        scheduler._stop.set()  # 睡一次就停，只验证单轮等待时长
+
+    monkeypatch.setattr("app.scheduler.asyncio.sleep", fake_sleep)
+    monkeypatch.setattr("app.scheduler.poll_once", lambda *a, **k: None)
+    asyncio.run(scheduler.run())
+
+    assert sleeps, "主循环应至少 sleep 一次"
+    assert 59 < sleeps[0] <= 60, f"应约为优先间隔 60s，实际 {sleeps[0]}"
