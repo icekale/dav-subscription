@@ -1646,3 +1646,9 @@ def test_admin_delete_user_cleans_push_logs_and_acl():
     assert client.delete(f"/api/users/{uid}", headers=admin_headers).status_code == 200
     assert db.list_push_logs(user_id=uid) == []
     assert db.acl_user_ids(kid) == []
+
+
+def test_db_busy_timeout_set():
+    client = make_client()
+    value = client.app.state.db._conn.execute("PRAGMA busy_timeout").fetchone()[0]
+    assert value == 5000

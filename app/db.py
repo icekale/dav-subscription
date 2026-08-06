@@ -172,6 +172,8 @@ class DB:
         self._conn = sqlite3.connect(self.path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._lock = threading.Lock()
+        # 并发写（多 worker/健康检查脚本）时等待而非直接报错
+        self._conn.execute("PRAGMA busy_timeout = 5000")
         # Docker 里 /data 是 virtiofs 挂载，WAL 的共享内存映射不可靠（会出现
         # wal/shm 被删除后写入丢失的问题），统一用回滚日志模式，跨进程读写一致。
         self._conn.execute("PRAGMA journal_mode=DELETE")
