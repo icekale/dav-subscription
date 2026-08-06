@@ -164,6 +164,131 @@ def test_extract_screen_name():
     assert extract_screen_name("elonmusk") == "elonmusk"
     assert extract_screen_name("https://x.com/a/status/123") == "a"
     assert extract_screen_name("") == ""
+    # 纯 @前缀用户名（此前无法识别，直接报「无法识别 X 用户名」）
+    assert extract_screen_name("@elonmusk") == "elonmusk"
+    assert extract_screen_name("@SemiAnalysis_") == "SemiAnalysis_"
+    assert extract_screen_name("@") == ""
+    assert extract_screen_name("@too_long_username_12345") == ""
+
+
+def test_twitter_fetch_pin_entry_and_visibility_wrapper(monkeypatch):
+    """置顶推文（TimelinePinEntry）与受限可见性推文（TweetWithVisibilityResults）也能解析。"""
+    monkeypatch.setenv("TWITTER_COOKIE", "auth_token=a; ct0=b")
+
+    def handler(request):
+        if "UserByScreenName" in str(request.url):
+            return httpx.Response(200, json=_user_response())
+        if "UserTweets" in str(request.url):
+            return httpx.Response(
+                200,
+                json={
+                    "data": {
+                        "user": {
+                            "result": {
+                                "__typename": "User",
+                                "timeline": {
+                                    "timeline": {
+                                        "instructions": [
+                                            {
+                                                "type": "TimelinePinEntry",
+                                                "entry": {
+                                                    "content": {
+                                                        "__typename": "TimelineTimelineItem",
+                                                        "itemContent": {
+                                                            "tweet_results": {
+                                                                "result": {
+                                                                    "rest_id": "pinned1",
+                                                                    "legacy": {
+                                                                        "full_text": "置顶帖",
+                                                                        "created_at": "Tue Aug 04 12:00:00 +0000 2026",
+                                                                        "id_str": "pinned1",
+                                                                    },
+                                                                }
+                                                            }
+                                                        },
+                                                    }
+                                                },
+                                            },
+                                            {
+                                                "type": "TimelineAddEntries",
+                                                "entries": [
+                                                    {
+                                                        "content": {
+                                                            "__typename": "TimelineTimelineItem",
+                                                            "itemContent": {
+                                                                "tweet_results": {
+                                                                    "result": {
+                                                                        "__typename": "TweetWithVisibilityResults",
+                                                                        "tweet": {
+                                                                            "rest_id": "v1",
+                                                                            "legacy": {
+                                                                                "full_text": "受限可见性帖",
+                                                                                "created_at": "Tue Aug 04 12:00:00 +0000 2026",
+                                                                                "id_str": "v1",
+                                                                            },
+                                                                        },
+                                                                    }
+                                                                }
+                                                            },
+                                                        }
+                                                    }
+                                                ],
+                                            },
+                                        ]
+                                    }
+                                },
+                            }
+                        }
+                    }
+                },
+            )
+        return httpx.Response(404)
+
+    db = DB(":memory:")
+    kid = db.add_kol("twitter", "SemiAnalysis", "https://x.com/SemiAnalysis_")
+    fetcher = _make_fetcher(handler, db)
+    posts = fetcher.fetch(db.get_kol(kid))
+    assert {p.external_id for p in posts} == {"pinned1", "v1"}
+    assert {p.content for p in posts} == {"置顶帖", "受限可见性帖"}
+
+
+def test_twitter_suspended_user_falls_back_no_false_ok(monkeypatch):
+    """用户被封/不存在时 UserTweets 返回空壳，不应记「直抓成功」，应回退 RSSHub。"""
+    monkeypatch.setenv("TWITTER_COOKIE", "auth_token=a; ct0=b")
+    feed_xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<rss version="2.0"><channel></channel></rss>'
+    ).encode()
+
+    def handler(request):
+        if request.url.host == "x.com":
+            # 空壳：用户已停用（或不存在），无 timeline
+            return httpx.Response(
+                200,
+                json={
+                    "data": {
+                        "user": {
+                            "result": {"__typename": "UserUnavailable", "reason": "Suspended"}
+                        }
+                    }
+                },
+            )
+        return httpx.Response(
+            200,
+            content=feed_xml,
+            headers={"content-type": "application/rss+xml"},
+        )
+
+    db = DB(":memory:")
+    kid = db.add_kol("twitter", "SemiAnalysis", "https://x.com/SemiAnalysis_")
+    fetcher = _make_fetcher(handler, db)
+    fetcher._user_ids["SemiAnalysis_"] = "1745"  # 模拟已缓存的 userId，跳过 UserByScreenName
+    posts = fetcher.fetch(db.get_kol(kid))
+    assert posts == []
+    # 必须标记降级、不标记直抓成功
+    assert db.get_setting("x_direct_last_fallback_at")
+    assert not db.get_setting("x_direct_last_ok_at")
+    assert "停用" in (db.get_setting("x_direct_fallback_reason") or "")
 
 
 def test_resolve_x_profile(monkeypatch):

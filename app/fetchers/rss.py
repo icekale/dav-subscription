@@ -23,14 +23,17 @@ class RssFetcher(Fetcher):
         )
 
     def _resolve_feed_url(self, external_id: str) -> str:
-        """x.com / twitter.com 主页链接自动转成 RSSHub 用户 RSS。"""
+        """x.com / twitter.com 主页链接或纯用户名（含 @前缀）转成 RSSHub 用户 RSS。"""
+        value = (external_id or "").strip()
         match = re.search(
             r"(?:x\.com|twitter\.com)/(?:@?)([A-Za-z0-9_]+)",
-            external_id,
+            value,
         )
         if match:
             username = match.group(1)
             return f"{self.rsshub_base}/twitter/user/{username}"
+        if re.fullmatch(r"@?[A-Za-z0-9_]{1,15}", value):
+            return f"{self.rsshub_base}/twitter/user/{value.lstrip('@')}"
         return external_id
 
     @staticmethod

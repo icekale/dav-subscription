@@ -5,6 +5,7 @@ GraphQL 接口：UserByScreenName（拿 userId/头像）+ UserTweets（拿时间
 queryId 由 X 前端轮换，启动后每 6 小时自动从前端 main bundle 提取一次，
 提取失败时用内置默认值兜底；接口失效则整体回退 RSSHub。
 """
+
 from __future__ import annotations
 
 import json
@@ -117,7 +118,9 @@ def _refresh_query_ids(client: httpx.Client, cookie: str) -> None:
             text = bundle.text
             for op in ("UserTweets", "UserByScreenName"):
                 found = re.search(
-                    r'queryId:"([^"]+)"[^}]{0,300}?operationName:"' + re.escape(op) + r'"',
+                    r'queryId:"([^"]+)"[^}]{0,300}?operationName:"'
+                    + re.escape(op)
+                    + r'"',
                     text,
                 )
                 if found:
@@ -134,20 +137,20 @@ def _refresh_query_ids(client: httpx.Client, cookie: str) -> None:
 
 
 def extract_screen_name(external_id: str) -> str:
-    """从 x.com/twitter.com 主页链接或纯用户名里提取 screen_name。"""
+    """从 x.com/twitter.com 主页链接或纯用户名（含 @前缀）里提取 screen_name。"""
     value = (external_id or "").strip()
     match = re.search(r"(?:x\.com|twitter\.com)/(?:@?)([A-Za-z0-9_]+)", value)
     if match:
         return match.group(1)
-    if re.fullmatch(r"[A-Za-z0-9_]{1,15}", value):
-        return value
+    if re.fullmatch(r"@?[A-Za-z0-9_]{1,15}", value):
+        return value.lstrip("@")
     return ""
 
 
 def extract_twitter_images(legacy: dict) -> list[str]:
     """X 推文图片：extended_entities.media 里的照片 URL（最多 4 张）。"""
     out: list[str] = []
-    for media in ((legacy.get("extended_entities") or {}).get("media") or []):
+    for media in (legacy.get("extended_entities") or {}).get("media") or []:
         if media.get("type") != "photo":
             continue
         url = media.get("media_url_https") or media.get("media_url") or ""
@@ -197,7 +200,7 @@ def resolve_x_profile(external_id: str, cookie: str = "") -> dict:
 def _walk_tweet_results(entry: dict, out: list[dict]) -> None:
     """递归展开时间线条目（单条推文 / 模块内多推文 / 置顶）。"""
     content = entry.get("content") or {}
-    typename = content.get("__typename") or ""
+    typename = content.get("__typename") or content.get("entryType") or ""
     if typename == "TimelineTimelineItem":
         _append_tweet(content.get("itemContent"), out)
         return
@@ -214,6 +217,12 @@ def _append_tweet(node, out: list[dict]) -> None:
         return
     tweet = (node.get("tweet_results") or {}).get("result")
     if isinstance(tweet, dict):
+        # 受限可见性推文包一层 TweetWithVisibilityResults，真实内容在 .tweet 里
+        if (
+            tweet.get("__typename") == "TweetWithVisibilityResults"
+            and isinstance(tweet.get("tweet"), dict)
+        ):
+            tweet = tweet["tweet"]
         out.append(tweet)
         return
     item_content = node.get("itemContent")
@@ -337,20 +346,24 @@ class TwitterFetcher(Fetcher):
             },
             cookie,
         )
-        instructions = (
-            ((data.get("data") or {}).get("user") or {})
-            .get("result", {})
-            .get("timeline", {})
-            .get("timeline", {})
-            .get("instructions")
-            or []
+        instructions = ((data.get("data") or {}).get("user") or {}).get(
+            "result", {}
         )
+        if (
+            not instructions
+            or instructions.get("__typename") == "UserUnavailable"
+        ):
+            raise RuntimeError(f"X 用户不存在或已停用: {screen_name}")
+        instructions = (
+            (instructions.get("timeline") or {}).get("timeline") or {}
+        ).get("instructions") or []
         tweets: list[dict] = []
         for instruction in instructions:
-            if instruction.get("type") != "TimelineAddEntries":
-                continue
-            for entry in instruction.get("entries") or []:
-                _walk_tweet_results(entry, tweets)
+            if instruction.get("type") == "TimelineAddEntries":
+                for entry in instruction.get("entries") or []:
+                    _walk_tweet_results(entry, tweets)
+            elif instruction.get("type") == "TimelinePinEntry":
+                _walk_tweet_results(instruction.get("entry") or {}, tweets)
         posts = []
         for tweet in tweets:
             legacy = tweet.get("legacy") or {}
@@ -370,7 +383,9 @@ class TwitterFetcher(Fetcher):
                     title=text[:80],
                     content=text,
                     url=f"https://x.com/{screen_name}/status/{tweet_id}",
-                    published_at=format_published_at(str(legacy.get("created_at") or "")),
+                    published_at=format_published_at(
+                        str(legacy.get("created_at") or "")
+                    ),
                     post_type=post_type,
                     images=extract_twitter_images(legacy),
                 )
@@ -378,5 +393,7 @@ class TwitterFetcher(Fetcher):
         if user.get("avatar") and self.db is not None:
             current = (self.db.get_kol(kol["id"]) or {}).get("avatar_url") or ""
             if user["avatar"] != current:
-                self.db.update_kol_avatar(kol["id"], cache_avatar(self.db, kol["id"], user["avatar"]))
+                self.db.update_kol_avatar(
+                    kol["id"], cache_avatar(self.db, kol["id"], user["avatar"])
+                )
         return posts
