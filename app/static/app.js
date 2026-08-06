@@ -108,6 +108,41 @@ function renderSidebar(user) {
   checkUpdate();
 }
 
+const MOBILE_NAV = [
+  { route: "home", icon: "◎", label: "广场" },
+  { route: "combinations", icon: "◈", label: "组合" },
+  { route: "mysubs", icon: "▤", label: "订阅" },
+  { route: "timeline", icon: "☰", label: "动态" },
+  { route: "settings", icon: "⚙", label: "设置" },
+];
+
+function renderBottomNav(user) {
+  const tabs = [...MOBILE_NAV];
+  if (user.is_admin) tabs.push({ route: "more", icon: "✚", label: "更多" });
+  $("#bottom-nav").innerHTML = tabs.map((t) => `
+    <button class="bnav-item" data-route="${t.route}" onclick="location.hash='#/${t.route}'">
+      <span class="bnav-icon">${t.icon}</span>
+      <span class="bnav-label">${t.label}</span>
+    </button>`).join("");
+}
+
+async function renderMore() {
+  if (!state.user.is_admin) { location.hash = "#/home"; return; }
+  setPageTitle("更多");
+  const adminGroup = NAV.find((g) => g.admin) || { items: [] };
+  $("#main").innerHTML = `
+    ${heroPanel("More", "更多", "管理后台入口。")}
+    <section class="section-panel">
+      <div class="more-grid">
+        ${adminGroup.items.map((item) => `
+          <button class="more-item" onclick="location.hash='#/${item.route}'">
+            <span class="more-icon">${item.icon}</span>
+            <span class="more-label">${escapeHtml(item.label)}</span>
+          </button>`).join("")}
+      </div>
+    </section>`;
+}
+
 async function checkUpdate() {
   try {
     const v = await api("/api/version");
@@ -2269,8 +2304,14 @@ async function router() {
   }
   renderSidebar(state.user);
   renderTopbar(state.user);
+  renderBottomNav(state.user);
   document.querySelectorAll(".nav-item").forEach((b) =>
     b.classList.toggle("active", b.dataset.route === page || b.dataset.route === `${page}/${param}`)
+  );
+  // 底部栏高亮：管理员进后台页时高亮「更多」
+  const activeBottom = page === "admin" ? "more" : page;
+  document.querySelectorAll(".bnav-item").forEach((b) =>
+    b.classList.toggle("active", b.dataset.route === activeBottom)
   );
   try {
     if (page === "home") await renderHome();
@@ -2278,6 +2319,7 @@ async function router() {
     else if (page === "mysubs") await renderMySubs();
     else if (page === "timeline") await renderTimeline();
     else if (page === "settings") await renderSettings();
+    else if (page === "more") await renderMore();
     else if (page === "search") await renderSearch();
     else if (page === "kol") await renderKolPage(Number(param));
     else if (page === "admin") {
