@@ -538,6 +538,12 @@ tbody tr:hover { background: var(--color-surface-row-hover); }
 td .btn-sm { margin-right: 6px; }
 .btn-sm.danger { color: var(--color-danger); border-color: var(--color-line-danger); }
 .btn-sm.danger:hover { border-color: var(--color-danger); color: var(--color-danger-strong); }
+/* 首页大V行：删除按钮与订阅按钮同尺寸（表格内的 btn-sm 保持紧凑） */
+.kol-item .btn-sm.danger {
+  height: var(--control-height-lg);
+  padding: 0 20px;
+  font-size: var(--text-sm);
+}
 .status-ok { color: var(--color-success); }
 .status-fail { color: var(--color-danger); }
 .status-warn { color: var(--color-warning, #d97706); }
@@ -764,6 +770,7 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
   .platform-tab .pt-label { display: inline; font-size: var(--text-sm); }
   .kol-item { flex-wrap: wrap; }
   .kol-item .btn-sub { width: 100%; min-height: 44px; }
+  .kol-item .btn-sm.danger { min-height: 44px; }
   .search-bar { min-height: 44px; }
   .toolbar { flex-wrap: wrap; }
   .fav-toggle { min-height: 44px; }
