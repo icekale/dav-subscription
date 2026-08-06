@@ -25,6 +25,7 @@ const state = {
   mysubsPlatform: "",
   mysubsFavorite: false,
   adminKolsPlatform: "",
+  adminKols: [],
   timelineFavorite: false,
   timelinePosts: [],
 };
@@ -33,6 +34,24 @@ function escapeHtml(text) {
   return String(text ?? "").replace(/[&<>"']/g, (c) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
   }[c]));
+}
+
+let _toastTimer = null;
+function flash(message, type = "success") {
+  let el = $("#toast");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "toast";
+    document.body.appendChild(el);
+  }
+  el.className = `toast ${type}`;
+  el.textContent = message;
+  el.classList.remove("hide");
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => {
+    el.classList.add("hide");
+    setTimeout(() => el.remove(), 320);
+  }, 2600);
 }
 
 async function api(path, options = {}) {
@@ -336,9 +355,11 @@ function kolCard(kol) {
 }
 
 async function adminDeleteKolFromHome(kolId) {
-  if (!confirm("确认删除该大V？其订阅关系会一并移除。")) return;
+  const kol = state.catalog.find((k) => k.id === kolId);
+  if (!confirm(`确认删除该大V${kol ? `「${kol.name}」` : ""}？其订阅关系会一并移除。`)) return;
   try {
     await api(`/api/kols/${kolId}`, { method: "DELETE" });
+    flash(`已删除「${kol ? kol.name : "该大V"}」`);
     await loadHomeKols();
   } catch (err) {
     alert("删除失败: " + err.message);
@@ -354,6 +375,7 @@ async function toggleSubscribe(kolId, btn) {
     } else {
       await api("/api/subscriptions", { method: "POST", body: JSON.stringify({ kol_id: kolId, type: "post" }) });
     }
+    flash(`已${wasSubscribed ? "退订" : "订阅"}「${kol ? kol.name : "该大V"}」`);
     refreshKolsView();
   } catch (err) {
     alert("操作失败: " + err.message);
@@ -370,6 +392,7 @@ async function toggleFavorite(kolId, btn) {
     });
     if (kol) kol.favorite = next;
     if (btn) btn.classList.toggle("fav-on", next);
+    flash(next ? "已加星标" : "已取消星标");
     if (location.hash.startsWith("#/mysubs")) renderMySubsList();
   } catch (err) {
     alert("操作失败: " + err.message);
@@ -1587,6 +1610,7 @@ async function loadAdminKols() {
     $("#admin-body").innerHTML = emptyState("加载失败: " + err.message);
     return;
   }
+  state.adminKols = kols;
   const catOptions = categories.map((c) => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
   $("#admin-body").innerHTML = `
     <section class="section-panel">
@@ -1684,6 +1708,9 @@ async function adminBatchAddKols() {
       resultEl.style.color = data.failed.length ? "#c0392b" : "#2e7d32";
       resultEl.style.fontWeight = "bold";
     }
+    flash(data.failed.length
+      ? `导入完成：成功 ${data.ok}/${data.total}，失败 ${data.failed.length} 条`
+      : `导入成功：${data.ok} 个`);
     if (failLines) alert(`导入完成：成功 ${data.ok}/${data.total}\n\n失败：\n${failLines}`);
   } catch (err) {
     alert("批量导入失败: " + err.message);
@@ -1691,16 +1718,18 @@ async function adminBatchAddKols() {
 }
 
 async function adminAddKol() {
+  const name = $("#ad-name").value.trim();
   try {
     await api("/api/kols", {
       method: "POST",
       body: JSON.stringify({
         platform: $("#ad-platform").value,
-        name: $("#ad-name").value.trim(),
+        name,
         external_id: $("#ad-external").value.trim(),
         category_id: $("#ad-category").value ? Number($("#ad-category").value) : null,
       }),
     });
+    flash(`已添加「${name || "未命名"}」`);
     loadAdminKols();
   } catch (err) {
     alert("添加失败: " + err.message);
@@ -1708,8 +1737,10 @@ async function adminAddKol() {
 }
 
 async function adminToggleKol(id, enabled) {
+  const kol = state.adminKols.find((k) => k.id === id);
   try {
     await api(`/api/kols/${id}`, { method: "PUT", body: JSON.stringify({ enabled: !!enabled }) });
+    flash(`已${enabled ? "启用" : "停用"}「${kol ? kol.name : "该大V"}」`);
     loadAdminKols();
   } catch (err) {
     alert("操作失败: " + err.message);
@@ -1717,8 +1748,10 @@ async function adminToggleKol(id, enabled) {
 }
 
 async function adminTogglePriority(id, priority) {
+  const kol = state.adminKols.find((k) => k.id === id);
   try {
     await api(`/api/kols/${id}`, { method: "PUT", body: JSON.stringify({ priority: !!priority }) });
+    flash(`已${priority ? "设为优先" : "取消优先"}「${kol ? kol.name : "该大V"}」`);
     loadAdminKols();
   } catch (err) {
     alert("操作失败: " + err.message);
@@ -1726,9 +1759,11 @@ async function adminTogglePriority(id, priority) {
 }
 
 async function adminDeleteKol(id) {
-  if (!confirm("确认删除该大V？")) return;
+  const kol = state.adminKols.find((k) => k.id === id);
+  if (!confirm(`确认删除该大V${kol ? `「${kol.name}」` : ""}？`)) return;
   try {
     await api(`/api/kols/${id}`, { method: "DELETE" });
+    flash(`已删除「${kol ? kol.name : "该大V"}」`);
     loadAdminKols();
   } catch (err) {
     alert("删除失败: " + err.message);
@@ -1772,11 +1807,12 @@ async function adminEditKol(id) {
 
 async function saveKolEdit(id) {
   const mask = document.querySelector(".modal-mask");
+  const name = $("#ek-name").value.trim();
   try {
     await api(`/api/kols/${id}`, {
       method: "PUT",
       body: JSON.stringify({
-        name: $("#ek-name").value.trim(),
+        name,
         category_id: $("#ek-category").value ? Number($("#ek-category").value) : null,
         is_private: $("#ek-private").checked,
         original_only: $("#ek-original").checked,
@@ -1784,6 +1820,7 @@ async function saveKolEdit(id) {
       }),
     });
     if (mask) mask.remove();
+    flash(`已保存「${name}」`);
     loadAdminKols();
   } catch (err) {
     alert("保存失败: " + err.message);
@@ -1849,6 +1886,7 @@ async function loadAdminRequests() {
 async function adminApproveRequest(id) {
   try {
     await api(`/api/admin/kol-requests/${id}/approve`, { method: "POST" });
+    flash("已通过申请，大V已进入订阅广场");
     loadAdminRequests();
   } catch (err) {
     alert("操作失败: " + err.message);
@@ -1859,6 +1897,7 @@ async function adminRejectRequest(id) {
   if (!confirm("确认拒绝该申请？")) return;
   try {
     await api(`/api/admin/kol-requests/${id}/reject`, { method: "POST" });
+    flash("已拒绝该申请");
     loadAdminRequests();
   } catch (err) {
     alert("操作失败: " + err.message);
@@ -1909,6 +1948,7 @@ async function adminRevokeCode(code) {
   if (!confirm(`确认作废注册码 ${code}？作废后无法再使用。`)) return;
   try {
     await api(`/api/admin/register-codes/${encodeURIComponent(code)}`, { method: "DELETE" });
+    flash(`已作废邀请码 ${code}`);
     loadAdminCodes();
   } catch (err) {
     alert("作废失败: " + err.message);
@@ -1924,8 +1964,10 @@ async function adminGenerateCodes() {
         note: $("#rc-note").value,
       }),
     });
-    $("#rc-result").textContent = `已生成 ${data.count} 个：${data.codes.join("  ")}`;
-    loadAdminCodes();
+    await loadAdminCodes();
+    const el = $("#rc-result");
+    if (el) el.textContent = `已生成 ${data.count} 个：${data.codes.join("  ")}`;
+    flash(`已生成 ${data.count} 个邀请码`);
   } catch (err) {
     alert("生成失败: " + err.message);
   }
@@ -1962,8 +2004,14 @@ async function loadAdminCategories() {
 }
 
 async function adminAddCategory() {
+  const name = $("#cat-name").value.trim();
+  if (!name) {
+    alert("请输入分类名");
+    return;
+  }
   try {
-    await api("/api/categories", { method: "POST", body: JSON.stringify({ name: $("#cat-name").value }) });
+    await api("/api/categories", { method: "POST", body: JSON.stringify({ name }) });
+    flash(`已添加分类「${name}」`);
     loadAdminCategories();
   } catch (err) {
     alert("添加失败: " + err.message);
@@ -1975,6 +2023,7 @@ async function adminRenameCategory(id) {
   if (name === null || !name.trim()) return;
   try {
     await api(`/api/categories/${id}`, { method: "PUT", body: JSON.stringify({ name: name.trim() }) });
+    flash("已重命名分类");
     loadAdminCategories();
   } catch (err) {
     alert("重命名失败: " + err.message);
@@ -1985,6 +2034,7 @@ async function adminDeleteCategory(id) {
   if (!confirm("确认删除该分类？其下大V将变为未分类")) return;
   try {
     await api(`/api/categories/${id}`, { method: "DELETE" });
+    flash("已删除分类");
     loadAdminCategories();
   } catch (err) {
     alert("删除失败: " + err.message);
@@ -2241,6 +2291,7 @@ async function adminRenameUser(userId) {
       renderSidebar(state.user);
       renderTopbar(state.user);
     }
+    flash(`已重命名用户「${trimmed}」`);
     loadAdminUsers();
   } catch (err) {
     alert("操作失败: " + err.message);
@@ -2272,6 +2323,7 @@ async function adminDeleteUser(userId) {
   if (!confirm(`确认删除用户「${user ? user.username : userId}」？其订阅关系将一并删除，不可恢复。`)) return;
   try {
     await api(`/api/users/${userId}`, { method: "DELETE" });
+    flash(`已删除用户「${user ? user.username : userId}」`);
     loadAdminUsers();
   } catch (err) {
     alert("删除失败: " + err.message);
