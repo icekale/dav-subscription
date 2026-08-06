@@ -288,12 +288,16 @@ class TwitterFetcher(Fetcher):
             headers=_auth_headers(cookie),
         )
         if resp.status_code != 200:
-            raise RuntimeError(f"X GraphQL {operation} HTTP {resp.status_code}")
+            hint = ""
+            if resp.status_code in (400, 404):
+                hint = "（可能是 X 轮换了 GraphQL queryId，需更新 DEFAULT_QUERY_IDS）"
+            raise RuntimeError(f"X GraphQL {operation} HTTP {resp.status_code}{hint}")
         data = resp.json()
         if data.get("errors"):
-            raise RuntimeError(
-                f"X GraphQL {operation} 错误: {data['errors'][0].get('message', data['errors'])}"
-            )
+            msg = str(data["errors"][0].get("message", data["errors"]))
+            if "queryid" in msg.lower() or "invalidrequest" in msg.lower():
+                msg += "（可能是 X 轮换了 GraphQL queryId，需更新 DEFAULT_QUERY_IDS）"
+            raise RuntimeError(f"X GraphQL {operation} 错误: {msg}")
         return data
 
     def _resolve_user(self, screen_name: str, cookie: str) -> dict:

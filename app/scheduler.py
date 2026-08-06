@@ -399,6 +399,24 @@ def maybe_alert_push_failure(db: DB, notifiers: list[Notifier], detail: str) -> 
             logger.warning("推送告警发送失败 channel=%s err=%s", notifier.channel, exc)
 
 
+def _x_fallback_advice(reason: str) -> str:
+    """按降级原因给出对应建议，避免把瞬时故障误报成 Cookie 失效。"""
+    text = (reason or "").lower()
+    if any(k in text for k in (
+        "401", "403", "could not authenticate", "code 32",
+        "unauthorized", "forbidden", "not authorized",
+    )):
+        return "请检查 TWITTER_COOKIE 是否失效，必要时重新登录 X 更新 Cookie。"
+    if any(k in text for k in ("invalidrequest", "queryid")):
+        return "X 已轮换 GraphQL queryId，需要更新代码中的 DEFAULT_QUERY_IDS 后重新部署。"
+    if any(k in text for k in (
+        "500", "502", "503", "504", "429", "serviceunavailable", "unavailable",
+        "ssl", "timeout", "timed out", "eof", "connection", "reset", "network",
+    )):
+        return "X 服务端暂时不可用或网络抖动，已自动回退 RSSHub，无需操作；持续出现再检查 Cookie。"
+    return "已自动回退 RSSHub 备用通道，请留意后续是否持续降级。"
+
+
 def maybe_alert_x_fallback(db: DB, notifiers: list[Notifier]) -> None:
     """X 直抓降级到 RSSHub 备用通道时通知管理员（每 6 小时最多一次）。"""
     fallback_at = db.get_setting("x_direct_last_fallback_at")
@@ -422,7 +440,7 @@ def maybe_alert_x_fallback(db: DB, notifiers: list[Notifier]) -> None:
     message = (
         "⚠️ X 直抓已降级到 RSSHub 备用通道\n"
         f"原因：{reason[:200]}\n"
-        "请检查 TWITTER_COOKIE 是否失效，必要时重新登录 X 更新 Cookie。"
+        f"{_x_fallback_advice(reason)}"
     )
     for notifier in notifiers:
         try:

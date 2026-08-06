@@ -11,6 +11,8 @@ from app.config import FeishuConfig, NotifiersConfig, TelegramConfig
 from app.db import DB
 from app.fetchers.base import Post
 from app.scheduler import (
+    _x_fallback_advice,
+
     PushRetryQueue,
     Scheduler,
     _polling_bool,
@@ -145,6 +147,42 @@ def test_fetch_error_does_not_crash():
     poll_once(db, {"xueqiu": FakeFetcherError()}, [notifier])
     assert len(db.list_posts()) == 0
     assert len(notifier.calls) == 0
+
+
+def test_x_fallback_advice_categorizes_reasons():
+    """降级原因分类：cookie 失效 / queryId 轮换 / 瞬时故障 给出对应建议。"""
+    cookie_hint = "请检查 TWITTER_COOKIE"
+    transient_hint = "暂时不可用"
+    qid_hint = "DEFAULT_QUERY_IDS"
+
+    # cookie 类错误 → 建议检查 Cookie
+    for reason in (
+        "X GraphQL UserTweets HTTP 401",
+        "X GraphQL UserTweets HTTP 403",
+        "X GraphQL UserTweets 错误: Could not authenticate you",
+    ):
+        assert cookie_hint in _x_fallback_advice(reason), reason
+
+    # queryId 轮换类错误 → 提示更新默认 queryId
+    for reason in (
+        "X GraphQL UserTweets 错误: InvalidRequest",
+        "X GraphQL UserTweets 错误: queryId not found",
+    ):
+        assert qid_hint in _x_fallback_advice(reason), reason
+
+    # 瞬时故障（503/ServiceUnavailable/SSL/超时）→ 无需操作
+    for reason in (
+        "X GraphQL UserTweets HTTP 503",
+        "X GraphQL UserTweets 错误: ServiceUnavailable: Unspecified",
+        "[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol",
+        "Read timed out",
+    ):
+        assert transient_hint in _x_fallback_advice(reason), reason
+        assert cookie_hint not in _x_fallback_advice(reason), reason
+
+    # 未知原因 → 通用兜底建议
+    assert "持续降级" in _x_fallback_advice("some weird error")
+    assert "持续降级" in _x_fallback_advice("")
 
 
 def test_maybe_alert_x_fallback_once_per_episode():
