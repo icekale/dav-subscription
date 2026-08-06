@@ -10,7 +10,7 @@ from html import escape
 
 import httpx
 
-from ..fetchers.base import Post, truncate_text
+from ..fetchers.base import Post, digest_body, truncate_text
 from .base import Notifier
 
 PLATFORM_LABELS = {"xueqiu": "雪球", "combination": "雪球组合", "weibo": "微博", "twitter": "X/Twitter"}
@@ -106,7 +106,7 @@ def build_telegram_digest(posts: list[Post], kol_name: str, platform: str) -> st
     ]
     numbered = len(posts) > 1
     for i, post in enumerate(posts[:DIGEST_MAX_ITEMS], 1):
-        body = (post.content[:120] or post.title or "（无正文）").replace("\n", " ")
+        body = digest_body(post, full=len(posts) == 1)
         prefix = f"{i}. " if numbered else ""
         lines.append(f"{prefix}{escape(body)}")
         time_line = f"🕐 {escape(post.published_at)}" if post.published_at else ""
@@ -126,7 +126,7 @@ def build_telegram_daily(posts: list[Post]) -> str:
     ordered = [p for p in posts if p.favorite] + [p for p in posts if not p.favorite]
     for i, post in enumerate(ordered[:DIGEST_MAX_ITEMS], 1):
         star = "⭐ " if post.favorite else ""
-        body = (post.content[:100] or post.title or "（无正文）").replace("\n", " ")
+        body = digest_body(post, full=False, max_chars=100)
         lines.append(f"{i}. <b>{star}{escape(post.kol_name)}</b>：{escape(body)}")
         meta_parts = []
         if post.published_at:
@@ -146,7 +146,7 @@ def build_telegram_dnd_summary(posts: list[Post]) -> str:
     lines = [f"<b>📵 免打扰时段汇总</b>（{len(posts)} 条新动态）", ""]
     numbered = len(posts) > 1
     for i, post in enumerate(posts[:DND_MAX_ITEMS], 1):
-        body = (post.content[:100] or post.title or "（无正文）").replace("\n", " ")
+        body = digest_body(post, full=False, max_chars=100)
         prefix = f"{i}. " if numbered else ""
         lines.append(f"{prefix}<b>{escape(post.kol_name)}</b> · {escape(body)}")
         time_line = f"🕐 {escape(post.published_at)}" if post.published_at else ""

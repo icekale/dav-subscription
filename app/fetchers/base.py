@@ -56,6 +56,17 @@ def truncate_text(text: str, limit: int) -> str:
     return cut.rstrip() + "…"
 
 
+def digest_body(post: Post, full: bool, max_chars: int = 120, full_limit: int = 2000) -> str:
+    """合并摘要正文：单条摘要显示完整正文（保留换行）；多条截断到 max_chars 并补省略号。"""
+    raw = post.content or post.title or "（无正文）"
+    if full:
+        return truncate_text(raw, full_limit)
+    flat = raw.replace("\n", " ")
+    if len(flat) <= max_chars:
+        return flat
+    return flat[:max_chars].rstrip() + "…"
+
+
 def format_published_at(raw: str) -> str:
     """把时间戳（毫秒/秒）或 RFC2822（X/微博）格式化为可读时间，其他格式原样返回。"""
     raw = (raw or "").strip()

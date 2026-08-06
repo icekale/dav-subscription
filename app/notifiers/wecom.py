@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import httpx
 
-from ..fetchers.base import Post
+from ..fetchers.base import Post, digest_body
 from .base import Notifier
 
 PLATFORM_LABELS = {"xueqiu": "雪球", "combination": "雪球组合", "weibo": "微博", "twitter": "X/Twitter"}
@@ -76,7 +76,7 @@ def build_wecom_digest(posts: list[Post], kol_name: str, platform: str) -> str:
     lines = [f"**📌 {kol_name} · {platform_label}**（{len(posts)} 条新动态）", ""]
     numbered = len(posts) > 1
     for i, post in enumerate(posts[:DIGEST_MAX_ITEMS], 1):
-        body = _md_escape(post.content or post.title or "（无正文）")[:120]
+        body = _md_escape(digest_body(post, full=len(posts) == 1))
         prefix = f"{i}. " if numbered else ""
         lines.append(f"{prefix}{body}")
         meta_parts = []
@@ -97,7 +97,7 @@ def build_wecom_daily(posts: list[Post]) -> str:
     ordered = [p for p in posts if p.favorite] + [p for p in posts if not p.favorite]
     for i, post in enumerate(ordered[:DIGEST_MAX_ITEMS], 1):
         star = "⭐ " if post.favorite else ""
-        body = _md_escape(post.content or post.title or "（无正文）")[:100]
+        body = _md_escape(digest_body(post, full=False, max_chars=100))
         lines.append(f"{i}. **{star}{post.kol_name}**：{body}")
         meta_parts = []
         if post.published_at:
@@ -116,7 +116,7 @@ def build_wecom_dnd_summary(posts: list[Post]) -> str:
     lines = [f"**📵 免打扰时段汇总**（{len(posts)} 条新动态）", ""]
     numbered = len(posts) > 1
     for i, post in enumerate(posts[:DND_MAX_ITEMS], 1):
-        body = _md_escape(post.content or post.title or "（无正文）")[:100]
+        body = _md_escape(digest_body(post, full=False, max_chars=100))
         prefix = f"{i}. " if numbered else ""
         line = f"{prefix}**{post.kol_name}** · {body}"
         if post.published_at:

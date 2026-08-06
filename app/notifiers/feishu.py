@@ -8,7 +8,7 @@ import time
 
 import httpx
 
-from ..fetchers.base import Post, truncate_text
+from ..fetchers.base import Post, digest_body, truncate_text
 from .base import Notifier
 
 PLATFORM_LABELS = {"xueqiu": "雪球", "combination": "雪球组合", "weibo": "微博", "twitter": "X/Twitter"}
@@ -165,7 +165,7 @@ def build_feishu_digest_card(posts: list[Post], kol_name: str, platform: str) ->
     elements = []
     numbered = len(posts) > 1
     for i, post in enumerate(posts[:DIGEST_MAX_ITEMS], 1):
-        body = (post.content[:120] or post.title or "（无正文）").replace("\n", " ")
+        body = digest_body(post, full=len(posts) == 1)
         time_line = f"🕐 {post.published_at}" if post.published_at else ""
         prefix = f"{i}. " if numbered else ""
         text = f"{prefix}{body}"
@@ -216,7 +216,7 @@ def build_feishu_daily_card(posts: list[Post]) -> dict:
     ordered = [p for p in posts if p.favorite] + [p for p in posts if not p.favorite]
     for i, post in enumerate(ordered[:DIGEST_MAX_ITEMS], 1):
         star = "⭐ " if post.favorite else ""
-        body = (post.content[:100] or post.title or "（无正文）").replace("\n", " ")
+        body = digest_body(post, full=False, max_chars=100)
         text = f"{i}. **{star}{post.kol_name}**：{body}"
         if post.published_at:
             text += f"\n🕐 {post.published_at}"
@@ -259,7 +259,7 @@ def build_feishu_dnd_summary_card(posts: list[Post]) -> dict:
     elements = []
     numbered = len(posts) > 1
     for i, post in enumerate(posts[:DND_MAX_ITEMS], 1):
-        body = (post.content[:100] or post.title or "（无正文）").replace("\n", " ")
+        body = digest_body(post, full=False, max_chars=100)
         prefix = f"{i}. " if numbered else ""
         text = f"{prefix}**{post.kol_name}** · {body}"
         if post.published_at:

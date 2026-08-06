@@ -16,7 +16,9 @@ from app.notifiers.telegram import (
 )
 from app.notifiers.wecom import (
     WeComNotifier,
+    build_wecom_daily,
     build_wecom_digest,
+    build_wecom_dnd_summary,
     is_valid_wecom_webhook,
 )
 
@@ -239,6 +241,31 @@ def test_feishu_dnd_summary_card_structure():
     assert "免打扰" in card["header"]["title"]["content"]
 
 
+def test_daily_and_dnd_summaries_mark_truncated():
+    from app.notifiers.feishu import (
+        build_feishu_daily_card,
+        build_feishu_dnd_summary_card,
+    )
+    from app.notifiers.telegram import build_telegram_daily, build_telegram_dnd_summary
+
+    long_post = make_post()
+    long_post.content = "长" * 300
+    short_post = make_post()
+    short_post.content = "短"
+
+    assert "…" in build_telegram_daily([long_post])
+    assert "…" in build_telegram_dnd_summary([long_post])
+    assert "…" not in build_telegram_daily([short_post])
+
+    assert "…" in build_feishu_daily_card([long_post])["elements"][0]["text"]["content"]
+    assert "…" in build_feishu_dnd_summary_card([long_post])["elements"][0]["text"]["content"]
+    assert "…" not in build_feishu_daily_card([short_post])["elements"][0]["text"]["content"]
+
+    assert "…" in build_wecom_daily([long_post])
+    assert "…" in build_wecom_dnd_summary([long_post])
+    assert "…" not in build_wecom_daily([short_post])
+
+
 def test_feishu_send_dnd_summary():
     def handler(request):
         payload = json.loads(request.read())
@@ -398,3 +425,37 @@ def test_digest_builders():
 
     text_w1 = build_wecom_digest(single, "李四", "weibo")
     assert "（1 条新动态）" in text_w1 and "\n1. " not in text_w1
+
+
+def test_digest_single_item_shows_full_content():
+    # 单条摘要显示完整正文，不再截到 120 字
+    single = [make_post()]
+    long = "今天市场高开低走，" * 30  # 300 字长文
+    single[0].content = long
+    for text in (build_telegram_digest(single, "李四", "weibo"),):
+        assert "（1 条新动态）" in text
+        assert long[:120] in text
+        assert "…" not in text
+
+    card = build_feishu_digest_card(single, "李四", "weibo")
+    body1 = card["elements"][0]["text"]["content"]
+    assert long[:120] in body1 and "…" not in body1
+
+    wtext = build_wecom_digest(single, "李四", "weibo")
+    assert long[:120] in wtext and "…" not in wtext
+
+
+def test_digest_multi_item_marks_truncated_preview():
+    # 多条摘要保留 120 字预览，截断处补省略号，避免"看起来没发完"
+    posts = [make_post(), make_post()]
+    posts[0].content = "长" * 300
+    posts[1].content = "短"
+
+    text = build_telegram_digest(posts, "李四", "weibo")
+    assert "…" in text
+
+    card = build_feishu_digest_card(posts, "李四", "weibo")
+    assert "…" in card["elements"][0]["text"]["content"]
+
+    wtext = build_wecom_digest(posts, "李四", "weibo")
+    assert "…" in wtext
