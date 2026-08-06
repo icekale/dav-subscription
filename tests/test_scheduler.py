@@ -1785,3 +1785,46 @@ def test_scheduler_loop_delay_floors_at_one():
 
     assert _scheduler_loop_delay(180, 0, 0) == 1
     assert _scheduler_loop_delay(180, -30, 0) == 1
+
+
+def test_dnd_summary_writes_push_logs(monkeypatch):
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.add_subscription(uid, kid)
+    post = make_post(kid)
+    db.insert_post("xueqiu", kid, post.external_id, post.title, post.content, post.url, post.published_at)
+    sent = []
+
+    class FakeTG:
+        channel = "telegram"
+
+        def __init__(self, config, chat_id=None, client=None, **kwargs):
+            self.client = SimpleNamespace(close=lambda: None)
+
+        def send_dnd_summary(self, posts):
+            sent.append(posts)
+
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FakeTG)
+    ncfg = SimpleNamespace(
+        telegram=SimpleNamespace(bot_token="t", chat_id=""),
+        feishu=SimpleNamespace(),
+        wecom=SimpleNamespace(),
+    )
+    scheduler = Scheduler(
+        db,
+        {},
+        [],
+        SimpleNamespace(),
+        notifiers_config=ncfg,
+        xueqiu_config=SimpleNamespace(cookie=""),
+        weibo_config=SimpleNamespace(cookie="", username="", password=""),
+    )
+
+    scheduler._send_dnd_summary(db.get_user(uid), [post])
+
+    assert len(sent) == 1
+    logs = db.list_push_logs(user_id=uid)
+    assert len(logs) == 1
+    assert logs[0]["channel"] == "telegram"
+    assert logs[0]["status"] == "success"

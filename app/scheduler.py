@@ -1529,7 +1529,7 @@ class Scheduler:
                 logger.warning("免打扰汇总推送失败 user=%s err=%s", user["username"], exc)
 
     def _send_dnd_summary(self, user: dict, posts: list[Post]) -> None:
-        """把免打扰时段缓冲的动态汇总成一条推送给用户（按所选通道）。"""
+        """把免打扰时段缓冲的动态汇总成一条推送给用户（按所选通道），并补写推送日志。"""
         if self.notifiers_config is None or not posts:
             return
         import httpx
@@ -1551,6 +1551,10 @@ class Scheduler:
                 )
                 try:
                     notifier.send_dnd_summary(posts)
+                    for post in posts:
+                        post_id = self.db.get_post_id(post.platform, post.external_id)
+                        if post_id:
+                            self.db.add_push_log(post_id, "telegram", "success", user_id=user["id"])
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("免打扰汇总 TG 发送失败 user=%s err=%s", user["username"], exc)
                     maybe_alert_push_failure(
@@ -1569,6 +1573,10 @@ class Scheduler:
                 )
                 try:
                     notifier.send_dnd_summary(posts)
+                    for post in posts:
+                        post_id = self.db.get_post_id(post.platform, post.external_id)
+                        if post_id:
+                            self.db.add_push_log(post_id, "feishu", "success", user_id=user["id"])
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("免打扰汇总飞书发送失败 user=%s err=%s", user["username"], exc)
                     maybe_alert_push_failure(
@@ -1584,6 +1592,10 @@ class Scheduler:
                 )
                 try:
                     notifier.send_dnd_summary(posts)
+                    for post in posts:
+                        post_id = self.db.get_post_id(post.platform, post.external_id)
+                        if post_id:
+                            self.db.add_push_log(post_id, "wecom", "success", user_id=user["id"])
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("免打扰汇总企业微信发送失败 user=%s err=%s", user["username"], exc)
                     maybe_alert_push_failure(
