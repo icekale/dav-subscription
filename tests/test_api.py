@@ -1626,3 +1626,23 @@ def test_login_locked_ip_rejects_even_correct_password():
         assert client.post("/api/auth/login", json={"username": "victim", "password": "bad"}).status_code == 401
     # 锁定时即使密码正确也 429，不泄露密码有效性
     assert client.post("/api/auth/login", json={"username": "victim", "password": "pass123456"}).status_code == 429
+
+
+def test_admin_delete_user_cleans_push_logs_and_acl():
+    client = make_client()
+    admin_headers = auth_headers(client, "boss")
+    reg = register(client, "doomed")
+    uid = reg.json()["user"]["id"]
+    db = client.app.state.db
+    kid = client.post(
+        "/api/kols", headers=admin_headers,
+        json={"platform": "xueqiu", "name": "A", "external_id": "1"},
+    ).json()["id"]
+    # 直接造数据：私有大V ACL + 一条推送日志
+    db.set_kol_acl(kid, [uid])
+    post_id = db.insert_post("xueqiu", kid, "p1", "t", "c", "u", "2026-08-06")
+    db.add_push_log(post_id, "telegram", "success", user_id=uid)
+
+    assert client.delete(f"/api/users/{uid}", headers=admin_headers).status_code == 200
+    assert db.list_push_logs(user_id=uid) == []
+    assert db.acl_user_ids(kid) == []

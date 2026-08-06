@@ -791,6 +791,8 @@ class DB:
     def delete_user(self, user_id: int) -> None:
         self._execute("DELETE FROM bind_codes WHERE user_id = ?", (user_id,))
         self._execute("DELETE FROM subscriptions WHERE user_id = ?", (user_id,))
+        self._execute("DELETE FROM push_logs WHERE user_id = ?", (user_id,))
+        self._execute("DELETE FROM kol_acl WHERE user_id = ?", (user_id,))
         self._execute("DELETE FROM users WHERE id = ?", (user_id,))
 
     # ---- Post ----
