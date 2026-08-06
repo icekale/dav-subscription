@@ -1603,12 +1603,11 @@ function statCard(label, value) {
 
 async function loadAdminDashboard() {
   try {
-    const d = await api("/api/admin/dashboard");
+    const [d, st] = await Promise.all([api("/api/admin/dashboard"), api("/api/stats")]);
     const u = d.users || {};
     const s = d.subscriptions || {};
     const p = d.posts || {};
     const pu = d.pushes || {};
-    const PLATFORM_LABELS_LOOKUP = { xueqiu: "雪球", combination: "雪球组合", weibo: "微博", twitter: "X" };
     const CHANNEL_LABELS_LOOKUP = { telegram: "Telegram", feishu: "飞书", wecom: "企业微信" };
     const rate = pu.success_rate != null ? `${pu.success_rate}%` : "—";
 
@@ -1634,7 +1633,7 @@ async function loadAdminDashboard() {
       const total = p.total || 1;
       const w = Math.round((v / total) * 100);
       return `<div class="dash-bar-row">
-        <span class="dash-bar-label">${PLATFORM_LABELS_LOOKUP[k] || escapeHtml(k)}</span>
+        <span class="dash-bar-label">${PLATFORM_LABELS[k] || escapeHtml(k)}</span>
         <div class="dash-bar-track"><div class="dash-bar-fill" style="width:${w}%"></div></div>
         <span class="dash-bar-value">${v}</span>
       </div>`;
@@ -1650,10 +1649,40 @@ async function loadAdminDashboard() {
       </div>`;
     }).join("");
 
-    const sourceFail = Object.entries(d.sources_fail_24h || {});
-    const sourceWarn = sourceFail.length
-      ? `<div class="dash-warn">⚠️ 近 24 小时数据源降级/失败：${sourceFail.map(([k, v]) => `${PLATFORM_LABELS_LOOKUP[k] || escapeHtml(k)} ${v} 次`).join("， ")}。详情见<a href="#/admin/stats">数据源</a>。</div>`
-      : `<p class="muted">✅ 近 24 小时各数据源无降级/失败事件。</p>`;
+    // 数据源健康：各平台状态表 + 24h 事件流（复用 /api/stats 的实时指标）
+    const sources = st.sources || [];
+    const srcRows = sources.length
+      ? sources.map((src) => {
+          const statusCls = src.ok ? "status-ok" : "status-fail";
+          const statusText = src.ok ? "正常" : src.consecutive_fails >= 3 ? "持续失败" : "无成功记录";
+          const channel =
+            src.platform === "twitter"
+              ? src.direct_mode === "direct"
+                ? '<span class="status-ok">直抓</span>'
+                : src.direct_mode === "fallback"
+                  ? `<span class="status-warn" title="${escapeHtml(src.direct_fallback_reason || "")}">备用RSS</span>`
+                  : '<span class="muted">-</span>'
+              : '<span class="muted">-</span>';
+          return `<tr>
+            <td>${PLATFORM_LABELS[src.platform] || escapeHtml(src.platform)}</td>
+            <td class="${statusCls}">${statusText}</td>
+            <td>${channel}</td>
+            <td>${rateBar(src.success_rate_24h)}</td>
+            <td class="${src.consecutive_fails >= 3 ? "status-fail" : ""}">${src.consecutive_fails}</td>
+            <td class="muted" title="${escapeHtml(src.last_error || "")}">${src.last_error ? escapeHtml(src.last_error.slice(0, 34)) : "-"}</td>
+          </tr>`;
+        }).join("")
+      : '<tr><td colspan="6" class="muted">暂无数据源</td></tr>';
+    const events = (st.recent_source_events || []).slice(0, 6);
+    const eventRows = events.length
+      ? events.map((e) => `<div class="dash-event">
+          <span class="dash-event-dot ${e.status}"></span>
+          <span class="muted dash-event-time">${escapeHtml(fmtDbTime(e.created_at))}</span>
+          <span class="dash-event-platform">${PLATFORM_LABELS[e.platform] || escapeHtml(e.platform)}</span>
+          <span class="${e.status === "ok" ? "status-ok" : e.status === "warn" ? "status-warn" : "status-fail"}">${e.status === "ok" ? "正常" : e.status === "warn" ? "警告" : "失败"}</span>
+          <span class="muted dash-event-detail" title="${escapeHtml(e.detail || "")}">${escapeHtml(e.detail || "")}</span>
+        </div>`).join("")
+      : `<p class="muted">近 24 小时无异常事件</p>`;
 
     $("#admin-body").innerHTML = `
       <section class="section-panel">
@@ -1686,8 +1715,16 @@ async function loadAdminDashboard() {
         </section>
       </div>
       <section class="section-panel">
-        <header class="section-head"><div><p class="section-eyebrow">Health</p><h3 class="section-title">数据源健康</h3></div></header>
-        ${sourceWarn}
+        <header class="section-head"><div><p class="section-eyebrow">Health</p><h3 class="section-title">数据源健康</h3>
+        <p class="section-meta">各平台抓取状态与 24h 成功率，以及最近事件流。</p></div>
+        <div class="toolbar"><a class="btn-ghost" href="#/admin/stats">完整数据源详情 →</a></div></header>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>平台</th><th>状态</th><th>通道</th><th>24h 成功率</th><th>连续失败</th><th>最近错误</th></tr></thead>
+            <tbody>${srcRows}</tbody>
+          </table>
+        </div>
+        ${eventRows ? `<div style="margin-top:12px">${eventRows}</div>` : ""}
       </section>`;
   } catch (err) {
     $("#admin-body").innerHTML = emptyState("加载失败: " + err.message);
