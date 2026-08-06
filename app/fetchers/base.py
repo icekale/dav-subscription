@@ -1,6 +1,7 @@
 """抓取器基础：Post 数据类与公共文本清理。"""
 from __future__ import annotations
 
+import email.utils
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -56,7 +57,7 @@ def truncate_text(text: str, limit: int) -> str:
 
 
 def format_published_at(raw: str) -> str:
-    """把时间戳（毫秒/秒）格式化为可读时间，其他格式原样返回。"""
+    """把时间戳（毫秒/秒）或 RFC2822（X/微博）格式化为可读时间，其他格式原样返回。"""
     raw = (raw or "").strip()
     if raw.isdigit():
         ts = int(raw)
@@ -65,7 +66,13 @@ def format_published_at(raw: str) -> str:
             return datetime.fromtimestamp(ts, tz=CN_TZ).strftime("%Y-%m-%d %H:%M")
         except (ValueError, OSError):
             return raw
-    return raw
+    try:
+        dt = email.utils.parsedate_to_datetime(raw)
+    except (TypeError, ValueError):
+        return raw
+    if dt is None:
+        return raw
+    return dt.astimezone(CN_TZ).strftime("%Y-%m-%d %H:%M")
 
 
 class Fetcher:

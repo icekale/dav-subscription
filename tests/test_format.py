@@ -1,4 +1,4 @@
-from app.fetchers.base import Post, truncate_text
+from app.fetchers.base import Post, format_published_at, truncate_text
 from app.notifiers.feishu import (
     build_feishu_card,
     build_feishu_combination_card,
@@ -110,3 +110,14 @@ def test_combination_feishu_card():
     assert any("**年化** 27.1%" in c for c in contents)
     assert any("🗑 **清仓** 永杉锂业（SH603399）" in c for c in contents)
     assert any("💵 现金 **80.0%**" in c for c in contents)
+
+
+def test_format_published_at_rfc2822():
+    # X：UTC +0000 转北京时间
+    assert format_published_at("Fri Aug 06 10:00:00 +0000 2026") == "2026-08-06 18:00"
+    # 微博：已带 +0800
+    assert format_published_at("Wed Aug 05 21:00:00 +0800 2026") == "2026-08-05 21:00"
+    # 已是可读格式的不动
+    assert format_published_at("2026-08-04 21:00") == "2026-08-04 21:00"
+    # 纯数字毫秒时间戳继续转换
+    assert format_published_at("1720000000000") == "2024-07-03 17:46"
