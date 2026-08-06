@@ -291,7 +291,7 @@ def test_version_api(monkeypatch):
     resp = client.get("/api/version")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["current"] == "1.4.0"
+    assert data["current"] == "1.4.1"
     assert data["latest"] == "1.5.0"
     assert data["update_available"] is True
     assert "github.com" in data["url"]
