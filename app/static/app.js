@@ -791,10 +791,8 @@ function channelStatusHtml(user) {
           ${statusPill(tg ? "status-ok" : "status-fail", tg ? "已绑定" : "未绑定")}
         </div>
         <p class="muted channel-desc">${tg ? (tgCustom ? "使用你自己的机器人推送" : "官方机器人推送已启用") : "按下方步骤操作"}</p>
-        <div class="channel-actions">
-          ${tg ? "" : `
-               <div id="bind-result-telegram"></div>
-               <details>
+        ${tg ? "" : `
+               <details style="margin-top:10px">
                  <summary class="muted" style="cursor:pointer">或使用自己的机器人（推荐）</summary>
                  <ol style="padding-left:18px;line-height:1.8;margin-top:8px">
                    <li>打开 Telegram 搜索 <b>@BotFather</b>，发 <code>/newbot</code> 创建机器人，拿到 token</li>
@@ -807,6 +805,8 @@ function channelStatusHtml(user) {
                  </div>
                  <p id="custom-tg-result" class="muted"></p>
                </details>`}
+        <div class="channel-actions">
+          ${tg ? "" : `<div id="bind-result-telegram"></div>`}
           ${tg
             ? `<button class="channel-btn secondary" onclick="unbindChannel('${tgCustom ? "telegram_bot_token" : "telegram_chat_id"}')">解绑</button>`
             : `<button class="channel-btn primary" onclick="bindChannel('telegram')">一键绑定官方机器人</button>`}
