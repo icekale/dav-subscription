@@ -16,6 +16,7 @@ USER_FIELDS = [
     "name", "external_id", "url", "title", "content", "code", "username",
     "category_name", "kol_name", "error", "detail", "note", "latest",
     "requester", "user_name", "screen_name", "avatar_url",
+    "platform", "status",  # 动态来源字段（曾有多处 PLATFORM_LABELS[x] || x 裸插值）
 ]
 
 # 安全上下文白名单：插值处于这些表达式/调用中时不要求 escapeHtml
@@ -28,6 +29,10 @@ SAFE_CONTEXTS = [
     r"avatarHtml\(|avatarText\(|heroPanel\(|emptyState\(|format_published_at\(|fmtDbTime\(|fmtTs\(|rateBar\(",
     # URL 编码 / 数值转换
     r"encodeURIComponent\(|Number\(|parseInt\(",
+    # 内部筛选状态（来自硬编码 PLATFORM_TABS，非用户数据）
+    r"state\.platform",
+    # 三元比较链：字段仅用于 === 字符串比较，输出为硬编码字面量（如 status === "approved" ? "status-ok" : ...）
+    r"=== \"",
     # JS 字符串上下文（非 HTML 渲染）：弹窗/提示/toast（flash 用 textContent）
     r"confirm\(|alert\(|prompt\(|flash\(|textContent",
     # 批量导入失败的错误行拼接（进 alert 的 JS 字符串）

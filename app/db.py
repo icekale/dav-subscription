@@ -26,6 +26,17 @@ def _to_int(value) -> int:
         return 0
 
 
+# 布尔字段的显式真值集合：字符串 "false"/"0"/"" 不应被 Python 的 truthy 误判为真
+_TRUE_VALUES = {"1", "true", "yes", "on"}
+
+
+def _to_bool(value) -> int:
+    """把任意输入归一化为 0/1：字符串按显式真值集合判断，其余按布尔语义。"""
+    if isinstance(value, str):
+        return 1 if value.strip().lower() in _TRUE_VALUES else 0
+    return 1 if value else 0
+
+
 def _normalize_post_images(rows: list[dict]) -> list[dict]:
     """posts 行的 images 是 JSON 文本，API 场景统一解析为数组。"""
     for row in rows:
@@ -585,8 +596,9 @@ class DB:
         for key, value in kwargs.items():
             if key not in self._UPDATE_USER_COLUMNS:
                 raise ValueError(f"非法用户字段: {key}")
-            if key in ("is_admin", "notify_enabled"):
-                value = 1 if value else 0
+            # 布尔字段统一归一化为 0/1，避免字符串 "false"/"0" 误判为真
+            if key in ("is_admin", "notify_enabled", "daily_report", "dnd_allow_favorite"):
+                value = _to_bool(value)
             sets.append(f"{key} = ?")
             params.append(value)
         if not sets:
@@ -765,7 +777,8 @@ class DB:
             "total_7d": push_total,
             "ok_7d": push_ok,
             "fail_7d": push_total - push_ok,
-            "success_rate": round(push_ok / push_total * 100, 1) if push_total else 100.0,
+            # 无推送时置 None，前端显示 "—"，避免误导性的绿色 100%
+            "success_rate": round(push_ok / push_total * 100, 1) if push_total else None,
             "today": scalar(
                 "SELECT COUNT(*) AS v FROM push_logs WHERE created_at >= datetime('now', '-24 hours')"
             ),
@@ -781,10 +794,11 @@ class DB:
             "trend_14d": [
                 {"date": r["d"], "pushed": _to_int(r["c"]), "ok": _to_int(r["ok"])}
                 for r in self._rows(
-                    "SELECT date(created_at) AS d, COUNT(*) AS c, "
+                    # 按本地时间分桶，与看板事件流的本地时间显示一致（UTC+8 不偏一天）
+                    "SELECT strftime('%Y-%m-%d', created_at, 'localtime') AS d, COUNT(*) AS c, "
                     "SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS ok "
-                    "FROM push_logs WHERE created_at >= datetime('now', '-13 days') "
-                    "GROUP BY date(created_at) ORDER BY d"
+                    "FROM push_logs WHERE created_at >= datetime('now', 'localtime', '-13 days') "
+                    "GROUP BY d ORDER BY d"
                 )
             ],
         }

@@ -18,7 +18,7 @@ from .db import DB
 from .fetchers import build_fetchers
 from .logging_setup import setup_logging
 from .notifiers import build_notifiers
-from .scheduler import Scheduler
+from .scheduler import Scheduler, set_alerts_enabled
 
 # 纯 UI 调试模式开关：置 1 时跳过调度器与机器人长连接，避免测试实例
 # 抢生产 Telegram 机器人（getUpdates 409）、用测试配置误发降级告警
@@ -90,6 +90,9 @@ def create_app(config=None, db_path: str | Path | None = None) -> FastAPI:
     async def lifespan(app: FastAPI):
         task = None
         bot_task = None
+        # 告警总开关统一用 config.alerts_enabled（config.yaml 与 ALERTS_ENABLED 环境变量均可配置）；
+        # 在 lifespan 内注入而非模块级，避免导入即钉死全局 flag、影响测试对环境变量的操控
+        set_alerts_enabled(config.alerts_enabled)
         if background_workers_enabled():
             task = asyncio.create_task(scheduler.run())
             if config.alerts_enabled and config.notifiers.telegram.bot_token:

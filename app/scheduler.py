@@ -321,12 +321,25 @@ class PlatformState:
         self.alerted = False
 
 
+# 告警总开关：默认 None 时回退环境变量 ALERTS_ENABLED（兼容测试与老配置）；
+# 应用启动时由 main.py 按 config.alerts_enabled 注入（config.yaml 与环境变量均可配置）
+_ALERTS_ENABLED_FLAG: bool | None = None
+
+
+def set_alerts_enabled(value: bool) -> None:
+    """应用启动时注入告警总开关（config.alerts_enabled 统一来源）。"""
+    global _ALERTS_ENABLED_FLAG
+    _ALERTS_ENABLED_FLAG = bool(value)
+
+
 def _alerts_enabled() -> bool:
-    """管理员告警总开关（ALERTS_ENABLED，默认 true）。
+    """管理员告警总开关（默认 true）。
 
     本地开发/测试实例务必置 false：用生产 config 启动时会抢生产 bot 轮询、
     并向真实管理员误发告警（典型场景：没配 TWITTER_COOKIE 触发 X 降级告警）。
     """
+    if _ALERTS_ENABLED_FLAG is not None:
+        return _ALERTS_ENABLED_FLAG
     return os.environ.get("ALERTS_ENABLED", "true").strip().lower() not in (
         "0",
         "false",

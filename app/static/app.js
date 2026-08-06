@@ -238,7 +238,7 @@ async function renderHome() {
                 <div class="kol-info" onclick="location.hash='#/kol/${rec.id}'">
                   <div class="base">
                     <span class="name">${escapeHtml(rec.name)}</span>
-                    <span class="tag">${PLATFORM_LABELS[rec.platform] || rec.platform}</span>
+                    <span class="tag">${PLATFORM_LABELS[rec.platform] || escapeHtml(rec.platform)}</span>
                     ${rec.category_name ? `<span class="tag">${escapeHtml(rec.category_name)}</span>` : ""}
                   </div>
                   <div class="desc">${rec.subscriber_count} 人订阅</div>
@@ -347,7 +347,7 @@ function kolCard(kol) {
       <div class="kol-info" onclick="location.hash='#/kol/${kol.id}'">
         <div class="base">
           <span class="name">${escapeHtml(kol.name)}</span>
-          <span class="tag">${PLATFORM_LABELS[kol.platform] || kol.platform}</span>
+          <span class="tag">${PLATFORM_LABELS[kol.platform] || escapeHtml(kol.platform)}</span>
           ${kol.category_name ? `<span class="tag">${escapeHtml(kol.category_name)}</span>` : ""}
         </div>
         <div class="desc">外部 ID：${escapeHtml(kol.external_id)}${kol.enabled ? "" : " · 已停用"}</div>
@@ -708,7 +708,7 @@ async function loadMyAsks() {
           <thead><tr><th>平台</th><th>外部 ID</th><th>状态</th><th>提交时间</th></tr></thead>
           <tbody>${asks.map((a) => `
             <tr>
-              <td>${PLATFORM_LABELS[a.platform] || a.platform}</td>
+              <td>${PLATFORM_LABELS[a.platform] || escapeHtml(a.platform)}</td>
               <td>${escapeHtml(a.external_id)}</td>
               <td class="${a.status === "approved" ? "status-ok" : a.status === "rejected" ? "status-fail" : ""}">${statusMap[a.status] || escapeHtml(a.status)}</td>
               <td>${escapeHtml(fmtDbTime(a.created_at))}</td>
@@ -1477,7 +1477,7 @@ function renderStatsData(s) {
         : '<span class="muted">-</span>';
       return `
         <tr>
-          <td>${PLATFORM_LABELS[src.platform] || src.platform}</td>
+          <td>${PLATFORM_LABELS[src.platform] || escapeHtml(src.platform)}</td>
           <td class="${src.ok ? "status-ok" : "status-fail"}">${src.ok ? "正常" : "无成功记录"}</td>
           <td>${channel}</td>
           <td>${rateBar(src.success_rate_24h)}</td>
@@ -1498,7 +1498,7 @@ function renderStatsData(s) {
           <tbody>${rows.map((e) => `
             <tr>
               <td class="muted">${escapeHtml(fmtDbTime(e.created_at))}</td>
-              <td>${PLATFORM_LABELS[e.platform] || e.platform}</td>
+              <td>${PLATFORM_LABELS[e.platform] || escapeHtml(e.platform)}</td>
               <td>${e.status === "ok"
                 ? '<span class="status-ok">正常</span>'
                 : e.status === "warn"
@@ -1518,7 +1518,7 @@ function renderStatsData(s) {
           <tbody>${rows.map((h) => `
             <tr>
               <td>${escapeHtml(h.name)}</td>
-              <td>${PLATFORM_LABELS[h.platform] || h.platform}</td>
+              <td>${PLATFORM_LABELS[h.platform] || escapeHtml(h.platform)}</td>
               <td>${h.enabled
                 ? (h.last_post_at
                     ? '<span class="status-ok">正常</span>'
@@ -1636,8 +1636,8 @@ async function loadAdminDashboard() {
       ? `<div class="dash-trend">${trend.map((t) => {
           const fail = Math.max(0, t.pushed - t.ok);
           // 红/绿分别按失败数/成功数相对最大值定高，二者之和 = 总推送量高度，不会溢出
-          const failPct = Math.round((fail / maxPushed) * 100);
-          const okPct = Math.round((t.ok / maxPushed) * 100);
+          const failPct = Math.floor((fail / maxPushed) * 100);
+          const okPct = Math.floor((t.ok / maxPushed) * 100);
           return `<div class="dash-trend-col" title="${escapeHtml(t.date)}：推送 ${t.pushed} 条，成功 ${t.ok}，失败 ${fail}">
             <div class="dash-trend-bar">
               <div class="dash-trend-fail" style="height:${failPct}%"></div>
@@ -1696,7 +1696,7 @@ async function loadAdminDashboard() {
     const events = (st.recent_source_events || []).slice(0, 6);
     const eventRows = events.length
       ? events.map((e) => `<div class="dash-event">
-          <span class="dash-event-dot ${e.status}"></span>
+          <span class="dash-event-dot ${escapeHtml(e.status)}"></span>
           <span class="muted dash-event-time">${escapeHtml(fmtDbTime(e.created_at))}</span>
           <span class="dash-event-platform">${PLATFORM_LABELS[e.platform] || escapeHtml(e.platform)}</span>
           <span class="${e.status === "ok" ? "status-ok" : e.status === "warn" ? "status-warn" : "status-fail"}">${e.status === "ok" ? "正常" : e.status === "warn" ? "警告" : "失败"}</span>
@@ -2293,7 +2293,7 @@ async function loadAdminLogs() {
               <td>${escapeHtml(l.user_name || "全局")}</td>
               <td>${escapeHtml(l.kol_name)}</td>
               <td>${l.channel}</td>
-              <td class="${l.status === "success" ? "status-ok" : "status-fail"}">${l.status}</td>
+              <td class="${l.status === "success" ? "status-ok" : "status-fail"}">${escapeHtml(l.status)}</td>
               <td>${escapeHtml(l.error || "")}</td>
             </tr>`).join("")}</tbody>
         </table>
@@ -2522,7 +2522,9 @@ async function router() {
   stopSysLogsTimer();
   stopStatsTimer();
   const hash = location.hash.replace(/^#\/?/, "") || "home";
-  const [page, rawParam] = hash.split("/");
+  // 先去掉 query（#/search?q=xxx），再按路径分段
+  const path = hash.split("?")[0];
+  const [page, rawParam] = path.split("/");
   // 管理后台默认看板：/admin 与 /admin/dashboard 等价，侧边栏高亮才能对上
   const param = page === "admin" && !rawParam ? "dashboard" : rawParam;
   if (!state.token) {

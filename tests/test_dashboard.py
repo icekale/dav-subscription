@@ -10,7 +10,7 @@ def test_dashboard_stats_empty_db():
     assert d["subscriptions"]["total"] == 0
     assert d["posts"]["total"] == 0
     assert d["pushes"]["total_7d"] == 0
-    assert d["pushes"]["success_rate"] == 100.0  # 无推送视为 100%
+    assert d["pushes"]["success_rate"] is None  # 无推送时置 None，前端显示 —
     assert d["pushes"]["trend_14d"] == []
     assert d["sources_fail_24h"] == {}
 
