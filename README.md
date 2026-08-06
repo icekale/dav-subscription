@@ -19,7 +19,7 @@
 <div align="center">
 
 | | |
-|---|---|
+| --- | --- |
 | <img src="docs/screenshots/home.png" width="420"><br>订阅广场 · 平台筛选与分类目录 | <img src="docs/screenshots/settings.png" width="420"><br>推送设置 · 多渠道状态与通道选择 |
 | <img src="docs/screenshots/mysubs.png" width="420"><br>我的订阅 · 帖子/回复分订 | <img src="docs/screenshots/combinations.png" width="420"><br>组合订阅 · 雪球模拟仓调仓 |
 | <img src="docs/screenshots/login.png" width="420"><br>登录注册 · 注册码邀请 | <img src="docs/screenshots/admin-stats.png" width="420"><br>管理后台 · 数据源与抓取状态 |
@@ -114,7 +114,7 @@ docker compose up -d --build
 
 启动后访问：
 
-- Web 后台：http://localhost:8000 （首次用 `admin` + `WEB_ADMIN_PASSWORD` 登录）
+- Web 后台：<http://localhost:8000> （首次用 `admin` + `WEB_ADMIN_PASSWORD` 登录）
 - Telegram / 飞书里给机器人发 `/list` 即可开始订阅大V
 
 数据保存在 `./data/dav.db`（SQLite），重启不丢；升级只需 `git pull && docker compose up -d --build`。
@@ -129,7 +129,37 @@ docker run -d --name dav-subscription --restart unless-stopped \
   icekale/dav-subscription:latest
 ```
 
-或在 compose 里用 `image: icekale/dav-subscription:latest` 替代 `build: .`。
+或在 compose 里用 `image: icekale/dav-subscription:latest` 替代 `build: .`。不想 git clone，直接新建一个 `docker-compose.yml` 用现成镜像部署：
+
+```yaml
+services:
+  dav-subscription:
+    # Docker Hub 与 GHCR 双端发布，amd64 + arm64；国内网络可换 ghcr.io/icekale/dav-subscription:latest
+    image: icekale/dav-subscription:latest
+    container_name: dav-subscription
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - TZ=Asia/Shanghai
+      - DB_PATH=/data/dav.db
+    # 推送渠道凭据、管理员密码等全部从同目录 .env 读取（变量见上方表格）
+    env_file:
+      - .env
+    volumes:
+      - ./data:/data
+```
+
+同目录准备 `.env`（从仓库复制 `.env.example`，按上方变量表填好）后启动：
+
+```bash
+docker compose up -d        # 首次拉镜像启动
+# 升级：docker compose pull && docker compose up -d
+```
+
+- 数据保存在 `./data/dav.db`（SQLite），重启、升级不丢
+- 镜像自带健康检查（`/healthz`），`docker ps` 可看到 `(healthy)`
+- 访问 <http://localhost:8000> ，用 `admin` + `WEB_ADMIN_PASSWORD` 登录
 
 ## 生产部署（HTTPS）
 
