@@ -126,7 +126,7 @@ button::after { border: none; }
 }
 .kol-item:last-child { border-bottom: none; }
 .kol-info { flex: 1; margin-left: 24rpx; min-width: 0; }
-.kol-name { font-size: 30rpx; font-weight: 600; color: var(--text-strong); }
+.kol-name { min-width: 208rpx; font-size: 30rpx; font-weight: 600; color: var(--text-strong); }
 .kol-desc { font-size: 24rpx; color: var(--text-muted); margin-top: 8rpx; }
 
 /* 帖子 */
