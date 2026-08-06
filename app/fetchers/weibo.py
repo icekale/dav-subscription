@@ -13,7 +13,7 @@ import httpx
 import rsa
 
 from ..avatar_cache import cache_avatar
-from .base import Fetcher, Post, strip_html
+from .base import Fetcher, Post, format_published_at, strip_html
 
 logger = logging.getLogger(__name__)
 
@@ -304,7 +304,7 @@ class WeiboFetcher(Fetcher):
                     title=title,
                     content=text,
                     url=f"https://weibo.com/detail/{mid}",
-                    published_at=str(mblog.get("created_at") or ""),
+                    published_at=format_published_at(str(mblog.get("created_at") or "")),
                     images=extract_weibo_images(mblog),
                 )
             )

@@ -243,6 +243,7 @@ def test_twitter_direct_fetch_parses_tweets_and_avatar(monkeypatch):
     assert posts[0].url == "https://x.com/SemiAnalysis_/status/111"
     assert posts[1].post_type == "reply"
     assert posts[2].content == "模块帖"
+    assert posts[0].published_at == "2026-08-04 20:00"  # 12:00 UTC + 8h
     assert db.get_kol(kid)["avatar_url"] == "https://pbs.twimg.com/profile_images/1_400x400.jpg"
     assert db.get_setting("x_direct_last_ok_at")
 

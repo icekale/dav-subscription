@@ -17,7 +17,7 @@ import time
 import httpx
 
 from ..avatar_cache import cache_avatar
-from .base import Fetcher, Post
+from .base import Fetcher, Post, format_published_at
 from .rss import RssFetcher
 
 logger = logging.getLogger(__name__)
@@ -366,7 +366,7 @@ class TwitterFetcher(Fetcher):
                     title=text[:80],
                     content=text,
                     url=f"https://x.com/{screen_name}/status/{tweet_id}",
-                    published_at=str(legacy.get("created_at") or ""),
+                    published_at=format_published_at(str(legacy.get("created_at") or "")),
                     post_type=post_type,
                     images=extract_twitter_images(legacy),
                 )
