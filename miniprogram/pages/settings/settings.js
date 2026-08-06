@@ -64,24 +64,27 @@ Page({
     }
   },
 
-  // 生成绑定码后开启轮询，等待用户在机器人里 /bind 完成，绑定齐或超时后自动停止
-  _startPolling() {
+  // 生成绑定码后开启轮询，等待用户在机器人里 /bind 完成；轮询到绑定码到期或完成时自动停止
+  _startPolling(expiresInSeconds) {
     this._stopPolling();
     this._pollCount = 0;
+    // 每 5 秒一次，最长到绑定码到期（上限 20 分钟），避免 100 秒就停导致状态不再刷新
+    const maxTicks = Math.min(Math.max(Math.ceil(expiresInSeconds / 5000), 1), 240);
     this._pollTimer = setInterval(() => {
       this._pollCount += 1;
-      this.load();
-      if (this._pollCount >= 20) {
+      this.load(false);
+      if (this._pollCount >= maxTicks) {
         this._stopPolling();
       }
     }, 5000);
   },
 
-  async load() {
+  // full=false 时只刷新绑定状态，不覆盖用户正在编辑的表单项（免打扰/新帖设置/通道勾选）
+  async load(full = true) {
     try {
       const user = await request("/api/me");
       const guide = user.push_guide || {};
-      this.setData({
+      const patch = {
         tg: user.telegram_chat_id,
         tgBound: !!user.telegram_chat_id,
         tgCustom: !!user.custom_telegram_bot,
@@ -90,16 +93,22 @@ Page({
         fsIncomplete: !!user.feishu_open_id && !user.feishu_chat_id,
         wecom: user.wecom_webhook,
         wecomBound: !!user.wecom_webhook,
-        notify: user.notify_enabled,
-        dailyReport: !!user.daily_report_enabled,
         tgBot: guide.telegram_bot_username || "",
         fsBotName: guide.feishu_bot_name || "",
+        // 通道勾选列表随绑定状态变化（新绑定渠道要能立即出现）
         channelOptions: pushChannelOptions(user),
-        dndEnabled: !!user.dnd_start,
-        dndStart: user.dnd_start || "23:00",
-        dndEnd: user.dnd_end || "07:00",
-        dndAllowFavorite: !!user.dnd_allow_favorite,
-      });
+      };
+      if (full) {
+        Object.assign(patch, {
+          notify: user.notify_enabled,
+          dailyReport: !!user.daily_report_enabled,
+          dndEnabled: !!user.dnd_start,
+          dndStart: user.dnd_start || "23:00",
+          dndEnd: user.dnd_end || "07:00",
+          dndAllowFavorite: !!user.dnd_allow_favorite,
+        });
+      }
+      this.setData(patch);
       if (!this.wecomDirty) {
         this.setData({ wecomInput: user.wecom_webhook || "" });
       }
@@ -254,7 +263,7 @@ Page({
     try {
       const data = await request("/api/me/bind-code", { method: "POST" });
       this.setData({ bindCode: data.code, bindMinutes: Math.floor(data.expires_in_seconds / 60) });
-      this._startPolling();
+      this._startPolling(data.expires_in_seconds);
     } catch (err) {
       wx.showToast({ title: err.message, icon: "none" });
     }
