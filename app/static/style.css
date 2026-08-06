@@ -773,3 +773,19 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
   .hero-panel { padding: 16px; }
   .form-control { min-height: 44px; }
 }
+
+/* ---------- 数据看板 ---------- */
+.dash-trend { display: flex; gap: 6px; align-items: flex-end; height: 180px; padding: 10px 4px 0; }
+.dash-trend-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; }
+.dash-trend-bar { display: flex; flex-direction: column; justify-content: flex-end; width: 100%; max-width: 42px; height: 150px; border-radius: 6px; background: var(--color-bg-muted); overflow: hidden; }
+.dash-trend-ok { width: 100%; background: var(--color-success); transition: height 0.3s ease; }
+.dash-trend-fail { width: 100%; background: var(--color-danger); transition: height 0.3s ease; }
+.dash-trend-date { font-size: 11px; color: var(--color-text-muted); white-space: nowrap; }
+.dash-bar-row { display: flex; align-items: center; gap: 10px; margin: 8px 0; }
+.dash-bar-label { width: 90px; flex-shrink: 0; font-size: 13px; color: var(--color-text-strong); }
+.dash-bar-track { flex: 1; height: 10px; border-radius: 5px; background: var(--color-bg-muted); overflow: hidden; }
+.dash-bar-fill { height: 100%; background: var(--color-accent); border-radius: 5px; }
+.dash-bar-fill.warn { background: var(--color-warning); }
+.dash-bar-value { width: 110px; flex-shrink: 0; text-align: right; font-size: 12px; color: var(--color-text-muted); }
+.dash-warn { padding: 10px 14px; border-radius: var(--radius-control); background: var(--color-warning-soft); color: var(--color-warning-strong); font-size: 13px; }
+.dash-warn a { color: var(--color-link); }

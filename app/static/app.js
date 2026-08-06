@@ -97,6 +97,7 @@ const NAV = [
     { route: "settings", icon: "⚙", label: "推送设置" },
   ]},
   { group: "管理", admin: true, items: [
+    { route: "admin/dashboard", icon: "▦", label: "看板" },
     { route: "admin/stats", icon: BOOK_ICON, label: "数据源" },
     { route: "admin/kols", icon: V_ICON, label: "大V管理" },
     { route: "admin/requests", icon: "✚", label: "求添加" },
@@ -1268,7 +1269,7 @@ async function renderAdmin(tab) {
   $("#main").innerHTML = `
     ${heroPanel("Admin Console", "管理后台", "维护大V目录、分类与推送记录，查看注册用户。")}
     <div id="admin-body"></div>`;
-  const loaders = { stats: loadAdminStats, kols: loadAdminKols, requests: loadAdminRequests, codes: loadAdminCodes, categories: loadAdminCategories, posts: loadAdminPosts, logs: loadAdminLogs, audit: loadAdminAudit, users: loadAdminUsers };
+  const loaders = { dashboard: loadAdminDashboard, stats: loadAdminStats, kols: loadAdminKols, requests: loadAdminRequests, codes: loadAdminCodes, categories: loadAdminCategories, posts: loadAdminPosts, logs: loadAdminLogs, audit: loadAdminAudit, users: loadAdminUsers };
   try {
     await loaders[tab]();
   } catch (err) {
@@ -1598,6 +1599,99 @@ function statCard(label, value) {
       <div style="font-size:12px;color:var(--color-text-muted)">${escapeHtml(label)}</div>
       <div style="font-size:20px;font-weight:700;color:var(--color-text-strong);margin-top:6px">${escapeHtml(String(value))}</div>
     </div>`;
+}
+
+async function loadAdminDashboard() {
+  try {
+    const d = await api("/api/admin/dashboard");
+    const u = d.users || {};
+    const s = d.subscriptions || {};
+    const p = d.posts || {};
+    const pu = d.pushes || {};
+    const PLATFORM_LABELS_LOOKUP = { xueqiu: "雪球", combination: "雪球组合", weibo: "微博", twitter: "X" };
+    const CHANNEL_LABELS_LOOKUP = { telegram: "Telegram", feishu: "飞书", wecom: "企业微信" };
+    const rate = pu.success_rate != null ? `${pu.success_rate}%` : "—";
+
+    // 14 天推送趋势柱状图（纯 CSS，零依赖）
+    const trend = pu.trend_14d || [];
+    const maxPushed = Math.max(1, ...trend.map((t) => t.pushed));
+    const trendHtml = trend.length
+      ? `<div class="dash-trend">${trend.map((t) => {
+          const h = Math.round((t.pushed / maxPushed) * 100);
+          const okPct = t.pushed ? Math.round((t.ok / t.pushed) * 100) : 0;
+          return `<div class="dash-trend-col" title="${escapeHtml(t.date)}：推送 ${t.pushed} 条，成功 ${t.ok} 条">
+            <div class="dash-trend-bar">
+              <div class="dash-trend-fail" style="height:${h}%"></div>
+              <div class="dash-trend-ok" style="height:${okPct}%"></div>
+            </div>
+            <div class="dash-trend-date">${escapeHtml(t.date.slice(5))}</div>
+          </div>`;
+        }).join("")}</div>`
+      : `<p class="muted">近 14 天暂无推送记录</p>`;
+
+    // 平台来源分布
+    const platformRows = Object.entries(p.by_platform || {}).map(([k, v]) => {
+      const total = p.total || 1;
+      const w = Math.round((v / total) * 100);
+      return `<div class="dash-bar-row">
+        <span class="dash-bar-label">${PLATFORM_LABELS_LOOKUP[k] || escapeHtml(k)}</span>
+        <div class="dash-bar-track"><div class="dash-bar-fill" style="width:${w}%"></div></div>
+        <span class="dash-bar-value">${v}</span>
+      </div>`;
+    }).join("");
+
+    // 渠道推送成功率
+    const channelRows = Object.entries(pu.by_channel || {}).map(([k, v]) => {
+      const r = v.total ? Math.round((v.ok / v.total) * 100) : 0;
+      return `<div class="dash-bar-row">
+        <span class="dash-bar-label">${CHANNEL_LABELS_LOOKUP[k] || escapeHtml(k)}</span>
+        <div class="dash-bar-track"><div class="dash-bar-fill ${r < 90 ? "warn" : ""}" style="width:${r}%"></div></div>
+        <span class="dash-bar-value">${v.ok}/${v.total}（${r}%）</span>
+      </div>`;
+    }).join("");
+
+    const sourceFail = Object.entries(d.sources_fail_24h || {});
+    const sourceWarn = sourceFail.length
+      ? `<div class="dash-warn">⚠️ 近 24 小时数据源降级/失败：${sourceFail.map(([k, v]) => `${PLATFORM_LABELS_LOOKUP[k] || escapeHtml(k)} ${v} 次`).join("， ")}。详情见<a href="#/admin/stats">数据源</a>。</div>`
+      : `<p class="muted">✅ 近 24 小时各数据源无降级/失败事件。</p>`;
+
+    $("#admin-body").innerHTML = `
+      <section class="section-panel">
+        <header class="section-head"><div><p class="section-eyebrow">Overview</p><h3 class="section-title">核心指标</h3>
+        <p class="section-meta">用户、订阅与推送的业务总览（推送统计为近 7 天）。</p></div></header>
+        <div style="display:flex;gap:12px;flex-wrap:wrap">
+          ${statCard("注册用户", u.total || 0)}
+          ${statCard("绑定渠道用户", u.bound || 0)}
+          ${statCard("订阅数", s.total || 0)}
+          ${statCard("近 7 天推送", pu.total_7d || 0)}
+          ${statCard("推送成功率", rate)}
+          ${statCard("帖子总量", p.total || 0)}
+        </div>
+      </section>
+      <section class="section-panel">
+        <header class="section-head"><div><p class="section-eyebrow">Push Trend</p><h3 class="section-title">近 14 天推送趋势</h3>
+        <p class="section-meta">每日推送条数（绿色=成功，红色=失败）。</p></div></header>
+        ${trendHtml}
+      </section>
+      <div style="display:flex;gap:14px;flex-wrap:wrap">
+        <section class="section-panel" style="flex:1;min-width:300px">
+          <header class="section-head"><div><p class="section-eyebrow">Sources</p><h3 class="section-title">帖子来源分布</h3>
+          <p class="section-meta">累计抓取帖子按平台。</p></div></header>
+          ${platformRows || `<p class="muted">暂无帖子</p>`}
+        </section>
+        <section class="section-panel" style="flex:1;min-width:300px">
+          <header class="section-head"><div><p class="section-eyebrow">Channels</p><h3 class="section-title">渠道推送成功率（7 天）</h3>
+          <p class="section-meta">各渠道成功/总数与成功率。</p></div></header>
+          ${channelRows || `<p class="muted">近 7 天暂无推送</p>`}
+        </section>
+      </div>
+      <section class="section-panel">
+        <header class="section-head"><div><p class="section-eyebrow">Health</p><h3 class="section-title">数据源健康</h3></div></header>
+        ${sourceWarn}
+      </section>`;
+  } catch (err) {
+    $("#admin-body").innerHTML = emptyState("加载失败: " + err.message);
+  }
 }
 
 let _adminKolsSeq = 0;
@@ -2372,7 +2466,9 @@ async function router() {
   stopSysLogsTimer();
   stopStatsTimer();
   const hash = location.hash.replace(/^#\/?/, "") || "home";
-  const [page, param] = hash.split("/");
+  const [page, rawParam] = hash.split("/");
+  // 管理后台默认看板：/admin 与 /admin/dashboard 等价，侧边栏高亮才能对上
+  const param = page === "admin" && !rawParam ? "dashboard" : rawParam;
   if (!state.token) {
     $("#app-view").classList.add("hidden");
     $("#auth-view").classList.remove("hidden");
@@ -2407,7 +2503,7 @@ async function router() {
     else if (page === "kol") await renderKolPage(Number(param));
     else if (page === "admin") {
       if (!state.user.is_admin) { location.hash = "#/home"; return; }
-      await renderAdmin(param || "kols");
+      await renderAdmin(param || "dashboard");
     }
     else { location.hash = "#/home"; await renderHome(); }
   } catch (err) {

@@ -18,6 +18,14 @@ def _merge_sub_types(a: str, b: str) -> str:
     return next(iter(types))
 
 
+def _to_int(value) -> int:
+    """COUNT/SUM 等聚合结果转 int，None/非数字兜底为 0。"""
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _normalize_post_images(rows: list[dict]) -> list[dict]:
     """posts 行的 images 是 JSON 文本，API 场景统一解析为数组。"""
     for row in rows:
@@ -708,6 +716,93 @@ class DB:
             "SELECT COUNT(*) AS n FROM subscriptions WHERE user_id = ?", (user_id,)
         )
         return rows[0]["n"]
+
+    def dashboard_stats(self) -> dict:
+        """业务数据看板聚合：用户/订阅/帖子/推送/数据源健康（近 N 天窗口用 UTC）。"""
+        def scalar(sql: str, *params) -> int:
+            return _to_int((self._rows(sql, params) or [{}])[0].get("v"))
+
+        users = {
+            "total": scalar("SELECT COUNT(*) AS v FROM users"),
+            "admins": scalar("SELECT COUNT(*) AS v FROM users WHERE is_admin = 1"),
+            "bound": scalar(
+                "SELECT COUNT(*) AS v FROM users WHERE telegram_chat_id != '' OR "
+                "feishu_open_id != '' OR feishu_chat_id != '' OR wecom_webhook != ''"
+            ),
+            "new_7d": scalar(
+                "SELECT COUNT(*) AS v FROM users WHERE created_at >= datetime('now', '-7 days')"
+            ),
+        }
+        subs_total = scalar("SELECT COUNT(*) AS v FROM subscriptions")
+        subscriptions = {
+            "total": subs_total,
+            "favorite": scalar("SELECT COUNT(*) AS v FROM subscriptions WHERE favorite = 1"),
+            "avg_per_user": round(subs_total / users["total"], 1) if users["total"] else 0,
+        }
+        posts = {
+            "total": scalar("SELECT COUNT(*) AS v FROM posts"),
+            "today": scalar(
+                "SELECT COUNT(*) AS v FROM posts WHERE fetched_at >= datetime('now', '-24 hours')"
+            ),
+            "last_7d": scalar(
+                "SELECT COUNT(*) AS v FROM posts WHERE fetched_at >= datetime('now', '-7 days')"
+            ),
+            "by_platform": {
+                r["platform"]: _to_int(r["c"])
+                for r in self._rows(
+                    "SELECT platform, COUNT(*) AS c FROM posts GROUP BY platform ORDER BY c DESC"
+                )
+            },
+        }
+        push_ok = scalar(
+            "SELECT COUNT(*) AS v FROM push_logs WHERE status = 'success' "
+            "AND created_at >= datetime('now', '-7 days')"
+        )
+        push_total = scalar(
+            "SELECT COUNT(*) AS v FROM push_logs WHERE created_at >= datetime('now', '-7 days')"
+        )
+        pushes = {
+            "total_7d": push_total,
+            "ok_7d": push_ok,
+            "fail_7d": push_total - push_ok,
+            "success_rate": round(push_ok / push_total * 100, 1) if push_total else 100.0,
+            "today": scalar(
+                "SELECT COUNT(*) AS v FROM push_logs WHERE created_at >= datetime('now', '-24 hours')"
+            ),
+            "by_channel": {
+                r["channel"]: {"total": _to_int(r["c"]), "ok": _to_int(r["ok"])}
+                for r in self._rows(
+                    "SELECT channel, COUNT(*) AS c, "
+                    "SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS ok "
+                    "FROM push_logs WHERE created_at >= datetime('now', '-7 days') "
+                    "GROUP BY channel ORDER BY c DESC"
+                )
+            },
+            "trend_14d": [
+                {"date": r["d"], "pushed": _to_int(r["c"]), "ok": _to_int(r["ok"])}
+                for r in self._rows(
+                    "SELECT date(created_at) AS d, COUNT(*) AS c, "
+                    "SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS ok "
+                    "FROM push_logs WHERE created_at >= datetime('now', '-13 days') "
+                    "GROUP BY date(created_at) ORDER BY d"
+                )
+            ],
+        }
+        sources_fail_24h = {
+            r["platform"]: _to_int(r["c"])
+            for r in self._rows(
+                "SELECT platform, COUNT(*) AS c FROM source_events "
+                "WHERE status != 'ok' AND created_at >= datetime('now', '-24 hours') "
+                "GROUP BY platform"
+            )
+        }
+        return {
+            "users": users,
+            "subscriptions": subscriptions,
+            "posts": posts,
+            "pushes": pushes,
+            "sources_fail_24h": sources_fail_24h,
+        }
 
     def subscribed_kol_ids(self, user_id: int) -> set[int]:
         rows = self._rows("SELECT kol_id FROM subscriptions WHERE user_id = ?", (user_id,))

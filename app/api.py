@@ -906,6 +906,11 @@ def create_api_router(
     def list_audit_logs(limit: int = 100):
         return db.list_admin_logs(limit=min(limit, 500))
 
+    @router.get("/admin/dashboard", dependencies=[Depends(require_admin)])
+    def dashboard():
+        """业务数据看板：用户/订阅/帖子/推送/数据源健康聚合。"""
+        return db.dashboard_stats()
+
     @router.get("/admin/system-logs", dependencies=[Depends(require_admin)])
     def list_system_logs(
         limit: int = 200,
