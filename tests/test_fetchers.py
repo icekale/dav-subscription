@@ -697,7 +697,11 @@ def test_weibo_login_lock_serializes(monkeypatch):
         cookies = FakeCookies()
 
         def post(self, *a, **k):
-            return httpx.Response(200, text="callback(retcode=0)")
+            return httpx.Response(
+                200,
+                text="callback(retcode=0)",
+                request=httpx.Request("POST", "https://login.sina.com.cn/sso/login.php"),
+            )
 
     monkeypatch.setattr(WeiboFetcher, "_prelogin", fake_prelogin)
     monkeypatch.setattr(
