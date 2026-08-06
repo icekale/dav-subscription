@@ -1634,11 +1634,13 @@ async function loadAdminDashboard() {
     const maxPushed = Math.max(1, ...trend.map((t) => t.pushed));
     const trendHtml = trend.length
       ? `<div class="dash-trend">${trend.map((t) => {
-          const h = Math.round((t.pushed / maxPushed) * 100);
-          const okPct = t.pushed ? Math.round((t.ok / t.pushed) * 100) : 0;
-          return `<div class="dash-trend-col" title="${escapeHtml(t.date)}：推送 ${t.pushed} 条，成功 ${t.ok} 条">
+          const fail = Math.max(0, t.pushed - t.ok);
+          // 红/绿分别按失败数/成功数相对最大值定高，二者之和 = 总推送量高度，不会溢出
+          const failPct = Math.round((fail / maxPushed) * 100);
+          const okPct = Math.round((t.ok / maxPushed) * 100);
+          return `<div class="dash-trend-col" title="${escapeHtml(t.date)}：推送 ${t.pushed} 条，成功 ${t.ok}，失败 ${fail}">
             <div class="dash-trend-bar">
-              <div class="dash-trend-fail" style="height:${h}%"></div>
+              <div class="dash-trend-fail" style="height:${failPct}%"></div>
               <div class="dash-trend-ok" style="height:${okPct}%"></div>
             </div>
             <div class="dash-trend-date">${escapeHtml(t.date.slice(5))}</div>
