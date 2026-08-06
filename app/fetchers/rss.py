@@ -1,13 +1,20 @@
 """X/Twitter 等通用 RSS 抓取（RSSHub / nitter 源）。"""
 from __future__ import annotations
 
+import calendar
 import re
+import time
 
 import feedparser
 import httpx
 
 from ..avatar_cache import cache_avatar
 from .base import Fetcher, Post, strip_html
+
+
+# 兜底通道只认 48 小时内的条目：RSSHub 的 X 路由可能返回数月前的缓存内容
+# （实测 2026-08 把 qinbafrank 去年 11 月的老转发当新帖推给用户），超期直接跳过。
+STALE_MAX_AGE = 48 * 3600
 
 
 class RssFetcher(Fetcher):
@@ -55,13 +62,34 @@ class RssFetcher(Fetcher):
                 return author
         return ""
 
+    @staticmethod
+    def _normalize_twitter_id(external_id: str) -> str:
+        """RSSHub 条目的 id/link 是 URL 形式（https://x.com/user/status/<id>），
+        而 X 直抓存的是数字 tweet id——统一成数字 id，上游去重才能命中，
+        避免直抓已推过的帖子被兜底通道再推一遍（实测 2026-08 重复推送）。"""
+        match = re.search(
+            r"(?:twitter\.com|x\.com)/(?:@?[A-Za-z0-9_]+)/status/(\d+)",
+            external_id,
+        )
+        return match.group(1) if match else external_id
+
     def fetch(self, kol: dict) -> list[Post]:
         url = self._resolve_feed_url(kol["external_id"])
         resp = self.client.get(url)
         resp.raise_for_status()
         feed = feedparser.parse(resp.content)
         posts = []
+        now = time.time()
         for entry in feed.entries:
+            # 陈旧过滤：RSSHub X 路由可能返回数月前的旧内容，超期条目跳过
+            published = entry.get("published_parsed") or entry.get("updated_parsed")
+            if published:
+                try:
+                    pub_ts = calendar.timegm(published)
+                    if now - pub_ts > STALE_MAX_AGE:
+                        continue
+                except (OverflowError, ValueError, TypeError):
+                    pass
             images: list[str] = []
             for media in entry.get("media_content") or []:
                 if media.get("url") and media["url"] not in images:
@@ -74,7 +102,9 @@ class RssFetcher(Fetcher):
                     platform=self.platform,
                     kol_id=kol["id"],
                     kol_name=kol["name"],
-                    external_id=entry.get("id") or entry.get("link") or "",
+                    external_id=self._normalize_twitter_id(
+                        entry.get("id") or entry.get("link") or ""
+                    ),
                     title=entry.get("title") or "",
                     content=strip_html(entry.get("summary") or entry.get("description") or ""),
                     url=entry.get("link") or "",

@@ -374,14 +374,21 @@ def test_twitter_direct_fetch_parses_tweets_and_avatar(monkeypatch):
 
 
 def test_twitter_falls_back_to_rsshub(monkeypatch):
+    import datetime
+
+    import email.utils
+
     monkeypatch.setenv("TWITTER_COOKIE", "auth_token=a; ct0=b")
+    recent = email.utils.format_datetime(
+        datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=10)
+    )
     feed_xml = (
         '<?xml version="1.0" encoding="UTF-8"?>'
         '<rss version="2.0"><channel>'
         "<item><title>备用源</title>"
         "<link>https://x.com/SemiAnalysis_/status/999</link>"
         "<description>来自 RSSHub 的内容</description>"
-        "<pubDate>Tue, 04 Aug 2026 10:00:00 +0800</pubDate>"
+        f"<pubDate>{recent}</pubDate>"
         "</item></channel></rss>"
     ).encode()
 
