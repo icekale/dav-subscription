@@ -1675,9 +1675,16 @@ async function adminBatchAddKols() {
       }),
     });
     const failLines = data.failed.map((f) => `${f.line} — ${f.error}`).join("\n");
-    $("#ad-batch-result").textContent = `成功 ${data.ok}/${data.total}`;
+    await loadAdminKols();
+    const resultEl = $("#ad-batch-result");
+    if (resultEl) {
+      resultEl.textContent = data.failed.length
+        ? `成功 ${data.ok}/${data.total}，失败 ${data.failed.length} 条`
+        : `成功 ${data.ok}/${data.total}`;
+      resultEl.style.color = data.failed.length ? "#c0392b" : "#2e7d32";
+      resultEl.style.fontWeight = "bold";
+    }
     if (failLines) alert(`导入完成：成功 ${data.ok}/${data.total}\n\n失败：\n${failLines}`);
-    loadAdminKols();
   } catch (err) {
     alert("批量导入失败: " + err.message);
   }
