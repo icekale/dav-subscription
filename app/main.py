@@ -137,6 +137,15 @@ def create_app(config=None, db_path: str | Path | None = None) -> FastAPI:
     app.state.db = db
 
     @app.middleware("http")
+    async def security_headers(request: Request, call_next):
+        """基础安全响应头：防 MIME 嗅探 / 点击劫持 / Referer 泄露。"""
+        response = await call_next(request)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "no-referrer")
+        return response
+
+    @app.middleware("http")
     async def access_log(request: Request, call_next):
         """API 请求日志：默认 DEBUG；超过 1 秒的慢请求 WARNING 提醒（方便排查）。"""
         start = time.perf_counter()

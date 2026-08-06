@@ -8,6 +8,8 @@ from pathlib import Path
 
 import httpx
 
+from .url_safety import safe_get
+
 ALLOWED_TYPES = {
     "image/jpeg": "jpg",
     "image/png": "png",
@@ -35,7 +37,7 @@ def cache_avatar(db, kol_id: int, remote_url: str, client: httpx.Client | None =
     owns_client = client is None
     client = client or httpx.Client(timeout=15, follow_redirects=True, headers=DOWNLOAD_HEADERS)
     try:
-        resp = client.get(url)
+        resp = safe_get(client, url, timeout=15)
         if resp.status_code != 200 or not resp.content:
             return url
         content_type = resp.headers.get("content-type", "").split(";")[0].strip().lower()

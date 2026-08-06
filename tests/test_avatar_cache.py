@@ -1,4 +1,5 @@
 import httpx
+import pytest
 
 from app.avatar_cache import cache_avatar
 from app.db import DB
@@ -56,3 +57,28 @@ def test_cache_avatar_keeps_local_url(tmp_path):
     kid = db.add_kol("weibo", "C", "3")
     db.update_kol_avatar(kid, "/avatars/3.jpg")
     assert cache_avatar(db, kid, "/avatars/3.jpg") == "/avatars/3.jpg"
+
+
+@pytest.fixture(autouse=True)
+def _fake_dns(monkeypatch):
+    """MockTransport 的测试域名不真实解析：统一解析到公网 IP，不触发真实 DNS。"""
+    monkeypatch.setattr("app.url_safety._resolve_host_ips", lambda host: ["93.184.216.34"])
+
+
+def test_cache_avatar_blocks_internal_url(tmp_path):
+    """内网地址直接拒绝且不发请求，退回原 URL（不落盘）。"""
+    from app import url_safety
+
+    db = make_db(tmp_path)
+    kid = db.add_kol("weibo", "D", "4")
+    requested = []
+
+    def handler(request):
+        requested.append(str(request.url))
+        return httpx.Response(200, headers={"content-type": "image/jpeg"}, content=b"x")
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    url = "http://169.254.169.254/latest/meta-data/"
+    assert url_safety.is_safe_http_url(url) is False
+    assert cache_avatar(db, kid, url, client=client) == url
+    assert requested == []

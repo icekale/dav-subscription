@@ -286,13 +286,13 @@ def test_system_logs_api():
 
 
 def test_version_api(monkeypatch):
-    monkeypatch.setattr("app.version.latest_github_version", lambda db: ("1.5.0", True))
+    monkeypatch.setattr("app.version.latest_github_version", lambda db: ("1.5.1", True))
     client = make_client()
     resp = client.get("/api/version")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["current"] == "1.4.1"
-    assert data["latest"] == "1.5.0"
+    assert data["current"] == "1.5.0"
+    assert data["latest"] == "1.5.1"
     assert data["update_available"] is True
     assert "github.com" in data["url"]
 
@@ -1684,3 +1684,90 @@ def test_background_workers_flag(monkeypatch):
     assert background_workers_enabled() is False
     monkeypatch.setenv("DAV_UI_ONLY", "0")
     assert background_workers_enabled() is True
+
+
+def test_passwordless_user_can_set_first_password():
+    """微信/机器人自动创建的无密码账号：已持有会话即可首次设密，之后改密需旧密码。"""
+    from app import auth
+
+    client = make_client()
+    db = client.app.state.db
+    uid = db.add_user("wx_pwd_user", "", wechat_openid="openid_1")
+    token = auth.create_token(uid, "wx_pwd_user", db.get_setting("token_secret"))
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # 无密码账号无需旧密码即可首次设密
+    resp = client.post(
+        "/api/me/password",
+        headers=headers,
+        json={"old_password": "anything", "new_password": "newpass123"},
+    )
+    assert resp.status_code == 200
+
+    # 设置后可用新密码登录
+    assert client.post(
+        "/api/auth/login", json={"username": "wx_pwd_user", "password": "newpass123"}
+    ).status_code == 200
+
+    # 已有密码后再改密必须校验旧密码
+    resp = client.post(
+        "/api/me/password",
+        headers=headers,
+        json={"old_password": "wrong", "new_password": "another456"},
+    )
+    assert resp.status_code == 400 and "原密码" in resp.json()["detail"]
+
+
+def test_register_username_case_insensitive_unique():
+    """注册时不允许与已有用户名仅大小写不同的新账号。"""
+    client = make_client()
+    admin_headers = auth_headers(client, "boss")
+
+    assert register(client, "Alice").status_code == 200
+    # 大小写变体注册被拒
+    resp = register(client, "alice", expect=400)
+    assert "用户名已存在" in resp.json()["detail"]
+    resp = register(client, "ALICE", expect=400)
+    assert "用户名已存在" in resp.json()["detail"]
+
+    # 管理员改名为已有用户名的大小写变体也被拒
+    client.app.state.db.add_register_code("CODE1")
+    resp = client.post(
+        "/api/auth/register",
+        json={"username": "bob", "password": "secret123", "code": "CODE1"},
+    )
+    assert resp.status_code == 200
+    uid = next(
+        u["id"] for u in client.get("/api/users", headers=admin_headers).json()
+        if u["username"] == "bob"
+    )
+    resp = client.put(
+        f"/api/users/{uid}", headers=admin_headers, json={"username": "ALICE"}
+    )
+    assert resp.status_code == 400 and "用户名已存在" in resp.json()["detail"]
+
+
+def test_add_user_username_case_insensitive_unique():
+    """机器人/微信自动建号也遵守大小写不敏感唯一约束。"""
+    client = make_client()
+    db = client.app.state.db
+    db.add_user("TgUser", "", telegram_chat_id="1")
+    try:
+        db.add_user("tguser", "", telegram_chat_id="2")
+        raise AssertionError("应拒绝大小写变体用户名")
+    except ValueError as exc:
+        assert "用户名已存在" in str(exc)
+
+
+def test_security_headers():
+    """基础安全响应头：防 MIME 嗅探 / 点击劫持 / Referer 泄露。"""
+    client = make_client()
+    resp = client.get("/healthz")
+    assert resp.headers.get("x-content-type-options") == "nosniff"
+    assert resp.headers.get("x-frame-options") == "DENY"
+    assert resp.headers.get("referrer-policy") == "no-referrer"
+
+    # 静态页面同样带安全头
+    page = client.get("/")
+    assert page.status_code == 200
+    assert page.headers.get("x-content-type-options") == "nosniff"

@@ -450,7 +450,7 @@ def create_api_router(
         if user is None:
             base = f"wx_{openid[:10]}"
             username, i = base, 1
-            while db.get_user_by_username(username) is not None:
+            while db.get_user_by_username_ci(username) is not None:
                 username = f"{base}{i}"
                 i += 1
             uid = db.add_user(
@@ -570,7 +570,8 @@ def create_api_router(
             raise HTTPException(status_code=400, detail="新密码至少6位")
         if len(body.new_password) > MAX_PASSWORD_LEN:
             raise HTTPException(status_code=400, detail=f"新密码最长{MAX_PASSWORD_LEN}位")
-        if not auth.verify_password(body.old_password, user["password_hash"]):
+        # 微信/机器人自动创建的账号没有密码：已持有会话即可首次设密
+        if user["password_hash"] and not auth.verify_password(body.old_password, user["password_hash"]):
             raise HTTPException(status_code=400, detail="原密码错误")
         db.update_user(user["id"], password_hash=auth.hash_password(body.new_password))
         return {"ok": True}
@@ -1314,7 +1315,7 @@ def create_api_router(
             username = (body.username or "").strip()
             if len(username) < 2 or len(username) > 30:
                 raise HTTPException(status_code=400, detail="用户名需2-30位")
-            existing = db.get_user_by_username(username)
+            existing = db.get_user_by_username_ci(username)
             if existing is not None and existing["id"] != user_id:
                 raise HTTPException(status_code=400, detail="用户名已存在")
             db.update_user(user_id, username=username)

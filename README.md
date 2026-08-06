@@ -95,7 +95,7 @@ cp .env.example .env
 | `FEISHU_WEBHOOK_URL` | 可选 | 飞书群机器人 webhook（系统告警用，用户可自行在网页绑定各自的群机器人） |
 | `WECOM_WEBHOOK_URL` | 可选 | 企业微信群机器人 webhook（系统告警用） |
 | `WEB_ADMIN_PASSWORD` | 推荐 | 启动时创建 `admin` 管理员账号，登录后台管理 |
-| `WEB_ALLOW_REGISTER` | 可选 | 是否开放注册；`false` 时只能凭后台生成的注册码注册 |
+| `WEB_ALLOW_REGISTER` | 可选 | 是否允许注册（`false` 时关闭注册入口）；注册始终需要邀请码，邀请码由管理员在后台生成 |
 | `XUEQIU_COOKIE` | 可选 | 浏览器登录 xueqiu.com 后复制的 Cookie，用于保持登录态、提升抓取稳定性 |
 | `WEIBO_COOKIE` | 可选 | 浏览器登录微博后复制的 Cookie，可后台扫码登录替代 |
 | `TWITTER_COOKIE` | 可选 | 浏览器登录 x.com 后复制的完整 Cookie（直抓 X + 自动翻译中文） |

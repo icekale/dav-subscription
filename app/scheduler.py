@@ -293,6 +293,27 @@ def _channel_enabled(user: dict, channel: str) -> bool:
     return channel in {c.strip() for c in selected.split(",") if c.strip()}
 
 
+def _can_still_push(user: dict, channel: str, post: Post, db: DB) -> bool:
+    """推送前复查用户状态：通知开关、渠道选择与绑定、订阅关系与类型是否仍成立。
+
+    失败重试/重启恢复时使用，避免退订、关闭通知或改选渠道的用户仍收到旧帖重试。
+    """
+    if not user or not user.get("notify_enabled"):
+        return False
+    if not _channel_enabled(user, channel):
+        return False
+    if channel == "telegram" and not user.get("telegram_chat_id"):
+        return False
+    if channel == "feishu" and not (user.get("feishu_open_id") or user.get("feishu_chat_id")):
+        return False
+    if channel == "wecom" and not user.get("wecom_webhook"):
+        return False
+    sub_type = db.subscribed_kol_types(user["id"]).get(post.kol_id)
+    if sub_type is None:
+        return False
+    return _sub_type_matches(sub_type, post.post_type)
+
+
 def _in_dnd_window(user: dict, now=None) -> bool:
     """用户是否处于免打扰时段（支持跨午夜；start/end 留空或相同时关闭）。"""
     start = (user.get("dnd_start") or "").strip()
@@ -1256,6 +1277,7 @@ class Scheduler:
         try:
             flush_digest(
                 self.db, self._digest, self.notifiers, self.notifiers_config,
+                retry_queue=self.retry_queue,
                 dnd_buffer=self._dnd_buffer,
             )
         except Exception:  # noqa: BLE001
@@ -1440,13 +1462,16 @@ class Scheduler:
                     )
                 except Exception:  # noqa: BLE001
                     logger.exception("cookie 保活异常")
-            # 每日精选：每天到达设定小时且当天未发过时推送
+            # 每日精选：每天到达设定小时且当天未发过时推送；发送成功才标记已发，
+            # 失败保留未发状态下一轮重试，避免发送失败当天漏发
             if self._daily_report_due():
-                self.db.set_setting("daily_report_last_date", time.strftime("%Y-%m-%d"))
                 try:
-                    await asyncio.to_thread(self._send_daily_report)
+                    report_ok = await asyncio.to_thread(self._send_daily_report)
                 except Exception:  # noqa: BLE001
                     logger.exception("每日精选推送异常")
+                    report_ok = False
+                if report_ok:
+                    self.db.set_setting("daily_report_last_date", time.strftime("%Y-%m-%d"))
             # 定期清理过期帖子（默认每 6 小时检查一次）
             if now_mono - self._last_cleanup > 6 * 3600:
                 self._last_cleanup = now_mono
@@ -1473,6 +1498,13 @@ class Scheduler:
                         logger.info("清理数据源事件 %d 条（保留 7 天）", removed_events)
                 except Exception:  # noqa: BLE001
                     logger.exception("数据源事件清理失败")
+                # 管理员操作日志保留 180 天，避免无限增长
+                try:
+                    removed_admin = self.db.delete_admin_logs_older_than(180)
+                    if removed_admin:
+                        logger.info("清理操作日志 %d 条（保留 180 天）", removed_admin)
+                except Exception:  # noqa: BLE001
+                    logger.exception("操作日志清理失败")
             elapsed = time.monotonic() - started
             delay = _scheduler_loop_delay(
                 interval_seconds,
@@ -1494,18 +1526,6 @@ class Scheduler:
             if post_row is None:
                 continue
             user_id = row["user_id"]
-            if user_id is not None:
-                user = self.db.get_user(user_id)
-                if user is None:
-                    continue
-                if row["channel"] == "telegram" and not user.get("telegram_chat_id"):
-                    continue
-                if row["channel"] == "feishu" and not (
-                    user.get("feishu_open_id") or user.get("feishu_chat_id")
-                ):
-                    continue
-                if row["channel"] == "wecom" and not user.get("wecom_webhook"):
-                    continue
             kol = self.db.get_kol(post_row["kol_id"])
             try:
                 detail = json.loads(post_row["detail"]) if post_row.get("detail") else None
@@ -1531,6 +1551,11 @@ class Scheduler:
                 detail=detail,
                 images=images,
             )
+            # 重试前复查：退订/关闭通知/改选渠道的用户不再恢复推送
+            if user_id is not None:
+                user = self.db.get_user(user_id)
+                if user is None or not _can_still_push(user, row["channel"], post, self.db):
+                    continue
             self.retry_queue.add(post, row["channel"], user_id)
             recovered += 1
         if recovered:
@@ -1539,6 +1564,12 @@ class Scheduler:
     def _retry_push(self, item: dict) -> None:
         post = item["post"]
         user = self.db.get_user(item["user_id"]) if item["user_id"] is not None else None
+        # 退订/关闭通知/改选渠道后不再重试旧帖
+        if item["user_id"] is not None and (
+            user is None or not _can_still_push(user, item["channel"], post, self.db)
+        ):
+            self.retry_queue.drop(item)
+            return
         favorite = bool(
             item["user_id"] is not None
             and post.kol_id in self.db.subscribed_favorite_ids(item["user_id"])
@@ -1714,15 +1745,19 @@ class Scheduler:
             return False
         return self.db.get_setting("daily_report_last_date") != now.strftime("%Y-%m-%d")
 
-    def _send_daily_report(self) -> None:
-        """给开启每日精选的用户推送今日订阅总览。"""
+    def _send_daily_report(self) -> bool:
+        """给开启每日精选的用户推送今日订阅总览；全部成功返回 True，任一失败返回 False。
+
+        返回 False 时调用方不标记「今日已发」，下一轮会重试，避免发送失败当天漏发。
+        """
         if self.notifiers_config is None:
-            return
+            return True
         from .fetchers.base import Post
         from .notifiers.feishu import FeishuNotifier
         from .notifiers.telegram import TelegramNotifier
         from .notifiers.wecom import WeComNotifier
 
+        failed = False
         since = int(datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
         for user in self.db.daily_report_users():
             kol_ids = sorted(self.db.subscribed_kol_ids(user["id"]))
@@ -1758,6 +1793,7 @@ class Scheduler:
                         if post_id:
                             self.db.add_push_log(post_id, "telegram", "success", user_id=user["id"])
                 except Exception as exc:  # noqa: BLE001
+                    failed = True
                     logger.warning("每日精选推送失败 user=%s channel=telegram err=%s", user["username"], exc)
                     maybe_alert_push_failure(
                         self.db,
@@ -1781,6 +1817,7 @@ class Scheduler:
                         if post_id:
                             self.db.add_push_log(post_id, "feishu", "success", user_id=user["id"])
                 except Exception as exc:  # noqa: BLE001
+                    failed = True
                     logger.warning("每日精选推送失败 user=%s channel=feishu err=%s", user["username"], exc)
                     maybe_alert_push_failure(
                         self.db,
@@ -1801,6 +1838,7 @@ class Scheduler:
                         if post_id:
                             self.db.add_push_log(post_id, "wecom", "success", user_id=user["id"])
                 except Exception as exc:  # noqa: BLE001
+                    failed = True
                     logger.warning("每日精选推送失败 user=%s channel=wecom err=%s", user["username"], exc)
                     maybe_alert_push_failure(
                         self.db,
@@ -1809,3 +1847,4 @@ class Scheduler:
                     )
                 finally:
                     notifier.client.close()
+        return not failed

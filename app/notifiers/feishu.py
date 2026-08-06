@@ -9,6 +9,7 @@ import time
 import httpx
 
 from ..fetchers.base import Post, digest_body, truncate_text
+from ..url_safety import safe_get
 from .base import Notifier
 
 PLATFORM_LABELS = {"xueqiu": "雪球", "combination": "雪球组合", "weibo": "微博", "twitter": "X/Twitter"}
@@ -402,7 +403,7 @@ class FeishuNotifier(Notifier):
         headers = {"Authorization": f"Bearer {token}"}
         for url in image_urls:
             try:
-                img_resp = self.client.get(url, timeout=12)
+                img_resp = safe_get(self.client, url, timeout=12)
                 if img_resp.status_code != 200 or not img_resp.content:
                     continue
                 resp = self.client.post(

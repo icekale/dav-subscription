@@ -533,6 +533,14 @@ class DB:
         rows = self._rows("SELECT * FROM users WHERE username = ?", (username,))
         return rows[0] if rows else None
 
+    def get_user_by_username_ci(self, username: str) -> dict | None:
+        """按用户名查找（不区分大小写），用于注册/改名的唯一性校验。"""
+        rows = self._rows(
+            "SELECT * FROM users WHERE username = ? COLLATE NOCASE",
+            (username,),
+        )
+        return rows[0] if rows else None
+
     def get_user_by_telegram(self, chat_id: str) -> dict | None:
         rows = self._rows("SELECT * FROM users WHERE telegram_chat_id = ?", (chat_id,))
         return rows[0] if rows else None
@@ -572,6 +580,8 @@ class DB:
         notify_enabled: bool = True,
         wechat_openid: str = "",
     ) -> int:
+        if self.get_user_by_username_ci(username):
+            raise ValueError(f"用户名已存在: {username}")
         try:
             return self._execute(
                 "INSERT INTO users (username, password_hash, is_admin, telegram_chat_id, "
@@ -666,6 +676,11 @@ class DB:
                 )
                 if cur.rowcount == 0:
                     raise ValueError("注册码无效或已被使用")
+                if self._conn.execute(
+                    "SELECT id FROM users WHERE username = ? COLLATE NOCASE",
+                    (username,),
+                ).fetchone():
+                    raise ValueError(f"用户名已存在: {username}")
                 try:
                     insert = self._conn.execute(
                         "INSERT INTO users (username, password_hash, is_admin) VALUES (?, ?, 0)",
@@ -794,10 +809,10 @@ class DB:
             "trend_14d": [
                 {"date": r["d"], "pushed": _to_int(r["c"]), "ok": _to_int(r["ok"])}
                 for r in self._rows(
-                    # 按本地时间分桶，与看板事件流的本地时间显示一致（UTC+8 不偏一天）
+                    # 按本地时间分桶显示，与看板事件流一致；窗口边界与其他统计统一用 UTC
                     "SELECT strftime('%Y-%m-%d', created_at, 'localtime') AS d, COUNT(*) AS c, "
                     "SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS ok "
-                    "FROM push_logs WHERE created_at >= datetime('now', 'localtime', '-13 days') "
+                    "FROM push_logs WHERE created_at >= datetime('now', '-13 days') "
                     "GROUP BY d ORDER BY d"
                 )
             ],
@@ -1066,21 +1081,32 @@ class DB:
             self._conn.commit()
             return cur.rowcount
 
-    def delete_posts_older_than(self, days: int) -> int:
-        """删除超过 N 天的帖子及其推送记录，返回删除条数。"""
+    def delete_posts_older_than(self, days: int, batch_size: int = 500) -> int:
+        """删除超过 N 天的帖子及其推送记录，返回删除条数。
+
+        分批（默认每批 500）避免过期帖子量大时 IN (...) 触达 SQLite 变量上限。
+        """
         if days <= 0:
             return 0
-        rows = self._rows(
-            "SELECT id FROM posts WHERE fetched_at < datetime('now', ?)",
-            (f"-{days} days",),
-        )
-        ids = [row["id"] for row in rows]
-        if not ids:
-            return 0
-        placeholders = ", ".join("?" * len(ids))
-        self._execute(f"DELETE FROM push_logs WHERE post_id IN ({placeholders})", ids)
-        self._execute(f"DELETE FROM posts WHERE id IN ({placeholders})", ids)
-        return len(ids)
+        removed = 0
+        while True:
+            rows = self._rows(
+                "SELECT id FROM posts WHERE fetched_at < datetime('now', ?) "
+                "ORDER BY id LIMIT ?",
+                (f"-{days} days", batch_size),
+            )
+            ids = [row["id"] for row in rows]
+            if not ids:
+                break
+            placeholders = ", ".join("?" * len(ids))
+            self._execute(
+                f"DELETE FROM push_logs WHERE post_id IN ({placeholders})", ids
+            )
+            self._execute(
+                f"DELETE FROM posts WHERE id IN ({placeholders})", ids
+            )
+            removed += len(ids)
+        return removed
 
     def list_feed_posts(self, kol_ids: list[int], limit: int = 100, user_id: int | None = None) -> list[dict]:
         if not kol_ids:
@@ -1229,6 +1255,18 @@ class DB:
         with self._lock:
             cur = self._conn.execute(
                 "DELETE FROM source_events WHERE created_at < datetime('now', ?)",
+                (f"-{days} days",),
+            )
+            self._conn.commit()
+            return cur.rowcount
+
+    def delete_admin_logs_older_than(self, days: int) -> int:
+        """删除超过 N 天的管理员操作日志，返回删除条数。"""
+        if days <= 0:
+            return 0
+        with self._lock:
+            cur = self._conn.execute(
+                "DELETE FROM admin_logs WHERE created_at < datetime('now', ?)",
                 (f"-{days} days",),
             )
             self._conn.commit()

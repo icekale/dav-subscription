@@ -872,6 +872,7 @@ def test_retry_recovery_from_failed_logs():
     kid = db.add_kol("xueqiu", "A", "1")
     pid = db.insert_post("xueqiu", kid, "p1", "t", "c", "u", "")
     uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.add_subscription(uid, kid)
     db.add_push_log(pid, "telegram", "failed", "boom", user_id=uid)
     db._execute("UPDATE push_logs SET created_at = datetime('now', '-1 hours') WHERE id = 1")
 
@@ -926,6 +927,7 @@ def test_insert_post_persists_detail_and_recovery_restores_fields():
     assert json.loads(row["images"]) == ["https://x.img/a.jpg", "https://x.img/b.jpg"]
 
     uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.add_subscription(uid, kid)
     db.add_push_log(pid, "telegram", "failed", "boom", user_id=uid)
     db._execute("UPDATE push_logs SET created_at = datetime('now', '-1 hours') WHERE id = ?", (pid,))
 
@@ -952,6 +954,7 @@ def test_retry_recovery_restores_post_type():
     kid = db.add_kol("xueqiu", "A", "1")
     pid = db.insert_post("xueqiu", kid, "p9", "t", "c", "u", "", post_type="reply")
     uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.add_subscription(uid, kid, type="reply")  # 收到回复推送失败说明订阅类型覆盖回复
     db.add_push_log(pid, "telegram", "failed", "boom", user_id=uid)
     db._execute("UPDATE push_logs SET created_at = datetime('now', '-1 hours') WHERE id = ?", (pid,))
 
@@ -1906,3 +1909,228 @@ def test_dnd_summary_writes_push_logs(monkeypatch):
     assert len(logs) == 1
     assert logs[0]["channel"] == "telegram"
     assert logs[0]["status"] == "success"
+
+
+_retry_tg_instances: list = []
+
+
+class _RetryTG:
+    """_retry_push 用的 Telegram 假通知器：模块级记录所有实例与发送。"""
+
+    channel = "telegram"
+
+    def __init__(self, config, chat_id=None, client=None, **kwargs):
+        self.client = SimpleNamespace(close=lambda: None)
+        self.sent = []
+        _retry_tg_instances.append(self)
+
+    def notify(self, post):
+        self.sent.append(post)
+
+    def send_daily(self, posts):
+        self.sent.extend(posts)
+
+
+class _FailingRetryTG(_RetryTG):
+    def notify(self, post):
+        raise RuntimeError("boom")
+
+    def send_daily(self, posts):
+        raise RuntimeError("boom")
+
+
+def _retry_scheduler(db, monkeypatch, tg_cls=_RetryTG):
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", tg_cls)
+    ncfg = SimpleNamespace(
+        telegram=SimpleNamespace(bot_token="t", chat_id=""),
+        feishu=SimpleNamespace(),
+        wecom=SimpleNamespace(),
+    )
+    return Scheduler(
+        db,
+        {},
+        [],
+        SimpleNamespace(),
+        notifiers_config=ncfg,
+        xueqiu_config=SimpleNamespace(cookie=""),
+        weibo_config=SimpleNamespace(cookie="", username="", password=""),
+    )
+
+
+def test_retry_push_sends_when_still_subscribed(monkeypatch):
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.add_subscription(uid, kid)
+    post = make_post(kid)
+    db.insert_post("xueqiu", kid, post.external_id, post.title, post.content, post.url, post.published_at)
+
+    scheduler = _retry_scheduler(db, monkeypatch)
+    _retry_tg_instances.clear()
+    scheduler.retry_queue.add(post, "telegram", uid)
+    item = next(iter(scheduler.retry_queue._items.values()))
+    scheduler._retry_push(item)
+
+    assert scheduler.retry_queue.pending() == 0
+    assert len(_retry_tg_instances) == 1
+    assert len(_retry_tg_instances[0].sent) == 1
+
+
+def test_retry_push_drops_when_unsubscribed(monkeypatch):
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.add_subscription(uid, kid)
+    post = make_post(kid)
+    db.insert_post("xueqiu", kid, post.external_id, post.title, post.content, post.url, post.published_at)
+
+    scheduler = _retry_scheduler(db, monkeypatch)
+    _retry_tg_instances.clear()
+    db.remove_subscription(uid, kid)  # 重试前用户已退订
+    scheduler.retry_queue.add(post, "telegram", uid)
+    item = next(iter(scheduler.retry_queue._items.values()))
+    scheduler._retry_push(item)
+
+    assert scheduler.retry_queue.pending() == 0
+    assert _retry_tg_instances == []
+
+
+def test_retry_push_drops_when_notify_disabled(monkeypatch):
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.add_subscription(uid, kid)
+    db.update_user(uid, notify_enabled=False)
+    post = make_post(kid)
+    db.insert_post("xueqiu", kid, post.external_id, post.title, post.content, post.url, post.published_at)
+
+    scheduler = _retry_scheduler(db, monkeypatch)
+    _retry_tg_instances.clear()
+    scheduler.retry_queue.add(post, "telegram", uid)
+    item = next(iter(scheduler.retry_queue._items.values()))
+    scheduler._retry_push(item)
+
+    assert scheduler.retry_queue.pending() == 0
+    assert _retry_tg_instances == []
+
+
+def test_retry_push_drops_when_channel_deselected(monkeypatch):
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.add_subscription(uid, kid)
+    db.update_user(uid, push_channels="feishu")  # 用户只选飞书，不推 Telegram
+    post = make_post(kid)
+    db.insert_post("xueqiu", kid, post.external_id, post.title, post.content, post.url, post.published_at)
+
+    scheduler = _retry_scheduler(db, monkeypatch)
+    _retry_tg_instances.clear()
+    scheduler.retry_queue.add(post, "telegram", uid)
+    item = next(iter(scheduler.retry_queue._items.values()))
+    scheduler._retry_push(item)
+
+    assert scheduler.retry_queue.pending() == 0
+    assert _retry_tg_instances == []
+
+
+def test_retry_recovery_skips_unsubscribed(monkeypatch):
+    """重启恢复失败推送时，已退订用户的失败记录不再入队。"""
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    pid = db.insert_post("xueqiu", kid, "p1", "t", "c", "u", "")
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.add_push_log(pid, "telegram", "failed", "boom", user_id=uid)
+    db._execute("UPDATE push_logs SET created_at = datetime('now', '-1 hours') WHERE id = 1")
+    db.remove_subscription(uid, kid)  # 用户已退订
+
+    scheduler = _retry_scheduler(db, monkeypatch)
+    scheduler._recover_failed_pushes()
+    assert scheduler.retry_queue.pending() == 0
+
+
+def test_daily_report_returns_false_on_failure(monkeypatch):
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.update_user(uid, daily_report=1)
+    db.add_subscription(uid, kid)
+    post = make_post(kid)
+    db.insert_post("xueqiu", kid, post.external_id, post.title, post.content, post.url, post.published_at)
+
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", _FailingRetryTG)
+    ncfg = SimpleNamespace(
+        telegram=SimpleNamespace(bot_token="t", chat_id=""),
+        feishu=SimpleNamespace(),
+        wecom=SimpleNamespace(),
+    )
+    scheduler = Scheduler(
+        db,
+        {},
+        [FakeNotifier()],
+        SimpleNamespace(),
+        notifiers_config=ncfg,
+        xueqiu_config=SimpleNamespace(cookie=""),
+        weibo_config=SimpleNamespace(cookie="", username="", password=""),
+    )
+    _retry_tg_instances.clear()
+    assert scheduler._send_daily_report() is False
+    assert len(_retry_tg_instances) == 1
+    assert _retry_tg_instances[0].sent == []
+    # 失败时不应标记今日已发
+    assert db.get_setting("daily_report_last_date") is None
+
+
+def test_daily_report_returns_true_on_success(monkeypatch):
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.update_user(uid, daily_report=1)
+    db.add_subscription(uid, kid)
+    post = make_post(kid)
+    db.insert_post("xueqiu", kid, post.external_id, post.title, post.content, post.url, post.published_at)
+
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", _RetryTG)
+    ncfg = SimpleNamespace(
+        telegram=SimpleNamespace(bot_token="t", chat_id=""),
+        feishu=SimpleNamespace(),
+        wecom=SimpleNamespace(),
+    )
+    scheduler = Scheduler(
+        db,
+        {},
+        [],
+        SimpleNamespace(),
+        notifiers_config=ncfg,
+        xueqiu_config=SimpleNamespace(cookie=""),
+        weibo_config=SimpleNamespace(cookie="", username="", password=""),
+    )
+    _retry_tg_instances.clear()
+    assert scheduler._send_daily_report() is True
+    assert len(_retry_tg_instances) == 1
+    assert len(_retry_tg_instances[0].sent) == 1
+
+
+def test_delete_posts_older_than_batches():
+    """删除过期帖子分批执行，避免单条 IN 列表过大。"""
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    for i in range(5):
+        db.insert_post("xueqiu", kid, f"p{i}", "t", "c", "u", "")
+        db._execute(
+            "UPDATE posts SET fetched_at = datetime('now', '-31 days') WHERE external_id = ?",
+            (f"p{i}",),
+        )
+    assert db.delete_posts_older_than(30, batch_size=2) == 5
+    assert db.count_posts() == 0
+
+
+def test_admin_logs_retention():
+    """管理员操作日志按保留天数清理，避免无限增长。"""
+    db = make_db()
+    db.log_admin_action(1, "add_kol", "x", "d")
+    db.log_admin_action(1, "delete_user", "y", "d")
+    # 一条改到 200 天前，一条保持最新
+    db._execute("UPDATE admin_logs SET created_at = datetime('now', '-200 days') WHERE action = 'add_kol'")
+    assert db.delete_admin_logs_older_than(180) == 1
+    assert db.list_admin_logs(10)[0]["action"] == "delete_user"
+    assert db.delete_admin_logs_older_than(180) == 0
