@@ -740,9 +740,8 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
   .sub-type-switch { min-height: 44px; }
   .post-item { padding: 14px 4px; }
   .post-item a { min-height: 40px; display: inline-flex; align-items: center; }
-  .btn-normal, .btn-ghost { min-height: 44px; }
+  .btn-normal, .btn-ghost, .channel-btn { min-height: 44px; }
   .btn-add { min-height: 44px; }
   .hero-panel { padding: 16px; }
   .form-control { min-height: 44px; }
-  .section-panel .toolbar .btn-normal { min-height: 44px; }
 }
