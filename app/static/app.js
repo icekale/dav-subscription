@@ -1716,8 +1716,7 @@ async function loadAdminDashboard() {
       </div>
       <section class="section-panel">
         <header class="section-head"><div><p class="section-eyebrow">Health</p><h3 class="section-title">数据源健康</h3>
-        <p class="section-meta">各平台抓取状态与 24h 成功率，以及最近事件流。</p></div>
-        <div class="toolbar" style="margin-top:12px"><a class="btn-ghost" href="#/admin/stats">完整数据源详情 →</a></div></header>
+        <p class="section-meta">各平台抓取状态与 24h 成功率，以及最近事件流。</p></div></header>
         <div class="table-wrap">
           <table>
             <thead><tr><th>平台</th><th>状态</th><th>通道</th><th>24h 成功率</th><th>连续失败</th><th>最近错误</th></tr></thead>
