@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -18,6 +19,18 @@ from .fetchers import build_fetchers
 from .logging_setup import setup_logging
 from .notifiers import build_notifiers
 from .scheduler import Scheduler
+
+# 纯 UI 调试模式开关：置 1 时跳过调度器与机器人长连接，避免测试实例
+# 抢生产 Telegram 机器人（getUpdates 409）、用测试配置误发降级告警
+# （曾因本地测试实例未配 TWITTER_COOKIE 给生产群发「未配置 TWITTER_COOKIE」）。
+WORKERS_ENV = "DAV_UI_ONLY"
+
+logger = logging.getLogger(__name__)
+
+
+def background_workers_enabled() -> bool:
+    """调度器/机器人等后台任务是否启用（DAV_UI_ONLY=1 时关闭）。"""
+    return os.environ.get(WORKERS_ENV, "0") != "1"
 
 
 class _NoCacheStaticFiles(StaticFiles):
@@ -75,37 +88,42 @@ def create_app(config=None, db_path: str | Path | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        task = asyncio.create_task(scheduler.run())
+        task = None
         bot_task = None
-        if config.notifiers.telegram.bot_token:
-            from .telegram_bot import TelegramBot
+        if background_workers_enabled():
+            task = asyncio.create_task(scheduler.run())
+            if config.notifiers.telegram.bot_token:
+                from .telegram_bot import TelegramBot
 
-            bot = TelegramBot(
-                db,
-                config.notifiers.telegram.bot_token,
-                secret,
-                proxy=config.notifiers.telegram.proxy,
-            )
-            bot_task = asyncio.create_task(bot.run())
-        if config.notifiers.feishu.app_id and config.notifiers.feishu.app_secret:
-            from .feishu_bot import FeishuBot
+                bot = TelegramBot(
+                    db,
+                    config.notifiers.telegram.bot_token,
+                    secret,
+                    proxy=config.notifiers.telegram.proxy,
+                )
+                bot_task = asyncio.create_task(bot.run())
+            if config.notifiers.feishu.app_id and config.notifiers.feishu.app_secret:
+                from .feishu_bot import FeishuBot
 
-            FeishuBot(db, config.notifiers.feishu.app_id, config.notifiers.feishu.app_secret).start()
+                FeishuBot(db, config.notifiers.feishu.app_id, config.notifiers.feishu.app_secret).start()
+        else:
+            logger.warning("DAV_UI_ONLY=1 已跳过调度器与机器人长连接，仅提供网页 UI")
         yield
-        task.cancel()
+        if task is not None:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
         if bot_task is not None:
             bot_task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
-        if bot_task is not None:
             try:
                 await bot_task
             except asyncio.CancelledError:
                 pass
         # 关停前把合并摘要缓冲发出去，避免重启/更新丢消息
-        scheduler.stop()
+        if task is not None:
+            scheduler.stop()
         db.close()
 
     app = FastAPI(title="大V订阅", lifespan=lifespan)

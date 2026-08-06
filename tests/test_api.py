@@ -1671,3 +1671,16 @@ def test_me_subscription_count():
     client.post("/api/subscriptions", headers=uh, json={"kol_id": kid1})
     client.post("/api/subscriptions", headers=uh, json={"kol_id": kid2})
     assert client.get("/api/me", headers=uh).json()["subscription_count"] == 2
+
+
+def test_background_workers_flag(monkeypatch):
+    """DAV_UI_ONLY=1 时关闭调度器/机器人后台任务，避免测试实例抢生产
+    Telegram 机器人（getUpdates 409）或误发降级告警。"""
+    from app.main import background_workers_enabled
+
+    monkeypatch.delenv("DAV_UI_ONLY", raising=False)
+    assert background_workers_enabled() is True
+    monkeypatch.setenv("DAV_UI_ONLY", "1")
+    assert background_workers_enabled() is False
+    monkeypatch.setenv("DAV_UI_ONLY", "0")
+    assert background_workers_enabled() is True
