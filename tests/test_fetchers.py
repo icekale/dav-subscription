@@ -655,3 +655,61 @@ def test_rss_parse_fixture():
     assert posts[0].external_id == "1"
     assert posts[0].url == "https://x.com/status/1"
     assert "world" in posts[0].content
+
+
+def test_weibo_login_lock_serializes(monkeypatch):
+    """并发触发登录时同一时刻只有一个登录流程在跑。"""
+    import threading
+    import time
+    from typing import ClassVar
+
+    from app.fetchers.weibo import WeiboFetcher
+
+    db = DB(":memory:")
+    cfg = SimpleNamespace(cookie="", token="", username="u", password="p")
+    fetcher = WeiboFetcher(cfg, db)
+
+    counter = {"active": 0, "max_active": 0, "calls": 0}
+    cl = threading.Lock()
+
+    def fake_prelogin(self):
+        with cl:
+            counter["active"] += 1
+            counter["max_active"] = max(counter["max_active"], counter["active"])
+            counter["calls"] += 1
+        time.sleep(0.05)
+        with cl:
+            counter["active"] -= 1
+        return {"pcid": "", "rsakv": "", "servertime": "1", "nonce": "n", "pubkey": "1"}
+
+    class FakeCookie:
+        name = "SUB"
+        value = "x"
+        domain = "weibo.com"
+
+    class FakeCookies:
+        jar: ClassVar[list] = [FakeCookie()]
+
+        def get(self, name, default=None):
+            return "x" if name == "SUB" else default
+
+    class FakeClient:
+        cookies = FakeCookies()
+
+        def post(self, *a, **k):
+            return httpx.Response(200, text="callback(retcode=0)")
+
+    monkeypatch.setattr(WeiboFetcher, "_prelogin", fake_prelogin)
+    monkeypatch.setattr(
+        WeiboFetcher, "_encrypt_password", staticmethod(lambda pwd, pub, nonce: "enc")
+    )
+    fetcher.client = FakeClient()
+
+    threads = [threading.Thread(target=fetcher._login) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert counter["calls"] == 2
+    assert counter["max_active"] == 1  # 串行：无并发登录

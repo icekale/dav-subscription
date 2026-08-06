@@ -6,6 +6,7 @@ import html
 import json
 import logging
 import re
+import threading
 import time
 
 import httpx
@@ -17,6 +18,8 @@ from .base import Fetcher, Post, strip_html
 logger = logging.getLogger(__name__)
 
 WEIBO_COOKIE_KEY = "weibo_cookie"
+# 同一时刻只允许一个微博登录流程（并发 worker 触发时互斥，避免 cookie 互相覆盖）
+_login_lock = threading.Lock()
 PRELOGIN_URL = "https://login.sina.com.cn/sso/prelogin.php"
 LOGIN_URL = "https://login.sina.com.cn/sso/login.php"
 # 桌面端 AJAX 接口，配合 weibo.com 域会话 cookie（扫码登录得到的会话即可用）
@@ -197,6 +200,10 @@ class WeiboFetcher(Fetcher):
         """weibo.cn passport 登录：拿 SUB 等 cookie 并持久化。"""
         if not self.source_config.username or not self.source_config.password:
             raise RuntimeError("未配置 weibo.username/password，无法自动登录")
+        with _login_lock:
+            self._do_login()
+
+    def _do_login(self) -> None:
         pre = self._prelogin()
         data = {
             "entry": "weibo",
