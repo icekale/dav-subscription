@@ -321,10 +321,26 @@ class PlatformState:
         self.alerted = False
 
 
+def _alerts_enabled() -> bool:
+    """管理员告警总开关（ALERTS_ENABLED，默认 true）。
+
+    本地开发/测试实例务必置 false：用生产 config 启动时会抢生产 bot 轮询、
+    并向真实管理员误发告警（典型场景：没配 TWITTER_COOKIE 触发 X 降级告警）。
+    """
+    return os.environ.get("ALERTS_ENABLED", "true").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+    )
+
+
 def maybe_alert_source_failure(
     db: DB, notifiers: list[Notifier], platform: str, kol_name: str, detail: str, fail_count: int
 ) -> None:
     """数据源连续失败时向管理员推送告警（每平台每 6 小时最多一次）。"""
+    if not _alerts_enabled():
+        return
     now = int(time.time())
     key = f"source_alert_{platform}"
     last = db.get_setting(key)
@@ -347,6 +363,8 @@ def maybe_alert_source_recovered(
     db: DB, notifiers: list[Notifier], platform: str, kol_name: str
 ) -> None:
     """数据源从连续失败中恢复后通知管理员。"""
+    if not _alerts_enabled():
+        return
     label = PLATFORM_LABELS.get(platform, platform)
     message = f"✅ 数据源已恢复：{label}「{kol_name}」重新抓取成功。"
     for notifier in notifiers:
@@ -358,6 +376,8 @@ def maybe_alert_source_recovered(
 
 def maybe_warn_weibo_login(db: DB, notifiers: list[Notifier], detail: str) -> None:
     """微博自动登录失败时向各渠道推告警，每天最多一次。"""
+    if not _alerts_enabled():
+        return
     today = time.strftime("%Y-%m-%d")
     if db.get_setting(WEIBO_WARNING_KEY) == today:
         return
@@ -372,6 +392,8 @@ def maybe_warn_weibo_login(db: DB, notifiers: list[Notifier], detail: str) -> No
 
 def maybe_warn_xueqiu_cookie(db: DB, notifiers: list[Notifier], detail: str) -> None:
     """雪球 cookie/WAF 失效时向各渠道推告警，每天最多一次。"""
+    if not _alerts_enabled():
+        return
     today = time.strftime("%Y-%m-%d")
     if db.get_setting(XUEQIU_WARNING_KEY) == today:
         return
@@ -386,6 +408,8 @@ def maybe_warn_xueqiu_cookie(db: DB, notifiers: list[Notifier], detail: str) -> 
 
 def maybe_alert_push_failure(db: DB, notifiers: list[Notifier], detail: str) -> None:
     """用户推送失败时向管理员告警，每小时最多一次避免刷屏。"""
+    if not _alerts_enabled():
+        return
     now = int(time.time())
     last = db.get_setting(PUSH_ALERT_KEY)
     if last and now - int(last) < PUSH_ALERT_INTERVAL:
@@ -419,6 +443,8 @@ def _x_fallback_advice(reason: str) -> str:
 
 def maybe_alert_x_fallback(db: DB, notifiers: list[Notifier]) -> None:
     """X 直抓降级到 RSSHub 备用通道时通知管理员（每 6 小时最多一次）。"""
+    if not _alerts_enabled():
+        return
     fallback_at = db.get_setting("x_direct_last_fallback_at")
     if not fallback_at:
         return

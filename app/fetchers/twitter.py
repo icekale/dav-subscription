@@ -94,6 +94,21 @@ def _auth_headers(cookie: str) -> dict[str, str]:
     }
 
 
+def _html_headers(cookie: str) -> dict[str, str]:
+    """浏览器式请求头：只带 UA + Cookie，用于拉取 x.com 页面与前端 bundle。
+
+    不能复用 _auth_headers——带 Authorization / x-csrf-token 的请求打到 HTML
+    路由会直接返回 401（实测 2026-08），导致 queryId 提取永远失败。
+    """
+    parts = _cookie_parts(cookie)
+    auth, ct0 = parts.get("auth_token", ""), parts.get("ct0", "")
+    return {
+        "User-Agent": UA,
+        "Cookie": f"auth_token={auth}; ct0={ct0}; lang=zh-CN",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    }
+
+
 def _refresh_query_ids(client: httpx.Client, cookie: str) -> None:
     """从 X 前端 main bundle 提取最新的 UserTweets / UserByScreenName queryId。"""
     global _query_ids_loaded, _query_ids_error_until
@@ -104,7 +119,7 @@ def _refresh_query_ids(client: httpx.Client, cookie: str) -> None:
         if now < _query_ids_error_until:
             return  # 上次提取失败，冷却期内不重复打前端
         try:
-            headers = _auth_headers(cookie)
+            headers = _html_headers(cookie)
             page = client.get("https://x.com/", headers=headers)
             page.raise_for_status()
             match = re.search(

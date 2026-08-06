@@ -97,6 +97,9 @@ class Config:
     web: WebConfig = field(default_factory=WebConfig)
     wechat: WeChatConfig = field(default_factory=WeChatConfig)
     db_path: str = "data/dav.db"
+    # 管理员告警总开关：false 时不发任何告警、不启动 TG/飞书 bot 长轮询。
+    # 本地开发/测试实例务必置 false，避免用生产 config 误发告警、抢生产 bot 轮询。
+    alerts_enabled: bool = True
 
 
 # 环境变量 -> Config 属性路径（用于覆盖）
@@ -133,6 +136,7 @@ _ENV_MAP = {
     "WECHAT_APP_ID": ("wechat", "app_id"),
     "WECHAT_APP_SECRET": ("wechat", "app_secret"),
     "DB_PATH": ("db_path",),
+    "ALERTS_ENABLED": ("alerts_enabled",),
 }
 
 
@@ -170,6 +174,7 @@ def _validate(config: Config) -> None:
         ("polling.notify_on_start", config.polling, "notify_on_start", bool),
         ("web.allow_register", config.web, "allow_register", bool),
         ("web.trust_proxy", config.web, "trust_proxy", bool),
+        ("alerts_enabled", config, "alerts_enabled", bool),
     )
     for label, obj, attr, expected in checks:
         value = getattr(obj, attr)

@@ -92,7 +92,7 @@ def create_app(config=None, db_path: str | Path | None = None) -> FastAPI:
         bot_task = None
         if background_workers_enabled():
             task = asyncio.create_task(scheduler.run())
-            if config.notifiers.telegram.bot_token:
+            if config.alerts_enabled and config.notifiers.telegram.bot_token:
                 from .telegram_bot import TelegramBot
 
                 bot = TelegramBot(
@@ -102,7 +102,11 @@ def create_app(config=None, db_path: str | Path | None = None) -> FastAPI:
                     proxy=config.notifiers.telegram.proxy,
                 )
                 bot_task = asyncio.create_task(bot.run())
-            if config.notifiers.feishu.app_id and config.notifiers.feishu.app_secret:
+            if (
+                config.alerts_enabled
+                and config.notifiers.feishu.app_id
+                and config.notifiers.feishu.app_secret
+            ):
                 from .feishu_bot import FeishuBot
 
                 FeishuBot(db, config.notifiers.feishu.app_id, config.notifiers.feishu.app_secret).start()

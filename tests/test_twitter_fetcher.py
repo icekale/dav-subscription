@@ -428,6 +428,49 @@ def test_twitter_network_error_skips_rsshub_fallback(monkeypatch):
     assert any("网络抖动" in e["detail"] for e in events)
 
 
+def test_query_id_refresh_uses_browser_headers(monkeypatch):
+    """x.com/ 页面拉取用浏览器式头（UA+Cookie），不带 Authorization/x-csrf-token。
+
+    带这两个头打 HTML 路由会直接 401，导致 queryId 永远提取失败（2026-08 实测），
+    只能靠默认 queryId 兜底；换浏览器头后页面返回 200 且能提取到最新 queryId。
+    """
+    from app.fetchers import twitter as tw_mod
+
+    saved_loaded = tw_mod._query_ids_loaded
+    saved_error = tw_mod._query_ids_error_until
+    tw_mod._query_ids_loaded = 0.0
+    tw_mod._query_ids_error_until = 0.0
+    monkeypatch.setattr(tw_mod.time, "time", lambda: 100000.0)
+
+    seen: dict[str, dict] = {}
+
+    def handler(request):
+        seen[str(request.url)] = dict(request.headers)
+        if "abs.twimg.com" in str(request.url):
+            return httpx.Response(
+                200,
+                text='queryId:"abc123"xxxoperationName:"UserTweets"',
+            )
+        return httpx.Response(
+            200,
+            text='<script src="https://abs.twimg.com/responsive-web/client-web/main.abc.js"></script>',
+        )
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    try:
+        tw_mod._refresh_query_ids(client, "auth_token=x; ct0=y")
+        page_headers = seen.get("https://x.com/")
+        assert page_headers is not None
+        assert "authorization" not in page_headers
+        assert "x-csrf-token" not in page_headers
+        assert page_headers.get("cookie") == "auth_token=x; ct0=y; lang=zh-CN"
+        assert tw_mod._query_ids.get("UserTweets") == "abc123"
+        assert tw_mod._query_ids_loaded > 0
+    finally:
+        tw_mod._query_ids_loaded = saved_loaded
+        tw_mod._query_ids_error_until = saved_error
+
+
 def test_query_id_refresh_single_fetch_within_ttl(monkeypatch):
     """TTL 内多次调用只拉取一次前端（避免并发雷群）。"""
     from app.fetchers import twitter as tw_mod

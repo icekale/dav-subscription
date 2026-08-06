@@ -206,6 +206,44 @@ def test_maybe_alert_x_fallback_once_per_episode():
     assert len(notifier.texts) == 2
 
 
+def test_alerts_enabled_flag_parsing(monkeypatch):
+    """ALERTS_ENABLED 默认开；0/false/no/off 关。"""
+    from app.scheduler import _alerts_enabled
+
+    monkeypatch.delenv("ALERTS_ENABLED", raising=False)
+    assert _alerts_enabled() is True
+    for off in ("0", "false", "no", "off", "FALSE"):
+        monkeypatch.setenv("ALERTS_ENABLED", off)
+        assert _alerts_enabled() is False, off
+    monkeypatch.setenv("ALERTS_ENABLED", "true")
+    assert _alerts_enabled() is True
+
+
+def test_alerts_disabled_suppresses_admin_alerts(monkeypatch):
+    """ALERTS_ENABLED=false 时管理员告警全部抑制（本地开发防误报）。"""
+    from app.scheduler import (
+        maybe_alert_push_failure,
+        maybe_alert_source_failure,
+        maybe_alert_x_fallback,
+        maybe_warn_xueqiu_cookie,
+    )
+
+    monkeypatch.setenv("ALERTS_ENABLED", "false")
+    db = make_db()
+    notifier = FakeNotifier()
+    db.set_setting("x_direct_last_fallback_at", str(int(time.time())))
+    db.set_setting("x_direct_fallback_reason", "HTTP 401")
+
+    maybe_alert_x_fallback(db, [notifier])
+    assert notifier.texts == []
+    assert db.get_setting("x_direct_alert_at") is None  # 连告警时间戳都不写
+
+    maybe_alert_source_failure(db, [notifier], "twitter", "A", "boom", 3)
+    maybe_alert_push_failure(db, [notifier], "push boom")
+    maybe_warn_xueqiu_cookie(db, [notifier], "waf")
+    assert notifier.texts == []
+
+
 def test_poll_once_fetches_platforms_concurrently():
     db = make_db()
     kids = {}
