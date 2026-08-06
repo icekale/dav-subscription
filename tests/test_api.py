@@ -1614,7 +1614,8 @@ def test_login_success_clears_failure_count():
         assert client.post("/api/auth/login", json={"username": "victim", "password": "bad"}).status_code == 401
     # 尚未锁定时输入正确密码：登录成功并清零
     assert client.post("/api/auth/login", json={"username": "victim", "password": "pass123456"}).status_code == 200
-    # 清零后下一次错误回到 401 而非 429（若未清零，此处会是 8 次连续失败 → 429）
+    # 清零后连续错误仍是 401；若未清零，第 8/9 次错误会是 429
+    assert client.post("/api/auth/login", json={"username": "victim", "password": "bad"}).status_code == 401
     assert client.post("/api/auth/login", json={"username": "victim", "password": "bad"}).status_code == 401
 
 
