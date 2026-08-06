@@ -169,7 +169,7 @@ class DB:
     def __init__(self, path: str | Path):
         self.path = str(path)
         Path(self.path).parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(self.path, check_same_thread=False)
+        self._conn = sqlite3.connect(self.path, check_same_thread=False, timeout=0)
         self._conn.row_factory = sqlite3.Row
         self._lock = threading.Lock()
         # 并发写（多 worker/健康检查脚本）时等待而非直接报错
