@@ -8,12 +8,12 @@ from app.fetchers.base import Post
 from app.llm import summarize_posts
 
 
-def make_post(content="正文内容") -> Post:
+def make_post(content="正文内容", external_id="p1") -> Post:
     return Post(
         platform="xueqiu",
         kol_id=1,
         kol_name="张三",
-        external_id="p1",
+        external_id=external_id,
         title="标题",
         content=content,
         url="https://xueqiu.com/1/2",
@@ -111,3 +111,35 @@ def test_cache_does_not_store_failure():
     cache = {}
     assert summarize_posts([make_post()], make_config(), client=client, cache=cache) is None
     assert cache == {}
+
+
+def test_summary_input_originals_first_with_markers():
+    captured = {}
+
+    def handler(request):
+        captured["content"] = json.loads(request.read())["messages"][1]["content"]
+        return httpx.Response(200, json={"choices": [{"message": {"content": "摘要"}}]})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    reply = make_post(content="回复内容", external_id="r1")
+    reply.post_type = "reply"
+    original = make_post(content="原创内容", external_id="o1")
+    summarize_posts([reply, original], make_config(), client=client)
+    body = captured["content"]
+    assert body.index("[原帖]") < body.index("[回复]")
+    assert "原创内容" in body
+
+
+def test_many_posts_per_line_budget_capped():
+    captured = {}
+
+    def handler(request):
+        captured["content"] = json.loads(request.read())["messages"][1]["content"]
+        return httpx.Response(200, json={"choices": [{"message": {"content": "摘要"}}]})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    posts = [make_post(content="长" * 500, external_id=f"p{i}") for i in range(10)]
+    summarize_posts(posts, make_config(), client=client)
+    assert len(captured["content"]) <= 12000
+    for line in captured["content"].splitlines():
+        assert len(line) <= 400 + 64  # 每行正文 ≤ 400 + 标记/来源前缀

@@ -22,12 +22,15 @@ SUMMARY_SYSTEM_PROMPT = (
 def _post_lines(posts) -> list[str]:
     from .fetchers.base import digest_body
 
+    # 帖少给全文（更完整上下文），帖多控制每条预算，总量仍 ≤ 12000
+    per_post = 2000 if len(posts) <= 2 else 400
     lines = []
     for post in posts:
         platform = getattr(post, "platform", "")
         kol = getattr(post, "kol_name", "") or ""
-        body = digest_body(post, full=False)
-        lines.append(f"[{platform}] {kol}：{body[:200]}")
+        mark = "[原帖]" if (getattr(post, "post_type", "") or "") != "reply" else "[回复]"
+        body = digest_body(post, full=False, max_chars=per_post)
+        lines.append(f"{mark}[{platform}] {kol}：{body}")
     return lines
 
 
@@ -50,6 +53,7 @@ def summarize_posts(posts, llm_config=None, client=None, cache=None) -> str | No
     model = getattr(llm_config, "model", "") or "gpt-4o-mini"
     import httpx
 
+    posts = sorted(posts, key=lambda p: (getattr(p, "post_type", "") or "") == "reply")
     content = "\n".join(_post_lines(posts))
     if not content.strip():
         return None
