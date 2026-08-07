@@ -286,13 +286,13 @@ def test_system_logs_api():
 
 
 def test_version_api(monkeypatch):
-    monkeypatch.setattr("app.version.latest_github_version", lambda db: ("1.5.1", True))
+    monkeypatch.setattr("app.version.latest_github_version", lambda db: ("1.6.1", True))
     client = make_client()
     resp = client.get("/api/version")
     assert resp.status_code == 200
     data = resp.json()
     assert data["current"] == "1.6.0"
-    assert data["latest"] == "1.5.1"
+    assert data["latest"] == "1.6.1"
     assert data["update_available"] is True
     assert "github.com" in data["url"]
 
