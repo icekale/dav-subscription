@@ -10,3 +10,4 @@ backups/
 
 .DS_Store
 .pi-subagents/
+.worktrees/
