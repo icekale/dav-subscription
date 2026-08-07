@@ -46,6 +46,10 @@ services:
       POLLING_SOURCE_PROBE_INTERVAL_SECONDS: "600"
       POLLING_COOKIE_KEEPALIVE_INTERVAL_SECONDS: "21600"
       POLLING_DAILY_REPORT_HOUR: "20"
+      # 可选 LLM 摘要：填了 LLM_API_KEY 后每日精选/免打扰汇总用 AI 生成要点
+      LLM_API_BASE: "${LLM_API_BASE:-https://api.deepseek.com}"
+      LLM_API_KEY: "${LLM_API_KEY:-}"
+      LLM_MODEL: "${LLM_MODEL:-deepseek-chat}"
       LOG_LEVEL: "${LOG_LEVEL:-INFO}"
       # 日志落盘到数据卷（随 data 持久化，滚动 5MB×3，重启不丢）
       LOG_FILE: "${LOG_FILE:-/data/logs/app.log}"
