@@ -1113,7 +1113,7 @@ async function renderSettings() {
         <header class="section-head">
           <div>
             <p class="section-eyebrow">Sync</p>
-            <h3 class="section-title">⑤ 与网页/小程序账号同步（可选）</h3>
+            <h3 class="section-title">与网页/小程序账号同步（可选）</h3>
             <p class="section-meta">机器人是独立账号；想让机器人订阅与网页账号合并，用绑定码。</p>
           </div>
         </header>
