@@ -78,7 +78,7 @@ def summarize_posts(posts, llm_config=None, client=None, cache=None) -> str | No
                     },
                 ],
                 "temperature": 0.3,
-                "max_tokens": 800,
+                "max_tokens": min(2000, max(400, 200 + 120 * len(posts))),
             },
         )
         resp.raise_for_status()

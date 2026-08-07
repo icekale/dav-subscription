@@ -143,3 +143,16 @@ def test_many_posts_per_line_budget_capped():
     assert len(captured["content"]) <= 12000
     for line in captured["content"].splitlines():
         assert len(line) <= 400 + 64  # 每行正文 ≤ 400 + 标记/来源前缀
+
+
+def test_max_tokens_scales_with_post_count():
+    captured = {}
+
+    def handler(request):
+        captured["max_tokens"] = json.loads(request.read())["max_tokens"]
+        return httpx.Response(200, json={"choices": [{"message": {"content": "摘要"}}]})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    posts = [make_post(external_id=f"p{i}") for i in range(10)]
+    summarize_posts(posts, make_config(), client=client)
+    assert captured["max_tokens"] == 1400  # 200 + 120*10
