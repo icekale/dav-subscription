@@ -792,6 +792,65 @@ def test_digest_failure_alerts_admin(monkeypatch):
     assert any("推送失败" in t for t in notifier.texts)
 
 
+def test_digest_llm_summary_computed_once_for_multiple_subscribers(monkeypatch):
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    uid1 = db.add_user("u1", "h", telegram_chat_id="111")
+    uid2 = db.add_user("u2", "h")
+    db.update_user(uid2, wecom_webhook="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=wc2")
+    db.add_subscription(uid1, kid)
+    db.add_subscription(uid2, kid)
+    post = make_post(kid)
+    db.insert_post("xueqiu", kid, post.external_id, post.title, post.content, post.url, post.published_at)
+
+    calls = {"n": 0}
+
+    def fake_summarize(posts, cfg, client=None, cache=None):
+        from app.llm import summary_cache_key
+
+        key = summary_cache_key(posts, cfg.api_base, cfg.model) if cache is not None else None
+        if key is not None and key in cache:
+            return cache[key]
+        calls["n"] += 1
+        text = "AI 要点"
+        if key is not None:
+            cache[key] = text
+        return text
+
+    monkeypatch.setattr("app.llm.summarize_posts", fake_summarize)
+
+    class FakeTG:
+        def __init__(self, config, chat_id=None, client=None, **kwargs):
+            self.client = SimpleNamespace(close=lambda: None)
+
+        def send_text(self, text):
+            pass
+
+        def send_digest(self, posts, kol_name, platform):
+            pass
+
+    class FakeWeCom:
+        def __init__(self, config, client=None, webhook_url=None, favorite=False):
+            self.client = SimpleNamespace(close=lambda: None)
+
+        def send_text(self, text):
+            pass
+
+        def send_digest(self, posts, kol_name, platform):
+            pass
+
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FakeTG)
+    monkeypatch.setattr("app.notifiers.wecom.WeComNotifier", FakeWeCom)
+    ncfg = SimpleNamespace(
+        telegram=SimpleNamespace(bot_token="t", chat_id=""),
+        feishu=SimpleNamespace(),
+        wecom=SimpleNamespace(),
+    )
+    llm_cfg = SimpleNamespace(api_key="sk-test", api_base="https://api.deepseek.com", model="deepseek-chat")
+    flush_digest(db, {kid: [post]}, [], ncfg, llm_config=llm_cfg)
+    assert calls["n"] == 1
+
+
 def test_dnd_summary_failure_alerts_admin(monkeypatch):
     db = make_db()
     kid = db.add_kol("xueqiu", "A", "1")

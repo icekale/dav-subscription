@@ -8,13 +8,13 @@ from app.fetchers.base import Post
 from app.llm import summarize_posts
 
 
-def make_post(content="正文内容") -> Post:
+def make_post(content="正文内容", external_id="p1", title="标题") -> Post:
     return Post(
         platform="xueqiu",
         kol_id=1,
         kol_name="张三",
-        external_id="p1",
-        title="标题",
+        external_id=external_id,
+        title=title,
         content=content,
         url="https://xueqiu.com/1/2",
         published_at="",
@@ -67,7 +67,7 @@ def test_empty_content_returns_none():
         raise AssertionError("不应发起请求")
 
     client = httpx.Client(transport=httpx.MockTransport(handler))
-    post = make_post(content="")
+    post = make_post(content="", title="")
     assert summarize_posts([post], make_config(), client=client) is None
 
 
@@ -86,3 +86,99 @@ def test_custom_base_url_and_long_content_truncation():
     assert "llm.example.com/v1/chat/completions" in captured["url"]
     # 内容截断到 12000 字符以内
     assert captured["content_len"] <= 12000
+
+
+def test_cache_reuses_result_within_batch():
+    calls = {"n": 0}
+
+    def handler(request):
+        calls["n"] += 1
+        return httpx.Response(200, json={"choices": [{"message": {"content": "要点"}}]})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    cache = {}
+    posts = [make_post()]
+    assert summarize_posts(posts, make_config(), client=client, cache=cache) == "要点"
+    assert summarize_posts(posts, make_config(), client=client, cache=cache) == "要点"
+    assert calls["n"] == 1
+
+
+def test_cache_does_not_store_failure():
+    def handler(request):
+        return httpx.Response(500, json={})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    cache = {}
+    assert summarize_posts([make_post()], make_config(), client=client, cache=cache) is None
+    assert cache == {}
+
+
+def test_summary_input_originals_first_with_markers():
+    captured = {}
+
+    def handler(request):
+        captured["content"] = json.loads(request.read())["messages"][1]["content"]
+        return httpx.Response(200, json={"choices": [{"message": {"content": "摘要"}}]})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    reply = make_post(content="回复内容", external_id="r1")
+    reply.post_type = "reply"
+    original = make_post(content="原创内容", external_id="o1")
+    summarize_posts([reply, original], make_config(), client=client)
+    body = captured["content"]
+    assert body.index("[原帖]") < body.index("[回复]")
+    assert "原创内容" in body
+
+
+def test_many_posts_per_line_budget_capped():
+    captured = {}
+
+    def handler(request):
+        captured["content"] = json.loads(request.read())["messages"][1]["content"]
+        return httpx.Response(200, json={"choices": [{"message": {"content": "摘要"}}]})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    posts = [make_post(content="长" * 500, external_id=f"p{i}") for i in range(10)]
+    summarize_posts(posts, make_config(), client=client)
+    assert len(captured["content"]) <= 12000
+    for line in captured["content"].splitlines():
+        assert len(line) <= 400 + 64  # 每行正文 ≤ 400 + 标记/来源前缀
+
+
+def test_retry_transient_then_success():
+    calls = {"n": 0}
+
+    def handler(request):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return httpx.Response(500, json={})
+        return httpx.Response(200, json={"choices": [{"message": {"content": "要点"}}]})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    assert summarize_posts([make_post()], make_config(), client=client) == "要点"
+    assert calls["n"] == 2
+
+
+def test_no_retry_on_auth_error():
+    calls = {"n": 0}
+
+    def handler(request):
+        calls["n"] += 1
+        return httpx.Response(401, json={"error": "invalid key"})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    assert summarize_posts([make_post()], make_config(), client=client) is None
+    assert calls["n"] == 1
+
+
+def test_max_tokens_scales_with_post_count():
+    captured = {}
+
+    def handler(request):
+        captured["max_tokens"] = json.loads(request.read())["max_tokens"]
+        return httpx.Response(200, json={"choices": [{"message": {"content": "摘要"}}]})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    posts = [make_post(external_id=f"p{i}") for i in range(10)]
+    summarize_posts(posts, make_config(), client=client)
+    assert captured["max_tokens"] == 1400  # 200 + 120*10
