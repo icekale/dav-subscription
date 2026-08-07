@@ -976,11 +976,27 @@ async function renderSettings() {
           <li>发 <code>/list</code> 可查看大V目录，<code>/sub 大VID</code> 直接订阅。</li>
         </ol>`)}
       </section>
+      <section class="section-panel">
+        <header class="section-head">
+          <div>
+            <p class="section-eyebrow">Feishu</p>
+            <h3 class="section-title">② 打开飞书机器人（重要：请用私聊）</h3>
+          </div>
+        </header>
+        ${bindGuideHtml(!!(state.user.feishu_open_id && state.user.feishu_chat_id), `
+        <ol style="padding-left:20px;line-height:2">
+          <li>打开飞书 App，点顶部「搜索」，搜索 ${fsTarget} 并进入。</li>
+          <li>关键：请在该机器人的<b>「私聊」会话</b>里发任意消息（如 <code>/start</code>）——群聊不会推送新帖，这一步只是建立会话。</li>
+          <li>回到本页，在下方「与网页/小程序账号同步」里点「生成绑定码」，把 <code>/bind 6位码</code> 发给机器人。</li>
+          <li>发送后本页状态会变成「已绑定 ✅」，网页订阅与飞书推送自动同步。</li>
+          <li>发 <code>/list</code> 可查看大V目录，点卡片上的按钮即可订阅。</li>
+        </ol>`)}
+      </section>
       <section class="section-panel" id="wecom-bind">
         <header class="section-head">
           <div>
             <p class="section-eyebrow">WeCom</p>
-            <h3 class="section-title">② 绑定企业微信群机器人</h3>
+            <h3 class="section-title">③ 绑定企业微信群机器人</h3>
             <p class="section-meta">无需申请应用；在企业微信任意群里添加「群机器人」即可，推送会发到这个群。</p>
           </div>
         </header>
@@ -1006,7 +1022,7 @@ async function renderSettings() {
         <header class="section-head">
           <div>
             <p class="section-eyebrow">Bark</p>
-            <h3 class="section-title">⑤ 绑定 Bark（iPhone 推送）</h3>
+            <h3 class="section-title">④ 绑定 Bark（iPhone 推送）</h3>
             <p class="section-meta">iOS 自托管用户神器：Bark App 免登录、免费、推送直达锁屏，无需申请任何开发者资质。</p>
           </div>
         </header>
@@ -1030,24 +1046,8 @@ async function renderSettings() {
       <section class="section-panel">
         <header class="section-head">
           <div>
-            <p class="section-eyebrow">Feishu</p>
-            <h3 class="section-title">③ 打开飞书机器人（重要：请用私聊）</h3>
-          </div>
-        </header>
-        ${bindGuideHtml(!!(state.user.feishu_open_id && state.user.feishu_chat_id), `
-        <ol style="padding-left:20px;line-height:2">
-          <li>打开飞书 App，点顶部「搜索」，搜索 ${fsTarget} 并进入。</li>
-          <li>关键：请在该机器人的<b>「私聊」会话</b>里发任意消息（如 <code>/start</code>）——群聊不会推送新帖，这一步只是建立会话。</li>
-          <li>回到本页，在下方「与网页/小程序账号同步」里点「生成绑定码」，把 <code>/bind 6位码</code> 发给机器人。</li>
-          <li>发送后本页状态会变成「已绑定 ✅」，网页订阅与飞书推送自动同步。</li>
-          <li>发 <code>/list</code> 可查看大V目录，点卡片上的按钮即可订阅。</li>
-        </ol>`)}
-      </section>
-      <section class="section-panel">
-        <header class="section-head">
-          <div>
             <p class="section-eyebrow">Sync</p>
-            <h3 class="section-title">④ 与网页/小程序账号同步（可选）</h3>
+            <h3 class="section-title">⑤ 与网页/小程序账号同步（可选）</h3>
             <p class="section-meta">机器人是独立账号；想让机器人订阅与网页账号合并，用绑定码。</p>
           </div>
         </header>
