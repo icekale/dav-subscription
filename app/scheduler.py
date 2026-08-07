@@ -1595,7 +1595,12 @@ class Scheduler:
             return
         import httpx
 
-        from .channels import CHANNELS, build_channel_notifier, channel_bound, channel_enabled
+        from .channels import (
+            CHANNELS,
+            build_channel_notifier,
+            channel_bound,
+            channel_enabled,
+        )
         from .llm import summarize_posts
 
         summary = None

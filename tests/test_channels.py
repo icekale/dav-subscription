@@ -93,14 +93,14 @@ def test_build_channel_notifier_binds_and_passes_flags(monkeypatch):
             seen.update(kwargs)
 
     for mod, channel, bind in (
-        ("app.notifiers.telegram.TelegramNotifier", "telegram", dict(telegram_chat_id="1")),
-        ("app.notifiers.feishu.FeishuNotifier", "feishu", dict(feishu_open_id="o")),
-        ("app.notifiers.wecom.WeComNotifier", "wecom", dict(wecom_webhook="w")),
-        ("app.notifiers.bark.BarkNotifier", "bark", dict(bark_key="k")),
+        ("app.notifiers.telegram.TelegramNotifier", "telegram", {"telegram_chat_id": "1"}),
+        ("app.notifiers.feishu.FeishuNotifier", "feishu", {"feishu_open_id": "o"}),
+        ("app.notifiers.wecom.WeComNotifier", "wecom", {"wecom_webhook": "w"}),
+        ("app.notifiers.bark.BarkNotifier", "bark", {"bark_key": "k"}),
     ):
         monkeypatch.setattr(mod, Fake)
         seen.clear()
-        notifier = build_channel_notifier(
+        build_channel_notifier(
             channel, make_user(**bind), cfg, favorite=True, keyword=True
         )
         assert seen.get("favorite") is True
