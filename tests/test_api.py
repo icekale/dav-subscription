@@ -19,7 +19,7 @@ def make_client(name="test.db", config=None):
     return TestClient(app)
 
 
-def register(client, username="admin", password="secret123", expect=200, code=None):
+def register(client, username="testadmin", password="secret123", expect=200, code=None):
     global _reg_code_seq
     if code is None:
         _reg_code_seq += 1
@@ -33,7 +33,7 @@ def register(client, username="admin", password="secret123", expect=200, code=No
     return resp
 
 
-def auth_headers(client, username="admin", password="secret123"):
+def auth_headers(client, username="testadmin", password="secret123"):
     data = register(client, username, password).json()
     # 测试辅助：注册后通过 DB 提升为管理员（生产环境只能由管理员指定）
     client.app.state.db.update_user(data["user"]["id"], is_admin=True)
@@ -209,8 +209,8 @@ def test_recommendations_api_sorted_by_subscribers():
     cold = client.post(
         "/api/kols", headers=admin, json={"platform": "weibo", "name": "冷门", "external_id": "2"}
     ).json()["id"]
-    u1 = user_headers(client, "sub_a")
-    u2 = user_headers(client, "sub_b")
+    u1 = user_headers(client, "sub_aa")
+    u2 = user_headers(client, "sub_bb")
     for h in (u1, u2):
         assert client.post("/api/subscriptions", headers=h, json={"kol_id": hot, "type": "post"}).status_code == 200
     recs = client.get("/api/recommendations", headers=u1).json()
@@ -300,7 +300,7 @@ def test_version_api(monkeypatch):
 def test_kol_request_notifies_admins(monkeypatch):
     client = make_client()
     auth_headers(client)
-    admin = client.app.state.db.get_user_by_username("admin")
+    admin = client.app.state.db.get_user_by_username("testadmin")
     # 自建 bot token 让通知分支与本地 config.yaml 解耦（CI 无 config.yaml 也能过）
     client.app.state.db.update_user(admin["id"], telegram_chat_id="111", telegram_bot_token="tok")
     sent = []
@@ -535,7 +535,7 @@ def test_login_rate_limit():
 
 def test_admin_delete_user_cascades():
     client = make_client()
-    admin_headers = auth_headers(client, "boss")
+    admin_headers = auth_headers(client, "boss01")
     reg = register(client, "doomed")
     uid = reg.json()["user"]["id"]
     doomed_headers = {"Authorization": f"Bearer {reg.json()['token']}"}
@@ -556,7 +556,7 @@ def test_admin_delete_user_cascades():
 
 def test_admin_reset_password():
     client = make_client()
-    admin_headers = auth_headers(client, "boss")
+    admin_headers = auth_headers(client, "boss01")
     user_headers(client, "victim", "oldpass123")
 
     users = client.get("/api/users", headers=admin_headers).json()
@@ -570,7 +570,7 @@ def test_admin_reset_password():
 
 def test_admin_rename_username():
     client = make_client()
-    admin_headers = auth_headers(client, "boss")
+    admin_headers = auth_headers(client, "boss01")
     user_headers(client, "victim")
 
     users = client.get("/api/users", headers=admin_headers).json()
@@ -578,7 +578,7 @@ def test_admin_rename_username():
 
     # 过短 / 重名
     assert client.put(f"/api/users/{uid}", headers=admin_headers, json={"username": "x"}).status_code == 400
-    assert client.put(f"/api/users/{uid}", headers=admin_headers, json={"username": "boss"}).status_code == 400
+    assert client.put(f"/api/users/{uid}", headers=admin_headers, json={"username": "boss01"}).status_code == 400
     # 改成自己的原名（不改动）应放行
     assert client.put(f"/api/users/{uid}", headers=admin_headers, json={"username": "victim"}).status_code == 200
 
@@ -613,7 +613,7 @@ def test_admin_test_push(monkeypatch):
     cfg.notifiers.feishu.app_id = "a"
     cfg.notifiers.feishu.app_secret = "s"
     client = make_client(config=cfg)
-    admin_headers = auth_headers(client, "boss")
+    admin_headers = auth_headers(client, "boss01")
     reg = register(client, "victim")
     uid = reg.json()["user"]["id"]
     victim_headers = {"Authorization": f"Bearer {reg.json()['token']}"}
@@ -828,7 +828,7 @@ def test_kol_request_flow(monkeypatch):
     monkeypatch.setattr("app.api.resolve_profile", lambda uid, cookie="": {})
     client = make_client()
     admin_headers = auth_headers(client)
-    u1 = register(client, "user1", "pass123456")
+    u1 = register(client, "user01", "pass123456")
     u_headers = {"Authorization": f"Bearer {u1.json()['token']}"}
 
     # 用户提交申请（雪球主页链接自动提取 UID）
@@ -858,7 +858,7 @@ def test_kol_request_flow(monkeypatch):
     assert len(mine) == 1 and mine[0]["status"] == "pending" and mine[0]["external_id"] == "55555"
 
     pending = client.get("/api/admin/kol-requests?status=pending", headers=admin_headers).json()
-    assert len(pending) == 1 and pending[0]["requester"] == "user1"
+    assert len(pending) == 1 and pending[0]["requester"] == "user01"
 
     req_id = pending[0]["id"]
     approved = client.post(f"/api/admin/kol-requests/{req_id}/approve", headers=admin_headers)
@@ -880,8 +880,8 @@ def test_kol_request_flow(monkeypatch):
 def test_kol_visibility_acl():
     client = make_client()
     admin_headers = auth_headers(client)
-    r1 = register(client, "u1", "pass123456")
-    r2 = register(client, "u2", "pass123456")
+    r1 = register(client, "usera1", "pass123456")
+    r2 = register(client, "userb1", "pass123456")
     u1_id = r1.json()["user"]["id"]
     user1_headers = {"Authorization": f"Bearer {r1.json()['token']}"}
     user2_headers = {"Authorization": f"Bearer {r2.json()['token']}"}
@@ -918,13 +918,13 @@ def test_kol_visibility_acl():
     assert client.get(f"/api/kols/{private_id}", headers=user2_headers).status_code == 404
 
     detail = client.get(f"/api/kols/{private_id}", headers=admin_headers).json()
-    assert detail["is_private"] == 1 and detail["visible_users"] == ["u1"]
+    assert detail["is_private"] == 1 and detail["visible_users"] == ["usera1"]
 
     # 管理员把白名单换成 u2，u1 立刻不可见
     resp = client.put(
         f"/api/kols/{private_id}",
         headers=admin_headers,
-        json={"visible_users": ["u2"]},
+        json={"visible_users": ["userb1"]},
     )
     assert resp.status_code == 200
     assert private_id not in {k["id"] for k in client.get("/api/catalog", headers=user1_headers).json()}
@@ -1184,19 +1184,19 @@ def test_category_crud_and_kol_assignment():
 def test_auth_flow():
     client = make_client()
     # 注册用户默认不是管理员
-    headers = user_headers(client, "admin")
+    headers = user_headers(client, "admin01")
     me = client.get("/api/me", headers=headers).json()
-    assert me["username"] == "admin" and me["is_admin"] is False
+    assert me["username"] == "admin01" and me["is_admin"] is False
 
     # 弱密码 / 重复用户名
     assert client.post("/api/auth/register", json={"username": "u2", "password": "123"}).status_code == 400
     assert client.post(
-        "/api/auth/register", json={"username": "admin", "password": "secret123"}
+        "/api/auth/register", json={"username": "admin01", "password": "secret123"}
     ).status_code == 400
 
     # 登录失败/成功
-    assert client.post("/api/auth/login", json={"username": "admin", "password": "wrong"}).status_code == 401
-    token = client.post("/api/auth/login", json={"username": "admin", "password": "pass123456"}).json()["token"]
+    assert client.post("/api/auth/login", json={"username": "admin01", "password": "wrong"}).status_code == 401
+    token = client.post("/api/auth/login", json={"username": "admin01", "password": "pass123456"}).json()["token"]
     assert client.get("/api/me", headers={"Authorization": f"Bearer {token}"}).status_code == 200
 
     # 普通用户不能访问管理接口
@@ -1204,7 +1204,7 @@ def test_auth_flow():
     assert client.get("/api/posts", headers=headers).status_code == 403
 
     # 管理员在后台指定另一个用户为管理员
-    admin_headers = auth_headers(client, "boss", "secret123")
+    admin_headers = auth_headers(client, "boss01", "secret123")
     target_id = client.get("/api/users", headers=admin_headers).json()[0]["id"]
     resp = client.put(f"/api/users/{target_id}", headers=admin_headers, json={"is_admin": True})
     assert resp.status_code == 200 and resp.json()["is_admin"] is True
@@ -1477,7 +1477,7 @@ def test_update_kol_duplicate_external_id_rejected():
 def test_approve_request_auto_resolves_name_and_avatar(monkeypatch):
     client = make_client()
     admin_headers = auth_headers(client)
-    u1 = register(client, "user1", "pass123456")
+    u1 = register(client, "user01", "pass123456")
     u_headers = {"Authorization": f"Bearer {u1.json()['token']}"}
     client.post(
         "/api/kol-requests",
@@ -1631,7 +1631,7 @@ def test_login_locked_ip_rejects_even_correct_password():
 
 def test_admin_delete_user_cleans_push_logs_and_acl():
     client = make_client()
-    admin_headers = auth_headers(client, "boss")
+    admin_headers = auth_headers(client, "boss01")
     reg = register(client, "doomed")
     uid = reg.json()["user"]["id"]
     db = client.app.state.db
@@ -1666,7 +1666,7 @@ def test_me_subscription_count():
         "/api/kols", headers=admin_headers,
         json={"platform": "xueqiu", "name": "B", "external_id": "2"},
     ).json()["id"]
-    uh = user_headers(client, "user")
+    uh = user_headers(client, "user01")
     assert client.get("/api/me", headers=uh).json()["subscription_count"] == 0
     client.post("/api/subscriptions", headers=uh, json={"kol_id": kid1})
     client.post("/api/subscriptions", headers=uh, json={"kol_id": kid2})
@@ -1721,28 +1721,28 @@ def test_passwordless_user_can_set_first_password():
 def test_register_username_case_insensitive_unique():
     """注册时不允许与已有用户名仅大小写不同的新账号。"""
     client = make_client()
-    admin_headers = auth_headers(client, "boss")
+    admin_headers = auth_headers(client, "boss01")
 
-    assert register(client, "Alice").status_code == 200
+    assert register(client, "Alice1").status_code == 200
     # 大小写变体注册被拒
-    resp = register(client, "alice", expect=400)
+    resp = register(client, "alice1", expect=400)
     assert "用户名已存在" in resp.json()["detail"]
-    resp = register(client, "ALICE", expect=400)
+    resp = register(client, "ALICE1", expect=400)
     assert "用户名已存在" in resp.json()["detail"]
 
     # 管理员改名为已有用户名的大小写变体也被拒
     client.app.state.db.add_register_code("CODE1")
     resp = client.post(
         "/api/auth/register",
-        json={"username": "bob", "password": "secret123", "code": "CODE1"},
+        json={"username": "bob001", "password": "secret123", "code": "CODE1"},
     )
     assert resp.status_code == 200
     uid = next(
         u["id"] for u in client.get("/api/users", headers=admin_headers).json()
-        if u["username"] == "bob"
+        if u["username"] == "bob001"
     )
     resp = client.put(
-        f"/api/users/{uid}", headers=admin_headers, json={"username": "ALICE"}
+        f"/api/users/{uid}", headers=admin_headers, json={"username": "ALICE1"}
     )
     assert resp.status_code == 400 and "用户名已存在" in resp.json()["detail"]
 
@@ -1899,18 +1899,18 @@ def test_admin_account_locks_sooner():
     cfg = Config()
     cfg.web.trust_proxy = True
     client = make_client(config=cfg)
-    auth_headers(client, "boss")  # 注册并提升为管理员，密码 secret123
+    auth_headers(client, "boss01")  # 注册并提升为管理员，密码 secret123
 
     for i in range(3):
         r = client.post(
             "/api/auth/login",
-            json={"username": "boss", "password": "wrong"},
+            json={"username": "boss01", "password": "wrong"},
             headers={"X-Forwarded-For": f"3.3.3.{i}"},
         )
         assert r.status_code == 401
     r = client.post(
         "/api/auth/login",
-        json={"username": "boss", "password": "secret123"},
+        json={"username": "boss01", "password": "secret123"},
         headers={"X-Forwarded-For": "4.4.4.4"},
     )
     assert r.status_code == 429
@@ -1923,7 +1923,7 @@ def test_login_locked_writes_audit_log():
     cfg.web.trust_proxy = True
     client = make_client(config=cfg)
     user_headers(client, "victim")
-    admin_headers = auth_headers(client, "boss")
+    admin_headers = auth_headers(client, "boss01")
 
     for i in range(10):
         client.post(
@@ -1995,3 +1995,33 @@ def test_account_lock_expires_after_window(monkeypatch):
         headers={"X-Forwarded-For": "10.0.0.2"},
     )
     assert r.status_code == 200
+
+
+def test_register_username_min_length_6():
+    """新注册用户名最少 6 字符。"""
+    client = make_client()
+    db = client.app.state.db
+    for i, name in enumerate(["ab", "abcde", "abcdefg"]):
+        db.add_register_code(f"MINLEN{i}")
+        resp = client.post(
+            "/api/auth/register",
+            json={"username": name, "password": "secret123", "code": f"MINLEN{i}"},
+        )
+        expected = 200 if len(name) >= 6 else 400
+        assert resp.status_code == expected, f"{name} 应 {expected}"
+        if expected == 400:
+            assert "用户名至少6位" in resp.json()["detail"]
+
+
+def test_admin_rename_username_min_length_6():
+    """管理员改名同样要求 6-30 位。"""
+    client = make_client()
+    admin_headers = auth_headers(client)
+    reg = register(client, "victim")
+    uid = reg.json()["user"]["id"]
+    assert client.put(
+        f"/api/users/{uid}", headers=admin_headers, json={"username": "abcde"}
+    ).status_code == 400
+    assert client.put(
+        f"/api/users/{uid}", headers=admin_headers, json={"username": "abcdef"}
+    ).status_code == 200

@@ -2587,8 +2587,8 @@ async function adminRenameUser(userId) {
   const name = prompt(`把「${user ? user.username : userId}」改名为：`, user ? user.username : "");
   if (name === null) return;
   const trimmed = name.trim();
-  if (trimmed.length < 2 || trimmed.length > 30) {
-    alert("用户名需 2-30 位");
+  if (trimmed.length < 6 || trimmed.length > 30) {
+    alert("用户名需 6-30 位");
     return;
   }
   try {

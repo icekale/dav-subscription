@@ -41,8 +41,8 @@ Page({
 
   async submitAccount() {
     const { username, password, isRegister } = this.data;
-    if (username.trim().length < 2 || password.length < 6) {
-      this.setData({ error: "用户名至少2位，密码至少6位" });
+    if (username.trim().length < 6 || password.length < 6) {
+      this.setData({ error: "用户名至少6位，密码至少6位" });
       return;
     }
     this.setData({ error: "" });

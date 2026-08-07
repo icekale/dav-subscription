@@ -445,8 +445,8 @@ def create_api_router(
         _check_login_limit(ip)
         try:
             username = body.username.strip()
-            if len(username) < 2 or len(body.password) < 6:
-                raise HTTPException(status_code=400, detail="用户名至少2位，密码至少6位")
+            if len(username) < 6 or len(body.password) < 6:
+                raise HTTPException(status_code=400, detail="用户名至少6位，密码至少6位")
             if len(username) > 30:
                 raise HTTPException(status_code=400, detail="用户名最长30位")
             if len(body.password) > MAX_PASSWORD_LEN:
@@ -1433,8 +1433,8 @@ def create_api_router(
             db.update_user(user_id, password_hash=auth.hash_password(password))
         if "username" in body.model_fields_set:
             username = (body.username or "").strip()
-            if len(username) < 2 or len(username) > 30:
-                raise HTTPException(status_code=400, detail="用户名需2-30位")
+            if len(username) < 6 or len(username) > 30:
+                raise HTTPException(status_code=400, detail="用户名需6-30位")
             existing = db.get_user_by_username_ci(username)
             if existing is not None and existing["id"] != user_id:
                 raise HTTPException(status_code=400, detail="用户名已存在")
