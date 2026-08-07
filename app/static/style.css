@@ -845,3 +845,22 @@ details.bind-steps > summary::before {
   color: var(--color-text-muted);
 }
 details.bind-steps[open] > summary::before { content: "▾ "; }
+
+/* 设置页分段导航 */
+.settings-tabs { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+.settings-tab {
+  padding: 7px 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(128, 128, 128, 0.3);
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.settings-tab:hover { border-color: var(--color-accent); color: var(--color-accent); }
+.settings-tab.active {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-white);
+}

@@ -896,13 +896,19 @@ async function renderSettings() {
       : "你的机器人";
     const fsTarget = fsBot ? `<b>${escapeHtml(fsBot)}</b>` : "你的机器人应用名";
     $("#main").innerHTML = `
-      ${heroPanel("Push Settings", "推送设置", "跟着步骤走，2 分钟完成：绑定 Telegram / 飞书 / 企业微信，新帖就会自动推给你。",
+      ${heroPanel("Push Settings", "推送设置", "渠道绑定、关键词与推送规则都在这里。",
         [
           { channel: "telegram", label: "Telegram", icon: CHANNEL_ICONS.telegram },
           { channel: "feishu", label: "飞书", icon: CHANNEL_ICONS.feishu },
           { channel: "wecom", label: "企业微信", icon: CHANNEL_ICONS.wecom },
           { channel: "bark", label: "Bark", icon: CHANNEL_ICONS.bark },
         ])}
+      <div class="settings-tabs" role="tablist">
+        <button class="settings-tab active" data-tab="push" onclick="switchSettingsTab('push')">推送设置</button>
+        <button class="settings-tab" data-tab="feed" onclick="switchSettingsTab('feed')">RSS 订阅源</button>
+        <button class="settings-tab" data-tab="account" onclick="switchSettingsTab('account')">账号</button>
+      </div>
+      <div id="st-push" class="settings-tab-panel">
       <section class="section-panel">
         <header class="section-head">
           <div>
@@ -1063,6 +1069,47 @@ async function renderSettings() {
         <p class="muted">🔔 key 等同推送权限，请勿泄露；系统告警不依赖此 key（管理员另配系统级 Bark）。</p>
       </section>
       <section class="section-panel">
+        <div class="form-row">
+          <label for="set-notify">新帖推送开关</label>
+          <select id="set-notify" class="form-control" onchange="saveNotify()">
+            <option value="1" ${state.user.notify_enabled ? "selected" : ""}>开启</option>
+            <option value="0" ${!state.user.notify_enabled ? "selected" : ""}>关闭</option>
+          </select>
+        </div>
+        <p class="muted">关闭后不会向任何渠道推送新帖，订阅关系保留。</p>
+        <div class="form-row" style="margin-top:16px">
+          <label for="set-daily">每日精选摘要</label>
+          <select id="set-daily" class="form-control" onchange="saveDailyReport()">
+            <option value="1" ${state.user.daily_report_enabled ? "selected" : ""}>开启（每天 20:00 推送一次今日订阅总览）</option>
+            <option value="0" ${!state.user.daily_report_enabled ? "selected" : ""}>关闭</option>
+          </select>
+        </div>
+        <p class="muted">开启后，每天 20:00 把你订阅大V当天的新动态汇总成一条推送。</p>
+      </section>
+      </div>
+      <div id="st-feed" class="settings-tab-panel">
+      <section class="section-panel">
+        <header class="section-head">
+          <div>
+            <p class="section-eyebrow">RSS</p>
+            <h3 class="section-title">RSS 订阅源（用任意阅读器收动态）</h3>
+            <p class="section-meta">不想用聊天工具？把下面地址加进 Reeder / NetNewsWire / 其他任何 RSS 阅读器，就能直接收你订阅大V的动态，无需登录。</p>
+          </div>
+        </header>
+        <div class="form-row">
+          <label for="set-feed-url">你的私有订阅源地址</label>
+          <div class="row" style="gap:10px;flex-wrap:wrap">
+            <input id="set-feed-url" class="form-control" style="flex:1;min-width:280px" readonly
+              value="${location.origin}/api/feed/${escapeHtml(state.user.feed_token || "")}.xml">
+            <button class="btn-normal" onclick="copyFeedUrl()">复制</button>
+            <button class="btn-ghost" onclick="regenerateFeedToken()">重新生成</button>
+          </div>
+        </div>
+        <p class="muted">⚠️ 地址内含订阅凭证，泄露后别人能读到你的关注流；泄露了就点「重新生成」立即作废旧地址。</p>
+      </section>
+      </div>
+      <div id="st-account" class="settings-tab-panel">
+      <section class="section-panel">
         <header class="section-head">
           <div>
             <p class="section-eyebrow">Sync</p>
@@ -1086,43 +1133,6 @@ async function renderSettings() {
       <section class="section-panel">
         <header class="section-head">
           <div>
-            <p class="section-eyebrow">RSS</p>
-            <h3 class="section-title">RSS 订阅源（用任意阅读器收动态）</h3>
-            <p class="section-meta">不想用聊天工具？把下面地址加进 Reeder / NetNewsWire / 其他任何 RSS 阅读器，就能直接收你订阅大V的动态，无需登录。</p>
-          </div>
-        </header>
-        <div class="form-row">
-          <label for="set-feed-url">你的私有订阅源地址</label>
-          <div class="row" style="gap:10px;flex-wrap:wrap">
-            <input id="set-feed-url" class="form-control" style="flex:1;min-width:280px" readonly
-              value="${location.origin}/api/feed/${escapeHtml(state.user.feed_token || "")}.xml">
-            <button class="btn-normal" onclick="copyFeedUrl()">复制</button>
-            <button class="btn-ghost" onclick="regenerateFeedToken()">重新生成</button>
-          </div>
-        </div>
-        <p class="muted">⚠️ 地址内含订阅凭证，泄露后别人能读到你的关注流；泄露了就点「重新生成」立即作废旧地址。</p>
-      </section>
-      <section class="section-panel">
-        <div class="form-row">
-          <label for="set-notify">新帖推送开关</label>
-          <select id="set-notify" class="form-control" onchange="saveNotify()">
-            <option value="1" ${state.user.notify_enabled ? "selected" : ""}>开启</option>
-            <option value="0" ${!state.user.notify_enabled ? "selected" : ""}>关闭</option>
-          </select>
-        </div>
-        <p class="muted">关闭后不会向任何渠道推送新帖，订阅关系保留。</p>
-        <div class="form-row" style="margin-top:16px">
-          <label for="set-daily">每日精选摘要</label>
-          <select id="set-daily" class="form-control" onchange="saveDailyReport()">
-            <option value="1" ${state.user.daily_report_enabled ? "selected" : ""}>开启（每天 20:00 推送一次今日订阅总览）</option>
-            <option value="0" ${!state.user.daily_report_enabled ? "selected" : ""}>关闭</option>
-          </select>
-        </div>
-        <p class="muted">开启后，每天 20:00 把你订阅大V当天的新动态汇总成一条推送。</p>
-      </section>
-      <section class="section-panel">
-        <header class="section-head">
-          <div>
             <p class="section-eyebrow">Security</p>
             <h3 class="section-title">修改密码</h3>
             <p class="section-meta">定期更换密码，保护你的账号安全。</p>
@@ -1141,12 +1151,26 @@ async function renderSettings() {
           <input id="pw-confirm" class="form-control" type="password" placeholder="再次输入新密码" autocomplete="new-password">
         </div>
         <button class="btn-normal" onclick="savePassword()">修改密码</button>
-      </section>`;
+      </section>
+      </div>`;
     settingsPollTimer = setInterval(refreshSettingsStatus, 10000);
+    switchSettingsTab(state.settingsTab || "push"); // 恢复上次所在分栏
     toggleDnd(); // 根据开关初始状态同步时段输入框的禁用/置灰
   } catch (err) {
     $("#main").innerHTML = emptyState(err.message);
   }
+}
+
+function switchSettingsTab(name) {
+  // 设置页分段导航：推送 / RSS 订阅源 / 账号
+  state.settingsTab = name;
+  document.querySelectorAll(".settings-tab").forEach((b) =>
+    b.classList.toggle("active", b.dataset.tab === name)
+  );
+  ["push", "feed", "account"].forEach((t) => {
+    const el = document.getElementById("st-" + t);
+    if (el) el.style.display = t === name ? "" : "none";
+  });
 }
 
 function bindGuideHtml(bound, stepsHtml) {
