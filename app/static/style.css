@@ -829,3 +829,19 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
 .dnd-range-field.is-off { opacity: 0.55; }
 .dnd-range-field.is-off input { pointer-events: none; }
 .dnd-actions { display: flex; align-items: center; gap: 12px; justify-content: flex-end; }
+
+/* 渠道绑定步骤折叠（设置页压缩） */
+details.bind-steps { margin-top: 10px; }
+details.bind-steps > summary {
+  cursor: pointer;
+  color: var(--color-accent);
+  font-size: 13px;
+  padding: 4px 0;
+  user-select: none;
+}
+details.bind-steps > summary:hover { opacity: 0.85; }
+details.bind-steps > summary::before {
+  content: "▸ ";
+  color: var(--color-text-muted);
+}
+details.bind-steps[open] > summary::before { content: "▾ "; }

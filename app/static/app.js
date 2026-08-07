@@ -844,7 +844,7 @@ function channelStatusHtml(user) {
         <div class="channel-actions">
           ${wc
             ? `<button class="channel-btn secondary" onclick="unbindChannel('wecom')">解绑</button>`
-            : `<button class="channel-btn primary" onclick="document.getElementById('wecom-bind').scrollIntoView({behavior:'smooth'})">去绑定</button>`}
+            : `<button class="channel-btn primary" onclick="openBindGuide('wecom-bind')">去绑定</button>`}
         </div>
       </div>
       <div class="channel-card" data-channel="bark">
@@ -856,7 +856,7 @@ function channelStatusHtml(user) {
         <div class="channel-actions">
           ${bk
             ? `<button class="channel-btn secondary" onclick="unbindChannel('bark')">解绑</button>`
-            : `<button class="channel-btn primary" onclick="document.getElementById('bark-bind').scrollIntoView({behavior:'smooth'})">去绑定</button>`}
+            : `<button class="channel-btn primary" onclick="openBindGuide('bark-bind')">去绑定</button>`}
         </div>
       </div>
     </div>`;
@@ -968,12 +968,13 @@ async function renderSettings() {
             <h3 class="section-title">① 打开 Telegram 机器人</h3>
           </div>
         </header>
+        ${bindGuideHtml(!!state.user.telegram_chat_id, `
         <ol style="padding-left:20px;line-height:2">
           <li>打开 Telegram，搜索并进入 ${tgTarget}（找不到就点上方链接）。</li>
           <li>点击「开始」或发送任意消息（如 <code>/start</code>），系统自动记录你的会话。</li>
           <li>回到本页，状态几秒内自动变成「已绑定 ✅」。</li>
           <li>发 <code>/list</code> 可查看大V目录，<code>/sub 大VID</code> 直接订阅。</li>
-        </ol>
+        </ol>`)}
       </section>
       <section class="section-panel" id="wecom-bind">
         <header class="section-head">
@@ -983,12 +984,13 @@ async function renderSettings() {
             <p class="section-meta">无需申请应用；在企业微信任意群里添加「群机器人」即可，推送会发到这个群。</p>
           </div>
         </header>
+        ${bindGuideHtml(!!state.user.wecom_webhook, `
         <ol style="padding-left:20px;line-height:2">
           <li>打开企业微信，进入一个群（没有就新建一个，例如「大V推送」）。</li>
           <li>点右上角 <code>...</code> → 「群机器人」→「添加机器人」，按提示创建并起名。</li>
           <li>创建完成后复制 webhook 地址（<code>https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...</code>）。</li>
           <li>粘贴到下方输入框，点「保存绑定」，状态即变为「已绑定 ✅」。</li>
-        </ol>
+        </ol>`)}
         <div class="form-row" style="margin-top:14px">
           <label for="set-wecom-webhook">群机器人 webhook 地址</label>
           <div class="row" style="gap:10px;flex-wrap:wrap">
@@ -1008,11 +1010,12 @@ async function renderSettings() {
             <p class="section-meta">iOS 自托管用户神器：Bark App 免登录、免费、推送直达锁屏，无需申请任何开发者资质。</p>
           </div>
         </header>
+        ${bindGuideHtml(!!state.user.bark_key, `
         <ol style="padding-left:20px;line-height:2">
           <li>iPhone 在 App Store 搜索「Bark」安装，打开后主屏会显示你的推送 key（形如 <code>AaBbCcDdEe...</code>）。</li>
           <li>把这个 key 粘贴到下方输入框，点「保存绑定」即可。</li>
           <li>想用自建 Bark 服务器？直接把服务器里的完整地址（<code>https://bark.example.com/xxx</code>）粘贴进来也行。</li>
-        </ol>
+        </ol>`)}
         <div class="form-row" style="margin-top:14px">
           <label for="set-bark-key">Bark 推送 key 或完整地址</label>
           <div class="row" style="gap:10px;flex-wrap:wrap">
@@ -1031,13 +1034,14 @@ async function renderSettings() {
             <h3 class="section-title">③ 打开飞书机器人（重要：请用私聊）</h3>
           </div>
         </header>
+        ${bindGuideHtml(!!(state.user.feishu_open_id && state.user.feishu_chat_id), `
         <ol style="padding-left:20px;line-height:2">
           <li>打开飞书 App，点顶部「搜索」，搜索 ${fsTarget} 并进入。</li>
           <li>关键：请在该机器人的<b>「私聊」会话</b>里发任意消息（如 <code>/start</code>）——群聊不会推送新帖，这一步只是建立会话。</li>
           <li>回到本页，在下方「与网页/小程序账号同步」里点「生成绑定码」，把 <code>/bind 6位码</code> 发给机器人。</li>
           <li>发送后本页状态会变成「已绑定 ✅」，网页订阅与飞书推送自动同步。</li>
           <li>发 <code>/list</code> 可查看大V目录，点卡片上的按钮即可订阅。</li>
-        </ol>
+        </ol>`)}
       </section>
       <section class="section-panel">
         <header class="section-head">
@@ -1047,11 +1051,14 @@ async function renderSettings() {
             <p class="section-meta">机器人是独立账号；想让机器人订阅与网页账号合并，用绑定码。</p>
           </div>
         </header>
+        <details class="bind-steps">
+          <summary>展开查看同步步骤</summary>
         <ol style="padding-left:20px;line-height:2">
           <li>点下方「生成绑定码」。</li>
           <li>把 <code>/bind 6位码</code> 发给 Telegram / 飞书机器人（企业微信群机器人是单向 webhook，不支持指令）。</li>
           <li>绑定后机器人账号合并到当前账号，订阅与推送同步，一处订阅处处同步。</li>
         </ol>
+        </details>
         <div class="row">
           <button class="btn-ghost" onclick="genBindCode()">生成绑定码</button>
         </div>
@@ -1140,6 +1147,23 @@ async function renderSettings() {
   } catch (err) {
     $("#main").innerHTML = emptyState(err.message);
   }
+}
+
+function bindGuideHtml(bound, stepsHtml) {
+  // 渠道绑定步骤折叠：未绑定时默认展开引导，已绑定时收起来（页面不再一屏放不下）
+  return `<details class="bind-steps" ${bound ? "" : "open"}>
+    <summary>${bound ? "已绑定 ✅ · 展开查看绑定步骤" : "展开查看绑定步骤"}</summary>
+    ${stepsHtml}
+  </details>`;
+}
+
+function openBindGuide(sectionId) {
+  // 状态卡片「去绑定」→ 滚动到渠道区块并展开其步骤
+  const sec = document.getElementById(sectionId);
+  if (!sec) return;
+  sec.scrollIntoView({ behavior: "smooth", block: "start" });
+  const details = sec.querySelector("details.bind-steps");
+  if (details) details.open = true;
 }
 
 function pushChannelsHtml(user) {
