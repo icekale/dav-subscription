@@ -27,12 +27,13 @@ def _md_escape(text: str) -> str:
     return text[:MAX_CONTENT_CHARS]
 
 
-def build_wecom_text(post: Post, favorite: bool = False) -> str:
+def build_wecom_text(post: Post, favorite: bool = False, keyword: bool = False) -> str:
     platform = PLATFORM_LABELS.get(post.platform, post.platform)
     body = _md_escape(post.content or post.title or "（无正文）")
     kind = " · 回复" if post.post_type == "reply" else ""
     star = "⭐ " if favorite else ""
-    lines = [f"**📌 {star}{post.kol_name} · {platform}{kind}**", "", body]
+    key = "🔑 " if keyword else ""
+    lines = [f"**📌 {star}{key}{post.kol_name} · {platform}{kind}**", "", body]
     if post.category:
         lines.append(f"🗂 {post.category}")
     if post.published_at:
@@ -144,10 +145,12 @@ class WeComNotifier(Notifier):
         client: httpx.Client | None = None,
         webhook_url: str | None = None,
         favorite: bool = False,
+        keyword: bool = False,
     ):
         self.webhook_url = webhook_url or config.webhook_url
         self.client = client or httpx.Client(timeout=15)
         self.favorite = favorite
+        self.keyword = keyword
 
     def _send_markdown(self, content: str) -> None:
         if not self.webhook_url:
@@ -165,7 +168,7 @@ class WeComNotifier(Notifier):
         text = (
             build_wecom_combination_text(post)
             if post.platform == "combination" and post.detail
-            else build_wecom_text(post, self.favorite)
+            else build_wecom_text(post, self.favorite, self.keyword)
         )
         self._send_markdown(text)
 

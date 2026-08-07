@@ -9,3 +9,4 @@ backups/
 .superpowers/
 
 .DS_Store
+.pi-subagents/

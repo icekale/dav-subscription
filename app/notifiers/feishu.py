@@ -45,10 +45,11 @@ def _tenant_access_token(app_id: str, app_secret: str, client: httpx.Client) -> 
     return token
 
 
-def build_feishu_card(post: Post, favorite: bool = False) -> dict:
+def build_feishu_card(post: Post, favorite: bool = False, keyword: bool = False) -> dict:
     platform = PLATFORM_LABELS.get(post.platform, post.platform)
     content = truncate_text(post.content, 2000) or post.title or "（无正文）"
-    title = f"📌 {'⭐ ' if favorite else ''}{post.kol_name} · {platform}"
+    marks = ("⭐ " if favorite else "") + ("🔑 " if keyword else "")
+    title = f"📌 {marks}{post.kol_name} · {platform}"
     if post.post_type == "reply":
         title += " · 回复"
     category = post.category or ""
@@ -314,6 +315,7 @@ class FeishuNotifier(Notifier):
         chat_id: str | None = None,
         unsub_kol_id: int | None = None,
         favorite: bool = False,
+        keyword: bool = False,
     ):
         self.webhook_url = config.webhook_url
         self.app_id = config.app_id
@@ -322,6 +324,7 @@ class FeishuNotifier(Notifier):
         self.chat_id = chat_id
         self.unsub_kol_id = unsub_kol_id
         self.favorite = favorite
+        self.keyword = keyword
         self.client = client or httpx.Client(timeout=15)
 
     def _tenant_access_token(self) -> str:
@@ -361,7 +364,7 @@ class FeishuNotifier(Notifier):
         if post.platform == "combination" and post.detail:
             card = build_feishu_combination_card(post)["card"]
         else:
-            card = build_feishu_card(post, self.favorite)["card"]
+            card = build_feishu_card(post, self.favorite, self.keyword)["card"]
         # 帖子图片：上传后插入 img 元素（最多 2 张），失败不影响文本卡片
         if post.images and self.app_id and self.app_secret:
             try:

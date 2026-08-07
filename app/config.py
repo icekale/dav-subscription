@@ -30,10 +30,36 @@ class TelegramConfig:
 
 
 @dataclass
+class BarkConfig:
+    """Bark 推送服务器（用户 key 存在各自账号里）。
+
+    bark_server 默认官方 https://api.day.app；自建实例时配置，如 https://bark.example.com。
+    bark_key 为系统级默认 key（可选）：配置后系统告警也会发 Bark。
+    """
+
+    bark_server: str = ""
+    bark_key: str = ""
+
+
+@dataclass
+class LLMConfig:
+    """可选 LLM 摘要：配置 api_key 即启用（免打扰汇总/每日精选生成 AI 要点）。
+
+    使用 OpenAI 兼容接口（/chat/completions），可对接 OpenAI、DeepSeek、
+    本地 Ollama/vLLM 等任何兼容服务。未配置时推送管线完全不受影响。
+    """
+
+    api_base: str = "https://api.openai.com/v1"
+    api_key: str = ""
+    model: str = "gpt-4o-mini"
+
+
+@dataclass
 class NotifiersConfig:
     feishu: FeishuConfig = field(default_factory=FeishuConfig)
     telegram: TelegramConfig = field(default_factory=TelegramConfig)
     wecom: WeComConfig = field(default_factory=WeComConfig)
+    bark: BarkConfig = field(default_factory=BarkConfig)
 
 
 @dataclass
@@ -96,6 +122,7 @@ class Config:
     polling: PollingConfig = field(default_factory=PollingConfig)
     web: WebConfig = field(default_factory=WebConfig)
     wechat: WeChatConfig = field(default_factory=WeChatConfig)
+    llm: LLMConfig = field(default_factory=LLMConfig)
     db_path: str = "data/dav.db"
     # 管理员告警总开关：false 时不发任何告警、不启动 TG/飞书 bot 长轮询。
     # 本地开发/测试实例务必置 false，避免用生产 config 误发告警、抢生产 bot 轮询。
@@ -113,6 +140,11 @@ _ENV_MAP = {
     "TELEGRAM_BOT_USERNAME": ("notifiers", "telegram", "bot_username"),
     "FEISHU_BOT_NAME": ("notifiers", "feishu", "bot_name"),
     "WECOM_WEBHOOK_URL": ("notifiers", "wecom", "webhook_url"),
+    "BARK_SERVER": ("notifiers", "bark", "bark_server"),
+    "BARK_KEY": ("notifiers", "bark", "bark_key"),
+    "LLM_API_BASE": ("llm", "api_base"),
+    "LLM_API_KEY": ("llm", "api_key"),
+    "LLM_MODEL": ("llm", "model"),
     "XUEQIU_COOKIE": ("sources", "xueqiu", "cookie"),
     "WEIBO_COOKIE": ("sources", "weibo", "cookie"),
     "WEIBO_TOKEN": ("sources", "weibo", "token"),

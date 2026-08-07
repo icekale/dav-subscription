@@ -9,13 +9,14 @@ import time
 
 logger = logging.getLogger(__name__)
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from pydantic import BaseModel
 
 from . import auth, wechat
 from .avatar_cache import cache_avatar
 from .bot_core import BIND_CODE_TTL
 from .db import ALLOWED_PLATFORMS, DB
+from .feed import build_rss_xml
 from .fetchers.combination import extract_cube_symbol, resolve_combination_profile
 from .fetchers.twitter import resolve_x_profile
 from .fetchers.weibo import WEIBO_COOKIE_KEY, resolve_weibo_profile
@@ -25,6 +26,10 @@ from .fetchers.xueqiu import (
     resolve_profile,
 )
 from .weibo_qr import create_qr, poll_qr
+
+# 关键词提醒规则上限（每个用户）与单关键词长度上限
+KEYWORDS_MAX_COUNT = 20
+KEYWORDS_MAX_LENGTH = 50
 
 
 def _normalize_weibo_id(external_id: str) -> str:
@@ -93,12 +98,14 @@ class MeUpdate(BaseModel):
     feishu_open_id: str | None = None
     feishu_chat_id: str | None = None
     wecom_webhook: str | None = None
+    bark_key: str | None = None
     notify_enabled: bool | None = None
     daily_report_enabled: bool | None = None
     push_channels: str | None = None
     dnd_start: str | None = None
     dnd_end: str | None = None
     dnd_allow_favorite: bool | None = None
+    keywords: list[str] | None = None
 
 
 class PasswordChangeIn(BaseModel):
@@ -197,6 +204,8 @@ def public_user(user: dict) -> dict:
         "feishu_open_id": user["feishu_open_id"],
         "feishu_chat_id": user["feishu_chat_id"],
         "wecom_webhook": user["wecom_webhook"],
+        "bark_key": user.get("bark_key") or "",
+        "feed_token": user.get("feed_token") or "",
         "notify_enabled": bool(user["notify_enabled"]),
         "daily_report_enabled": bool(user.get("daily_report")),
         "push_channels": user.get("push_channels") or "",
@@ -462,10 +471,36 @@ def create_api_router(
         return {"token": auth.create_token(user["id"], user["username"], secret), "user": public_user(user)}
 
     # ---- 我的 ----
+    @router.get("/feed/{token}.xml")
+    def rss_feed(token: str, request: Request):
+        """私有 RSS 订阅源：token 即凭证，无需登录（供 RSS 阅读器拉取）。"""
+        user = db.get_user_by_feed_token(token)
+        if user is None:
+            raise HTTPException(status_code=404, detail="feed 地址无效或已失效")
+        kol_ids = db.subscribed_kol_ids(user["id"])
+        posts = db.list_feed_posts(kol_ids, limit=50, user_id=user["id"])
+        base = str(request.base_url).rstrip("/")
+        xml = build_rss_xml(posts, user["username"], base)
+        return Response(
+            content=xml,
+            media_type="application/rss+xml; charset=utf-8",
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @router.post("/me/feed-token/regenerate")
+    def regenerate_feed_token(user: dict = Depends(get_current_user)):
+        """重新生成 RSS 订阅 token：旧 token 立即失效（比如地址泄露后）。"""
+        db.update_user(user["id"], feed_token=secrets.token_urlsafe(32))
+        return {"feed_token": db.get_user(user["id"])["feed_token"]}
+
     @router.get("/me")
     def me(user: dict = Depends(get_current_user)):
+        # 首次访问即确保 feed token 存在，RSS 地址在推送设置页展示
+        db.ensure_feed_token(user["id"])
+        user = db.get_user(user["id"])
         profile = public_user(user)
         profile["subscription_count"] = db.count_subscriptions(user["id"])
+        profile["keywords"] = db.get_user_keywords(user["id"])
         if notifiers_config is not None:
             profile["push_guide"] = {
                 "telegram_bot_username": notifiers_config.telegram.bot_username,
@@ -529,6 +564,34 @@ def create_api_router(
                 if owner is not None and owner["id"] != user["id"]:
                     raise HTTPException(status_code=400, detail="该企业微信群机器人已绑定其他账号")
             db.update_user(user["id"], wecom_webhook=value)
+        if "bark_key" in body.model_fields_set:
+            value = (body.bark_key or "").strip()
+            if value:
+                from .notifiers.bark import is_valid_bark_key
+
+                if not is_valid_bark_key(value):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Bark key 无效：应为手机 Bark App 里的推送 key（形如 AaBbCcDdEeFf...）",
+                    )
+                owner = db.get_user_by_bark_key(value)
+                if owner is not None and owner["id"] != user["id"]:
+                    raise HTTPException(status_code=400, detail="该 Bark key 已绑定其他账号")
+            db.update_user(user["id"], bark_key=value)
+        if "keywords" in body.model_fields_set:
+            keywords = [k.strip() for k in (body.keywords or []) if k.strip()]
+            if len(keywords) > KEYWORDS_MAX_COUNT:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"关键词最多 {KEYWORDS_MAX_COUNT} 个",
+                )
+            for keyword in keywords:
+                if len(keyword) > KEYWORDS_MAX_LENGTH:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"单个关键词最长 {KEYWORDS_MAX_LENGTH} 字：{keyword}",
+                    )
+            db.set_user_keywords(user["id"], keywords)
         if "notify_enabled" in body.model_fields_set:
             db.update_user(user["id"], notify_enabled=body.notify_enabled)
         if "daily_report_enabled" in body.model_fields_set and body.daily_report_enabled is not None:

@@ -126,6 +126,14 @@ def test_telegram_text_marks_favorite():
     assert "⭐" not in build_telegram_text(make_post())
 
 
+def test_telegram_text_marks_keyword():
+    from app.notifiers.telegram import build_telegram_text
+
+    assert "🔑" in build_telegram_text(make_post(), keyword=True)
+    assert "🔑" not in build_telegram_text(make_post())
+    assert "🔑" in build_telegram_text(make_post(), favorite=True, keyword=True)
+
+
 def test_feishu_card_marks_favorite():
     from app.notifiers.feishu import build_feishu_card
 

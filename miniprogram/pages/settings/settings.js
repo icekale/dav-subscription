@@ -1,4 +1,5 @@
 const { request } = require("../../utils/api");
+const { BASE_URL } = require("../../config");
 
 function pushChannelOptions(user) {
   const selected = (user.push_channels || "")
@@ -16,6 +17,9 @@ function pushChannelOptions(user) {
   if (user.wecom_webhook) {
     opts.push({ value: "wecom", label: "企业微信", checked: isChecked("wecom") });
   }
+  if (user.bark_key) {
+    opts.push({ value: "bark", label: "Bark", checked: isChecked("bark") });
+  }
   return opts;
 }
 
@@ -29,6 +33,11 @@ Page({
     fsIncomplete: false,
     wecom: "",
     wecomBound: false,
+    barkKey: "",
+    barkBound: false,
+    keywords: [],
+    keywordsInput: "",
+    feedToken: "",
     notify: true,
     dailyReport: false,
     bindCode: "",
@@ -93,6 +102,9 @@ Page({
         fsIncomplete: !!user.feishu_open_id && !user.feishu_chat_id,
         wecom: user.wecom_webhook,
         wecomBound: !!user.wecom_webhook,
+        barkKey: user.bark_key || "",
+        barkBound: !!user.bark_key,
+        feedToken: user.feed_token || "",
         tgBot: guide.telegram_bot_username || "",
         fsBotName: guide.feishu_bot_name || "",
         // 通道勾选列表随绑定状态变化（新绑定渠道要能立即出现）
@@ -106,6 +118,8 @@ Page({
           dndStart: user.dnd_start || "23:00",
           dndEnd: user.dnd_end || "07:00",
           dndAllowFavorite: !!user.dnd_allow_favorite,
+          keywords: user.keywords || [],
+          keywordsInput: (user.keywords || []).join("\n"),
         });
       }
       this.setData(patch);
@@ -146,6 +160,10 @@ Page({
   onWecomInput(e) {
     this.wecomDirty = true;
     this.setData({ wecomInput: e.detail.value });
+  },
+  onBarkInput(e) { this.setData({ barkKey: e.detail.value }); },
+  onKeywordsInput(e) {
+    this.setData({ keywordsInput: e.detail.value });
   },
 
   async save() {
@@ -230,6 +248,62 @@ Page({
     }
   },
 
+  async saveBark() {
+    const key = this.data.barkKey.trim();
+    try {
+      await request("/api/me", {
+        method: "PUT",
+        data: { bark_key: key },
+      });
+      wx.showToast({ title: key ? "Bark 绑定成功" : "已解绑 Bark", icon: "success" });
+      this.load();
+    } catch (err) {
+      wx.showToast({ title: err.message, icon: "none" });
+    }
+  },
+
+  async saveKeywords() {
+    const keywords = (this.data.keywordsInput || "")
+      .split(/[\n,]/)
+      .map((k) => k.trim())
+      .filter(Boolean);
+    try {
+      await request("/api/me", {
+        method: "PUT",
+        data: { keywords },
+      });
+      wx.showToast({ title: `已保存 ${keywords.length} 个关键词`, icon: "success" });
+      this.load();
+    } catch (err) {
+      wx.showToast({ title: err.message, icon: "none" });
+    }
+  },
+
+  copyFeed() {
+    const token = this.data.feedToken;
+    if (!token) return;
+    const url = `${BASE_URL}/api/feed/${token}.xml`;
+    wx.setClipboardData({
+      data: url,
+      success: () => wx.showToast({ title: "订阅源地址已复制", icon: "success" }),
+    });
+  },
+
+  async regenerateFeed() {
+    const { confirm } = await wx.showModal({
+      title: "重新生成订阅源",
+      content: "旧地址立即失效，确认？",
+    });
+    if (!confirm) return;
+    try {
+      const res = await request("/api/me/feed-token/regenerate", { method: "POST" });
+      this.setData({ feedToken: res.feed_token });
+      wx.showToast({ title: "已重新生成", icon: "success" });
+    } catch (err) {
+      wx.showToast({ title: err.message, icon: "none" });
+    }
+  },
+
   async unbind(e) {
     const channel = e.currentTarget.dataset.channel;
     const labels = {
@@ -237,6 +311,7 @@ Page({
       telegram_bot_token: "自建 Telegram 机器人",
       feishu: "飞书",
       wecom: "企业微信",
+      bark: "Bark",
     };
     const label = labels[channel] || channel;
     const payloads = {
@@ -244,6 +319,7 @@ Page({
       telegram_bot_token: { telegram_bot_token: "" },
       feishu: { feishu_open_id: "", feishu_chat_id: "" },
       wecom: { wecom_webhook: "" },
+      bark: { bark_key: "" },
     };
     const { confirm } = await wx.showModal({
       title: "解绑确认",

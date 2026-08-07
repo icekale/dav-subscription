@@ -51,6 +51,20 @@
         在企业微信群「添加群机器人」获取 webhook，推送会发到该群。
       </view>
     </view>
+    <view class="form-item">
+      <view class="form-label">Bark（iPhone 推送）</view>
+      <view class="channel-line">
+        <text class="channel-status {{barkBound ? 'ok' : 'muted'}}">{{barkBound ? "已绑定" : "未绑定"}}</text>
+        <button wx:if="{{barkBound}}" class="btn-link" data-channel="bark" bindtap="unbind">解绑</button>
+      </view>
+      <view class="row" style="gap:16rpx;margin-top:12rpx">
+        <input class="input tg-token-input" placeholder="Bark App 里的推送 key" value="{{barkKey}}" bindinput="onBarkInput" />
+        <button class="btn btn-ghost" style="flex-shrink:0" bindtap="saveBark">{{barkBound ? '更新' : '保存'}}</button>
+      </view>
+      <view class="notice-line" style="color:var(--text-faint);font-size:22rpx;margin-top:8rpx">
+        iPhone 装 Bark App 即可拿到 key；也支持粘贴自建服务器的完整地址（https://bark.example.com/xxx）。
+      </view>
+    </view>
     <view class="notice-line" style="color:var(--text-muted);font-size:24rpx;line-height:1.8;margin-top:8rpx">
       状态自动刷新：去机器人发一条消息，回到本页稍等几秒即可看到已绑定。
     </view>
@@ -94,6 +108,28 @@
       </view>
     </view>
     <button class="btn btn-ghost btn-block" style="margin-top:8rpx" bindtap="saveDnd">保存免打扰设置</button>
+  </view>
+  <view class="card">
+    <view class="card-title">关键词提醒</view>
+    <view class="notice-line" style="color:var(--text-muted);font-size:24rpx;line-height:1.8">
+      命中关键词的动态会加 🔑 标记、并在免打扰时段实时推送（穿透免打扰）。每行一个，最多 20 个。
+    </view>
+    <textarea class="input" style="height:200rpx;margin-top:16rpx" placeholder="ETF&#10;降息&#10;中概股"
+      value="{{keywordsInput}}" bindinput="onKeywordsInput" />
+    <button class="btn btn-ghost btn-block" style="margin-top:16rpx" bindtap="saveKeywords">保存关键词</button>
+  </view>
+  <view class="card">
+    <view class="card-title">RSS 订阅源</view>
+    <view class="notice-line" style="color:var(--text-muted);font-size:24rpx;line-height:1.8">
+      把订阅源地址加进任意 RSS 阅读器，即可直接收你订阅大V的动态，无需登录。
+    </view>
+    <view class="row" style="gap:16rpx;margin-top:16rpx">
+      <button class="btn btn-ghost" style="flex:1" bindtap="copyFeed">复制订阅源地址</button>
+      <button class="btn btn-ghost" style="flex:1" bindtap="regenerateFeed">重新生成</button>
+    </view>
+    <view class="notice-line" style="color:var(--text-faint);font-size:22rpx;margin-top:8rpx">
+      地址内含订阅凭证，泄露后别人能读到你的关注流；泄露了就点「重新生成」立即作废。
+    </view>
   </view>
   <view class="card">
     <view class="form-item">

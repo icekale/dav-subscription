@@ -84,6 +84,7 @@ def create_app(config=None, db_path: str | Path | None = None) -> FastAPI:
         config.notifiers,
         config.sources.xueqiu,
         config.sources.weibo,
+        config.llm,
     )
 
     @asynccontextmanager

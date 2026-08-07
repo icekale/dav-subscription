@@ -1771,3 +1771,98 @@ def test_security_headers():
     page = client.get("/")
     assert page.status_code == 200
     assert page.headers.get("x-content-type-options") == "nosniff"
+
+
+# ---- 关键词提醒 API ----
+def test_keywords_crud_api():
+    client = make_client()
+    headers = user_headers(client, "kw_user")
+
+    # 默认空
+    me = client.get("/api/me", headers=headers).json()
+    assert me["keywords"] == []
+
+    resp = client.put(
+        "/api/me", headers=headers,
+        json={"keywords": ["ETF", " 降息 ", "   ", "机器人"]},
+    )
+    assert resp.status_code == 200
+    me = client.get("/api/me", headers=headers).json()
+    assert me["keywords"] == ["ETF", "降息", "机器人"]  # 去空白/空项
+
+    # 覆盖更新
+    client.put("/api/me", headers=headers, json={"keywords": ["半导体"]})
+    assert client.get("/api/me", headers=headers).json()["keywords"] == ["半导体"]
+
+
+def test_keywords_limits_api():
+    client = make_client()
+    headers = user_headers(client, "kw_limit")
+
+    too_many = [f"关键词{i}" for i in range(21)]
+    resp = client.put("/api/me", headers=headers, json={"keywords": too_many})
+    assert resp.status_code == 400
+    assert "20" in resp.json()["detail"]
+
+    resp = client.put(
+        "/api/me", headers=headers,
+        json={"keywords": ["字" * 51]},
+    )
+    assert resp.status_code == 400
+    assert "50" in resp.json()["detail"]
+
+
+# ---- Bark 绑定 API ----
+def test_bark_key_bind_api():
+    client = make_client()
+    headers = user_headers(client, "bark_user")
+
+    me = client.get("/api/me", headers=headers).json()
+    assert me["bark_key"] == ""
+
+    # 非法 key → 400
+    resp = client.put("/api/me", headers=headers, json={"bark_key": "短"})
+    assert resp.status_code == 400
+    assert "Bark key 无效" in resp.json()["detail"]
+
+    # 合法 key → 绑定成功
+    resp = client.put(
+        "/api/me", headers=headers,
+        json={"bark_key": "AaBbCcDdEeFf1234567890"},
+    )
+    assert resp.status_code == 200
+    assert client.get("/api/me", headers=headers).json()["bark_key"] == "AaBbCcDdEeFf1234567890"
+
+    # 完整 URL 写法也接受
+    resp = client.put(
+        "/api/me", headers=headers,
+        json={"bark_key": "https://api.day.app/AaBbCcDdEeFf1234567890"},
+    )
+    assert resp.status_code == 200
+    assert client.get("/api/me", headers=headers).json()["bark_key"] == "https://api.day.app/AaBbCcDdEeFf1234567890"
+
+
+def test_bark_key_duplicate_rejected():
+    client = make_client()
+    h1 = user_headers(client, "bark_a")
+    h2 = user_headers(client, "bark_b")
+    assert client.put("/api/me", headers=h1, json={"bark_key": "AaBbCcDdEeFf1234567890"}).status_code == 200
+    resp = client.put("/api/me", headers=h2, json={"bark_key": "AaBbCcDdEeFf1234567890"})
+    assert resp.status_code == 400
+    assert "已绑定其他账号" in resp.json()["detail"]
+    # 原绑定者不受影响
+    assert client.get("/api/me", headers=h1).json()["bark_key"] == "AaBbCcDdEeFf1234567890"
+
+
+# ---- feed token API ----
+def test_feed_token_in_me():
+    client = make_client()
+    headers = user_headers(client, "feed_me")
+    me = client.get("/api/me", headers=headers).json()
+    assert me["feed_token"]  # 首次访问自动生成
+
+    resp = client.post("/api/me/feed-token/regenerate", headers=headers)
+    assert resp.status_code == 200
+    new = resp.json()["feed_token"]
+    assert new != me["feed_token"]
+    assert client.get("/api/me", headers=headers).json()["feed_token"] == new

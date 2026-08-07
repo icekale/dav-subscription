@@ -12,6 +12,7 @@ const CHANNEL_ICONS = {
   telegram: `<svg class="ch-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>`,
   feishu: `<svg class="ch-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.5c-2 3.4-4.6 5.4-8.8 6.2 4.2.8 6.8 2.8 8.8 6.2 2-3.4 4.6-5.4 8.8-6.2-4.2-.8-6.8-2.8-8.8-6.2z"/></svg>`,
   wecom: `<svg class="ch-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 4c-4.42 0-8 3.02-8 6.75 0 2.13 1.22 4.02 3.12 5.26L6.2 19.5l3.66-1.83c.68.15 1.4.24 2.14.24 4.42 0 8-3.02 8-6.75S16.42 4 12 4z"/></svg>`,
+  bark: `<svg class="ch-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg>`,
 };
 const APP_VERSION = "1.5.0";
 const PLATFORM_TABS = ["", "xueqiu", "combination", "weibo", "twitter"];
@@ -785,6 +786,7 @@ function channelStatusHtml(user) {
   const fsOpen = user.feishu_open_id;
   const fsChat = user.feishu_chat_id;
   const wc = user.wecom_webhook;
+  const bk = user.bark_key;
   const fsOk = !!(fsOpen && fsChat);
   const statusPill = (cls, text) => `<span class="channel-status ${cls}"><i class="dot"></i>${text}</span>`;
   return `
@@ -845,6 +847,18 @@ function channelStatusHtml(user) {
             : `<button class="channel-btn primary" onclick="document.getElementById('wecom-bind').scrollIntoView({behavior:'smooth'})">去绑定</button>`}
         </div>
       </div>
+      <div class="channel-card" data-channel="bark">
+        <div class="channel-head">
+          <span class="channel-title">${CHANNEL_ICONS.bark}<b>Bark</b></span>
+          ${bk ? statusPill("status-ok", "已绑定") : statusPill("status-fail", "未绑定")}
+        </div>
+        <p class="muted channel-desc">${bk ? "iOS 推送已启用" : "iPhone 装 Bark App，把推送 key 粘贴到下方输入框即可"}</p>
+        <div class="channel-actions">
+          ${bk
+            ? `<button class="channel-btn secondary" onclick="unbindChannel('bark')">解绑</button>`
+            : `<button class="channel-btn primary" onclick="document.getElementById('bark-bind').scrollIntoView({behavior:'smooth'})">去绑定</button>`}
+        </div>
+      </div>
     </div>`;
 }
 
@@ -864,7 +878,7 @@ async function refreshSettingsStatus() {
     } else if (pendingBind) {
       pendingBind = null;
     }
-    if (user.telegram_chat_id && user.feishu_open_id && user.feishu_chat_id && user.wecom_webhook) stopSettingsPoll();
+    if (user.telegram_chat_id && user.feishu_open_id && user.feishu_chat_id && user.wecom_webhook && user.bark_key) stopSettingsPoll();
   } catch {
     /* 轮询失败忽略 */
   }
@@ -887,6 +901,7 @@ async function renderSettings() {
           { channel: "telegram", label: "Telegram", icon: CHANNEL_ICONS.telegram },
           { channel: "feishu", label: "飞书", icon: CHANNEL_ICONS.feishu },
           { channel: "wecom", label: "企业微信", icon: CHANNEL_ICONS.wecom },
+          { channel: "bark", label: "Bark", icon: CHANNEL_ICONS.bark },
         ])}
       <section class="section-panel">
         <header class="section-head">
@@ -940,7 +955,7 @@ async function renderSettings() {
           </div>
         </header>
         <div class="channel-picks" id="push-channels-box">${pushChannelsHtml(state.user)}</div>
-        ${(state.user.telegram_chat_id || state.user.feishu_open_id || state.user.feishu_chat_id || state.user.wecom_webhook)
+        ${(state.user.telegram_chat_id || state.user.feishu_open_id || state.user.feishu_chat_id || state.user.wecom_webhook || state.user.bark_key)
           ? `<div class="toolbar" style="margin-top:14px">
                <button class="btn-normal" onclick="savePushChannels()">保存推送通道</button>
                <span id="push-channels-result" class="muted"></span>
@@ -985,6 +1000,30 @@ async function renderSettings() {
         </div>
         <p class="muted">⚠️ webhook 等同群管理权限，请勿泄露给他人；不同用户应使用各自的群机器人。</p>
       </section>
+      <section class="section-panel" id="bark-bind">
+        <header class="section-head">
+          <div>
+            <p class="section-eyebrow">Bark</p>
+            <h3 class="section-title">⑤ 绑定 Bark（iPhone 推送）</h3>
+            <p class="section-meta">iOS 自托管用户神器：Bark App 免登录、免费、推送直达锁屏，无需申请任何开发者资质。</p>
+          </div>
+        </header>
+        <ol style="padding-left:20px;line-height:2">
+          <li>iPhone 在 App Store 搜索「Bark」安装，打开后主屏会显示你的推送 key（形如 <code>AaBbCcDdEe...</code>）。</li>
+          <li>把这个 key 粘贴到下方输入框，点「保存绑定」即可。</li>
+          <li>想用自建 Bark 服务器？直接把服务器里的完整地址（<code>https://bark.example.com/xxx</code>）粘贴进来也行。</li>
+        </ol>
+        <div class="form-row" style="margin-top:14px">
+          <label for="set-bark-key">Bark 推送 key 或完整地址</label>
+          <div class="row" style="gap:10px;flex-wrap:wrap">
+            <input id="set-bark-key" class="form-control" style="flex:1;min-width:280px"
+              type="text" placeholder="AaBbCcDdEeFf...（Bark App 里的 key）"
+              value="${escapeHtml(state.user.bark_key || "")}">
+            <button class="btn-normal" onclick="saveBarkKey()">保存绑定</button>
+          </div>
+        </div>
+        <p class="muted">🔔 key 等同推送权限，请勿泄露；系统告警不依赖此 key（管理员另配系统级 Bark）。</p>
+      </section>
       <section class="section-panel">
         <header class="section-head">
           <div>
@@ -1017,6 +1056,44 @@ async function renderSettings() {
           <button class="btn-ghost" onclick="genBindCode()">生成绑定码</button>
         </div>
         <div id="bind-result" class="muted" style="margin-top:14px"></div>
+      </section>
+      <section class="section-panel">
+        <header class="section-head">
+          <div>
+            <p class="section-eyebrow">RSS</p>
+            <h3 class="section-title">RSS 订阅源（用任意阅读器收动态）</h3>
+            <p class="section-meta">不想用聊天工具？把下面地址加进 Reeder / NetNewsWire / 其他任何 RSS 阅读器，就能直接收你订阅大V的动态，无需登录。</p>
+          </div>
+        </header>
+        <div class="form-row">
+          <label for="set-feed-url">你的私有订阅源地址</label>
+          <div class="row" style="gap:10px;flex-wrap:wrap">
+            <input id="set-feed-url" class="form-control" style="flex:1;min-width:280px" readonly
+              value="${location.origin}/api/feed/${escapeHtml(state.user.feed_token || "")}.xml">
+            <button class="btn-normal" onclick="copyFeedUrl()">复制</button>
+            <button class="btn-ghost" onclick="regenerateFeedToken()">重新生成</button>
+          </div>
+        </div>
+        <p class="muted">⚠️ 地址内含订阅凭证，泄露后别人能读到你的关注流；泄露了就点「重新生成」立即作废旧地址。</p>
+      </section>
+      <section class="section-panel">
+        <header class="section-head">
+          <div>
+            <p class="section-eyebrow">Keywords</p>
+            <h3 class="section-title">关键词提醒</h3>
+            <p class="section-meta">命中关键词的动态会加 🔑 标记、并在免打扰时段实时推送（穿透免打扰）；每行一个，最多 20 个，每个不超过 50 字。</p>
+          </div>
+        </header>
+        <div class="form-row">
+          <label for="set-keywords">关键词（每行一个）</label>
+          <textarea id="set-keywords" class="form-control" rows="4"
+            placeholder="ETF&#10;降息&#10;中概股">${escapeHtml((state.user.keywords || []).join("\n"))}</textarea>
+        </div>
+        <div class="toolbar" style="margin-top:10px">
+          <button class="btn-normal" onclick="saveKeywords()">保存关键词</button>
+          <span id="keywords-result" class="muted"></span>
+        </div>
+        <p class="muted">适用场景：只关心某个大V聊的特定话题（如「只想要 ETF 相关的」）；命中即实时送达，不受免打扰影响。</p>
       </section>
       <section class="section-panel">
         <div class="form-row">
@@ -1070,6 +1147,7 @@ function pushChannelsHtml(user) {
   if (user.telegram_chat_id) opts.push(["telegram", "Telegram"]);
   if (user.feishu_open_id || user.feishu_chat_id) opts.push(["feishu", "飞书"]);
   if (user.wecom_webhook) opts.push(["wecom", "企业微信"]);
+  if (user.bark_key) opts.push(["bark", "Bark"]);
   if (!opts.length) return `<p class="muted">还没有绑定推送渠道，先完成上方任一渠道绑定后即可选择。</p>`;
   const selected = (user.push_channels || "").split(",").map((s) => s.trim()).filter(Boolean);
   const isChecked = (ch) => selected.length === 0 || selected.includes(ch);
@@ -1210,13 +1288,16 @@ async function saveCustomTgBot() {
 async function unbindChannel(channel) {
   const label = channel === "telegram_chat_id" ? "Telegram"
     : channel === "telegram_bot_token" ? "Telegram（自建机器人）"
-    : channel === "wecom" ? "企业微信" : "飞书";
+    : channel === "wecom" ? "企业微信"
+    : channel === "bark" ? "Bark" : "飞书";
   if (!confirm(`确认解绑 ${label}？解绑后将不再往该渠道推送。`)) return;
   try {
     const body = channel === "feishu"
       ? { feishu_open_id: "", feishu_chat_id: "" }
       : channel === "wecom"
         ? { wecom_webhook: "" }
+        : channel === "bark"
+          ? { bark_key: "" }
         : channel === "telegram_bot_token"
           ? { telegram_bot_token: "", telegram_chat_id: "" }
         : { telegram_chat_id: "" };
@@ -1242,6 +1323,60 @@ async function saveWecomWebhook() {
     if (webhook) alert("企业微信绑定成功 ✅");
   } catch (err) {
     alert("保存失败: " + err.message);
+  }
+}
+
+async function saveBarkKey() {
+  const key = ($("#set-bark-key").value || "").trim();
+  try {
+    await api("/api/me", {
+      method: "PUT",
+      body: JSON.stringify({ bark_key: key }),
+    });
+    renderSettings();
+    if (key) alert("Bark 绑定成功 ✅ 去 iPhone 上确认能收到推送");
+  } catch (err) {
+    alert("保存失败: " + err.message);
+  }
+}
+
+async function saveKeywords() {
+  const keywords = ($("#set-keywords").value || "")
+    .split(/[\n,]/)
+    .map((k) => k.trim())
+    .filter(Boolean);
+  try {
+    await api("/api/me", {
+      method: "PUT",
+      body: JSON.stringify({ keywords }),
+    });
+    const el = $("#keywords-result");
+    if (el) el.textContent = `已保存 ${keywords.length} 个关键词 ✅`;
+  } catch (err) {
+    alert("保存失败: " + err.message);
+  }
+}
+
+function copyFeedUrl() {
+  const input = $("#set-feed-url");
+  if (!input || !input.value) return;
+  input.select();
+  input.setSelectionRange(0, 99999);
+  navigator.clipboard
+    ?.writeText(input.value)
+    .then(() => alert("订阅源地址已复制 ✅"))
+    .catch(() => alert("请手动复制：" + input.value));
+}
+
+async function regenerateFeedToken() {
+  if (!confirm("重新生成后旧地址立即失效，确认？")) return;
+  try {
+    const res = await api("/api/me/feed-token/regenerate", { method: "POST" });
+    state.user.feed_token = res.feed_token;
+    renderSettings();
+    alert("订阅源地址已重新生成 ✅");
+  } catch (err) {
+    alert("操作失败: " + err.message);
   }
 }
 
@@ -2398,7 +2533,7 @@ async function loadAdminUsers() {
       <header class="section-head"><div><p class="section-eyebrow">Users</p><h3 class="section-title">注册用户</h3></div></header>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>ID</th><th>用户名</th><th>角色</th><th>Telegram</th><th>飞书</th><th>企业微信</th><th>推送</th><th>注册时间</th><th>操作</th></tr></thead>
+          <thead><tr><th>ID</th><th>用户名</th><th>角色</th><th>Telegram</th><th>飞书</th><th>企业微信</th><th>Bark</th><th>推送</th><th>注册时间</th><th>操作</th></tr></thead>
           <tbody>${users.map((u) => `
             <tr>
               <td>${u.id}</td><td>${escapeHtml(u.username)}</td>
@@ -2406,6 +2541,7 @@ async function loadAdminUsers() {
               <td>${escapeHtml(u.telegram_chat_id || "-")}</td>
               <td>${escapeHtml(u.feishu_open_id || "-")}</td>
               <td>${u.wecom_webhook ? "已绑定" : "-"}</td>
+              <td>${u.bark_key ? "已绑定" : "-"}</td>
               <td>${u.notify_enabled ? "开启" : "关闭"}</td>
               <td>${escapeHtml(fmtDbTime(u.created_at))}</td>
               <td>

@@ -11,12 +11,11 @@ from app.config import FeishuConfig, NotifiersConfig, TelegramConfig
 from app.db import DB
 from app.fetchers.base import Post
 from app.scheduler import (
-    _x_fallback_advice,
-
     PushRetryQueue,
     Scheduler,
     _polling_bool,
     _polling_setting,
+    _x_fallback_advice,
     extract_tweet_id,
     flush_digest,
     keepalive_weibo_cookie,
@@ -2134,3 +2133,137 @@ def test_admin_logs_retention():
     assert db.delete_admin_logs_older_than(180) == 1
     assert db.list_admin_logs(10)[0]["action"] == "delete_user"
     assert db.delete_admin_logs_older_than(180) == 0
+
+
+# ---- 关键词提醒 ----
+def test_keyword_hit():
+    from app.scheduler import _keyword_hit
+
+    post = make_post(1)  # content="c", title="t"
+    assert not _keyword_hit([], post)
+    assert not _keyword_hit(["ETF"], post)
+    assert not _keyword_hit([" ", ""], post)
+
+    hit = Post(
+        platform="xueqiu", kol_id=1, kol_name="A",
+        external_id="p2", title="ETF 观察", content="正文", url="u", published_at="",
+    )
+    assert _keyword_hit(["etf"], hit)  # 大小写不敏感
+    assert _keyword_hit(["观察"], hit)  # 标题命中
+    assert _keyword_hit(["正"], hit)  # 正文命中
+
+
+def test_notify_subscribers_dnd_keyword_penetration(monkeypatch):
+    """免打扰时段：关键词命中的帖子实时推送（穿透），未命中的进缓冲。"""
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.add_subscription(uid, kid)
+    db.set_user_keywords(uid, ["ETF"])
+
+    monkeypatch.setattr("app.scheduler._in_dnd_window", lambda user, now=None: True)
+
+    sent = []
+    dnd_buffer: dict[int, list[Post]] = {}
+
+    class FakeTG:
+        channel = "telegram"
+
+        def __init__(self, *args, **kwargs):
+            self.client = SimpleNamespace(close=lambda: None)
+
+        def notify(self, post):
+            sent.append(post.external_id)
+
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FakeTG)
+    ncfg = SimpleNamespace(
+        telegram=SimpleNamespace(bot_token="t", chat_id=""),
+        feishu=SimpleNamespace(),
+        wecom=SimpleNamespace(),
+        bark=SimpleNamespace(bark_server="", bark_key=""),
+    )
+
+    hit = Post(
+        platform="xueqiu", kol_id=kid, kol_name="A",
+        external_id="p1", title="ETF 大涨", content="内容", url="u", published_at="",
+    )
+    notify_subscribers(db, 1, hit, ncfg, notifiers=[], retry_queue=None, dnd_buffer=dnd_buffer)
+    assert sent == ["p1"]  # 关键词命中 → 实时穿透
+    assert uid not in dnd_buffer
+
+    sent.clear()
+    normal = Post(
+        platform="xueqiu", kol_id=kid, kol_name="A",
+        external_id="p2", title="普通动态", content="内容", url="u", published_at="",
+    )
+    notify_subscribers(db, 2, normal, ncfg, notifiers=[], retry_queue=None, dnd_buffer=dnd_buffer)
+    assert sent == []  # 未命中 → 缓冲
+    assert uid in dnd_buffer
+
+
+def test_notify_subscribers_bark_channel(monkeypatch):
+    """用户绑定 Bark key 时走 Bark 推送并记录推送日志。"""
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    uid = db.add_user("u", "h")
+    db.update_user(uid, bark_key="AaBbCcDdEeFf1234567890")
+    db.add_subscription(uid, kid)
+    post = make_post(kid)
+    db.insert_post(
+        post.platform, kid, post.external_id, post.title, post.content,
+        post.url, post.published_at,
+    )
+    post_id = db.get_post_id(post.platform, post.external_id)
+    received = {}
+
+    class FakeBark:
+        channel = "bark"
+
+        def __init__(self, *args, **kwargs):
+            received.update(kwargs)
+            self.client = SimpleNamespace(close=lambda: None)
+
+        def notify(self, post):
+            pass
+
+    monkeypatch.setattr("app.notifiers.bark.BarkNotifier", FakeBark)
+    ncfg = SimpleNamespace(
+        telegram=SimpleNamespace(bot_token="", chat_id=""),
+        feishu=SimpleNamespace(),
+        wecom=SimpleNamespace(),
+        bark=SimpleNamespace(bark_server="", bark_key=""),
+    )
+    notify_subscribers(db, post_id, post, ncfg, notifiers=[], retry_queue=None)
+    assert received.get("bark_key") == "AaBbCcDdEeFf1234567890"
+    logs = db.list_push_logs()
+    assert logs and logs[0]["channel"] == "bark" and logs[0]["status"] == "success"
+
+
+def test_notify_subscribers_bark_skipped_without_key(monkeypatch):
+    """未绑定 Bark key 的用户不会触发 Bark 推送。"""
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    uid = db.add_user("u", "h")
+    db.add_subscription(uid, kid)
+
+    called = {"n": 0}
+
+    class FakeBark:
+        channel = "bark"
+
+        def __init__(self, *args, **kwargs):
+            called["n"] += 1
+
+        def notify(self, post):
+            pass
+
+    monkeypatch.setattr("app.notifiers.bark.BarkNotifier", FakeBark)
+    ncfg = SimpleNamespace(
+        telegram=SimpleNamespace(bot_token="", chat_id=""),
+        feishu=SimpleNamespace(),
+        wecom=SimpleNamespace(),
+        bark=SimpleNamespace(bark_server="", bark_key=""),
+    )
+    notify_subscribers(db, 1, make_post(kid), ncfg, notifiers=[], retry_queue=None)
+    assert called["n"] == 0
+    assert db.list_push_logs() == []

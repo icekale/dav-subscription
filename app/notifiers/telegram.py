@@ -47,13 +47,13 @@ class _RateLimiter:
 _tg_rate_limiter = _RateLimiter(TG_MAX_MESSAGES_PER_SECOND)
 
 
-def build_telegram_text(post: Post, favorite: bool = False) -> str:
+def build_telegram_text(post: Post, favorite: bool = False, keyword: bool = False) -> str:
     platform = PLATFORM_LABELS.get(post.platform, post.platform)
     body = truncate_text(post.content, 2000) or post.title or "（无正文）"
     kind = " · 回复" if post.post_type == "reply" else ""
-    star = "⭐ " if favorite else ""
+    marks = ("⭐ " if favorite else "") + ("🔑 " if keyword else "")
     lines = [
-        f"<b>📌 {star}{escape(post.kol_name)} · {platform}{kind}</b>",
+        f"<b>📌 {marks}{escape(post.kol_name)} · {platform}{kind}</b>",
         "",
         escape(body),
     ]
@@ -171,6 +171,7 @@ class TelegramNotifier(Notifier):
         unsub_kol_id: int | None = None,
         bot_token: str | None = None,
         favorite: bool = False,
+        keyword: bool = False,
     ):
         # 用户自建 bot 时用用户自己的 token；否则用全局共享 bot
         self.bot_token = bot_token or config.bot_token
@@ -178,6 +179,7 @@ class TelegramNotifier(Notifier):
         self.client = client or httpx.Client(timeout=15, proxy=config.proxy or None)
         self.unsub_kol_id = unsub_kol_id
         self.favorite = favorite
+        self.keyword = keyword
 
     def _send(self, data: dict) -> None:
         if not self.bot_token or not self.chat_id:
@@ -214,7 +216,7 @@ class TelegramNotifier(Notifier):
         text = (
             build_combination_text(post)
             if post.platform == "combination" and post.detail
-            else build_telegram_text(post, self.favorite)
+            else build_telegram_text(post, self.favorite, self.keyword)
         )
         self._send(
             {

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import secrets
 import sqlite3
 import threading
 import time
@@ -250,6 +251,26 @@ class DB:
             self._conn.execute("ALTER TABLE users ADD COLUMN wecom_webhook TEXT NOT NULL DEFAULT ''")
         if "telegram_bot_token" not in user_cols:
             self._conn.execute("ALTER TABLE users ADD COLUMN telegram_bot_token TEXT NOT NULL DEFAULT ''")
+        if "feed_token" not in user_cols:
+            self._conn.execute("ALTER TABLE users ADD COLUMN feed_token TEXT NOT NULL DEFAULT ''")
+        if "bark_key" not in user_cols:
+            self._conn.execute("ALTER TABLE users ADD COLUMN bark_key TEXT NOT NULL DEFAULT ''")
+        self._conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_users_feed_token "
+            "ON users(feed_token) WHERE feed_token != ''"
+        )
+        self._conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_users_bark_key "
+            "ON users(bark_key) WHERE bark_key != ''"
+        )
+        self._conn.execute(
+            "CREATE TABLE IF NOT EXISTS user_keywords ("
+            "  user_id INTEGER NOT NULL,"
+            "  keyword TEXT NOT NULL,"
+            "  created_at TEXT NOT NULL DEFAULT (datetime('now')),"
+            "  UNIQUE (user_id, keyword)"
+            ")"
+        )
         kol_cols = {row["name"] for row in self._rows("PRAGMA table_info(kols)")}
         if "priority" not in kol_cols:
             self._conn.execute("ALTER TABLE kols ADD COLUMN priority INTEGER NOT NULL DEFAULT 0")
@@ -561,6 +582,23 @@ class DB:
         rows = self._rows("SELECT * FROM users WHERE wecom_webhook = ?", (webhook,))
         return rows[0] if rows else None
 
+    def get_user_by_bark_key(self, bark_key: str) -> dict | None:
+        rows = self._rows("SELECT * FROM users WHERE bark_key = ?", (bark_key,))
+        return rows[0] if rows else None
+
+    def get_user_by_feed_token(self, feed_token: str) -> dict | None:
+        rows = self._rows("SELECT * FROM users WHERE feed_token = ?", (feed_token,))
+        return rows[0] if rows else None
+
+    def ensure_feed_token(self, user_id: int) -> str:
+        """返回用户 RSS 订阅 token；没有则生成一个（长随机串，等价订阅凭证）。"""
+        user = self.get_user(user_id)
+        if user and user.get("feed_token"):
+            return user["feed_token"]
+        token = secrets.token_urlsafe(32)
+        self.update_user(user_id, feed_token=token)
+        return token
+
     def get_user_by_openid(self, openid: str) -> dict | None:
         rows = self._rows("SELECT * FROM users WHERE wechat_openid = ?", (openid,))
         return rows[0] if rows else None
@@ -599,6 +637,7 @@ class DB:
         "telegram_chat_id", "telegram_bot_token", "feishu_open_id",
         "feishu_chat_id", "wecom_webhook", "notify_enabled", "daily_report",
         "push_channels", "dnd_start", "dnd_end", "dnd_allow_favorite",
+        "feed_token", "bark_key",
     })
 
     def update_user(self, user_id: int, **kwargs) -> None:
@@ -851,7 +890,7 @@ class DB:
             "JOIN kols k ON k.id = s.kol_id "
             "WHERE s.kol_id = ? AND u.notify_enabled = 1 "
             "AND (u.telegram_chat_id != '' OR u.feishu_open_id != '' OR u.feishu_chat_id != '' "
-            "OR u.wecom_webhook != '') "
+            "OR u.wecom_webhook != '' OR u.bark_key != '') "
             "AND (k.is_private = 0 OR EXISTS "
             "(SELECT 1 FROM kol_acl a WHERE a.kol_id = k.id AND a.user_id = u.id))",
             (kol_id,),
@@ -872,6 +911,23 @@ class DB:
             (user_id,),
         )
         return {row["kol_id"] for row in rows}
+
+    def get_user_keywords(self, user_id: int) -> list[str]:
+        """用户的关键词提醒规则（命中即穿透免打扰并加急推送）。"""
+        rows = self._rows(
+            "SELECT keyword FROM user_keywords WHERE user_id = ? ORDER BY rowid", (user_id,)
+        )
+        return [r["keyword"] for r in rows]
+
+    def set_user_keywords(self, user_id: int, keywords: list[str]) -> None:
+        with self._lock:
+            self._conn.execute("DELETE FROM user_keywords WHERE user_id = ?", (user_id,))
+            for keyword in keywords:
+                self._conn.execute(
+                    "INSERT INTO user_keywords (user_id, keyword) VALUES (?, ?)",
+                    (user_id, keyword),
+                )
+            self._conn.commit()
 
     # ---- 绑定码 ----
     def create_bind_code(self, code: str, user_id: int, expires_at: int) -> None:
