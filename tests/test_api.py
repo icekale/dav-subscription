@@ -2025,3 +2025,25 @@ def test_admin_rename_username_min_length_6():
     assert client.put(
         f"/api/users/{uid}", headers=admin_headers, json={"username": "abcdef"}
     ).status_code == 200
+
+
+def test_push_channels_accepts_bark():
+    """push_channels 白名单必须包含 bark（加 Bark 通道时漏改过这里）。"""
+    client = make_client()
+    headers = user_headers(client, "barkchan")
+    # 绑定 Bark 后，推送通道选择里勾选 bark + telegram 应可保存
+    client.put("/api/me", headers=headers, json={"bark_key": "AaBbCcDdEeFf1234567890"})
+    client.put(
+        "/api/me", headers=headers,
+        json={"telegram_chat_id": "123"},
+    )
+    resp = client.put(
+        "/api/me", headers=headers,
+        json={"push_channels": "telegram,bark"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert client.get("/api/me", headers=headers).json()["push_channels"] == "telegram,bark"
+    # 非法渠道仍拒绝
+    assert client.put(
+        "/api/me", headers=headers, json={"push_channels": "telegram,slack"}
+    ).status_code == 400

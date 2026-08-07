@@ -656,7 +656,7 @@ def create_api_router(
         if "push_channels" in body.model_fields_set:
             value = (body.push_channels or "").strip()
             channels = [c.strip() for c in value.split(",") if c.strip()] if value else []
-            invalid = [c for c in channels if c not in ("telegram", "feishu", "wecom")]
+            invalid = [c for c in channels if c not in ("telegram", "feishu", "wecom", "bark")]
             if invalid:
                 raise HTTPException(
                     status_code=400,
