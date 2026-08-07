@@ -288,7 +288,7 @@ def test_feishu_notify_adds_images(monkeypatch):
 
     assert any(
         el.get("tag") == "img" and el.get("img_key") == "img_key_1"
-        for el in card_sent["card"]["elements"]
+        for el in card_sent["card"]["body"]["elements"]
     )
 
 
@@ -296,8 +296,9 @@ def test_feishu_dnd_summary_card_structure():
     from app.notifiers.feishu import build_feishu_dnd_summary_card
 
     card = build_feishu_dnd_summary_card([make_post()])
-    assert {"config", "header", "elements"} <= set(card.keys())
+    assert {"config", "header", "body"} <= set(card.keys())
     assert "免打扰" in card["header"]["title"]["content"]
+    assert card["body"]["elements"]
 
 
 def test_daily_and_dnd_summaries_mark_truncated():
@@ -316,9 +317,9 @@ def test_daily_and_dnd_summaries_mark_truncated():
     assert "…" in build_telegram_dnd_summary([long_post])
     assert "…" not in build_telegram_daily([short_post])
 
-    assert "…" in build_feishu_daily_card([long_post])["elements"][0]["text"]["content"]
-    assert "…" in build_feishu_dnd_summary_card([long_post])["elements"][0]["text"]["content"]
-    assert "…" not in build_feishu_daily_card([short_post])["elements"][0]["text"]["content"]
+    assert "…" in build_feishu_daily_card([long_post])["body"]["elements"][0]["text"]["content"]
+    assert "…" in build_feishu_dnd_summary_card([long_post])["body"]["elements"][0]["text"]["content"]
+    assert "…" not in build_feishu_daily_card([short_post])["body"]["elements"][0]["text"]["content"]
 
     assert "…" in build_wecom_daily([long_post])
     assert "…" in build_wecom_dnd_summary([long_post])
@@ -467,7 +468,7 @@ def test_digest_builders():
 
     card = build_feishu_digest_card(posts, "李四", "weibo")
     assert "2 条新动态" in card["header"]["title"]["content"]
-    assert len(card["elements"]) >= 2
+    assert len(card["body"]["elements"]) >= 2
 
     # 单条动态不加序号，避免出现孤立的 "1."
     single = [posts[0]]
@@ -477,9 +478,9 @@ def test_digest_builders():
 
     card1 = build_feishu_digest_card(single, "李四", "weibo")
     assert "（1 条新动态）" in card1["header"]["title"]["content"]
-    body1 = card1["elements"][0]["text"]["content"]
+    body1 = card1["body"]["elements"][0]["text"]["content"]
     assert not body1.startswith("1. ")
-    button1 = card1["elements"][1]["actions"][0]["text"]["content"]
+    button1 = card1["body"]["elements"][1]["text"]["content"]
     assert button1 == "查看原文"
 
     text_w1 = build_wecom_digest(single, "李四", "weibo")
@@ -497,7 +498,7 @@ def test_digest_single_item_shows_full_content():
         assert "…" not in text
 
     card = build_feishu_digest_card(single, "李四", "weibo")
-    body1 = card["elements"][0]["text"]["content"]
+    body1 = card["body"]["elements"][0]["text"]["content"]
     assert long[:120] in body1 and "…" not in body1
 
     wtext = build_wecom_digest(single, "李四", "weibo")
@@ -514,7 +515,7 @@ def test_digest_multi_item_marks_truncated_preview():
     assert "…" in text
 
     card = build_feishu_digest_card(posts, "李四", "weibo")
-    assert "…" in card["elements"][0]["text"]["content"]
+    assert "…" in card["body"]["elements"][0]["text"]["content"]
 
     wtext = build_wecom_digest(posts, "李四", "weibo")
     assert "…" in wtext

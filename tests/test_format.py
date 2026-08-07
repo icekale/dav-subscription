@@ -50,8 +50,8 @@ def test_feishu_card_contains_author_and_url():
     card = build_feishu_card(make_post())
     assert card["msg_type"] == "interactive"
     assert "📌 张三 · 雪球" in card["card"]["header"]["title"]["content"]
-    button = card["card"]["elements"][-1]["actions"][0]
-    assert button["url"] == "https://xueqiu.com/1"
+    button = card["card"]["body"]["elements"][-1]
+    assert button["behaviors"][0]["default_url"] == "https://xueqiu.com/1"
 
 
 def test_telegram_text_escapes_html():
@@ -113,7 +113,7 @@ def test_combination_feishu_card():
     assert card["card"]["header"]["title"]["content"] == "📌 伯言-A股 · 雪球组合 · 调仓"
     contents = [
         e["text"]["content"]
-        for e in card["card"]["elements"]
+        for e in card["card"]["body"]["elements"]
         if e.get("tag") == "div" and e.get("text")
     ]
     assert any("**年化** 27.1%" in c for c in contents)

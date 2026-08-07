@@ -28,6 +28,39 @@ def card_summary(*parts: str, limit: int = SUMMARY_LIMIT) -> str:
     text = "：".join(p.strip() for p in parts if p and p.strip())
     return truncate_text(text, limit)
 
+
+def _open_url_button(text: str, url: str, *, button_type: str = "default") -> dict:
+    """v2 跳转按钮：独立 button + behaviors.open_url（不再用 action 容器）。"""
+    return {
+        "tag": "button",
+        "text": {"tag": "plain_text", "content": text},
+        "type": button_type,
+        "behaviors": [{"type": "open_url", "default_url": url}],
+    }
+
+
+def _callback_button(text: str, value: dict, *, button_type: str = "default") -> dict:
+    """v2 回调按钮：独立 button + behaviors.callback。"""
+    return {
+        "tag": "button",
+        "text": {"tag": "plain_text", "content": text},
+        "type": button_type,
+        "behaviors": [{"type": "callback", "value": value}],
+    }
+
+
+def _more_note(text: str) -> dict:
+    """v2 移除了 note 组件，用 notation 字号 + grey 的普通文本代替。"""
+    return {
+        "tag": "div",
+        "text": {
+            "tag": "plain_text",
+            "content": text,
+            "text_size": "notation",
+            "text_color": "grey",
+        },
+    }
+
 _token_cache: dict[tuple[str, str], tuple[str, float]] = {}
 _token_lock = threading.Lock()
 
@@ -73,7 +106,7 @@ def build_feishu_card(post: Post, favorite: bool = False, keyword: bool = False)
         "card": {
             "schema": "2.0",
             "config": {
-                "wide_screen_mode": True,
+                "width_mode": "fill",
                 "summary": {
                     "content": card_summary(title, digest_body(post, full=False, max_chars=60))
                 },
@@ -82,28 +115,20 @@ def build_feishu_card(post: Post, favorite: bool = False, keyword: bool = False)
                 "title": {"tag": "plain_text", "content": title},
                 "template": "blue",
             },
-            "elements": [
-                {
-                    "tag": "div",
-                    "text": {"tag": "lark_md", "content": content},
-                },
-                {"tag": "hr"},
-                {
-                    "tag": "div",
-                    "text": {"tag": "lark_md", "content": "\n".join(meta_lines)},
-                },
-                {
-                    "tag": "action",
-                    "actions": [
-                        {
-                            "tag": "button",
-                            "text": {"tag": "plain_text", "content": "查看原文"},
-                            "type": "primary",
-                            "url": post.url,
-                        }
-                    ],
-                },
-            ],
+            "body": {
+                "elements": [
+                    {
+                        "tag": "div",
+                        "text": {"tag": "lark_md", "content": content},
+                    },
+                    {"tag": "hr"},
+                    {
+                        "tag": "div",
+                        "text": {"tag": "lark_md", "content": "\n".join(meta_lines)},
+                    },
+                    _open_url_button("查看原文", post.url, button_type="primary"),
+                ]
+            },
         },
     }
 
@@ -153,19 +178,7 @@ def build_feishu_combination_card(post: Post) -> dict:
             "text": {"tag": "lark_md", "content": f"🕐 {post.published_at}"},
         }
     )
-    elements.append(
-        {
-            "tag": "action",
-            "actions": [
-                {
-                    "tag": "button",
-                    "text": {"tag": "plain_text", "content": "查看原文"},
-                    "type": "primary",
-                    "url": post.url,
-                }
-            ],
-        }
-    )
+    elements.append(_open_url_button("查看原文", post.url, button_type="primary"))
     summary_parts = [f"📌 {post.kol_name} · 雪球组合 · 调仓"]
     if stats:
         summary_parts.append("　".join(f"{k} {v}" for k, v in stats))
@@ -179,14 +192,14 @@ def build_feishu_combination_card(post: Post) -> dict:
         "card": {
             "schema": "2.0",
             "config": {
-                "wide_screen_mode": True,
+                "width_mode": "fill",
                 "summary": {"content": card_summary(*summary_parts)},
             },
             "header": {
                 "title": {"tag": "plain_text", "content": f"📌 {post.kol_name} · 雪球组合 · 调仓"},
                 "template": "blue",
             },
-            "elements": elements,
+            "body": {"elements": elements},
         },
     }
 
@@ -205,30 +218,13 @@ def build_feishu_digest_card(posts: list[Post], kol_name: str, platform: str) ->
         elements.append({"tag": "div", "text": {"tag": "lark_md", "content": text}})
         if post.url:
             elements.append(
-                {
-                    "tag": "action",
-                    "actions": [
-                        {
-                            "tag": "button",
-                            "text": {
-                                "tag": "plain_text",
-                                "content": f"查看原文 {i}" if numbered else "查看原文",
-                            },
-                            "type": "default",
-                            "url": post.url,
-                        }
-                    ],
-                }
+                _open_url_button(
+                    f"查看原文 {i}" if numbered else "查看原文",
+                    post.url,
+                )
             )
     if len(posts) > DIGEST_MAX_ITEMS:
-        elements.append(
-            {
-                "tag": "note",
-                "elements": [
-                    {"tag": "plain_text", "content": f"… 还有 {len(posts) - DIGEST_MAX_ITEMS} 条未展示"}
-                ],
-            }
-        )
+        elements.append(_more_note(f"… 还有 {len(posts) - DIGEST_MAX_ITEMS} 条未展示"))
     summary_content = card_summary(
         f"📌 {kol_name} · {platform_label}（{len(posts)} 条新动态）",
         digest_body(posts[0], full=False, max_chars=60) if posts else "",
@@ -236,7 +232,7 @@ def build_feishu_digest_card(posts: list[Post], kol_name: str, platform: str) ->
     return {
         "schema": "2.0",
         "config": {
-            "wide_screen_mode": True,
+            "width_mode": "fill",
             "summary": {"content": summary_content},
         },
         "header": {
@@ -246,7 +242,7 @@ def build_feishu_digest_card(posts: list[Post], kol_name: str, platform: str) ->
             },
             "template": "blue",
         },
-        "elements": elements,
+        "body": {"elements": elements},
     }
 
 
@@ -261,28 +257,9 @@ def build_feishu_daily_card(posts: list[Post]) -> dict:
             text += f"\n🕐 {post.published_at}"
         elements.append({"tag": "div", "text": {"tag": "lark_md", "content": text}})
         if post.url:
-            elements.append(
-                {
-                    "tag": "action",
-                    "actions": [
-                        {
-                            "tag": "button",
-                            "text": {"tag": "plain_text", "content": "查看原文"},
-                            "type": "default",
-                            "url": post.url,
-                        }
-                    ],
-                }
-            )
+            elements.append(_open_url_button("查看原文", post.url))
     if len(posts) > DIGEST_MAX_ITEMS:
-        elements.append(
-            {
-                "tag": "note",
-                "elements": [
-                    {"tag": "plain_text", "content": f"… 还有 {len(posts) - DIGEST_MAX_ITEMS} 条未展示"}
-                ],
-            }
-        )
+        elements.append(_more_note(f"… 还有 {len(posts) - DIGEST_MAX_ITEMS} 条未展示"))
     summary_content = card_summary(
         f"📊 今日大V精选（{len(posts)} 条）",
         digest_body(ordered[0], full=False, max_chars=60) if ordered else "",
@@ -290,14 +267,14 @@ def build_feishu_daily_card(posts: list[Post]) -> dict:
     return {
         "schema": "2.0",
         "config": {
-            "wide_screen_mode": True,
+            "width_mode": "fill",
             "summary": {"content": summary_content},
         },
         "header": {
             "title": {"tag": "plain_text", "content": "📊 今日大V精选"},
             "template": "orange",
         },
-        "elements": elements,
+        "body": {"elements": elements},
     }
 
 
@@ -323,19 +300,7 @@ def build_feishu_dnd_summary_card(posts: list[Post]) -> dict:
         )
     first_url = next((p.url for p in posts if p.url), "")
     if first_url:
-        elements.append(
-            {
-                "tag": "action",
-                "actions": [
-                    {
-                        "tag": "button",
-                        "text": {"tag": "plain_text", "content": "查看全部"},
-                        "type": "primary",
-                        "url": first_url,
-                    }
-                ],
-            }
-        )
+        elements.append(_open_url_button("查看全部", first_url, button_type="primary"))
     summary_content = card_summary(
         f"📵 免打扰时段汇总（{len(posts)} 条新动态）",
         digest_body(posts[0], full=False, max_chars=60) if posts else "",
@@ -343,7 +308,7 @@ def build_feishu_dnd_summary_card(posts: list[Post]) -> dict:
     return {
         "schema": "2.0",
         "config": {
-            "wide_screen_mode": True,
+            "width_mode": "fill",
             "summary": {"content": summary_content},
         },
         "header": {
@@ -353,7 +318,7 @@ def build_feishu_dnd_summary_card(posts: list[Post]) -> dict:
             },
             "template": "blue",
         },
-        "elements": elements,
+        "body": {"elements": elements},
     }
 
 
@@ -431,24 +396,19 @@ class FeishuNotifier(Notifier):
                         }
                         for key in keys
                     ]
-                    card["elements"] = (
-                        [card["elements"][0]] + img_elements + card["elements"][1:]
+                    card["body"]["elements"] = (
+                        [card["body"]["elements"][0]]
+                        + img_elements
+                        + card["body"]["elements"][1:]
                     )
             except Exception as exc:  # noqa: BLE001
                 logger.warning("飞书图片上传失败 err=%s", exc)
         if self.unsub_kol_id is not None:
-            card["elements"].append(
-                {
-                    "tag": "action",
-                    "actions": [
-                        {
-                            "tag": "button",
-                            "text": {"tag": "plain_text", "content": "退订"},
-                            "type": "default",
-                            "value": {"action": "unsub", "kol_id": self.unsub_kol_id},
-                        }
-                    ],
-                }
+            card["body"]["elements"].append(
+                _callback_button(
+                    "退订",
+                    {"action": "unsub", "kol_id": self.unsub_kol_id},
+                )
             )
         self._send_card(card)
 
@@ -510,10 +470,12 @@ class FeishuNotifier(Notifier):
             "card": {
                 "schema": "2.0",
                 "config": {
-                    "wide_screen_mode": True,
+                    "width_mode": "fill",
                     "summary": {"content": truncate_text(text, SUMMARY_LIMIT)},
                 },
-                "elements": [{"tag": "div", "text": {"tag": "lark_md", "content": text}}],
+                "body": {
+                    "elements": [{"tag": "div", "text": {"tag": "lark_md", "content": text}}]
+                },
             },
         }
         self._post(payload)
