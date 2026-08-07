@@ -229,6 +229,16 @@ def create_api_router(
     login_attempts: dict[str, list[float]] = {}
     LOGIN_MAX_FAILURES = 8
     LOGIN_WINDOW = 300
+    # 账号级失败锁定（防 IP 轮换爆破，独立于上面的 IP 限流）：
+    # 1 小时滚动窗口内连续失败超阈值即锁定该账号，锁定期内即使密码正确也拒绝；
+    # 管理员账号更敏感（3 次锁 30 分钟），普通账号 10 次锁 15 分钟；成功登录立即解锁。
+    account_failures: dict[str, list[float]] = {}  # username -> [窗口内失败时间戳]
+    account_locked_until: dict[str, float] = {}  # username -> 解锁时间戳
+    ACCOUNT_FAILURE_WINDOW = 3600
+    LOGIN_ACCOUNT_LOCK_THRESHOLD = 10
+    LOGIN_ACCOUNT_LOCK_WINDOW = 900
+    ADMIN_LOGIN_LOCK_THRESHOLD = 3
+    ADMIN_LOGIN_LOCK_WINDOW = 1800
     MAX_PASSWORD_LEN = 128
     # 微博扫码登录会话：qrid -> {client, created_at}
     weibo_qr_sessions: dict[str, dict] = {}
@@ -260,6 +270,38 @@ def create_api_router(
 
     def _record_login_failure(ip: str) -> None:
         login_attempts.setdefault(ip, []).append(time.time())
+
+    def _account_lock_seconds_left(username: str) -> int:
+        """账号剩余锁定秒数；未锁定返回 0（过期记录自动清理）。"""
+        until = account_locked_until.get(username)
+        if not until:
+            return 0
+        left = int(until - time.time())
+        if left <= 0:
+            account_locked_until.pop(username, None)
+            return 0
+        return left
+
+    def _record_account_failure(username: str, is_admin: bool, ip: str) -> None:
+        """账号级失败计数（1 小时滚动窗口）；超阈值锁定账号并写操作日志。"""
+        now = time.time()
+        recent = [t for t in account_failures.get(username, []) if now - t < ACCOUNT_FAILURE_WINDOW]
+        recent.append(now)
+        account_failures[username] = recent
+        threshold = ADMIN_LOGIN_LOCK_THRESHOLD if is_admin else LOGIN_ACCOUNT_LOCK_THRESHOLD
+        if len(recent) >= threshold:
+            window = ADMIN_LOGIN_LOCK_WINDOW if is_admin else LOGIN_ACCOUNT_LOCK_WINDOW
+            account_locked_until[username] = now + window
+            db.log_admin_action(
+                None,
+                "login_locked",
+                username,
+                f"ip={ip} role={'admin' if is_admin else 'user'} 1小时内失败{len(recent)}次，锁定{window // 60}分钟",
+            )
+        # 防止无界增长：账号太多时清掉窗口外无记录的账号
+        if len(account_failures) > 2000:
+            for u in [u for u, v in account_failures.items() if not v]:
+                account_failures.pop(u, None)
 
     def _audit(admin: dict, action: str, target: str = "", detail: str = "") -> None:
         db.log_admin_action(admin["id"], action, target, detail)
@@ -427,23 +469,38 @@ def create_api_router(
     def login(body: LoginIn, request: Request):
         ip = _client_ip(request)
         _check_login_limit(ip)
-        user = db.get_user_by_username(body.username.strip())
+        username = body.username.strip()
+        locked_left = _account_lock_seconds_left(username)
+        if locked_left > 0:
+            # 锁定期内一律拒绝（即使密码正确），不泄露密码有效性，也不再累计计数
+            minutes = max(1, (locked_left + 59) // 60)
+            raise HTTPException(
+                status_code=429,
+                detail=f"该账号因多次失败登录被临时锁定，请约 {minutes} 分钟后再试",
+            )
+        user = db.get_user_by_username(username)
         if user is None:
             auth.verify_password(body.password, auth.DUMMY_HASH)
             _record_login_failure(ip)
+            _record_account_failure(username, False, ip)
             raise HTTPException(status_code=401, detail="用户名或密码错误")
         if not user["password_hash"]:
             # 机器人/微信自动创建的账号没有密码，不能通过账号密码登录
             auth.verify_password(body.password, auth.DUMMY_HASH)
             _record_login_failure(ip)
+            _record_account_failure(username, bool(user["is_admin"]), ip)
             raise HTTPException(status_code=401, detail="用户名或密码错误")
         if not body.password or len(body.password) > MAX_PASSWORD_LEN:
             _record_login_failure(ip)
+            _record_account_failure(username, bool(user["is_admin"]), ip)
             raise HTTPException(status_code=400, detail=f"密码长度需在 1-{MAX_PASSWORD_LEN} 位之间")
         if not auth.verify_password(body.password, user["password_hash"]):
             _record_login_failure(ip)
+            _record_account_failure(username, bool(user["is_admin"]), ip)
             raise HTTPException(status_code=401, detail="用户名或密码错误")
         login_attempts.pop(ip, None)  # 登录成功清零，避免历史失败锁住正常用户
+        account_failures.pop(username, None)
+        account_locked_until.pop(username, None)
         return {"token": auth.create_token(user["id"], user["username"], secret), "user": public_user(user)}
 
     @router.post("/auth/wechat")

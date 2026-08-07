@@ -1866,3 +1866,132 @@ def test_feed_token_in_me():
     new = resp.json()["feed_token"]
     assert new != me["feed_token"]
     assert client.get("/api/me", headers=headers).json()["feed_token"] == new
+
+
+# ---- 账号级失败锁定（防 IP 轮换爆破）----
+def test_account_lock_blocks_distributed_bruteforce():
+    """轮换 IP 绕过单 IP 限流时，账号级锁定仍然生效（即使密码正确也拒绝）。"""
+    cfg = Config()
+    cfg.web.trust_proxy = True  # 让 X-Forwarded-For 生效，模拟多 IP 攻击
+    client = make_client(config=cfg)
+    user_headers(client, "victim")
+
+    # 10 次失败各用不同 IP（单 IP 各自不足 8 次，不会触发 IP 限流）
+    for i in range(10):
+        r = client.post(
+            "/api/auth/login",
+            json={"username": "victim", "password": "bad"},
+            headers={"X-Forwarded-For": f"1.1.1.{i}"},
+        )
+        assert r.status_code == 401, f"第 {i} 次失败应 401"
+    # 账号已锁定：新 IP + 正确密码也 429，不泄露密码有效性
+    r = client.post(
+        "/api/auth/login",
+        json={"username": "victim", "password": "pass123456"},
+        headers={"X-Forwarded-For": "2.2.2.2"},
+    )
+    assert r.status_code == 429
+    assert "锁定" in r.json()["detail"]
+
+
+def test_admin_account_locks_sooner():
+    """管理员账号 3 次失败即锁定（阈值更敏感）。"""
+    cfg = Config()
+    cfg.web.trust_proxy = True
+    client = make_client(config=cfg)
+    auth_headers(client, "boss")  # 注册并提升为管理员，密码 secret123
+
+    for i in range(3):
+        r = client.post(
+            "/api/auth/login",
+            json={"username": "boss", "password": "wrong"},
+            headers={"X-Forwarded-For": f"3.3.3.{i}"},
+        )
+        assert r.status_code == 401
+    r = client.post(
+        "/api/auth/login",
+        json={"username": "boss", "password": "secret123"},
+        headers={"X-Forwarded-For": "4.4.4.4"},
+    )
+    assert r.status_code == 429
+    assert "锁定" in r.json()["detail"]
+
+
+def test_login_locked_writes_audit_log():
+    """账号锁定时写操作日志，管理员可审计（IP、角色、失败次数）。"""
+    cfg = Config()
+    cfg.web.trust_proxy = True
+    client = make_client(config=cfg)
+    user_headers(client, "victim")
+    admin_headers = auth_headers(client, "boss")
+
+    for i in range(10):
+        client.post(
+            "/api/auth/login",
+            json={"username": "victim", "password": "bad"},
+            headers={"X-Forwarded-For": f"5.5.5.{i}"},
+        )
+    logs = client.get("/api/admin/logs", headers=admin_headers).json()
+    locked = [l for l in logs if l["action"] == "login_locked" and l["target"] == "victim"]
+    assert len(locked) == 1
+    assert "role=user" in locked[0]["detail"]
+    assert "ip=" in locked[0]["detail"]
+
+
+def test_account_success_clears_lock_count():
+    """未到锁定阈值前输入正确密码：登录成功并清零失败计数。"""
+    cfg = Config()
+    cfg.web.trust_proxy = True
+    client = make_client(config=cfg)
+    user_headers(client, "victim")
+
+    for i in range(9):  # 阈值 10，9 次未锁
+        assert client.post(
+            "/api/auth/login",
+            json={"username": "victim", "password": "bad"},
+            headers={"X-Forwarded-For": f"6.6.6.{i}"},
+        ).status_code == 401
+    assert client.post(
+        "/api/auth/login",
+        json={"username": "victim", "password": "pass123456"},
+        headers={"X-Forwarded-For": "7.7.7.7"},
+    ).status_code == 200
+    # 清零后重新失败仍是 401，不会因历史计数立即锁定
+    assert client.post(
+        "/api/auth/login",
+        json={"username": "victim", "password": "bad"},
+        headers={"X-Forwarded-For": "8.8.8.8"},
+    ).status_code == 401
+
+
+def test_account_lock_expires_after_window(monkeypatch):
+    """锁定到期后允许再次尝试，正确密码可登录。"""
+    import app.api as api_mod
+
+    cfg = Config()
+    cfg.web.trust_proxy = True
+    client = make_client(config=cfg)
+    user_headers(client, "victim")
+
+    for i in range(10):
+        client.post(
+            "/api/auth/login",
+            json={"username": "victim", "password": "bad"},
+            headers={"X-Forwarded-For": f"9.9.9.{i}"},
+        )
+    assert client.post(
+        "/api/auth/login",
+        json={"username": "victim", "password": "pass123456"},
+        headers={"X-Forwarded-For": "10.0.0.1"},
+    ).status_code == 429
+
+    # 时间前进 20 分钟（> 15 分钟锁定窗口）
+    real_time = api_mod.time.time
+    fake_now = {"value": real_time() + 1200}
+    monkeypatch.setattr(api_mod.time, "time", lambda: fake_now["value"])
+    r = client.post(
+        "/api/auth/login",
+        json={"username": "victim", "password": "pass123456"},
+        headers={"X-Forwarded-For": "10.0.0.2"},
+    )
+    assert r.status_code == 200
