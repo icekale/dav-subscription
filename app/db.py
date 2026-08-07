@@ -255,6 +255,12 @@ class DB:
             self._conn.execute("ALTER TABLE users ADD COLUMN feed_token TEXT NOT NULL DEFAULT ''")
         if "bark_key" not in user_cols:
             self._conn.execute("ALTER TABLE users ADD COLUMN bark_key TEXT NOT NULL DEFAULT ''")
+        if "llm_api_base" not in user_cols:
+            self._conn.execute("ALTER TABLE users ADD COLUMN llm_api_base TEXT NOT NULL DEFAULT ''")
+        if "llm_api_key" not in user_cols:
+            self._conn.execute("ALTER TABLE users ADD COLUMN llm_api_key TEXT NOT NULL DEFAULT ''")
+        if "llm_model" not in user_cols:
+            self._conn.execute("ALTER TABLE users ADD COLUMN llm_model TEXT NOT NULL DEFAULT ''")
         self._conn.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_users_feed_token "
             "ON users(feed_token) WHERE feed_token != ''"
@@ -637,7 +643,7 @@ class DB:
         "telegram_chat_id", "telegram_bot_token", "feishu_open_id",
         "feishu_chat_id", "wecom_webhook", "notify_enabled", "daily_report",
         "push_channels", "dnd_start", "dnd_end", "dnd_allow_favorite",
-        "feed_token", "bark_key",
+        "feed_token", "bark_key", "llm_api_base", "llm_api_key", "llm_model",
     })
 
     def update_user(self, user_id: int, **kwargs) -> None:

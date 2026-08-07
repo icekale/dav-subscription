@@ -13,8 +13,9 @@ notifiers:
     bark_server: ""   # 可选：Bark 服务器地址，默认官方 https://api.day.app；自建实例时填 https://bark.example.com
     bark_key: ""      # 可选：系统级默认 Bark key（配置后系统告警也会发 Bark）
 
-# 可选 LLM 摘要：配置 api_key 后，免打扰时段汇总会用 AI 生成要点；未配置则用普通列表汇总。
-# OpenAI 兼容接口（/chat/completions），可对接 OpenAI / DeepSeek / 本地 Ollama、vLLM 等
+# 可选 LLM 摘要：配置 api_key 后，每日精选摘要/免打扰汇总会用 AI 生成要点；未配置则用普通列表汇总。
+# OpenAI 兼容接口（/chat/completions，原生格式），可对接 OpenAI / DeepSeek（api_base 填 https://api.deepseek.com，model 填 deepseek-chat）/ 本地 Ollama、vLLM 等
+# 也可让用户在网页「推送设置 → AI 摘要」里自配；用户自配优先于这里的全局配置
 llm:
   api_base: "https://api.openai.com/v1"
   api_key: ""

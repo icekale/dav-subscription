@@ -590,6 +590,7 @@ def poll_once(
     digest: dict[int, list[Post]] | None = None,
     retry_queue: PushRetryQueue | None = None,
     dnd_buffer: dict[int, list[Post]] | None = None,
+    llm_config=None,
 ) -> None:
     """执行一轮：并发抓取启用 KOL → 去重 → 推送。"""
     states = states if states is not None else {}
@@ -788,6 +789,19 @@ def _fetch_kol_once(
             )
 
 
+def _user_llm_config(user: dict, fallback=None):
+    """用户自配 LLM 优先，其次全局配置；只填了 key 时用 DeepSeek 默认值。"""
+    if not user.get("llm_api_key"):
+        return fallback
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        api_base=user.get("llm_api_base") or "https://api.deepseek.com",
+        api_key=user["llm_api_key"],
+        model=user.get("llm_model") or "deepseek-chat",
+    )
+
+
 def notify_digest_subscribers(
     db: DB,
     posts: list[Post],
@@ -796,8 +810,13 @@ def notify_digest_subscribers(
     notifiers=None,
     retry_queue: PushRetryQueue | None = None,
     dnd_buffer: dict[int, list[Post]] | None = None,
+    llm_config=None,
 ) -> None:
-    """把合并摘要推送给订阅了该大V的用户（各自绑定的渠道，带退订按钮）。"""
+    """把合并摘要推送给订阅了该大V的用户（各自绑定的渠道，带退订按钮）。
+
+    用户自配 LLM（或全局 llm_config）时，先发一条 AI 要点再发摘要卡片；
+    生成失败自动降级，不影响摘要推送。
+    """
     if notifiers_config is None or not posts:
         return
     import httpx
@@ -822,6 +841,17 @@ def notify_digest_subscribers(
                 # 免打扰时段：摘要也进入免打扰缓冲，结束时统一补推
                 dnd_buffer.setdefault(user["id"], []).extend(matched)
                 continue
+            summary = None
+            llm_cfg = _user_llm_config(user, llm_config)
+            if llm_cfg is not None:
+                try:
+                    from .llm import summarize_posts
+
+                    summary = summarize_posts(matched, llm_cfg)
+                except Exception as exc:  # noqa: BLE001 - 摘要失败降级，不影响推送
+                    logger.warning(
+                        "LLM 摘要异常 user=%s kol=%s err=%s", user["username"], kol["name"], exc
+                    )
             if user["telegram_chat_id"] and _channel_enabled(user, "telegram") and (
                 notifiers_config.telegram.bot_token or user.get("telegram_bot_token")
             ):
@@ -834,6 +864,8 @@ def notify_digest_subscribers(
                     favorite=favorite,
                 )
                 try:
+                    if summary:
+                        notifier.send_text(f"📊 AI 摘要\n\n{summary}")
                     notifier.send_digest(matched, kol["name"], kol["platform"])
                     for post in matched:
                         db.add_push_log(
@@ -872,6 +904,8 @@ def notify_digest_subscribers(
                     favorite=favorite,
                 )
                 try:
+                    if summary:
+                        notifier.send_text(f"📊 AI 摘要\n\n{summary}")
                     notifier.send_digest(matched, kol["name"], kol["platform"])
                     for post in matched:
                         db.add_push_log(
@@ -906,6 +940,8 @@ def notify_digest_subscribers(
                     favorite=favorite,
                 )
                 try:
+                    if summary:
+                        notifier.send_text(f"📊 AI 摘要\n\n{summary}")
                     notifier.send_digest(matched, kol["name"], kol["platform"])
                     for post in matched:
                         db.add_push_log(
@@ -943,6 +979,7 @@ def flush_digest(
     notifiers_config,
     retry_queue: PushRetryQueue | None = None,
     dnd_buffer: dict[int, list[Post]] | None = None,
+    llm_config=None,
 ) -> None:
     """到点把缓冲的摘要统一推送给订阅者（不再做全局推送）。"""
     if not digest:
@@ -954,7 +991,7 @@ def flush_digest(
         if kol is None or not posts:
             continue
         notify_digest_subscribers(
-            db, posts, kol, notifiers_config, notifiers, retry_queue, dnd_buffer
+            db, posts, kol, notifiers_config, notifiers, retry_queue, dnd_buffer, llm_config
         )
 
 
@@ -1345,6 +1382,7 @@ class Scheduler:
                     self._digest if digest_interval > 0 else None,
                     self.retry_queue,
                     self._dnd_buffer,
+                    self.llm_config,
                 )
                 self.db.set_setting("stats_last_poll_at", str(int(time.time())))
                 self.db.set_setting(
@@ -1383,6 +1421,7 @@ class Scheduler:
                         self.notifiers_config,
                         self.retry_queue,
                         self._dnd_buffer,
+                        self.llm_config,
                     )
                 except Exception:  # noqa: BLE001
                     logger.exception("摘要推送失败")
@@ -1604,9 +1643,10 @@ class Scheduler:
         from .llm import summarize_posts
 
         summary = None
-        if getattr(self, "llm_config", None) is not None:
+        llm_cfg = _user_llm_config(user, getattr(self, "llm_config", None))
+        if llm_cfg is not None:
             try:
-                summary = summarize_posts(posts, self.llm_config)
+                summary = summarize_posts(posts, llm_cfg)
             except Exception as exc:  # noqa: BLE001 - 摘要失败降级，不影响汇总
                 logger.warning("LLM 摘要异常 user=%s err=%s", user["username"], exc)
 

@@ -906,6 +906,7 @@ async function renderSettings() {
       <div class="settings-tabs" role="tablist">
         <button class="settings-tab active" data-tab="push" onclick="switchSettingsTab('push')">推送设置</button>
         <button class="settings-tab" data-tab="feed" onclick="switchSettingsTab('feed')">RSS 订阅源</button>
+        <button class="settings-tab" data-tab="llm" onclick="switchSettingsTab('llm')">AI 摘要</button>
         <button class="settings-tab" data-tab="account" onclick="switchSettingsTab('account')">账号</button>
       </div>
       <div id="st-push" class="settings-tab-panel">
@@ -1108,6 +1109,42 @@ async function renderSettings() {
         <p class="muted">⚠️ 地址内含订阅凭证，泄露后别人能读到你的关注流；泄露了就点「重新生成」立即作废旧地址。</p>
       </section>
       </div>
+      <div id="st-llm" class="settings-tab-panel">
+      <section class="section-panel">
+        <header class="section-head">
+          <div>
+            <p class="section-eyebrow">AI</p>
+            <h3 class="section-title">AI 摘要（可选，用你的大模型）</h3>
+            <p class="section-meta">配置后，每日精选摘要和免打扰汇总会先用大模型生成 AI 要点，再发原文列表。接口为 OpenAI 兼容格式（/chat/completions），DeepSeek / 通义 / Kimi / 本地 Ollama 均可。不填则用系统默认摘要。</p>
+          </div>
+        </header>
+        <div class="form-row">
+          <label for="set-llm-base">API 地址（Base URL）</label>
+          <input id="set-llm-base" class="form-control" type="text"
+            placeholder="https://api.deepseek.com"
+            value="${escapeHtml(state.user.llm_api_base || "")}">
+          <p class="muted" style="margin-top:4px">留空默认 DeepSeek：<code>https://api.deepseek.com</code></p>
+        </div>
+        <div class="form-row">
+          <label for="set-llm-key">API Key</label>
+          <input id="set-llm-key" class="form-control" type="password"
+            placeholder="sk-...（清空并保存 = 关闭 AI 摘要）"
+            value="${escapeHtml(state.user.llm_api_key || "")}" autocomplete="off">
+        </div>
+        <div class="form-row">
+          <label for="set-llm-model">模型名</label>
+          <input id="set-llm-model" class="form-control" type="text"
+            placeholder="deepseek-chat"
+            value="${escapeHtml(state.user.llm_model || "")}">
+          <p class="muted" style="margin-top:4px">留空默认 <code>deepseek-chat</code></p>
+        </div>
+        <div class="toolbar" style="margin-top:10px">
+          <button class="btn-normal" onclick="saveLlm()">保存</button>
+          <span id="llm-result" class="muted"></span>
+        </div>
+        <p class="muted">🔒 配置仅对当前账号生效，费用由你自己的 API 账号承担；生成失败会自动回退为普通摘要，不影响推送。</p>
+      </section>
+      </div>
       <div id="st-account" class="settings-tab-panel">
       <section class="section-panel">
         <header class="section-head">
@@ -1167,7 +1204,7 @@ function switchSettingsTab(name) {
   document.querySelectorAll(".settings-tab").forEach((b) =>
     b.classList.toggle("active", b.dataset.tab === name)
   );
-  ["push", "feed", "account"].forEach((t) => {
+  ["push", "feed", "llm", "account"].forEach((t) => {
     const el = document.getElementById("st-" + t);
     if (el) el.style.display = t === name ? "" : "none";
   });
@@ -1400,6 +1437,23 @@ async function saveKeywords() {
     });
     const el = $("#keywords-result");
     if (el) el.textContent = `已保存 ${keywords.length} 个关键词 ✅`;
+  } catch (err) {
+    alert("保存失败: " + err.message);
+  }
+}
+
+async function saveLlm() {
+  const payload = {
+    llm_api_base: ($("#set-llm-base").value || "").trim(),
+    llm_api_key: ($("#set-llm-key").value || "").trim(),
+    llm_model: ($("#set-llm-model").value || "").trim(),
+  };
+  try {
+    await api("/api/me", { method: "PUT", body: JSON.stringify(payload) });
+    state.user = await api("/api/me");
+    renderSettings();
+    const el = $("#llm-result");
+    if (el) el.textContent = payload.llm_api_key ? "已保存 ✅" : "已关闭 AI 摘要 ✅";
   } catch (err) {
     alert("保存失败: " + err.message);
   }

@@ -106,6 +106,9 @@ class MeUpdate(BaseModel):
     dnd_end: str | None = None
     dnd_allow_favorite: bool | None = None
     keywords: list[str] | None = None
+    llm_api_base: str | None = None
+    llm_api_key: str | None = None
+    llm_model: str | None = None
 
 
 class PasswordChangeIn(BaseModel):
@@ -212,6 +215,9 @@ def public_user(user: dict) -> dict:
         "dnd_start": user.get("dnd_start") or "",
         "dnd_end": user.get("dnd_end") or "",
         "dnd_allow_favorite": bool(user.get("dnd_allow_favorite")),
+        "llm_api_base": user.get("llm_api_base") or "",
+        "llm_api_key": user.get("llm_api_key") or "",
+        "llm_model": user.get("llm_model") or "",
         "created_at": user["created_at"],
     }
 
@@ -652,6 +658,12 @@ def create_api_router(
             db.update_user(user["id"], dnd_end=value)
         if "dnd_allow_favorite" in body.model_fields_set:
             db.update_user(user["id"], dnd_allow_favorite=body.dnd_allow_favorite)
+        if "llm_api_key" in body.model_fields_set:
+            db.update_user(user["id"], llm_api_key=(body.llm_api_key or "").strip())
+        if "llm_api_base" in body.model_fields_set:
+            db.update_user(user["id"], llm_api_base=(body.llm_api_base or "").strip())
+        if "llm_model" in body.model_fields_set:
+            db.update_user(user["id"], llm_model=(body.llm_model or "").strip())
         return public_user(db.get_user(user["id"]))
 
     @router.post("/me/bind-code")
