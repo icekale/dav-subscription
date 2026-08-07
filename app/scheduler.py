@@ -811,11 +811,13 @@ def notify_digest_subscribers(
     retry_queue: PushRetryQueue | None = None,
     dnd_buffer: dict[int, list[Post]] | None = None,
     llm_config=None,
+    summary_cache: dict | None = None,
 ) -> None:
     """把合并摘要推送给订阅了该大V的用户（各自绑定的渠道，带退订按钮）。
 
     用户自配 LLM（或全局 llm_config）时，先发一条 AI 要点再发摘要卡片；
-    生成失败自动降级，不影响摘要推送。
+    生成失败自动降级，不影响摘要推送。summary_cache 透传给 summarize_posts，
+    同一批帖文多个订阅用户只调一次大模型。
     """
     if notifiers_config is None or not posts:
         return
@@ -847,7 +849,7 @@ def notify_digest_subscribers(
                 try:
                     from .llm import summarize_posts
 
-                    summary = summarize_posts(matched, llm_cfg)
+                    summary = summarize_posts(matched, llm_cfg, cache=summary_cache)
                 except Exception as exc:  # noqa: BLE001 - 摘要失败降级，不影响推送
                     logger.warning(
                         "LLM 摘要异常 user=%s kol=%s err=%s", user["username"], kol["name"], exc
@@ -984,6 +986,7 @@ def flush_digest(
     """到点把缓冲的摘要统一推送给订阅者（不再做全局推送）。"""
     if not digest:
         return
+    summary_cache: dict = {}
     items = list(digest.items())
     digest.clear()
     for kol_id, posts in items:
@@ -991,7 +994,7 @@ def flush_digest(
         if kol is None or not posts:
             continue
         notify_digest_subscribers(
-            db, posts, kol, notifiers_config, notifiers, retry_queue, dnd_buffer, llm_config
+            db, posts, kol, notifiers_config, notifiers, retry_queue, dnd_buffer, llm_config, summary_cache
         )
 
 

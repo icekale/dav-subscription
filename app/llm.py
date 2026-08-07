@@ -31,8 +31,18 @@ def _post_lines(posts) -> list[str]:
     return lines
 
 
-def summarize_posts(posts, llm_config=None, client=None) -> str | None:
-    """生成摘要文本；未配置或失败返回 None（调用方降级为普通汇总）。"""
+def summary_cache_key(posts, api_base: str, model: str) -> str:
+    """摘要缓存键：平台+外部ID 有序拼接，同一批帖文（同配置）复用同一份摘要。"""
+    ids = ",".join(f"{p.platform}:{p.external_id}" for p in posts)
+    return f"{api_base}|{model}|{ids}"
+
+
+def summarize_posts(posts, llm_config=None, client=None, cache=None) -> str | None:
+    """生成摘要文本；未配置或失败返回 None（调用方降级为普通汇总）。
+
+    cache: 可选 dict，以「配置+帖文ID列表」为键缓存摘要，同一批帖文只调一次
+    大模型（批量推送时多个订阅用户共享同一份摘要）。
+    """
     api_key = getattr(llm_config, "api_key", "") if llm_config else ""
     if not api_key:
         return None
@@ -43,6 +53,9 @@ def summarize_posts(posts, llm_config=None, client=None) -> str | None:
     content = "\n".join(_post_lines(posts))
     if not content.strip():
         return None
+    key = summary_cache_key(posts, api_base, model) if cache is not None else None
+    if key is not None and key in cache:
+        return cache[key]
     owns_client = client is None
     client = client or httpx.Client(timeout=60)
     try:
@@ -74,6 +87,8 @@ def summarize_posts(posts, llm_config=None, client=None) -> str | None:
         )
         if not text:
             raise RuntimeError("LLM 返回空摘要")
+        if key is not None:
+            cache[key] = text
         return text
     except Exception as exc:  # noqa: BLE001 - 摘要失败降级为普通汇总，不影响推送
         logger.warning("LLM 摘要失败，降级为普通汇总: %s", exc)

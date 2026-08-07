@@ -86,3 +86,28 @@ def test_custom_base_url_and_long_content_truncation():
     assert "llm.example.com/v1/chat/completions" in captured["url"]
     # 内容截断到 12000 字符以内
     assert captured["content_len"] <= 12000
+
+
+def test_cache_reuses_result_within_batch():
+    calls = {"n": 0}
+
+    def handler(request):
+        calls["n"] += 1
+        return httpx.Response(200, json={"choices": [{"message": {"content": "要点"}}]})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    cache = {}
+    posts = [make_post()]
+    assert summarize_posts(posts, make_config(), client=client, cache=cache) == "要点"
+    assert summarize_posts(posts, make_config(), client=client, cache=cache) == "要点"
+    assert calls["n"] == 1
+
+
+def test_cache_does_not_store_failure():
+    def handler(request):
+        return httpx.Response(500, json={})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    cache = {}
+    assert summarize_posts([make_post()], make_config(), client=client, cache=cache) is None
+    assert cache == {}
