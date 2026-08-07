@@ -8,8 +8,13 @@
 from __future__ import annotations
 
 import logging
+import time
 
 logger = logging.getLogger(__name__)
+
+class _RetryableError(Exception):
+    """瞬时错误（429/5xx/空响应），可重试一次。"""
+
 
 SUMMARY_SYSTEM_PROMPT = (
     "你是信息摘要助手。把下面用户订阅的社交动态整理成简洁的中文要点。"
@@ -60,42 +65,60 @@ def summarize_posts(posts, llm_config=None, client=None, cache=None) -> str | No
     key = summary_cache_key(posts, api_base, model) if cache is not None else None
     if key is not None and key in cache:
         return cache[key]
+    if not any(
+        (getattr(p, "content", "") or "").strip() or (getattr(p, "title", "") or "").strip()
+        for p in posts
+    ):
+        return None
     owns_client = client is None
     client = client or httpx.Client(timeout=60)
     try:
-        resp = client.post(
-            f"{api_base}/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}"},
-            json={
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": SUMMARY_SYSTEM_PROMPT},
-                    {
-                        "role": "user",
-                        "content": (
-                            f"共 {len(posts)} 条动态，请整理要点：\n{content[:12000]}"
-                        ),
+        last_err: Exception | None = None
+        for attempt in range(2):
+            try:
+                resp = client.post(
+                    f"{api_base}/chat/completions",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    json={
+                        "model": model,
+                        "messages": [
+                            {"role": "system", "content": SUMMARY_SYSTEM_PROMPT},
+                            {
+                                "role": "user",
+                                "content": (
+                                    f"共 {len(posts)} 条动态，请整理要点：\n{content[:12000]}"
+                                ),
+                            },
+                        ],
+                        "temperature": 0.3,
+                        "max_tokens": min(2000, max(400, 200 + 120 * len(posts))),
                     },
-                ],
-                "temperature": 0.3,
-                "max_tokens": min(2000, max(400, 200 + 120 * len(posts))),
-            },
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        text = (
-            (data.get("choices") or [{}])[0]
-            .get("message", {})
-            .get("content", "")
-            .strip()
-        )
-        if not text:
-            raise RuntimeError("LLM 返回空摘要")
-        if key is not None:
-            cache[key] = text
-        return text
-    except Exception as exc:  # noqa: BLE001 - 摘要失败降级为普通汇总，不影响推送
-        logger.warning("LLM 摘要失败，降级为普通汇总: %s", exc)
+                )
+                if resp.status_code == 429 or resp.status_code >= 500:
+                    raise _RetryableError(f"LLM HTTP {resp.status_code}")
+                resp.raise_for_status()
+                data = resp.json()
+                text = (
+                    (data.get("choices") or [{}])[0]
+                    .get("message", {})
+                    .get("content", "")
+                    .strip()
+                )
+                if not text:
+                    raise _RetryableError("LLM 返回空摘要")
+                usage = (data.get("usage") or {}).get("total_tokens") or 0
+                logger.info("LLM 摘要完成 posts=%d tokens=%d", len(posts), usage)
+                if key is not None:
+                    cache[key] = text
+                return text
+            except httpx.HTTPStatusError as exc:
+                last_err = exc  # 4xx（鉴权/参数错误）重试无意义
+                break
+            except (httpx.TransportError, _RetryableError) as exc:
+                last_err = exc
+            if attempt == 0:
+                time.sleep(2)
+        logger.warning("LLM 摘要失败，降级为普通汇总: %s", last_err)
         return None
     finally:
         if owns_client:

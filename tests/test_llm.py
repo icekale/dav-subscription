@@ -8,13 +8,13 @@ from app.fetchers.base import Post
 from app.llm import summarize_posts
 
 
-def make_post(content="正文内容", external_id="p1") -> Post:
+def make_post(content="正文内容", external_id="p1", title="标题") -> Post:
     return Post(
         platform="xueqiu",
         kol_id=1,
         kol_name="张三",
         external_id=external_id,
-        title="标题",
+        title=title,
         content=content,
         url="https://xueqiu.com/1/2",
         published_at="",
@@ -67,7 +67,7 @@ def test_empty_content_returns_none():
         raise AssertionError("不应发起请求")
 
     client = httpx.Client(transport=httpx.MockTransport(handler))
-    post = make_post(content="")
+    post = make_post(content="", title="")
     assert summarize_posts([post], make_config(), client=client) is None
 
 
@@ -143,6 +143,32 @@ def test_many_posts_per_line_budget_capped():
     assert len(captured["content"]) <= 12000
     for line in captured["content"].splitlines():
         assert len(line) <= 400 + 64  # 每行正文 ≤ 400 + 标记/来源前缀
+
+
+def test_retry_transient_then_success():
+    calls = {"n": 0}
+
+    def handler(request):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return httpx.Response(500, json={})
+        return httpx.Response(200, json={"choices": [{"message": {"content": "要点"}}]})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    assert summarize_posts([make_post()], make_config(), client=client) == "要点"
+    assert calls["n"] == 2
+
+
+def test_no_retry_on_auth_error():
+    calls = {"n": 0}
+
+    def handler(request):
+        calls["n"] += 1
+        return httpx.Response(401, json={"error": "invalid key"})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    assert summarize_posts([make_post()], make_config(), client=client) is None
+    assert calls["n"] == 1
 
 
 def test_max_tokens_scales_with_post_count():
