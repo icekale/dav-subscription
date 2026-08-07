@@ -468,21 +468,34 @@ def maybe_alert_push_failure(db: DB, notifiers: list[Notifier], detail: str) -> 
 
 
 def _x_fallback_advice(reason: str) -> str:
-    """按降级原因给出对应建议，避免把瞬时故障误报成 Cookie 失效。"""
+    """按降级原因给出对应建议，避免把瞬时故障误报成 Cookie 失效。
+
+    优先看响应体里的 X 错误 code（_graphql 已把 code 拼进原因）：
+    - code 353：X 反爬规则更新（需会话绑定的 guest token），要升级代码
+    - code 89 / 32：auth token 真失效，才建议重新登录
+    - queryId：接口轮换，要更新代码
+    无 code 的裸 401/403 两者皆有可能，提示兼顾。
+    """
     text = (reason or "").lower()
-    if any(k in text for k in (
-        "401", "403", "could not authenticate", "code 32",
-        "unauthorized", "forbidden", "not authorized",
-    )):
-        return "请检查 TWITTER_COOKIE 是否失效，必要时重新登录 X 更新 Cookie。"
+    if "code 353" in text:
+        return "X 反爬规则已更新（GraphQL 需会话绑定的 guest token），需要升级代码后重新部署。"
     if any(k in text for k in ("invalidrequest", "queryid")):
         return "X 已轮换 GraphQL queryId，需要更新代码中的 DEFAULT_QUERY_IDS 后重新部署。"
+    if "未配置" in text and "twitter_cookie" in text:
+        return "未配置 TWITTER_COOKIE，请在部署环境配置后重启。"
+    if any(k in text for k in (
+        "code 89", "code 32", "invalid or expired token",
+        "could not authenticate", "not authorized",
+    )):
+        return "请检查 TWITTER_COOKIE 是否失效，必要时重新登录 X 更新 Cookie。"
     if any(k in text for k in (
         "500", "502", "503", "504", "429", "serviceunavailable", "unavailable",
         "ssl", "timeout", "timed out", "eof", "connection", "reset", "network",
         "deadline",  # DeadlineExceeded: X 后端超时，同 503 一类瞬时故障
     )):
         return "X 服务端暂时不可用或网络抖动，已自动回退 RSSHub，无需操作；持续出现再检查 Cookie。"
+    if any(k in text for k in ("401", "403", "forbidden", "unauthorized")):
+        return "X 拒绝了请求（401/403）：请检查 TWITTER_COOKIE 是否失效（Cookie 刚更新仍复现则可能是 X 接口规则变更，需升级代码）。"
     return "已自动回退 RSSHub 备用通道，请留意后续是否持续降级。"
 
 

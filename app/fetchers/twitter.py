@@ -385,9 +385,26 @@ class TwitterFetcher(Fetcher):
                 )
         if resp.status_code != 200:
             hint = ""
+            detail = ""
+            try:
+                err = resp.json()
+                errs = err.get("errors") or []
+                code = err.get("code") or next(
+                    (e.get("code") for e in errs if e.get("code")), ""
+                )
+                if code:
+                    detail = f" code {code}"
+                else:
+                    msg = next(
+                        (e.get("message") for e in errs if e.get("message")), ""
+                    )
+                    if msg:
+                        detail = f" {str(msg)[:80]}"
+            except Exception:  # noqa: BLE001 - 非 JSON 响应体忽略
+                pass
             if resp.status_code in (400, 404):
                 hint = "（可能是 X 轮换了 GraphQL queryId，需更新 DEFAULT_QUERY_IDS）"
-            raise RuntimeError(f"X GraphQL {operation} HTTP {resp.status_code}{hint}")
+            raise RuntimeError(f"X GraphQL {operation} HTTP {resp.status_code}{detail}{hint}")
         data = resp.json()
         if data.get("errors"):
             msg = str(data["errors"][0].get("message", data["errors"]))

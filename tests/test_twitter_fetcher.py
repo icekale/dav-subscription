@@ -565,6 +565,27 @@ def test_graphql_retries_once_with_fresh_guest_token_on_401(monkeypatch):
     assert calls["activate"] >= 2  # 换过新 guest token
 
 
+def test_graphql_error_includes_body_code(monkeypatch):
+    """非 200 响应把响应体里的 code 拼进错误信息，供降级告警精确分类。"""
+    monkeypatch.setenv("TWITTER_COOKIE", "auth_token=a; ct0=b")
+    _reset_guest_token()
+
+    def handler(request):
+        if request.url.host == "api.twitter.com":
+            return httpx.Response(200, json={"guest_token": "tok1"})
+        return httpx.Response(
+            403,
+            json={"code": 353, "message": "This request requires a matching csrf cookie and header."},
+        )
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    fetcher = TwitterFetcher(SimpleNamespace(rsshub_base="x"), None, client=client)
+    with pytest.raises(RuntimeError) as ei:
+        fetcher._graphql("UserTweets", {"userId": "1"}, "auth_token=a; ct0=b")
+    assert "HTTP 403" in str(ei.value)
+    assert "code 353" in str(ei.value)
+
+
 def test_query_id_refresh_uses_browser_headers(monkeypatch):
     """x.com/ 页面拉取用浏览器式头（UA+Cookie），不带 Authorization/x-csrf-token。
 

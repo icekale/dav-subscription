@@ -185,6 +185,28 @@ def test_x_fallback_advice_categorizes_reasons():
     assert "持续降级" in _x_fallback_advice("some weird error")
     assert "持续降级" in _x_fallback_advice("")
 
+    # code 353（guest 绑定要求，2026-08 X 反爬升级）→ 提示升级代码而非重新登录
+    for reason in (
+        "X GraphQL UserTweets HTTP 403 code 353",
+        "X GraphQL UserTweets HTTP 401 code 353",
+    ):
+        assert "升级代码" in _x_fallback_advice(reason), reason
+        assert cookie_hint not in _x_fallback_advice(reason), reason
+
+    # code 89 / invalid token → 真 Cookie 失效，才建议重新登录
+    for reason in (
+        "X GraphQL UserTweets HTTP 401 code 89",
+        "X GraphQL UserTweets 错误: Invalid or expired token",
+    ):
+        assert cookie_hint in _x_fallback_advice(reason), reason
+
+    # 未配置 Cookie → 配置提示
+    assert "TWITTER_COOKIE" in _x_fallback_advice("未配置 TWITTER_COOKIE")
+
+    # 裸 401/403（无 code）→ 两者皆有可能，提示兼顾（仍含检查 Cookie 字样）
+    assert cookie_hint in _x_fallback_advice("X GraphQL UserTweets HTTP 401")
+    assert "升级代码" in _x_fallback_advice("X GraphQL UserTweets HTTP 403")
+
 
 def test_maybe_alert_x_fallback_once_per_episode():
     db = make_db()
