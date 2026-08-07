@@ -536,10 +536,7 @@ def notify_subscribers(
         return
     import httpx
 
-    from .notifiers.bark import BarkNotifier
-    from .notifiers.feishu import FeishuNotifier
-    from .notifiers.telegram import TelegramNotifier
-    from .notifiers.wecom import WeComNotifier
+    from .channels import CHANNELS, channel_bound, channel_enabled, deliver_post
 
     owns_client = client is None
     client = client or httpx.Client(timeout=15)
@@ -560,87 +557,23 @@ def notify_subscribers(
                 # 免打扰时段：缓冲，结束时统一补一条汇总（关键词命中实时穿透）
                 dnd_buffer.setdefault(user["id"], []).append(post)
                 continue
-            if user["telegram_chat_id"] and _channel_enabled(user, "telegram") and (
-                notifiers_config.telegram.bot_token or user.get("telegram_bot_token")
-            ):
-                notifier = TelegramNotifier(
-                    notifiers_config.telegram,
-                    client=client,
-                    chat_id=user["telegram_chat_id"],
-                    bot_token=user.get("telegram_bot_token") or None,
+            for channel in CHANNELS:
+                if not channel_enabled(user, channel) or not channel_bound(user, channel, notifiers_config):
+                    continue
+                deliver_post(
+                    db,
+                    post_id,
+                    post,
+                    user,
+                    channel,
+                    notifiers_config,
+                    client,
+                    retry_queue=retry_queue,
+                    alert_notifiers=notifiers,
+                    alert_cb=maybe_alert_push_failure,
                     favorite=favorite,
                     keyword=keyword_hit,
                 )
-                try:
-                    notifier.notify(post)
-                    db.add_push_log(post_id, "telegram", "success", user_id=user["id"])
-                except Exception as exc:  # noqa: BLE001
-                    db.add_push_log(post_id, "telegram", "failed", str(exc), user_id=user["id"])
-                    logger.warning("用户推送失败 user=%s channel=telegram err=%s", user["username"], exc)
-                    if retry_queue is not None:
-                        retry_queue.add(post, "telegram", user["id"])
-                    maybe_alert_push_failure(
-                        db, notifiers or [], f"user={user['username']} channel=telegram err={exc}"
-                    )
-            if _channel_enabled(user, "feishu") and (
-                user.get("feishu_open_id") or user.get("feishu_chat_id")
-            ):
-                # 优先用 p2p 会话 chat_id 发送（open_id 直发可能被飞书 230101 拦截）
-                notifier = FeishuNotifier(
-                    notifiers_config.feishu,
-                    client=client,
-                    open_id=user["feishu_open_id"] if not user.get("feishu_chat_id") else None,
-                    chat_id=user.get("feishu_chat_id") or None,
-                    favorite=favorite,
-                )
-                try:
-                    notifier.notify(post)
-                    db.add_push_log(post_id, "feishu", "success", user_id=user["id"])
-                except Exception as exc:  # noqa: BLE001
-                    db.add_push_log(post_id, "feishu", "failed", str(exc), user_id=user["id"])
-                    logger.warning("用户推送失败 user=%s channel=feishu err=%s", user["username"], exc)
-                    if retry_queue is not None:
-                        retry_queue.add(post, "feishu", user["id"])
-                    maybe_alert_push_failure(
-                        db, notifiers or [], f"user={user['username']} channel=feishu err={exc}"
-                    )
-            if user.get("wecom_webhook") and _channel_enabled(user, "wecom"):
-                notifier = WeComNotifier(
-                    notifiers_config.wecom,
-                    client=client,
-                    webhook_url=user["wecom_webhook"],
-                    favorite=favorite,
-                    keyword=keyword_hit,
-                )
-                try:
-                    notifier.notify(post)
-                    db.add_push_log(post_id, "wecom", "success", user_id=user["id"])
-                except Exception as exc:  # noqa: BLE001
-                    db.add_push_log(post_id, "wecom", "failed", str(exc), user_id=user["id"])
-                    logger.warning("用户推送失败 user=%s channel=wecom err=%s", user["username"], exc)
-                    if retry_queue is not None:
-                        retry_queue.add(post, "wecom", user["id"])
-                    maybe_alert_push_failure(
-                        db, notifiers or [], f"user={user['username']} channel=wecom err={exc}"
-                    )
-            if user.get("bark_key") and _channel_enabled(user, "bark"):
-                notifier = BarkNotifier(
-                    notifiers_config.bark if hasattr(notifiers_config, "bark") else None,
-                    client=client,
-                    bark_key=user["bark_key"],
-                    favorite=favorite,
-                )
-                try:
-                    notifier.notify(post)
-                    db.add_push_log(post_id, "bark", "success", user_id=user["id"])
-                except Exception as exc:  # noqa: BLE001
-                    db.add_push_log(post_id, "bark", "failed", str(exc), user_id=user["id"])
-                    logger.warning("用户推送失败 user=%s channel=bark err=%s", user["username"], exc)
-                    if retry_queue is not None:
-                        retry_queue.add(post, "bark", user["id"])
-                    maybe_alert_push_failure(
-                        db, notifiers or [], f"user={user['username']} channel=bark err={exc}"
-                    )
     finally:
         if owns_client:
             client.close()
@@ -1662,11 +1595,8 @@ class Scheduler:
             return
         import httpx
 
+        from .channels import CHANNELS, build_channel_notifier, channel_bound, channel_enabled
         from .llm import summarize_posts
-        from .notifiers.bark import BarkNotifier
-        from .notifiers.feishu import FeishuNotifier
-        from .notifiers.telegram import TelegramNotifier
-        from .notifiers.wecom import WeComNotifier
 
         summary = None
         if getattr(self, "llm_config", None) is not None:
@@ -1677,104 +1607,30 @@ class Scheduler:
 
         client = httpx.Client(timeout=15)
         try:
-            if user["telegram_chat_id"] and _channel_enabled(user, "telegram") and (
-                self.notifiers_config.telegram.bot_token or user.get("telegram_bot_token")
-            ):
-                notifier = TelegramNotifier(
-                    self.notifiers_config.telegram,
-                    client=client,
-                    chat_id=user["telegram_chat_id"],
-                    bot_token=user.get("telegram_bot_token") or None,
-                )
+            for channel in CHANNELS:
+                if not channel_enabled(user, channel) or not channel_bound(user, channel, self.notifiers_config):
+                    continue
                 try:
+                    notifier = build_channel_notifier(channel, user, self.notifiers_config, client=client)
                     if summary:
                         notifier.send_text(f"📊 AI 摘要\n\n{summary}")
                     notifier.send_dnd_summary(posts)
                     for post in posts:
                         post_id = self.db.get_post_id(post.platform, post.external_id)
                         if post_id:
-                            self.db.add_push_log(post_id, "telegram", "success", user_id=user["id"])
+                            self.db.add_push_log(post_id, channel, "success", user_id=user["id"])
                 except Exception as exc:  # noqa: BLE001
-                    logger.warning("免打扰汇总 TG 发送失败 user=%s err=%s", user["username"], exc)
+                    logger.warning("免打扰汇总 %s 发送失败 user=%s err=%s", channel, user["username"], exc)
                     maybe_alert_push_failure(
                         self.db,
                         self.notifiers or [],
-                        f"user={user['username']} channel=telegram dnd err={exc}",
-                    )
-            if _channel_enabled(user, "feishu") and (
-                user.get("feishu_open_id") or user.get("feishu_chat_id")
-            ):
-                notifier = FeishuNotifier(
-                    self.notifiers_config.feishu,
-                    client=client,
-                    open_id=user["feishu_open_id"] if not user.get("feishu_chat_id") else None,
-                    chat_id=user.get("feishu_chat_id") or None,
-                )
-                try:
-                    if summary:
-                        notifier.send_text(f"📊 AI 摘要\n\n{summary}")
-                    notifier.send_dnd_summary(posts)
-                    for post in posts:
-                        post_id = self.db.get_post_id(post.platform, post.external_id)
-                        if post_id:
-                            self.db.add_push_log(post_id, "feishu", "success", user_id=user["id"])
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning("免打扰汇总飞书发送失败 user=%s err=%s", user["username"], exc)
-                    maybe_alert_push_failure(
-                        self.db,
-                        self.notifiers or [],
-                        f"user={user['username']} channel=feishu dnd err={exc}",
-                    )
-            if user.get("wecom_webhook") and _channel_enabled(user, "wecom"):
-                notifier = WeComNotifier(
-                    self.notifiers_config.wecom,
-                    client=client,
-                    webhook_url=user["wecom_webhook"],
-                )
-                try:
-                    if summary:
-                        notifier.send_text(f"📊 AI 摘要\n\n{summary}")
-                    notifier.send_dnd_summary(posts)
-                    for post in posts:
-                        post_id = self.db.get_post_id(post.platform, post.external_id)
-                        if post_id:
-                            self.db.add_push_log(post_id, "wecom", "success", user_id=user["id"])
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning("免打扰汇总企业微信发送失败 user=%s err=%s", user["username"], exc)
-                    maybe_alert_push_failure(
-                        self.db,
-                        self.notifiers or [],
-                        f"user={user['username']} channel=wecom dnd err={exc}",
-                    )
-            if user.get("bark_key") and _channel_enabled(user, "bark"):
-                notifier = BarkNotifier(
-                    getattr(self.notifiers_config, "bark", None),
-                    client=client,
-                    bark_key=user["bark_key"],
-                )
-                try:
-                    if summary:
-                        notifier.send_text(f"📊 AI 摘要\n\n{summary}")
-                    notifier.send_dnd_summary(posts)
-                    for post in posts:
-                        post_id = self.db.get_post_id(post.platform, post.external_id)
-                        if post_id:
-                            self.db.add_push_log(post_id, "bark", "success", user_id=user["id"])
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning("免打扰汇总 Bark 发送失败 user=%s err=%s", user["username"], exc)
-                    maybe_alert_push_failure(
-                        self.db,
-                        self.notifiers or [],
-                        f"user={user['username']} channel=bark dnd err={exc}",
+                        f"user={user['username']} channel={channel} dnd err={exc}",
                     )
         finally:
             client.close()
 
     def _build_retry_notifier(self, channel: str, user_id: int | None, favorite: bool = False):
-        from .notifiers.bark import BarkNotifier
-        from .notifiers.feishu import FeishuNotifier
-        from .notifiers.telegram import TelegramNotifier
-        from .notifiers.wecom import WeComNotifier
+        from .channels import CHANNEL_LABELS, build_channel_notifier, channel_bound
 
         if user_id is None:
             for notifier in self.notifiers:
@@ -1784,41 +1640,14 @@ class Scheduler:
         user = self.db.get_user(user_id)
         if user is None:
             raise RuntimeError("用户不存在")
-        if channel == "telegram":
-            if not user.get("telegram_chat_id"):
-                raise RuntimeError("用户未绑定 Telegram")
-            return TelegramNotifier(
-                self.notifiers_config.telegram,
-                chat_id=user["telegram_chat_id"],
-                bot_token=user.get("telegram_bot_token") or None,
-                favorite=favorite,
-            )
-        if channel == "feishu":
-            if not (user.get("feishu_open_id") or user.get("feishu_chat_id")):
-                raise RuntimeError("用户未绑定飞书")
-            return FeishuNotifier(
-                self.notifiers_config.feishu,
-                open_id=user["feishu_open_id"] if not user.get("feishu_chat_id") else None,
-                chat_id=user.get("feishu_chat_id") or None,
-                favorite=favorite,
-            )
-        if channel == "wecom":
-            if not user.get("wecom_webhook"):
-                raise RuntimeError("用户未绑定企业微信")
-            return WeComNotifier(
-                self.notifiers_config.wecom,
-                webhook_url=user["wecom_webhook"],
-                favorite=favorite,
-            )
-        if channel == "bark":
-            if not user.get("bark_key"):
-                raise RuntimeError("用户未绑定 Bark")
-            return BarkNotifier(
-                getattr(self.notifiers_config, "bark", None),
-                bark_key=user["bark_key"],
-                favorite=favorite,
-            )
-        raise RuntimeError(f"未知渠道: {channel}")
+        if not channel_bound(user, channel, self.notifiers_config):
+            raise RuntimeError(f"用户未绑定 {CHANNEL_LABELS.get(channel, channel)}")
+        return build_channel_notifier(
+            channel,
+            user,
+            self.notifiers_config,
+            favorite=favorite,
+        )
 
     def _daily_report_due(self) -> bool:
         hour_cfg = _polling_setting(

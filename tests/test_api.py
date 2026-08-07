@@ -599,7 +599,7 @@ def test_admin_test_push(monkeypatch):
             sent.append(("tg", self.chat_id, text))
 
     class FakeFeishu:
-        def __init__(self, config, open_id=None, chat_id=None, client=None):
+        def __init__(self, config, open_id=None, chat_id=None, client=None, **kwargs):
             self.client = type("C", (), {"close": lambda self: None})()
 
         def send_text(self, text):

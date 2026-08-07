@@ -312,9 +312,7 @@ def create_api_router(
             return
         import httpx
 
-        from .notifiers.feishu import FeishuNotifier
-        from .notifiers.telegram import TelegramNotifier
-        from .notifiers.wecom import WeComNotifier
+        from .channels import CHANNELS, build_channel_notifier, channel_bound
 
         label = {"xueqiu": "雪球", "combination": "雪球组合", "weibo": "微博", "twitter": "X"}.get(
             platform, platform
@@ -329,40 +327,19 @@ def create_api_router(
             for user in db.list_users():
                 if not user.get("is_admin"):
                     continue
-                if user["telegram_chat_id"] and (
-                    notifiers_config.telegram.bot_token or user.get("telegram_bot_token")
-                ):
-                    notifier = TelegramNotifier(
-                        notifiers_config.telegram,
-                        client=client,
-                        chat_id=user["telegram_chat_id"],
-                        bot_token=user.get("telegram_bot_token") or None,
-                    )
+                for channel in CHANNELS:
+                    if not channel_bound(user, channel, notifiers_config):
+                        continue
                     try:
+                        notifier = build_channel_notifier(channel, user, notifiers_config, client=client)
                         notifier.send_text(message)
                     except Exception as exc:  # noqa: BLE001
-                        logger.warning("大V申请通知 TG 失败 user=%s err=%s", user["username"], exc)
-                if user.get("feishu_open_id") or user.get("feishu_chat_id"):
-                    notifier = FeishuNotifier(
-                        notifiers_config.feishu,
-                        client=client,
-                        open_id=user["feishu_open_id"] if not user.get("feishu_chat_id") else None,
-                        chat_id=user.get("feishu_chat_id") or None,
-                    )
-                    try:
-                        notifier.send_text(message)
-                    except Exception as exc:  # noqa: BLE001
-                        logger.warning("大V申请通知飞书失败 user=%s err=%s", user["username"], exc)
-                if user.get("wecom_webhook"):
-                    notifier = WeComNotifier(
-                        notifiers_config.wecom,
-                        client=client,
-                        webhook_url=user["wecom_webhook"],
-                    )
-                    try:
-                        notifier.send_text(message)
-                    except Exception as exc:  # noqa: BLE001
-                        logger.warning("大V申请通知企业微信失败 user=%s err=%s", user["username"], exc)
+                        logger.warning(
+                            "大V申请通知失败 user=%s channel=%s err=%s",
+                            user["username"],
+                            channel,
+                            exc,
+                        )
         finally:
             client.close()
 
@@ -1465,49 +1442,18 @@ def create_api_router(
             raise HTTPException(status_code=404, detail="用户不存在")
         if notifiers_config is None:
             raise HTTPException(status_code=400, detail="未配置推送渠道")
-        from .notifiers.feishu import FeishuNotifier
-        from .notifiers.telegram import TelegramNotifier
-        from .notifiers.wecom import WeComNotifier
+        from .channels import CHANNELS, build_channel_notifier, channel_bound
 
         results = []
-        if user["telegram_chat_id"] and (
-            notifiers_config.telegram.bot_token or user.get("telegram_bot_token")
-        ):
-            notifier = TelegramNotifier(
-                notifiers_config.telegram,
-                chat_id=user["telegram_chat_id"],
-                bot_token=user.get("telegram_bot_token") or None,
-            )
+        for channel in CHANNELS:
+            if not channel_bound(user, channel, notifiers_config):
+                continue
+            notifier = build_channel_notifier(channel, user, notifiers_config)
             try:
                 notifier.send_text(f"【测试推送】{body.message}")
-                results.append({"channel": "telegram", "ok": True})
+                results.append({"channel": channel, "ok": True})
             except Exception as exc:  # noqa: BLE001
-                results.append({"channel": "telegram", "ok": False, "error": str(exc)})
-            finally:
-                notifier.client.close()
-        if user.get("feishu_open_id") or user.get("feishu_chat_id"):
-            notifier = FeishuNotifier(
-                notifiers_config.feishu,
-                open_id=user["feishu_open_id"] if not user.get("feishu_chat_id") else None,
-                chat_id=user.get("feishu_chat_id") or None,
-            )
-            try:
-                notifier.send_text(f"【测试推送】{body.message}")
-                results.append({"channel": "feishu", "ok": True})
-            except Exception as exc:  # noqa: BLE001
-                results.append({"channel": "feishu", "ok": False, "error": str(exc)})
-            finally:
-                notifier.client.close()
-        if user.get("wecom_webhook"):
-            notifier = WeComNotifier(
-                notifiers_config.wecom,
-                webhook_url=user["wecom_webhook"],
-            )
-            try:
-                notifier.send_text(f"【测试推送】{body.message}")
-                results.append({"channel": "wecom", "ok": True})
-            except Exception as exc:  # noqa: BLE001
-                results.append({"channel": "wecom", "ok": False, "error": str(exc)})
+                results.append({"channel": channel, "ok": False, "error": str(exc)})
             finally:
                 notifier.client.close()
         if not results:
