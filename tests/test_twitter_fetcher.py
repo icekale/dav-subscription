@@ -419,7 +419,7 @@ def test_twitter_network_error_skips_rsshub_fallback(monkeypatch):
     rss_calls = {"n": 0}
 
     def handler(request):
-        if request.url.host == "x.com":
+        if request.url.host in ("x.com", "api.twitter.com"):
             raise httpx.ConnectError("connection reset", request=request)
         rss_calls["n"] += 1
         return httpx.Response(200, content=b"<rss/>")
@@ -433,6 +433,136 @@ def test_twitter_network_error_skips_rsshub_fallback(monkeypatch):
     assert not db.get_setting("x_direct_last_fallback_at")  # 不标记降级
     events = db.recent_source_events()
     assert any("网络抖动" in e["detail"] for e in events)
+
+
+def _reset_guest_token():
+    from app.fetchers import twitter as tw_mod
+
+    tw_mod._guest_token = ""
+    tw_mod._guest_token_at = 0.0
+
+
+def test_guest_token_activated_with_csrf_and_attached(monkeypatch):
+    """guest/activate 带匹配的 ct0 cookie + x-csrf-token；typeahead 带 x-guest-token。
+
+    X 2026-08 起：不带 guest token 的 GraphQL 直接 401/403（code 89），
+    guest 激活本身要求匹配的 csrf cookie 与头（否则 403 code 353）。
+    """
+    monkeypatch.setenv("TWITTER_COOKIE", "auth_token=a; ct0=b; lang=zh-CN")
+    _reset_guest_token()
+    captured: dict[str, str] = {}
+
+    def handler(request):
+        if request.url.host == "api.twitter.com":
+            captured["activate_cookie"] = request.headers.get("cookie") or ""
+            captured["activate_csrf"] = request.headers.get("x-csrf-token") or ""
+            return httpx.Response(200, json={"guest_token": "tok123"})
+        if "typeahead" in str(request.url):
+            captured["typeahead_guest"] = request.headers.get("x-guest-token") or ""
+            return httpx.Response(
+                200,
+                json={
+                    "users": [
+                        {
+                            "id_str": "1745106082790318080",
+                            "name": "SemiAnalysis",
+                            "screen_name": "SemiAnalysis_",
+                            "profile_image_url_https": (
+                                "https://pbs.twimg.com/profile_images/1_normal.jpg"
+                            ),
+                        }
+                    ]
+                },
+            )
+        if "UserTweets" in str(request.url):
+            return httpx.Response(200, json=_timeline_response())
+        return httpx.Response(404)
+
+    db = DB(":memory:")
+    kid = db.add_kol("twitter", "SemiAnalysis", "https://x.com/SemiAnalysis")
+    fetcher = _make_fetcher(handler, db)
+    posts = fetcher.fetch(db.get_kol(kid))
+    assert [p.external_id for p in posts] == ["111", "222", "333"]
+    assert "auth_token=a" in captured["activate_cookie"]
+    assert "ct0=b" in captured["activate_cookie"]
+    assert captured["activate_csrf"] == "b"
+    assert captured["typeahead_guest"] == "tok123"
+    assert db.get_setting("x_direct_last_ok_at")
+
+
+def test_typeahead_resolves_when_userbyscreenname_empty(monkeypatch):
+    """第三方账号：UserByScreenName 返回空壳（2026-08 起仅本账号可解析）时，
+    经 typeahead 解析 uid 并正常直抓，不再全部回退 RSSHub。"""
+    monkeypatch.setenv("TWITTER_COOKIE", "auth_token=a; ct0=b")
+    _reset_guest_token()
+    userby_calls = {"n": 0}
+
+    def handler(request):
+        if request.url.host == "api.twitter.com":
+            return httpx.Response(200, json={"guest_token": "tok123"})
+        if "typeahead" in str(request.url):
+            return httpx.Response(
+                200,
+                json={
+                    "users": [
+                        {
+                            "id_str": "1745106082790318080",
+                            "name": "SemiAnalysis",
+                            "screen_name": "SemiAnalysis_",
+                            "profile_image_url_https": (
+                                "https://pbs.twimg.com/profile_images/1_normal.jpg"
+                            ),
+                        }
+                    ]
+                },
+            )
+        if "UserByScreenName" in str(request.url):
+            userby_calls["n"] += 1
+            return httpx.Response(200, json={"data": {}})  # 第三方空壳
+        if "UserTweets" in str(request.url):
+            return httpx.Response(200, json=_timeline_response())
+        return httpx.Response(404)
+
+    db = DB(":memory:")
+    kid = db.add_kol("twitter", "SemiAnalysis", "https://x.com/SemiAnalysis")
+    fetcher = _make_fetcher(handler, db)
+    posts = fetcher.fetch(db.get_kol(kid))
+    assert [p.external_id for p in posts] == ["111", "222", "333"]
+    assert userby_calls["n"] == 0  # typeahead 命中，无需回退 UserByScreenName
+    assert db.get_setting("x_direct_last_ok_at")
+
+
+def test_graphql_retries_once_with_fresh_guest_token_on_401(monkeypatch):
+    """GraphQL 401（guest token 失效/被轮换）时换新 token 重试一次。"""
+    monkeypatch.setenv("TWITTER_COOKIE", "auth_token=a; ct0=b")
+    _reset_guest_token()
+    calls = {"activate": 0, "tweets": 0}
+
+    def handler(request):
+        if request.url.host == "api.twitter.com":
+            calls["activate"] += 1
+            return httpx.Response(200, json={"guest_token": f"tok{calls['activate']}"})
+        if "typeahead" in str(request.url):
+            return httpx.Response(
+                200, json={"users": [{"id_str": "1745", "screen_name": "s"}]}
+            )
+        if "UserTweets" in str(request.url):
+            calls["tweets"] += 1
+            if calls["tweets"] == 1:
+                return httpx.Response(
+                    401,
+                    json={"errors": [{"message": "Invalid or expired token", "code": 89}]},
+                )
+            return httpx.Response(200, json=_timeline_response())
+        return httpx.Response(404)
+
+    db = DB(":memory:")
+    kid = db.add_kol("twitter", "SemiAnalysis", "https://x.com/SemiAnalysis")
+    fetcher = _make_fetcher(handler, db)
+    posts = fetcher.fetch(db.get_kol(kid))
+    assert [p.external_id for p in posts] == ["111", "222", "333"]
+    assert calls["tweets"] == 2  # 401 后重试成功
+    assert calls["activate"] >= 2  # 换过新 guest token
 
 
 def test_query_id_refresh_uses_browser_headers(monkeypatch):

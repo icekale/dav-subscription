@@ -29,12 +29,19 @@ GUEST_BEARER_TOKEN = (
     "%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA"
 )
 DEFAULT_QUERY_IDS = {
-    "UserTweets": "eoJ5zbv51Z_KVl81v9PmLQ",
+    "UserTweets": "T1x2zehUOKCWNpKwZCpnbg",
     "UserByScreenName": "Gb-d6r0vxPOADdG62OEBpQ",
 }
 QUERY_ID_TTL = 6 * 3600  # 每 6 小时重新从前端提取一次 queryId
 QUERY_ID_RETRY_COOLDOWN = 300  # 提取失败后 5 分钟重试，避免每次轮询都打前端
 FETCH_COUNT = 20
+
+# X 2026-08 起 GraphQL 要求带会话绑定的 guest token（guest/activate 需匹配的
+# ct0 cookie + x-csrf-token 头，否则 403 code 353）；token 有效期内复用。
+GUEST_TOKEN_TTL = 30 * 60
+_guest_token: str = ""
+_guest_token_at = 0.0
+_guest_token_lock = threading.Lock()
 
 # UserTweets 时间线所需的标准 feature switches（X 网页端常用集合）
 FEATURES = {
@@ -107,6 +114,38 @@ def _html_headers(cookie: str) -> dict[str, str]:
         "Cookie": f"auth_token={auth}; ct0={ct0}; lang=zh-CN",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     }
+
+
+def _get_guest_token(client: httpx.Client, cookie: str) -> str:
+    """获取会话绑定的 guest token（guest/activate 需带匹配的 ct0 cookie + x-csrf-token）。
+
+    失败时返回空串：GraphQL 无 guest 会 401/403，调用方走降级逻辑。
+    """
+    global _guest_token, _guest_token_at
+    now = time.time()
+    if _guest_token and now - _guest_token_at < GUEST_TOKEN_TTL:
+        return _guest_token
+    with _guest_token_lock:
+        if _guest_token and now - _guest_token_at < GUEST_TOKEN_TTL:
+            return _guest_token
+        headers = _auth_headers(cookie)
+        headers.update({"Origin": "https://x.com", "Referer": "https://x.com/"})
+        try:
+            resp = client.post(
+                "https://api.twitter.com/1.1/guest/activate.json",
+                headers=headers,
+                timeout=15,
+            )
+            if resp.status_code != 200:
+                logger.warning("X guest token 激活失败: HTTP %s", resp.status_code)
+                return ""
+            token = (resp.json() or {}).get("guest_token") or ""
+            if token:
+                _guest_token, _guest_token_at = token, now
+            return token
+        except Exception as exc:  # noqa: BLE001 - 失败返回空，下次重试
+            logger.warning("X guest token 激活异常: %s", exc)
+            return ""
 
 
 def _refresh_query_ids(client: httpx.Client, cookie: str) -> None:
@@ -190,6 +229,18 @@ def resolve_x_profile(external_id: str, cookie: str = "") -> dict:
     client = httpx.Client(timeout=20)
     try:
         fetcher = TwitterFetcher(db=None, client=client)
+        picked = fetcher._typeahead_pick(screen_name, cookie)
+        if picked:
+            avatar = (
+                picked.get("profile_image_url_https")
+                or picked.get("profile_image_url")
+                or ""
+            ).replace("_normal", "_400x400")
+            return {
+                "name": picked.get("name") or "",
+                "avatar_url": avatar,
+                "screen_name": picked.get("screen_name") or screen_name,
+            }
         data = fetcher._graphql(
             "UserByScreenName",
             {"screen_name": screen_name, "withSafetyModeUserFields": True},
@@ -302,6 +353,10 @@ class TwitterFetcher(Fetcher):
         _refresh_query_ids(self.client, cookie)
         query_id = _query_ids.get(operation) or DEFAULT_QUERY_IDS[operation]
         payload = {"variables": variables, "features": FEATURES}
+        headers = _auth_headers(cookie)
+        guest = _get_guest_token(self.client, cookie)
+        if guest:
+            headers["x-guest-token"] = guest
         resp = self.client.post(
             f"https://x.com/i/api/graphql/{query_id}/{operation}",
             params={
@@ -309,8 +364,25 @@ class TwitterFetcher(Fetcher):
                 "features": json.dumps(FEATURES, separators=(",", ":")),
             },
             json=payload,
-            headers=_auth_headers(cookie),
+            headers=headers,
         )
+        # 401 = guest token 失效/被轮换：换新 token 重试一次
+        if resp.status_code == 401:
+            global _guest_token
+            with _guest_token_lock:
+                _guest_token = ""
+            guest = _get_guest_token(self.client, cookie)
+            if guest:
+                headers["x-guest-token"] = guest
+                resp = self.client.post(
+                    f"https://x.com/i/api/graphql/{query_id}/{operation}",
+                    params={
+                        "variables": json.dumps(variables, separators=(",", ":")),
+                        "features": json.dumps(FEATURES, separators=(",", ":")),
+                    },
+                    json=payload,
+                    headers=headers,
+                )
         if resp.status_code != 200:
             hint = ""
             if resp.status_code in (400, 404):
@@ -324,22 +396,57 @@ class TwitterFetcher(Fetcher):
             raise RuntimeError(f"X GraphQL {operation} 错误: {msg}")
         return data
 
+    def _typeahead_pick(self, screen_name: str, cookie: str) -> dict | None:
+        """typeahead 解析：优先精确匹配 screen_name，否则取首个结果。"""
+        headers = _auth_headers(cookie)
+        guest = _get_guest_token(self.client, cookie)
+        if guest:
+            headers["x-guest-token"] = guest
+        resp = self.client.get(
+            "https://x.com/i/api/1.1/search/typeahead.json",
+            params={"q": screen_name, "result_type": "users"},
+            headers=headers,
+        )
+        if resp.status_code != 200:
+            return None
+        users = (resp.json() or {}).get("users") or []
+        target = screen_name.lower()
+        return next(
+            (u for u in users if (u.get("screen_name") or "").lower() == target),
+            users[0] if users else None,
+        )
+
+    def _typeahead_users(
+        self, screen_name: str, cookie: str
+    ) -> tuple[str, str]:
+        """经 typeahead 接口解析 uid（2026-08 起 UserByScreenName 对第三方账号返回空壳，
+        typeahead 仍可用）；返回 (user_id, avatar_url)，解析失败返回空。"""
+        picked = self._typeahead_pick(screen_name, cookie)
+        if not picked:
+            return "", ""
+        user_id = picked.get("id_str") or ""
+        img = picked.get("profile_image_url_https") or picked.get("profile_image_url") or ""
+        return user_id, img.replace("_normal", "_400x400") if img else ""
+
     def _resolve_user(self, screen_name: str, cookie: str) -> dict:
         if screen_name in self._user_ids:
             return {"user_id": self._user_ids[screen_name], "avatar": ""}
-        data = self._graphql(
-            "UserByScreenName",
-            {"screen_name": screen_name, "withSafetyModeUserFields": True},
-            cookie,
-        )
-        result = ((data.get("data") or {}).get("user") or {}).get("result") or {}
-        user_id = result.get("rest_id") or ""
+        user_id, avatar = self._typeahead_users(screen_name, cookie)
+        if not user_id:
+            # 回退 UserByScreenName（目前仅账号本人可解析）
+            data = self._graphql(
+                "UserByScreenName",
+                {"screen_name": screen_name, "withSafetyModeUserFields": True},
+                cookie,
+            )
+            result = ((data.get("data") or {}).get("user") or {}).get("result") or {}
+            user_id = result.get("rest_id") or ""
+            avatar = ((result.get("avatar") or {}).get("image_url") or "").replace(
+                "_normal", "_400x400"
+            )
         if not user_id:
             raise RuntimeError(f"X 未找到用户 {screen_name}")
         self._user_ids[screen_name] = user_id
-        avatar = ((result.get("avatar") or {}).get("image_url") or "").replace(
-            "_normal", "_400x400"
-        )
         return {"user_id": user_id, "avatar": avatar}
 
     def _fetch_direct(self, kol: dict, cookie: str) -> list[Post]:
