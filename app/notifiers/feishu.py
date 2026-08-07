@@ -15,7 +15,18 @@ from .base import Notifier
 PLATFORM_LABELS = {"xueqiu": "雪球", "combination": "雪球组合", "weibo": "微博", "twitter": "X/Twitter"}
 DIGEST_MAX_ITEMS = 5
 DND_MAX_ITEMS = 10
+SUMMARY_LIMIT = 100
 logger = logging.getLogger(__name__)
+
+
+def card_summary(*parts: str, limit: int = SUMMARY_LIMIT) -> str:
+    """拼接卡片通知摘要：parts 用「：」连接，超长在句尾截断补省略号。
+
+    写入 schema 2.0 卡片的 config.summary.content，同时控制飞书客户端
+    聊天列表预览和手机推送通知的正文文案。
+    """
+    text = "：".join(p.strip() for p in parts if p and p.strip())
+    return truncate_text(text, limit)
 
 _token_cache: dict[tuple[str, str], tuple[str, float]] = {}
 _token_lock = threading.Lock()
@@ -60,7 +71,13 @@ def build_feishu_card(post: Post, favorite: bool = False, keyword: bool = False)
     return {
         "msg_type": "interactive",
         "card": {
-            "config": {"wide_screen_mode": True},
+            "schema": "2.0",
+            "config": {
+                "wide_screen_mode": True,
+                "summary": {
+                    "content": card_summary(title, digest_body(post, full=False, max_chars=60))
+                },
+            },
             "header": {
                 "title": {"tag": "plain_text", "content": title},
                 "template": "blue",
@@ -149,10 +166,22 @@ def build_feishu_combination_card(post: Post) -> dict:
             ],
         }
     )
+    summary_parts = [f"📌 {post.kol_name} · 雪球组合 · 调仓"]
+    if stats:
+        summary_parts.append("　".join(f"{k} {v}" for k, v in stats))
+    elif actions:
+        a = actions[0]
+        a_type = a.get("type") or "调整"
+        stock = a.get("stock") or ""
+        summary_parts.append(f"{a_type} {stock}" if stock else a_type)
     return {
         "msg_type": "interactive",
         "card": {
-            "config": {"wide_screen_mode": True},
+            "schema": "2.0",
+            "config": {
+                "wide_screen_mode": True,
+                "summary": {"content": card_summary(*summary_parts)},
+            },
             "header": {
                 "title": {"tag": "plain_text", "content": f"📌 {post.kol_name} · 雪球组合 · 调仓"},
                 "template": "blue",
@@ -200,8 +229,16 @@ def build_feishu_digest_card(posts: list[Post], kol_name: str, platform: str) ->
                 ],
             }
         )
+    summary_content = card_summary(
+        f"📌 {kol_name} · {platform_label}（{len(posts)} 条新动态）",
+        digest_body(posts[0], full=False, max_chars=60) if posts else "",
+    )
     return {
-        "config": {"wide_screen_mode": True},
+        "schema": "2.0",
+        "config": {
+            "wide_screen_mode": True,
+            "summary": {"content": summary_content},
+        },
         "header": {
             "title": {
                 "tag": "plain_text",
@@ -246,8 +283,16 @@ def build_feishu_daily_card(posts: list[Post]) -> dict:
                 ],
             }
         )
+    summary_content = card_summary(
+        f"📊 今日大V精选（{len(posts)} 条）",
+        digest_body(ordered[0], full=False, max_chars=60) if ordered else "",
+    )
     return {
-        "config": {"wide_screen_mode": True},
+        "schema": "2.0",
+        "config": {
+            "wide_screen_mode": True,
+            "summary": {"content": summary_content},
+        },
         "header": {
             "title": {"tag": "plain_text", "content": "📊 今日大V精选"},
             "template": "orange",
@@ -291,8 +336,16 @@ def build_feishu_dnd_summary_card(posts: list[Post]) -> dict:
                 ],
             }
         )
+    summary_content = card_summary(
+        f"📵 免打扰时段汇总（{len(posts)} 条新动态）",
+        digest_body(posts[0], full=False, max_chars=60) if posts else "",
+    )
     return {
-        "config": {"wide_screen_mode": True},
+        "schema": "2.0",
+        "config": {
+            "wide_screen_mode": True,
+            "summary": {"content": summary_content},
+        },
         "header": {
             "title": {
                 "tag": "plain_text",
@@ -455,7 +508,11 @@ class FeishuNotifier(Notifier):
         payload = {
             "msg_type": "interactive",
             "card": {
-                "config": {"wide_screen_mode": True},
+                "schema": "2.0",
+                "config": {
+                    "wide_screen_mode": True,
+                    "summary": {"content": truncate_text(text, SUMMARY_LIMIT)},
+                },
                 "elements": [{"tag": "div", "text": {"tag": "lark_md", "content": text}}],
             },
         }

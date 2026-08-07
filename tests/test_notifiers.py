@@ -142,6 +142,57 @@ def test_feishu_card_marks_favorite():
     assert "⭐" not in build_feishu_card(make_post())["card"]["header"]["title"]["content"]
 
 
+def test_feishu_card_summary_for_notification():
+    # schema 2.0 + config.summary：控制聊天列表预览与手机推送通知正文
+    from app.notifiers.feishu import build_feishu_card
+
+    card = build_feishu_card(make_post(), favorite=True)["card"]
+    assert card["schema"] == "2.0"
+    summary = card["config"]["summary"]["content"]
+    assert "李四" in summary and "c" in summary
+    assert len(summary) <= 120
+
+
+def test_feishu_batch_cards_have_summary_and_schema():
+    from app.notifiers.feishu import (
+        build_feishu_combination_card,
+        build_feishu_daily_card,
+        build_feishu_digest_card,
+        build_feishu_dnd_summary_card,
+    )
+
+    post = make_post()
+    cards = [
+        build_feishu_combination_card(post)["card"],
+        build_feishu_digest_card([post], "李四", "weibo"),
+        build_feishu_daily_card([post]),
+        build_feishu_dnd_summary_card([post]),
+    ]
+    for card in cards:
+        assert card["schema"] == "2.0"
+        assert "summary" in card["config"]
+        assert card["config"]["summary"]["content"]
+        assert len(card["config"]["summary"]["content"]) <= 120
+
+
+def test_feishu_combination_card_summary_uses_stats():
+    from app.notifiers.feishu import build_feishu_combination_card
+
+    post = make_post()
+    post.platform = "combination"
+    post.detail = {
+        "stats": [("总资产", "100万"), ("当日收益", "+1.2%")],
+        "actions": [{"type": "增持", "stock": "腾讯", "symbol": "00700"}],
+        "cash": "5万",
+    }
+    summary = build_feishu_combination_card(post)["card"]["config"]["summary"]["content"]
+    assert "总资产" in summary and "当日收益" in summary
+
+    post.detail = {"stats": [], "actions": [{"type": "清仓", "stock": "茅台"}], "cash": ""}
+    summary2 = build_feishu_combination_card(post)["card"]["config"]["summary"]["content"]
+    assert "清仓" in summary2 and "茅台" in summary2
+
+
 def test_telegram_unconfigured_raises():
     notifier = TelegramNotifier(TelegramConfig())
     with pytest.raises(RuntimeError):

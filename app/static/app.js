@@ -964,6 +964,25 @@ async function renderSettings() {
       <section class="section-panel">
         <header class="section-head">
           <div>
+            <p class="section-eyebrow">Keywords</p>
+            <h3 class="section-title">关键词提醒</h3>
+            <p class="section-meta">命中关键词的动态会加 🔑 标记、并在免打扰时段实时推送（穿透免打扰）；每行一个，最多 20 个，每个不超过 50 字。</p>
+          </div>
+        </header>
+        <div class="form-row">
+          <label for="set-keywords">关键词（每行一个）</label>
+          <textarea id="set-keywords" class="form-control" rows="4"
+            placeholder="ETF&#10;降息&#10;中概股">${escapeHtml((state.user.keywords || []).join("\n"))}</textarea>
+        </div>
+        <div class="toolbar" style="margin-top:10px">
+          <button class="btn-normal" onclick="saveKeywords()">保存关键词</button>
+          <span id="keywords-result" class="muted"></span>
+        </div>
+        <p class="muted">适用场景：只关心某个大V聊的特定话题（如「只想要 ETF 相关的」）；命中即实时送达，不受免打扰影响。</p>
+      </section>
+      <section class="section-panel">
+        <header class="section-head">
+          <div>
             <p class="section-eyebrow">Telegram</p>
             <h3 class="section-title">① 打开 Telegram 机器人</h3>
           </div>
@@ -1082,25 +1101,6 @@ async function renderSettings() {
           </div>
         </div>
         <p class="muted">⚠️ 地址内含订阅凭证，泄露后别人能读到你的关注流；泄露了就点「重新生成」立即作废旧地址。</p>
-      </section>
-      <section class="section-panel">
-        <header class="section-head">
-          <div>
-            <p class="section-eyebrow">Keywords</p>
-            <h3 class="section-title">关键词提醒</h3>
-            <p class="section-meta">命中关键词的动态会加 🔑 标记、并在免打扰时段实时推送（穿透免打扰）；每行一个，最多 20 个，每个不超过 50 字。</p>
-          </div>
-        </header>
-        <div class="form-row">
-          <label for="set-keywords">关键词（每行一个）</label>
-          <textarea id="set-keywords" class="form-control" rows="4"
-            placeholder="ETF&#10;降息&#10;中概股">${escapeHtml((state.user.keywords || []).join("\n"))}</textarea>
-        </div>
-        <div class="toolbar" style="margin-top:10px">
-          <button class="btn-normal" onclick="saveKeywords()">保存关键词</button>
-          <span id="keywords-result" class="muted"></span>
-        </div>
-        <p class="muted">适用场景：只关心某个大V聊的特定话题（如「只想要 ETF 相关的」）；命中即实时送达，不受免打扰影响。</p>
       </section>
       <section class="section-panel">
         <div class="form-row">
