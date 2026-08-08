@@ -1121,6 +1121,22 @@ def test_posts_search_and_push_log_filters():
     assert len(logs) == 1
 
 
+def test_posts_pagination_offset():
+    client = make_client()
+    headers = auth_headers(client)
+    db = client.app.state.db
+    kid = db.add_kol("xueqiu", "大V", "1")
+    for i in range(5):
+        db.insert_post("xueqiu", kid, f"p{i}", f"标题{i}", "c", "u", "")
+    page1 = client.get("/api/posts?limit=2&offset=0", headers=headers).json()
+    page2 = client.get("/api/posts?limit=2&offset=2", headers=headers).json()
+    assert len(page1) == 2 and len(page2) == 2
+    ids1 = [p["id"] for p in page1]
+    ids2 = [p["id"] for p in page2]
+    assert not set(ids1) & set(ids2)  # 两页无重叠
+    assert ids1[0] > ids1[1] > ids2[0]  # 按 id 倒序
+
+
 def test_delete_kol_cascades_posts_and_logs():
     client = make_client()
     headers = auth_headers(client)
@@ -1408,7 +1424,8 @@ def test_old_db_migrates_category_column():
     db = DB(path)
     cid = db.add_category("宏观")
     db.update_kol(1, category_id=cid)
-    assert db.get_kol(1)["category_name"] == "宏观"
+    kol = db.get_kol(1)
+    assert kol is not None and kol["category_name"] == "宏观"
     uid = db.add_user("admin", "hash", is_admin=True)
     db.add_subscription(uid, 1)
     assert db.subscribers_of_kol(1) == []
@@ -1442,9 +1459,11 @@ def test_old_db_migrates_wecom_column():
     db = DB(path)
     uid = db.add_user("wc", "hash")
     db.update_user(uid, wecom_webhook="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=wc1")
-    assert db.get_user_by_wecom_webhook("https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=wc1")["id"] == uid
+    wc = db.get_user_by_wecom_webhook("https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=wc1")
+    assert wc is not None and wc["id"] == uid
     db.update_user(uid, telegram_bot_token="123:custom")
-    assert db.get_user_by_telegram_bot("123:custom")["id"] == uid
+    tg = db.get_user_by_telegram_bot("123:custom")
+    assert tg is not None and tg["id"] == uid
     db.close()
 
 

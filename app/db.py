@@ -1102,6 +1102,7 @@ class DB:
         platform: str | None = None,
         kol_id: int | None = None,
         q: str | None = None,
+        offset: int = 0,
     ) -> list[dict]:
         sql = (
             "SELECT p.*, k.name AS kol_name, k.category_id AS category_id, "
@@ -1123,8 +1124,8 @@ class DB:
             params.extend([like, like])
         if conds:
             sql += " WHERE " + " AND ".join(conds)
-        sql += " ORDER BY p.id DESC LIMIT ?"
-        params.append(limit)
+        sql += " ORDER BY p.id DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
         return _normalize_post_images(self._rows(sql, params))
 
     def count_posts(self) -> int:

@@ -857,6 +857,15 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
 .hero-pill-icon { cursor: pointer; }
 .hero-pill-icon:hover { opacity: 0.8; }
 
+/* 管理帖子列表：点击展开全文 */
+.post-cell { cursor: pointer; }
+.post-detail {
+  background: var(--color-surface-accent-soft);
+  border-radius: var(--radius-control);
+  padding: 12px;
+}
+.post-detail .content-cell { white-space: pre-wrap; }
+
 /* 渠道绑定步骤折叠（设置页压缩） */
 details.bind-steps { margin-top: 10px; }
 details.bind-steps > summary {

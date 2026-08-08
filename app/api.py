@@ -1294,8 +1294,8 @@ def create_api_router(
         return {"ok": True}
 
     @router.get("/posts", dependencies=[Depends(require_admin)])
-    def list_posts(limit: int = 100, platform: str | None = None, kol_id: int | None = None, q: str | None = None):
-        return db.list_posts(limit=min(limit, 500), platform=platform, kol_id=kol_id, q=q)
+    def list_posts(limit: int = 100, platform: str | None = None, kol_id: int | None = None, q: str | None = None, offset: int = 0):
+        return db.list_posts(limit=min(limit, 500), platform=platform, kol_id=kol_id, q=q, offset=offset)
 
     @router.get("/push-logs", dependencies=[Depends(require_admin)])
     def list_push_logs(

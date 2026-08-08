@@ -2461,49 +2461,113 @@ async function adminDeleteCategory(id) {
 }
 
 let _adminPostsSeq = 0;
-async function loadAdminPosts() {
-  const seq = ++_adminPostsSeq;
-  const posts = await api(`/api/posts?limit=100${state.adminPostsFilter || ""}`);
-  if (seq !== _adminPostsSeq) return; // 筛选条件已变，丢弃过期响应
+const _adminPosts = [];
+let _adminPostsOffset = 0;
+let _adminPostsHasMore = true;
+const _adminPostsExpanded = new Set();
+let _adminKolsOptions = null;
+
+async function _adminKolsSelect() {
+  // 大V下拉选项（按平台分组），只拉一次缓存
+  if (_adminKolsOptions) return _adminKolsOptions;
+  const kols = await api("/api/kols");
+  const groups = {};
+  for (const k of kols) {
+    const g = PLATFORM_LABELS[k.platform] || k.platform || "其他";
+    (groups[g] = groups[g] || []).push(k);
+  }
+  _adminKolsOptions = Object.entries(groups)
+    .map(([g, list]) => `<optgroup label="${escapeHtml(g)}">${list.map((k) =>
+      `<option value="${k.id}" ${state.adminPostsKolId == k.id ? "selected" : ""}>${escapeHtml(k.name)}</option>`).join("")}</optgroup>`)
+    .join("");
+  return _adminKolsOptions;
+}
+
+function renderAdminPosts() {
+  const kolsHtml = _adminKolsOptions || `<option value="">全部大V</option>`;
   $("#admin-body").innerHTML = `
     <section class="section-panel">
       <header class="section-head">
-        <div><p class="section-eyebrow">Posts</p><h3 class="section-title">帖子列表</h3></div>
+        <div><p class="section-eyebrow">Posts</p><h3 class="section-title">帖子列表</h3><p class="section-meta">已加载 ${_adminPosts.length} 条 · 点击内容展开全文 · 按大V/平台/关键词筛选</p></div>
         <div class="toolbar" style="margin-top:12px">
-          <input id="ad-posts-q" class="form-control" style="margin:0;width:260px" placeholder="搜索标题/内容关键词" value="${escapeHtml(state.adminPostsQ || "")}">
-          <select id="ad-posts-platform" class="form-control" style="margin:0;width:auto">
+          <input id="ad-posts-q" class="form-control" style="margin:0;width:240px" placeholder="搜索标题/内容关键词" value="${escapeHtml(state.adminPostsQ || "")}" onkeydown="if(event.key==='Enter')adminFilterPosts()">
+          <select id="ad-posts-platform" class="form-control" style="margin:0;width:auto" onchange="adminFilterPosts()">
             <option value="">全部平台</option>
             <option value="xueqiu" ${state.adminPostsPlatform === "xueqiu" ? "selected" : ""}>雪球</option>
             <option value="weibo" ${state.adminPostsPlatform === "weibo" ? "selected" : ""}>微博</option>
             <option value="twitter" ${state.adminPostsPlatform === "twitter" ? "selected" : ""}>X</option>
           </select>
+          <select id="ad-posts-kol" class="form-control" style="margin:0;width:auto" onchange="adminFilterPosts()">${kolsHtml}</select>
           <button class="btn-normal" onclick="adminFilterPosts()">筛选</button>
         </div>
       </header>
       <div class="table-wrap">
         <table>
           <thead><tr><th>ID</th><th>大V</th><th>分类</th><th>内容</th><th>时间</th><th>链接</th></tr></thead>
-          <tbody>${posts.map((p) => `
-            <tr>
-              <td>${p.id}</td><td>${escapeHtml(p.kol_name)}</td>
-              <td>${escapeHtml(p.category_name || "")}</td>
-              <td><pre class="content-cell">${escapeHtml((p.title ? p.title + "\n" : "") + (p.content || "").slice(0, 120))}</pre></td>
-              <td>${escapeHtml(p.published_at)}</td>
-              <td><a href="${escapeHtml(/^https?:\/\//i.test(p.url || "") ? p.url : "#")}" target="_blank" rel="noopener">原文</a></td>
-            </tr>`).join("")}</tbody>
+          <tbody>${_adminPosts.map(postRowHtml).join("")}</tbody>
         </table>
       </div>
+      ${_adminPostsHasMore
+        ? `<div class="toolbar" style="margin-top:14px;justify-content:center"><button class="btn-normal" onclick="adminPostsLoadMore()">加载更多</button></div>`
+        : `<p class="muted" style="text-align:center;margin-top:14px">已加载全部</p>`}
     </section>`;
+}
+
+function postRowHtml(p) {
+  const expanded = _adminPostsExpanded.has(p.id);
+  const body = (p.title ? p.title + "\n" : "") + (p.content || "");
+  return `
+    <tr${expanded ? ' style="background:var(--color-surface-accent-soft)"' : ""}>
+      <td>${p.id}</td><td>${escapeHtml(p.kol_name)}</td>
+      <td>${escapeHtml(p.category_name || "")}</td>
+      <td class="post-cell" onclick="adminTogglePost(${p.id})" title="点击展开/收起全文">
+        <pre class="content-cell">${escapeHtml(body.slice(0, expanded ? 100000 : 120))}</pre>
+        <span class="muted" style="font-size:12px">${expanded ? "▲ 收起" : (body.length > 120 ? "▼ 展开全文" : "")}</span>
+      </td>
+      <td>${escapeHtml(p.published_at)}</td>
+      <td>${p.url ? `<a href="${escapeHtml(p.url)}" target="_blank" rel="noopener">原文</a>` : ""}</td>
+    </tr>
+    ${expanded ? `<tr><td colspan="6"><div class="post-detail">
+        <p class="muted" style="margin-bottom:8px">类型：${p.post_type === "reply" ? "回复" : "原帖"} · 平台：${escapeHtml(p.platform)} · 外部ID：${escapeHtml(p.external_id)} · 图片：${(p.images || []).length} 张</p>
+        <pre class="content-cell">${escapeHtml(body)}</pre>
+      </div></td></tr>` : ""}`;
+}
+
+async function loadAdminPosts(reset = true) {
+  const seq = ++_adminPostsSeq;
+  const params = new URLSearchParams({ limit: "100", offset: String(reset ? 0 : _adminPostsOffset) });
+  if (state.adminPostsQ) params.set("q", state.adminPostsQ);
+  if (state.adminPostsPlatform) params.set("platform", state.adminPostsPlatform);
+  if (state.adminPostsKolId) params.set("kol_id", state.adminPostsKolId);
+  const [posts, kolsHtml] = await Promise.all([api(`/api/posts?${params}`), _adminKolsSelect()]);
+  if (seq !== _adminPostsSeq) return; // 筛选条件已变，丢弃过期响应
+  if (reset) {
+    _adminPosts.length = 0;
+    _adminPostsOffset = 0;
+    _adminPostsHasMore = true;
+  }
+  _adminPosts.push(...posts);
+  _adminPostsOffset += posts.length;
+  _adminPostsHasMore = posts.length >= 100;
+  _adminKolsOptions = kolsHtml;
+  renderAdminPosts();
+}
+
+function adminPostsLoadMore() {
+  loadAdminPosts(false);
+}
+
+function adminTogglePost(id) {
+  if (_adminPostsExpanded.has(id)) _adminPostsExpanded.delete(id);
+  else _adminPostsExpanded.add(id);
+  renderAdminPosts();
 }
 
 async function adminFilterPosts() {
   state.adminPostsQ = $("#ad-posts-q").value.trim();
   state.adminPostsPlatform = $("#ad-posts-platform").value;
-  const params = new URLSearchParams({ limit: "100" });
-  if (state.adminPostsQ) params.set("q", state.adminPostsQ);
-  if (state.adminPostsPlatform) params.set("platform", state.adminPostsPlatform);
-  state.adminPostsFilter = `&${params.toString()}`;
-  loadAdminPosts();
+  state.adminPostsKolId = $("#ad-posts-kol").value;
+  loadAdminPosts(true);
 }
 
 let _adminLogsSeq = 0;

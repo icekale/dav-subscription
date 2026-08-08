@@ -1,5 +1,8 @@
 {
   "format": {
     "enabled": false
-  }
+  },
+  "ignore": [
+    "app/static/app.js"
+  ]
 }
