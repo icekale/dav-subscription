@@ -179,6 +179,8 @@ def test_max_tokens_scales_with_post_count():
         return httpx.Response(200, json={"choices": [{"message": {"content": "摘要"}}]})
 
     client = httpx.Client(transport=httpx.MockTransport(handler))
-    posts = [make_post(external_id=f"p{i}") for i in range(10)]
-    summarize_posts(posts, make_config(), client=client)
-    assert captured["max_tokens"] == 1400  # 200 + 120*10
+    # 10 帖被 2000 托底（推理模型需思考预算）；30 帖随帖数增长
+    summarize_posts([make_post(external_id=f"p{i}") for i in range(10)], make_config(), client=client)
+    assert captured["max_tokens"] == 2000
+    summarize_posts([make_post(external_id=f"p{i}") for i in range(30)], make_config(), client=client)
+    assert captured["max_tokens"] == 3800  # 200 + 120*30

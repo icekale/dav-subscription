@@ -91,7 +91,9 @@ def summarize_posts(posts, llm_config=None, client=None, cache=None) -> str | No
                             },
                         ],
                         "temperature": 0.3,
-                        "max_tokens": min(2000, max(400, 200 + 120 * len(posts))),
+                        # 推理模型（如 deepseek-v4-flash）的 max_tokens 包含思考预算，
+                        # 太低会被思考吃光导致 content 为空；托底 2000、上限 8000
+                        "max_tokens": min(8000, max(2000, 200 + 120 * len(posts))),
                     },
                 )
                 if resp.status_code == 429 or resp.status_code >= 500:
