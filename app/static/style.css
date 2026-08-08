@@ -322,40 +322,7 @@ textarea.form-control {
 
 .page-main { padding: 24px; max-width: 1180px; width: 100%; margin: 0 auto; }
 
-/* ---------- Hero 与面板 ---------- */
-.hero-panel {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  background: var(--color-surface);
-  border: var(--border-default);
-  border-radius: var(--radius-card);
-  box-shadow: var(--shadow-xs);
-  padding: 22px 26px;
-  margin-bottom: 18px;
-}
-.hero-eyebrow { font-size: var(--text-xs); font-weight: var(--font-weight-semibold); letter-spacing: 1.5px; text-transform: uppercase; color: var(--color-accent); }
-.hero-title { font-size: var(--text-xl); font-weight: var(--font-weight-bold); color: var(--color-text-strong); margin-top: 6px; }
-.hero-subtitle { color: var(--color-text-muted); font-size: var(--text-sm); margin-top: 6px; }
-.hero-pills { display: flex; gap: 8px; flex-wrap: wrap; }
-.hero-pill {
-  border: var(--border-strong);
-  border-radius: var(--radius-pill);
-  background: var(--color-surface);
-  color: var(--color-text-muted);
-  font-size: var(--text-xs);
-  padding: 6px 14px;
-}
-.hero-pill-icon {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 36px; height: 36px; padding: 0;
-}
-.hero-pill-icon .ch-icon { width: 18px; height: 18px; }
-.hero-pill-icon[data-channel="telegram"] .ch-icon { color: #26a5e4; }
-.hero-pill-icon[data-channel="feishu"] .ch-icon { color: #3370ff; }
-.hero-pill-icon[data-channel="wecom"] .ch-icon { color: #07c160; }
-
+/* ---------- 面板 ---------- */
 .section-panel {
   background: var(--color-surface);
   border: var(--border-default);
@@ -817,7 +784,6 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
   .login-brand { text-align: center; }
   .login-brand .brand-mark { margin-left: auto; margin-right: auto; }
   .login-brand-copy { margin: 0 auto; }
-  .hero-panel { flex-direction: column; align-items: flex-start; }
   .topbar { padding: 0 16px; }
   .page-main { padding: 16px; }
 }
@@ -896,9 +862,6 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
   .tl-actions button { width: 100%; justify-content: center; }
   .btn-normal, .btn-ghost, .channel-btn { min-height: 44px; }
   .btn-add { min-height: 44px; }
-  .hero-panel { padding: 12px 14px; margin-bottom: 10px; }
-  .hero-title { font-size: var(--text-lg); margin-top: 2px; }
-  .hero-subtitle { font-size: var(--text-xs); margin-top: 2px; }
   .form-control { min-height: 44px; }
 }
 
@@ -951,10 +914,6 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
   margin-top: 18px;
   padding-top: 18px;
 }
-
-/* hero 顶部渠道图标可点击 */
-.hero-pill-icon { cursor: pointer; }
-.hero-pill-icon:hover { opacity: 0.8; }
 
 /* 管理帖子列表：点击展开全文 */
 .post-cell { cursor: pointer; }

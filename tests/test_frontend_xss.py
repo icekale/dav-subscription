@@ -26,7 +26,7 @@ SAFE_CONTEXTS = [
     # 硬编码标签/图标表索引
     r"PLATFORM_LABELS\[|PLATFORM_ICONS\[|CHANNEL_ICONS\[|statusPill\(|PLATFORM_TABS",
     # 安全渲染辅助函数（内部已转义或为纯数字）
-    r"avatarHtml\(|avatarText\(|heroPanel\(|emptyState\(|format_published_at\(|fmtDbTime\(|fmtTs\(|rateBar\(",
+    r"avatarHtml\(|avatarText\(|emptyState\(|format_published_at\(|fmtDbTime\(|fmtTs\(|rateBar\(",
     # URL 编码 / 数值转换
     r"encodeURIComponent\(|Number\(|parseInt\(",
     # 内部筛选状态（来自硬编码 PLATFORM_TABS，非用户数据）
@@ -74,8 +74,8 @@ def test_innerhtml_templates_escape_user_fields():
         # JS 字符串上下文（非 HTML 渲染）：flash 用 textContent，confirm/alert/prompt 直接弹文本
         if re.search(r"confirm\(|alert\(|prompt\(|flash\(|textContent\s*=", line):
             continue
-        # heroPanel/emptyState 内部自行 escapeHtml，传入的参数无需再转义
-        if re.search(r"heroPanel\(|emptyState\(", line):
+        # emptyState 内部自行 escapeHtml，传入的参数无需再转义
+        if re.search(r"emptyState\(", line):
             continue
         for expr in _interpolations(line):
             if "escapeHtml" in expr:

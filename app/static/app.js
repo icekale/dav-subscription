@@ -176,7 +176,6 @@ async function renderMore() {
     ...(adminGroup.subs || []).flatMap((s) => s.items || []),
   ];
   $("#main").innerHTML = `
-    ${heroPanel("More", "更多", "管理后台入口。")}
     <section class="section-panel">
       <div class="more-grid">
         ${adminItems.map((item) => `
@@ -222,20 +221,6 @@ function setPageTitle(title, back = false) {
   $("#btn-back").classList.toggle("hidden", !back);
 }
 
-function heroPanel(eyebrow, title, subtitle = "", pills = []) {
-  return `
-    <section class="hero-panel">
-      <div>
-        <p class="hero-eyebrow">${escapeHtml(eyebrow)}</p>
-        <h2 class="hero-title">${escapeHtml(title)}</h2>
-        ${subtitle ? `<p class="hero-subtitle">${escapeHtml(subtitle)}</p>` : ""}
-      </div>
-      ${pills.length ? `<div class="hero-pills">${pills.map((p) => typeof p === "object"
-        ? `<span class="hero-pill hero-pill-icon" data-channel="${p.channel}" title="${escapeHtml(p.label)}" onclick="heroChannelClick('${p.channel}')">${p.icon}</span>`
-        : `<span class="hero-pill">${escapeHtml(p)}</span>`).join("")}</div>` : ""}
-    </section>`;
-}
-
 function emptyState(text, actionHtml = "") {
   return `<div class="empty">${escapeHtml(text)}${actionHtml}</div>`;
 }
@@ -279,8 +264,6 @@ async function renderHome() {
     }
   }
   $("#main").innerHTML = `
-    ${heroPanel("DaV Catalog", "订阅广场", "浏览大V目录，点击卡片查看动态，一键订阅你关注的人。",
-      [])}
     ${onboardingHtml}
     <section class="section-panel">
       <header class="section-head">
@@ -535,7 +518,6 @@ async function setSubscribeType(kolId, input) {
 async function renderMySubs() {
   setPageTitle("我的订阅");
   $("#main").innerHTML = `
-    ${heroPanel("My Subscriptions", "我的订阅", "管理你关注的大V与组合，随时取消订阅。", ["大V", "组合"])}
     <section class="section-panel">
       <header class="section-head">
         <div>
@@ -593,7 +575,6 @@ function toggleMySubsFav() {
 async function renderCombinations() {
   setPageTitle("组合订阅");
   $("#main").innerHTML = `
-    ${heroPanel("Combination Subscriptions", "组合订阅", "订阅雪球组合，每次调仓（持仓变化）都会实时推送。", ["调仓提醒", "模拟仓"])}
     <section class="section-panel">
       <header class="section-head">
         <div>
@@ -895,7 +876,6 @@ async function renderSearch() {
   const params = new URLSearchParams(location.hash.split("?")[1] || "");
   const query = params.get("q") || "";
   $("#main").innerHTML = `
-    ${heroPanel("Search", "搜索大V", "按昵称或外部 ID（雪球 UID / 微博 UID / X 用户名）查找。")}
     <section class="section-panel">
       <div class="search-bar" style="margin-bottom:16px">
         <span>🔍</span>
@@ -1003,12 +983,12 @@ async function renderKolPage(kolId) {
     const kol = await api(`/api/kols/${kolId}`);
     const posts = await api(`/api/kols/${kolId}/posts?limit=50`);
     $("#main").innerHTML = `
-      ${heroPanel("Kol Profile", kol.name, `外部 ID：${kol.external_id} · ${PLATFORM_LABELS[kol.platform] || kol.platform}${kol.category_name ? " · " + kol.category_name : ""}`, ["查看动态"])}
       <section class="section-panel">
         <header class="section-head">
           <div>
             <p class="section-eyebrow">Posts</p>
-            <h3 class="section-title">最近动态</h3>
+            <h3 class="section-title">${escapeHtml(kol.name)} · 最近动态</h3>
+            <p class="section-meta">外部 ID：${escapeHtml(kol.external_id)} · ${PLATFORM_LABELS[kol.platform] || escapeHtml(kol.platform)}${kol.category_name ? " · " + escapeHtml(kol.category_name) : ""}</p>
           </div>
           <div class="toolbar" style="margin-top:12px">
             ${kol.subscribed && kol.platform === "xueqiu" ? subTypeSwitchesHtml(kol.id, kol.subscribe_type || "post") : ""}
@@ -1154,13 +1134,6 @@ async function renderSettings() {
       : "你的机器人";
     const fsTarget = fsBot ? `<b>${escapeHtml(fsBot)}</b>` : "你的机器人应用名";
     $("#main").innerHTML = `
-      ${heroPanel("Push Settings", "推送设置", "渠道绑定、关键词与推送规则都在这里。",
-        [
-          { channel: "telegram", label: "Telegram", icon: CHANNEL_ICONS.telegram },
-          { channel: "feishu", label: "飞书", icon: CHANNEL_ICONS.feishu },
-          { channel: "wecom", label: "企业微信", icon: CHANNEL_ICONS.wecom },
-          { channel: "bark", label: "Bark", icon: CHANNEL_ICONS.bark },
-        ])}
       <div class="settings-tabs" role="tablist">
         <button class="settings-tab active" data-tab="push" onclick="switchSettingsTab('push')">推送设置</button>
         <button class="settings-tab" data-tab="bind" onclick="switchSettingsTab('bind')">渠道绑定</button>
@@ -1461,13 +1434,6 @@ function bindGuideHtml(bound, stepsHtml) {
     <summary>${bound ? "已绑定 ✅ · 展开查看绑定步骤" : "展开查看绑定步骤"}</summary>
     ${stepsHtml}
   </details>`;
-}
-
-function heroChannelClick(channel) {
-  // hero 顶部渠道图标 → 跳到「渠道绑定」分栏对应渠道块并展开步骤
-  const map = { telegram: "telegram-bind", feishu: "feishu-bind", wecom: "wecom-bind", bark: "bark-bind" };
-  const id = map[channel];
-  if (id && typeof openBindGuide === "function") openBindGuide(id);
 }
 
 function openBindGuide(sectionId) {
@@ -1777,7 +1743,6 @@ async function genBindCode() {
 async function renderAdmin(tab) {
   setPageTitle("管理后台");
   $("#main").innerHTML = `
-    ${heroPanel("Admin Console", "管理后台", "维护大V目录、分类与推送记录，查看注册用户。")}
     <div id="admin-body"></div>`;
   const loaders = { dashboard: loadAdminDashboard, stats: loadAdminStats, kols: loadAdminKols, requests: loadAdminRequests, codes: loadAdminCodes, categories: loadAdminCategories, posts: loadAdminPosts, logs: loadAdminLogs, audit: loadAdminAudit, users: loadAdminUsers };
   try {
