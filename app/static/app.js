@@ -102,10 +102,9 @@ const NAV = [
     { route: "timeline", icon: "☰", label: "动态" },
     { route: "settings", icon: "⚙", label: "推送设置" },
   ]},
-  { group: "管理", admin: true, items: [
-    { route: "admin/dashboard", icon: "▦", label: "看板" },
-  ], subs: [
+  { group: "管理", admin: true, subs: [
     { label: "内容管理", items: [
+      { route: "admin/dashboard", icon: "▦", label: "看板" },
       { route: "admin/kols", icon: V_ICON, label: "大V管理" },
       { route: "admin/categories", icon: "▣", label: "分类管理" },
       { route: "admin/requests", icon: "✚", label: "求添加" },
