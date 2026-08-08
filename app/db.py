@@ -1245,7 +1245,7 @@ class DB:
         return self._rows(
             "SELECT * FROM users WHERE notify_enabled = 1 AND daily_report = 1 "
             "AND (telegram_chat_id != '' OR feishu_open_id != '' OR feishu_chat_id != '' "
-            "OR wecom_webhook != '')"
+            "OR wecom_webhook != '' OR bark_key != '')"
         )
 
     # ---- Push log ----

@@ -1760,6 +1760,7 @@ class Scheduler:
         if self.notifiers_config is None:
             return True
         from .fetchers.base import Post
+        from .notifiers.bark import BarkNotifier
         from .notifiers.feishu import FeishuNotifier
         from .notifiers.telegram import TelegramNotifier
         from .notifiers.wecom import WeComNotifier
@@ -1866,6 +1867,26 @@ class Scheduler:
                         self.db,
                         self.notifiers or [],
                         f"user={user['username']} channel=wecom daily err={exc}",
+                    )
+                finally:
+                    notifier.client.close()
+            if user.get("bark_key") and _channel_enabled(user, "bark"):
+                notifier = BarkNotifier(bark_key=user["bark_key"])
+                try:
+                    if summary:
+                        notifier.send_text(f"📊 AI 摘要\n\n{summary}")
+                    notifier.send_daily(posts)
+                    for post in posts:
+                        post_id = self.db.get_post_id(post.platform, post.external_id)
+                        if post_id:
+                            self.db.add_push_log(post_id, "bark", "success", user_id=user["id"])
+                except Exception as exc:  # noqa: BLE001
+                    failed = True
+                    logger.warning("每日精选推送失败 user=%s channel=bark err=%s", user["username"], exc)
+                    maybe_alert_push_failure(
+                        self.db,
+                        self.notifiers or [],
+                        f"user={user['username']} channel=bark daily err={exc}",
                     )
                 finally:
                     notifier.client.close()

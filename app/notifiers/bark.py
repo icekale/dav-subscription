@@ -158,6 +158,10 @@ class BarkNotifier(Notifier):
     def send_dnd_summary(self, posts: list[Post]) -> None:
         self._post("🌙 免打扰时段汇总", build_bark_dnd_summary(posts))
 
+    def send_daily(self, posts: list[Post]) -> None:
+        # 每日精选与免打扰汇总同构：标题 + 逐条「· 大V（平台）：摘要」
+        self._post("📅 每日精选", build_bark_dnd_summary(posts))
+
     def send_text(self, text: str) -> None:
         # 告警等纯文本：首行做标题，其余做正文
         lines = (text or "").strip().splitlines()

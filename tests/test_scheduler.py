@@ -1363,6 +1363,44 @@ def test_daily_report_skips_user_without_posts():
     assert fake.daily == []
 
 
+def test_daily_report_users_includes_bark():
+    """只绑定 Bark 的用户应进入每日精选名单（SQL 资格条件含 bark_key）。"""
+    db = make_db()
+    uid = db.add_user("barker", "h")
+    db.update_user(uid, bark_key="AaBbCcDdEeFf1234567890")
+    db.update_user(uid, daily_report=True)
+    assert [u["id"] for u in db.daily_report_users()] == [uid]
+
+
+def test_daily_report_bark_user(monkeypatch):
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    db.insert_post("xueqiu", kid, "p1", "t", "今日内容", "u", "")
+    uid = db.add_user("barker", "h")
+    db.update_user(uid, bark_key="AaBbCcDdEeFf1234567890")
+    db.update_user(uid, daily_report=True)
+    db.add_subscription(uid, kid)
+
+    fake = FakeDailyNotifier()
+    fake.channel = "bark"
+    monkeypatch.setattr("app.notifiers.bark.BarkNotifier", lambda *a, **k: fake)
+    scheduler = Scheduler(
+        db,
+        {},
+        [],
+        SimpleNamespace(daily_report_hour=20),
+        notifiers_config=SimpleNamespace(
+            telegram=SimpleNamespace(bot_token="", chat_id=""),
+            feishu=SimpleNamespace(app_id="", app_secret=""),
+        ),
+        xueqiu_config=SimpleNamespace(cookie=""),
+        weibo_config=SimpleNamespace(cookie="", username="", password=""),
+    )
+    scheduler._send_daily_report()
+    assert len(fake.daily) == 1 and fake.daily[0][0].kol_name == "A"
+    assert len(db.list_push_logs(channel="bark")) == 1
+
+
 def test_polling_setting_db_override():
     db = make_db()
     assert _polling_setting(db, "config_interval_seconds", 180) == 180
