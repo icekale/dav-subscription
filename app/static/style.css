@@ -681,7 +681,7 @@ th { color: var(--color-text-muted); font-weight: var(--font-weight-semibold); f
 tbody tr { transition: background var(--ease-standard); }
 tbody tr:hover { background: var(--color-surface-row-hover); }
 .btn-sm {
-  font-size: var(--text-xs); padding: 5px 12px;
+  font-size: var(--text-xs); padding: 5px 12px; min-height: 32px;
   border: var(--border-strong);
   border-radius: var(--radius-pill);
   background: var(--color-surface);
@@ -714,7 +714,6 @@ td .btn-sm { margin-right: 6px; }
 .rate-fill {
   height: 100%;
   border-radius: 8px;
-  transition: width 0.3s ease;
 }
 
 .rate-label {
@@ -953,8 +952,8 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
 .dash-trend { display: flex; gap: 6px; align-items: flex-end; height: 180px; padding: 10px 4px 0; }
 .dash-trend-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; }
 .dash-trend-bar { display: flex; flex-direction: column; justify-content: flex-end; width: 100%; max-width: 42px; height: 150px; border-radius: 6px; background: var(--color-bg-muted); overflow: hidden; }
-.dash-trend-ok { width: 100%; background: var(--color-success); transition: height 0.3s ease; }
-.dash-trend-fail { width: 100%; background: var(--color-danger); transition: height 0.3s ease; }
+.dash-trend-ok { width: 100%; background: var(--color-success); }
+.dash-trend-fail { width: 100%; background: var(--color-danger); }
 .dash-trend-date { font-size: 11px; color: var(--color-text-muted); white-space: nowrap; }
 .dash-bar-row { display: flex; align-items: center; gap: 10px; margin: 8px 0; }
 .dash-bar-label { width: 90px; flex-shrink: 0; font-size: 13px; color: var(--color-text-strong); }
