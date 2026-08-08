@@ -14,7 +14,7 @@
   <link rel="apple-touch-startup-image" href="/splash-ios.png">
   <link rel="icon" type="image/svg+xml" href="/logo.svg">
   <link rel="stylesheet" href="/vendor/design-tokens.css?v=11">
-  <link rel="stylesheet" href="/style.css?v=41">
+  <link rel="stylesheet" href="/style.css?v=42">
 </head>
 <body>
   <!-- 登录 / 注册 -->
@@ -24,7 +24,21 @@
         <img class="brand-mark brand-logo" src="/logo.svg" alt="大V订阅">
         <p class="login-eyebrow">DaV Subscription</p>
         <h1 class="login-brand-title">大V订阅</h1>
-        <p class="login-brand-copy">聚合订阅雪球 / 微博 / X 大V公开动态，新帖实时推送到 Telegram 与飞书。</p>
+        <p class="login-brand-copy">聚合订阅大V公开动态，新帖实时送达你的聊天渠道——一条不漏，无需反复刷新。</p>
+        <ul class="login-features">
+          <li class="login-feature">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/></svg>
+            <span>聚合雪球 / 微博 / X 大V动态</span>
+          </li>
+          <li class="login-feature">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/></svg>
+            <span>实时推送到 Telegram / 飞书 / 企业微信</span>
+          </li>
+          <li class="login-feature">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            <span>自托管部署，订阅数据完全私有</span>
+          </li>
+        </ul>
       </div>
       <section class="login-card">
         <div class="login-card-body">
@@ -34,21 +48,33 @@
           </div>
           <form id="login-form" class="login-form">
             <h2 class="login-title">欢迎回来</h2>
-            <p class="login-subtitle">登录后继续关注你的大V</p>
+            <p class="login-subtitle">回到你的订阅流，继续接收大V动态。</p>
             <label class="field-label" for="login-username">用户名</label>
             <input id="login-username" class="form-control" placeholder="输入用户名" autocomplete="username" required>
             <label class="field-label" for="login-password">密码</label>
-            <input id="login-password" class="form-control" type="password" placeholder="输入密码" autocomplete="current-password" required>
+            <div class="pw-field">
+              <input id="login-password" class="form-control" type="password" placeholder="输入密码" autocomplete="current-password" required>
+              <button type="button" class="pw-toggle" aria-label="显示密码" onclick="togglePassword('login-password', this)">
+                <svg class="pw-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                <svg class="pw-eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19M14.12 14.12a3 3 0 1 1-4.24-4.24"/><path d="m1 1 22 22"/></svg>
+              </button>
+            </div>
             <p id="auth-error" class="form-error" role="alert"></p>
             <button type="submit" class="btn-normal btn-fluid">登 录</button>
           </form>
           <form id="register-form" class="login-form hidden">
             <h2 class="login-title">创建账号</h2>
-            <p class="login-subtitle">注册后即可自选订阅大V</p>
+            <p class="login-subtitle">注册后即可自选大V，开启订阅推送。</p>
             <label class="field-label" for="reg-username">用户名</label>
             <input id="reg-username" class="form-control" placeholder="至少 2 位字符" autocomplete="username" required>
             <label class="field-label" for="reg-password">密码</label>
-            <input id="reg-password" class="form-control" type="password" placeholder="至少 6 位字符" autocomplete="new-password" required>
+            <div class="pw-field">
+              <input id="reg-password" class="form-control" type="password" placeholder="至少 6 位字符" autocomplete="new-password" required>
+              <button type="button" class="pw-toggle" aria-label="显示密码" onclick="togglePassword('reg-password', this)">
+                <svg class="pw-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                <svg class="pw-eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19M14.12 14.12a3 3 0 1 1-4.24-4.24"/><path d="m1 1 22 22"/></svg>
+              </button>
+            </div>
             <label class="field-label" for="reg-code">邀请码</label>
             <input id="reg-code" class="form-control" placeholder="向管理员索取注册邀请码" required>
             <p id="reg-error" class="form-error" role="alert"></p>
@@ -86,6 +112,6 @@
     </div>
     <nav id="bottom-nav" class="bottom-nav"></nav>
   </div>
-  <script src="/app.js?v=67"></script>
+  <script src="/app.js?v=68"></script>
 </body>
 </html>

@@ -82,6 +82,15 @@ function logout() {
   location.hash = "#/timeline";
   $("#app-view").classList.add("hidden");
   $("#auth-view").classList.remove("hidden");
+  resetAuthButtons();
+}
+
+function resetAuthButtons() {
+  // 登录/注册提交中按钮会 disabled；登出或切换模式后恢复默认态
+  const loginBtn = $("#login-form")?.querySelector('button[type="submit"]');
+  const regBtn = $("#register-form")?.querySelector('button[type="submit"]');
+  if (loginBtn) { loginBtn.disabled = false; loginBtn.textContent = "登 录"; }
+  if (regBtn) { regBtn.disabled = false; regBtn.textContent = "创建账号"; }
 }
 
 function avatarText(name) {
@@ -3189,9 +3198,22 @@ async function router() {
 }
 
 // ---------- 认证 ----------
+function togglePassword(inputId, btn) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  const show = input.type === "password";
+  input.type = show ? "text" : "password";
+  btn.classList.toggle("visible", show);
+  btn.setAttribute("aria-label", show ? "隐藏密码" : "显示密码");
+  btn.setAttribute("aria-pressed", String(show));
+}
+
 async function doLogin(e) {
   e.preventDefault();
   $("#auth-error").textContent = "";
+  const btn = $("#login-form").querySelector('button[type="submit"]');
+  btn.disabled = true;
+  btn.textContent = "登录中…";
   try {
     const data = await api("/api/auth/login", {
       method: "POST",
@@ -3203,12 +3225,17 @@ async function doLogin(e) {
     router();
   } catch (err) {
     $("#auth-error").textContent = err.message;
+    btn.disabled = false;
+    btn.textContent = "登 录";
   }
 }
 
 async function doRegister(e) {
   e.preventDefault();
   $("#reg-error").textContent = "";
+  const btn = $("#register-form").querySelector('button[type="submit"]');
+  btn.disabled = true;
+  btn.textContent = "创建中…";
   try {
     const data = await api("/api/auth/register", {
       method: "POST",
@@ -3224,6 +3251,8 @@ async function doRegister(e) {
     router();
   } catch (err) {
     $("#reg-error").textContent = err.message;
+    btn.disabled = false;
+    btn.textContent = "创建账号";
   }
 }
 
@@ -3233,6 +3262,7 @@ function switchAuthMode(mode) {
   $("#register-form").classList.toggle("hidden", isLogin);
   $("#auth-error").textContent = "";
   $("#reg-error").textContent = "";
+  resetAuthButtons();
   document.querySelectorAll(".switch-btn").forEach((btn) =>
     btn.classList.toggle("active", btn.dataset.mode === mode)
   );
