@@ -263,7 +263,7 @@ textarea.form-control {
 }
 .nav-sub-label::after { content: "▸"; font-size: 10px; transition: transform var(--ease-standard); }
 .nav-sub[open] > .nav-sub-label::after { transform: rotate(90deg); }
-.nav-sub .nav-item { padding-left: 22px; }
+.nav-sub .nav-item { padding-left: 22px; width: 100%; }
 .sidebar-foot { padding: 24px 12px 14px; }
 .sidebar-user { font-size: var(--text-xs); color: var(--color-text-muted); display: block; }
 .sidebar-foot-links { display: flex; flex-direction: column; align-items: center; gap: 5px; }
