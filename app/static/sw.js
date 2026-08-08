@@ -36,6 +36,7 @@ self.addEventListener("fetch", (e) => {
   }
   if (e.request.method !== "GET" || url.origin !== self.location.origin) return;
   if (url.pathname.startsWith("/api/")) return; // 动态数据永不缓存
+  if (url.pathname.startsWith("/feed/")) return; // 私有 RSS：token 即凭证，永不缓存
   e.respondWith(networkFirst(e.request));
 });
 
