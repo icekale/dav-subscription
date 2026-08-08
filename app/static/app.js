@@ -209,7 +209,7 @@ function heroPanel(eyebrow, title, subtitle = "", pills = []) {
         ${subtitle ? `<p class="hero-subtitle">${escapeHtml(subtitle)}</p>` : ""}
       </div>
       ${pills.length ? `<div class="hero-pills">${pills.map((p) => typeof p === "object"
-        ? `<span class="hero-pill hero-pill-icon" data-channel="${p.channel}" title="${escapeHtml(p.label)}">${p.icon}</span>`
+        ? `<span class="hero-pill hero-pill-icon" data-channel="${p.channel}" title="${escapeHtml(p.label)}" onclick="heroChannelClick('${p.channel}')">${p.icon}</span>`
         : `<span class="hero-pill">${escapeHtml(p)}</span>`).join("")}</div>` : ""}
     </section>`;
 }
@@ -915,8 +915,8 @@ async function renderSettings() {
         <header class="section-head">
           <div>
             <p class="section-eyebrow">Preferences</p>
-            <h3 class="section-title">推送偏好</h3>
-            <p class="section-meta">总开关与每日精选摘要；免打扰时段内的新帖暂缓，结束后补一条汇总。</p>
+            <h3 class="section-title">推送开关</h3>
+            <p class="section-meta">总开关与每日精选摘要。</p>
           </div>
         </header>
         <div class="form-row">
@@ -935,8 +935,16 @@ async function renderSettings() {
           </select>
         </div>
         <p class="muted">开启后，每天 20:00 把你订阅大V当天的新动态汇总成一条推送。</p>
-        <div class="dnd-form" style="margin-top:18px;padding-top:18px;border-top:var(--border-default)">
-          <p class="section-meta">免打扰：时段内不推送新帖（支持跨午夜），结束后一次性补一条汇总；系统告警不受影响。</p>
+      </section>
+      <section class="section-panel">
+        <header class="section-head">
+          <div>
+            <p class="section-eyebrow">DND</p>
+            <h3 class="section-title">免打扰时段</h3>
+            <p class="section-meta">时段内不推送新帖（支持跨午夜），结束后一次性补一条汇总；系统告警不受影响。特别关注可设为穿透免打扰。</p>
+          </div>
+        </header>
+        <div class="dnd-form">
           <label class="switch">
             <input id="dnd-enabled" type="checkbox" ${state.user.dnd_start ? "checked" : ""} onchange="toggleDnd()">
             <span class="track"></span>
@@ -965,21 +973,12 @@ async function renderSettings() {
         <header class="section-head">
           <div>
             <p class="section-eyebrow">Channels</p>
-            <h3 class="section-title">推送渠道状态</h3>
-            <p class="section-meta">新帖会推送到你绑定的渠道；状态每 10 秒自动刷新。</p>
+            <h3 class="section-title">推送渠道</h3>
+            <p class="section-meta">绑定状态每 10 秒自动刷新；绑定了多个渠道时，可在下方勾选要接收推送的渠道（不选则全部推送）。</p>
           </div>
         </header>
         <div id="push-status">${channelStatusHtml(state.user)}</div>
-      </section>
-      <section class="section-panel">
-        <header class="section-head">
-          <div>
-            <p class="section-eyebrow">Delivery</p>
-            <h3 class="section-title">推送通道选择</h3>
-            <p class="section-meta">绑定多个渠道时，可只给选中的渠道推送；不选则全部推送。</p>
-          </div>
-        </header>
-        <div class="channel-picks" id="push-channels-box">${pushChannelsHtml(state.user)}</div>
+        <div class="channel-picks" id="push-channels-box" style="margin-top:18px;padding-top:18px;border-top:var(--border-default)">${pushChannelsHtml(state.user)}</div>
         ${(state.user.telegram_chat_id || state.user.feishu_open_id || state.user.feishu_chat_id || state.user.wecom_webhook || state.user.bark_key)
           ? `<div class="toolbar" style="margin-top:14px">
                <button class="btn-normal" onclick="savePushChannels()">保存推送通道</button>
@@ -1015,7 +1014,7 @@ async function renderSettings() {
             <p class="section-meta">按序绑定想用的推送渠道，每个渠道的步骤可展开；绑定状态在「推送渠道状态」卡片查看。</p>
           </div>
         </header>
-        <div class="channel-bind-block">
+        <div class="channel-bind-block" id="telegram-bind">
           <h4 class="section-title">① Telegram 机器人</h4>
           ${bindGuideHtml(!!state.user.telegram_chat_id, `
         <ol style="padding-left:20px;line-height:2">
@@ -1025,7 +1024,7 @@ async function renderSettings() {
           <li>发 <code>/list</code> 可查看大V目录，<code>/sub 大VID</code> 直接订阅。</li>
         </ol>`)}
         </div>
-        <div class="channel-bind-block">
+        <div class="channel-bind-block" id="feishu-bind">
           <h4 class="section-title">② 飞书机器人（请用私聊）</h4>
           ${bindGuideHtml(!!(state.user.feishu_open_id && state.user.feishu_chat_id), `
         <ol style="padding-left:20px;line-height:2">
@@ -1209,9 +1208,16 @@ function bindGuideHtml(bound, stepsHtml) {
   </details>`;
 }
 
+function heroChannelClick(channel) {
+  // hero 顶部渠道图标 → 跳到「渠道绑定」分栏对应渠道块并展开步骤
+  const map = { telegram: "telegram-bind", feishu: "feishu-bind", wecom: "wecom-bind", bark: "bark-bind" };
+  const id = map[channel];
+  if (id && typeof openBindGuide === "function") openBindGuide(id);
+}
+
 function openBindGuide(sectionId) {
   // 渠道绑定块在独立「渠道绑定」分栏里，先切过去再滚动并展开步骤
-  if (sectionId === "wecom-bind" || sectionId === "bark-bind") {
+  if (sectionId.endsWith("-bind")) {
     switchSettingsTab("bind");
   }
   const sec = document.getElementById(sectionId);

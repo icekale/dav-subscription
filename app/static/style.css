@@ -837,6 +837,10 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
   padding-top: 18px;
 }
 
+/* hero 顶部渠道图标可点击 */
+.hero-pill-icon { cursor: pointer; }
+.hero-pill-icon:hover { opacity: 0.8; }
+
 /* 渠道绑定步骤折叠（设置页压缩） */
 details.bind-steps { margin-top: 10px; }
 details.bind-steps > summary {
