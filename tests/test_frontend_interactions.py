@@ -48,7 +48,7 @@ def test_refresh_kols_view_covers_all_card_routes():
         'startsWith("#/search")',
     ):
         assert route_call in body, f"refreshKolsView 缺少 {route_call} 路由分支"
-    assert "renderHomeList" in body
+    assert "loadHomeKols" in body
     assert "renderCombinations" in body
     assert "renderMySubs" in body
     assert "renderKolPage" in body

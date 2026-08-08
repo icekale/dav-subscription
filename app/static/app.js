@@ -225,13 +225,13 @@ function emptyState(text, actionHtml = "") {
 }
 
 // ---------- 订阅广场 ----------
-async function renderHome() {
+async function renderHome(seq) {
   setPageTitle("订阅广场");
   let onboardingHtml = "";
   if (state.user && !state.user.subscription_count) {
     try {
       const recs = await api("/api/recommendations");
-      if (recs.length) {
+      if (routeStillActive(seq) && recs.length) {
         onboardingHtml = `
           <section class="section-panel" style="border-color:var(--color-primary)">
             <header class="section-head"><div>
@@ -262,6 +262,7 @@ async function renderHome() {
       /* 推荐加载失败不阻塞页面 */
     }
   }
+  if (!routeStillActive(seq)) return; // 已切走：不写旧首页的 DOM
   $("#main").innerHTML = `
     ${onboardingHtml}
     <section class="section-panel">
@@ -293,7 +294,7 @@ async function renderHome() {
     </section>`;
   state.platform = "";
   renderPlatformTabs();
-  await loadHomeKols();
+  await loadHomeKols(seq);
 }
 
 function renderPlatformTabs() {
@@ -331,7 +332,9 @@ function renderHomeList() {
   const meta = $("#catalog-meta");
   if (meta) meta.textContent = `共 ${state.catalog.length} 位大V · 已订阅 ${state.catalog.filter((k) => k.subscribed).length} 位`;
   const list = homeFilteredKols();
-  $("#kol-list").innerHTML = list.length
+  const target = $("#kol-list");
+  if (!target) return; // 已离开首页（如正在加载时切走），不写不存在的 DOM
+  target.innerHTML = list.length
     ? groupedKolCards(list)
     : emptyState(state.catalog.length ? "没有匹配的大V" : "暂无大V，管理员可在管理后台添加");
 }
@@ -344,17 +347,22 @@ function platformTabHTML(p, current, handler) {
 }
 
 let _homeKolsSeq = 0;
-async function loadHomeKols() {
+async function loadHomeKols(routeSeq) {
   const seq = ++_homeKolsSeq;
+  let kols;
   try {
     const params = state.platform ? `?platform=${state.platform}` : "";
-    state.catalog = await api(`/api/catalog${params}`);
-    if (seq !== _homeKolsSeq) return; // 已切换到其他平台，丢弃过期响应
-    renderHomeList();
+    kols = await api(`/api/catalog${params}`);
   } catch (err) {
-    if (seq !== _homeKolsSeq) return;
-    $("#kol-list").innerHTML = emptyState("加载失败: " + err.message);
+    if (seq !== _homeKolsSeq || !routeStillActive(routeSeq)) return;
+    const list = $("#kol-list");
+    if (list) list.innerHTML = emptyState("加载失败: " + err.message);
+    return;
   }
+  // 平台已切换或已离开首页：不写全局状态也不写 DOM，避免旧目录覆盖当前页面
+  if (seq !== _homeKolsSeq || !routeStillActive(routeSeq)) return;
+  state.catalog = kols;
+  renderHomeList();
 }
 
 function groupedKolCards(kols) {
@@ -459,6 +467,7 @@ async function quickSubscribe(kolId, btn) {
     btn.textContent = "✓ 已订阅";
     btn.disabled = true;
     state.user.subscription_count = (state.user.subscription_count || 0) + 1;
+    loadHomeKols(); // 订阅后重拉 catalog，已订阅置顶即时生效
   } catch (err) {
     alert("订阅失败: " + err.message);
   }
@@ -466,7 +475,7 @@ async function quickSubscribe(kolId, btn) {
 
 async function refreshKolsView() {
   const hash = location.hash;
-  if (hash.startsWith("#/home")) renderHomeList();
+  if (hash.startsWith("#/home")) await loadHomeKols(); // 重拉 catalog，已订阅置顶即时生效
   else if (hash.startsWith("#/combinations")) await renderCombinations();
   else if (hash.startsWith("#/mysubs")) await renderMySubs();
   else if (hash.startsWith("#/kol/")) await renderKolPage(Number(hash.split("/")[2] || 0));
@@ -515,7 +524,7 @@ async function setSubscribeType(kolId, input) {
 }
 
 // ---------- 我的订阅 / 动态 ----------
-async function renderMySubs() {
+async function renderMySubs(seq) {
   setPageTitle("我的订阅");
   $("#main").innerHTML = `
     <section class="section-panel">
@@ -533,10 +542,12 @@ async function renderMySubs() {
     </section>`;
   try {
     const subs = await api("/api/my/subscriptions");
+    if (!routeStillActive(seq)) return; // 已切走：不写旧页面数据
     state.catalog = subs.map((k) => ({ ...k, subscribed: true }));
     renderMySubsTabs();
     renderMySubsList();
   } catch (err) {
+    if (!routeStillActive(seq)) return;
     $("#mysubs-list").innerHTML = emptyState(err.message);
   }
 }
@@ -572,7 +583,7 @@ function toggleMySubsFav() {
   renderMySubsList();
 }
 
-async function renderCombinations() {
+async function renderCombinations(seq) {
   setPageTitle("组合订阅");
   $("#main").innerHTML = `
     <section class="section-panel">
@@ -587,6 +598,7 @@ async function renderCombinations() {
     </section>`;
   try {
     const kols = await api("/api/catalog?platform=combination");
+    if (!routeStillActive(seq)) return; // 已切走：不写旧页面数据
     state.catalog = kols;
     $("#combo-meta").textContent = `共 ${kols.length} 个组合`;
     $("#combo-list").innerHTML = kols.length
@@ -598,6 +610,7 @@ async function renderCombinations() {
             : `<div><button class="btn-normal btn-add" onclick="location.hash='#/search'">申请添加 →</button></div>`
         );
   } catch (err) {
+    if (!routeStillActive(seq)) return;
     $("#combo-list").innerHTML = emptyState(err.message);
   }
 }
@@ -640,7 +653,7 @@ const TL_PLATFORMS = [
   ["twitter", "X"],
 ];
 
-async function renderTimeline() {
+async function renderTimeline(seq) {
   setPageTitle("最新动态");
   // 离开期间筛选条件未变且有缓存 → 直接恢复列表并检测新帖，不重新加载（保留阅读位置）
   const reuse = _tlPosts.length && _tlLoadedFilter === tlFilterKey();
@@ -681,8 +694,9 @@ async function renderTimeline() {
   _tlLatestId = 0;
   try {
     await loadTimelineCategories().catch(() => { _tlCategories = []; }); // 分类下拉失败降级，不阻塞 feed
-    await loadTimeline(true);
+    await loadTimeline(true, seq);
   } catch (err) {
+    if (!routeStillActive(seq)) return;
     const feed = $("#feed");
     if (feed) feed.innerHTML = emptyState("加载失败: " + err.message,
       `<div><button class="btn-normal" onclick="renderTimeline()">重试</button></div>`);
@@ -776,7 +790,7 @@ async function loadTimelineCategories() {
     `<option value="${c.id}" ${state.timelineCategory == c.id ? "selected" : ""}>${escapeHtml(c.name)}</option>`).join("");
 }
 
-async function loadTimeline(reset = true) {
+async function loadTimeline(reset = true, routeSeq) {
   if (!reset && _tlLoadingMore) return;
   if (!reset) _tlLoadingMore = true;
   const seq = ++_tlSeq;
@@ -787,7 +801,8 @@ async function loadTimeline(reset = true) {
     if (state.timelineCategory) params.set("category_id", state.timelineCategory);
     if (state.timelineFavorite) params.set("favorite", "1");
     const posts = await api(`/api/my/feed?${params}`);
-    if (seq !== _tlSeq || !$("#feed")) return; // 条件改变或已离开动态页
+    // 条件改变、已离开动态页或路由已切换：丢弃过期响应
+    if (seq !== _tlSeq || !$("#feed") || !routeStillActive(routeSeq)) return;
     if (reset) {
       _tlPosts.length = 0;
       _tlOffset = 0;
@@ -1041,12 +1056,13 @@ async function doSearch() {
 }
 
 // ---------- 大V动态页 ----------
-async function renderKolPage(kolId) {
+async function renderKolPage(kolId, seq) {
   setPageTitle("大V动态", true);
   $("#main").innerHTML = `<div class="empty">加载中…</div>`;
   try {
     const kol = await api(`/api/kols/${kolId}`);
     const posts = await api(`/api/kols/${kolId}/posts?limit=50`);
+    if (!routeStillActive(seq)) return; // 已切走：不写旧页面
     $("#main").innerHTML = `
       <section class="section-panel">
         <header class="section-head">
@@ -1065,6 +1081,7 @@ async function renderKolPage(kolId) {
         <div id="kol-posts">${posts.length ? posts.map(postCard).join("") : emptyState("暂无动态")}</div>
       </section>`;
   } catch (err) {
+    if (!routeStillActive(seq)) return;
     $("#main").innerHTML = emptyState("加载失败: " + err.message);
   }
 }
@@ -3104,7 +3121,15 @@ async function adminToggleAdmin(userId, makeAdmin) {
 }
 
 // ---------- 路由 ----------
+let routeRenderSeq = 0; // 每次路由切换递增；异步渲染完成后凭此丢弃过期响应
+
+function routeStillActive(seq) {
+  // 未传 token 的局部刷新视为活跃（保持原行为）；带 token 的渲染只在最新路由下生效
+  return seq === undefined || seq === routeRenderSeq;
+}
+
 async function router() {
+  const renderSeq = ++routeRenderSeq;
   stopSettingsPoll();
   stopSysLogsTimer();
   stopStatsTimer();
@@ -3140,21 +3165,22 @@ async function router() {
     b.classList.toggle("active", b.dataset.route === activeBottom)
   );
   try {
-    if (page === "home") await renderHome();
-    else if (page === "combinations") await renderCombinations();
-    else if (page === "mysubs") await renderMySubs();
-    else if (page === "timeline") await renderTimeline();
-    else if (page === "settings") await renderSettings();
-    else if (page === "more") await renderMore();
-    else if (page === "search") await renderSearch();
-    else if (page === "kol") await renderKolPage(Number(param));
+    if (page === "home") await renderHome(renderSeq);
+    else if (page === "combinations") await renderCombinations(renderSeq);
+    else if (page === "mysubs") await renderMySubs(renderSeq);
+    else if (page === "timeline") await renderTimeline(renderSeq);
+    else if (page === "settings") await renderSettings(renderSeq);
+    else if (page === "more") await renderMore(renderSeq);
+    else if (page === "search") await renderSearch(renderSeq);
+    else if (page === "kol") await renderKolPage(Number(param), renderSeq);
     else if (page === "admin") {
       if (!state.user.is_admin) { location.hash = "#/timeline"; return; }
-      await renderAdmin(param || "dashboard");
+      await renderAdmin(param || "dashboard", renderSeq);
     }
-    else { location.hash = "#/timeline"; await renderTimeline(); }
+    else { location.hash = "#/timeline"; await renderTimeline(renderSeq); }
   } catch (err) {
-    $("#main").innerHTML = emptyState(err.message);
+    // 只在当前路由仍是本次渲染目标时才写错误状态，避免旧路由的错误覆盖新页面
+    if (routeStillActive(renderSeq)) $("#main").innerHTML = emptyState(err.message);
   }
 }
 

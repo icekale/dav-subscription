@@ -710,13 +710,17 @@ def create_api_router(
         if not user["is_admin"]:
             visible = db.visible_kol_ids(user["id"])
             kols = [k for k in kols if k["id"] in visible]
-        # 按优先级 + 最近活跃排序：优先大V在前，组内最近活跃的靠前
+        # 已订阅置顶 → 优先大V → 最近活跃：组内已订阅的靠前，其余保持原排序
+        subscribed_types = db.subscribed_kol_types(user["id"])
         last_post_at = db.last_post_time_by_kol()
         kols.sort(
-            key=lambda k: (bool(k.get("priority")), last_post_at.get(k["id"]) or ""),
+            key=lambda k: (
+                k["id"] in subscribed_types,
+                bool(k.get("priority")),
+                last_post_at.get(k["id"]) or "",
+            ),
             reverse=True,
         )
-        subscribed_types = db.subscribed_kol_types(user["id"])
         favorite_ids = db.subscribed_favorite_ids(user["id"])
         return [
             {
