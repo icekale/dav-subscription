@@ -907,7 +907,7 @@ async function renderSettings() {
         <button class="settings-tab active" data-tab="push" onclick="switchSettingsTab('push')">推送设置</button>
         <button class="settings-tab" data-tab="bind" onclick="switchSettingsTab('bind')">渠道绑定</button>
         <button class="settings-tab" data-tab="llm" onclick="switchSettingsTab('llm')">AI 摘要</button>
-        <button class="settings-tab" data-tab="account" onclick="switchSettingsTab('account')">账号</button>
+        <button class="settings-tab" data-tab="account" onclick="switchSettingsTab('account')">账号设置</button>
       </div>
       <div id="st-push" class="settings-tab-panel">
       <section class="section-panel">
@@ -1186,7 +1186,7 @@ async function renderSettings() {
 }
 
 function switchSettingsTab(name) {
-  // 设置页分段导航：推送 / RSS 订阅源 / 账号
+  // 设置页分段导航：推送 / 渠道绑定 / AI 摘要 / 账号设置
   state.settingsTab = name;
   document.querySelectorAll(".settings-tab").forEach((b) =>
     b.classList.toggle("active", b.dataset.tab === name)
