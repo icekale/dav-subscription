@@ -1735,6 +1735,28 @@ def test_login_rate_limit_blocks_after_8_failures():
     assert client.post("/api/auth/login", json={"username": "victim", "password": "bad"}).status_code == 429
 
 
+def test_rate_limit_cleanup_removes_expired_entries():
+    """限流字典必须按时间清理过期条目，而不是只删空列表（过期时间戳列表本身非空）。"""
+    from app.api import _prune_window_dict
+
+    now = 100000.0
+    # a 的全部失败记录已过期（列表非空），b 仍在窗口内
+    attempts = {"a": [now - 4000, now - 3900], "b": [now - 10]}
+    _prune_window_dict(attempts, window=3600, now=now, max_entries=1000)
+    assert "a" not in attempts, "过期记录（即使列表非空）应被清理"
+    assert attempts["b"] == [now - 10]
+
+    # 超上限时删除最旧条目而不是无限增长
+    entries = {f"u{i}": [now - i] for i in range(10)}
+    _prune_window_dict(entries, window=3600, now=now, max_entries=5)
+    assert len(entries) == 5
+    # u0 最新、u9 最旧；只保留最近 5 条（u0~u4），删掉最旧的 u5~u9
+    assert set(entries) == {f"u{i}" for i in range(5)}
+
+    # 空字典/全空列表兼容
+    _prune_window_dict({}, window=3600, now=now, max_entries=1000)
+
+
 def test_xff_spoof_cannot_bypass_rate_limit_without_trust_proxy():
     """未显式信任反代时，伪造 X-Forwarded-For 不能绕过限流。"""
     client = make_client()

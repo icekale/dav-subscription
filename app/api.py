@@ -249,6 +249,30 @@ def bounded_limit(value: int, default: int = 100) -> int:
     return max(1, min(value, 500))
 
 
+def _prune_window_dict(
+    entries: dict[str, list[float]],
+    window: float,
+    now: float,
+    max_entries: int,
+) -> None:
+    """限流字典清理：删除全部已过期条目（无论列表是否为空），仍超上限时删最旧。
+
+    旧的清理只删 `not v` 的空列表键，而窗口外记录的列表本身非空，导致过期条目
+    永不清理、字典可持续增长。这里按当前时间过滤每个键的所有时间戳。
+    """
+    expired = [
+        k for k, ts_list in entries.items()
+        if not any(now - t < window for t in ts_list)
+    ]
+    for k in expired:
+        entries.pop(k, None)
+    if len(entries) > max_entries:
+        # 删最旧：按每条记录的最后失败时间排序，只保留最近的 max_entries 条
+        oldest = sorted(entries.keys(), key=lambda k: max(entries[k]))
+        for k in oldest[: len(entries) - max_entries]:
+            entries.pop(k, None)
+
+
 def create_api_router(
     db: DB,
     secret: str,
@@ -295,11 +319,8 @@ def create_api_router(
         login_attempts[ip] = recent
         if len(recent) >= LOGIN_MAX_FAILURES:
             raise HTTPException(status_code=429, detail="尝试次数过多，请 5 分钟后再试")
-        # 防止无界增长：超过 1000 个 IP 时清掉窗口外旧记录
-        if len(login_attempts) > 1000:
-            expired = [k for k, v in login_attempts.items() if not v]
-            for k in expired:
-                login_attempts.pop(k, None)
+        # 每次登录尝试顺带清理全量过期 IP 记录，防止无界增长（不能只删空列表）
+        _prune_window_dict(login_attempts, LOGIN_WINDOW, now, max_entries=1000)
 
     def _record_login_failure(ip: str) -> None:
         login_attempts.setdefault(ip, []).append(time.time())
@@ -331,10 +352,8 @@ def create_api_router(
                 username,
                 f"ip={ip} role={'admin' if is_admin else 'user'} 1小时内失败{len(recent)}次，锁定{window // 60}分钟",
             )
-        # 防止无界增长：账号太多时清掉窗口外无记录的账号
-        if len(account_failures) > 2000:
-            for u in [u for u, v in account_failures.items() if not v]:
-                account_failures.pop(u, None)
+        # 每次失败顺带清理全量过期账号记录，防止无界增长（不能只删空列表）
+        _prune_window_dict(account_failures, ACCOUNT_FAILURE_WINDOW, now, max_entries=2000)
 
     def _audit(admin: dict, action: str, target: str = "", detail: str = "") -> None:
         db.log_admin_action(admin["id"], action, target, detail)
