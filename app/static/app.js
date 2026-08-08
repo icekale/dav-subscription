@@ -546,7 +546,7 @@ async function renderMySubs() {
         <div class="platform-tabs" id="mysubs-tabs"></div>
         <button id="mysubs-fav-toggle" class="fav-toggle ${state.mysubsFavorite ? "fav-on" : ""}" onclick="toggleMySubsFav()">${STAR_SVG} 特别关注</button>
       </div>
-      <div id="mysubs-list"></div>
+      <div id="mysubs-list" class="kol-grid"></div>
     </section>`;
   try {
     const subs = await api("/api/my/subscriptions");
@@ -601,7 +601,7 @@ async function renderCombinations() {
           <p class="section-meta" id="combo-meta">加载中…</p>
         </div>
       </header>
-      <div id="combo-list"></div>
+      <div id="combo-list" class="kol-grid"></div>
     </section>`;
   try {
     const kols = await api("/api/catalog?platform=combination");
@@ -901,7 +901,7 @@ async function renderSearch() {
         <input id="search-input" placeholder="输入昵称或 ID，回车搜索" value="${escapeHtml(query)}" onkeydown="if(event.key==='Enter')doSearch()">
         <button class="btn-ghost" onclick="doSearch()">搜索</button>
       </div>
-      <div id="search-result"></div>
+      <div id="search-result" class="kol-grid"></div>
     </section>`;
   if (!state.user?.is_admin) {
     const askSection = document.createElement("div");
