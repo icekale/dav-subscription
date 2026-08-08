@@ -373,10 +373,10 @@ function groupedKolCards(kols) {
   }
   return Object.entries(groups)
     .map(([name, items]) => `
-      ${name ? `<div class="group-head">
-        <span style="font-weight:600;color:var(--color-text-strong)">${escapeHtml(name)}</span>
+      <div class="group-head">
+        <span style="font-weight:600;color:var(--color-text-strong)">${escapeHtml(name || "未分类")}</span>
         <span class="g-count">${items.length} 位</span>
-      </div>` : ""}
+      </div>
       ${items.map(kolCard).join("")}`)
     .join("");
 }
