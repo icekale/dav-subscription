@@ -1752,6 +1752,15 @@ class Scheduler:
                 )
                 for r in rows
             ]
+            summary = None
+            llm_cfg = _user_llm_config(user, getattr(self, "llm_config", None))
+            if llm_cfg is not None:
+                try:
+                    from .llm import summarize_posts
+
+                    summary = summarize_posts(posts, llm_cfg)
+                except Exception as exc:  # noqa: BLE001 - 摘要失败降级，不影响推送
+                    logger.warning("LLM 摘要异常 user=%s err=%s", user["username"], exc)
             if user.get("telegram_chat_id") and _channel_enabled(user, "telegram") and (
                 self.notifiers_config.telegram.bot_token or user.get("telegram_bot_token")
             ):
@@ -1761,6 +1770,8 @@ class Scheduler:
                     bot_token=user.get("telegram_bot_token") or None,
                 )
                 try:
+                    if summary:
+                        notifier.send_text(f"📊 AI 摘要\n\n{summary}")
                     notifier.send_daily(posts)
                     for post in posts:
                         post_id = self.db.get_post_id(post.platform, post.external_id)
@@ -1785,6 +1796,8 @@ class Scheduler:
                     chat_id=user.get("feishu_chat_id") or None,
                 )
                 try:
+                    if summary:
+                        notifier.send_text(f"📊 AI 摘要\n\n{summary}")
                     notifier.send_daily(posts)
                     for post in posts:
                         post_id = self.db.get_post_id(post.platform, post.external_id)
@@ -1806,6 +1819,8 @@ class Scheduler:
                     webhook_url=user["wecom_webhook"],
                 )
                 try:
+                    if summary:
+                        notifier.send_text(f"📊 AI 摘要\n\n{summary}")
                     notifier.send_daily(posts)
                     for post in posts:
                         post_id = self.db.get_post_id(post.platform, post.external_id)

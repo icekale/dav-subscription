@@ -1081,7 +1081,7 @@ async function renderSettings() {
         <div class="form-row" style="margin-top:16px">
           <label for="set-daily">每日精选摘要</label>
           <select id="set-daily" class="form-control" onchange="saveDailyReport()">
-            <option value="1" ${state.user.daily_report_enabled ? "selected" : ""}>开启（每天 20:00 推送一次今日订阅总览）</option>
+            <option value="1" ${state.user.daily_report_enabled ? "selected" : ""}>开启（每天 20:00 推一次 AI 每日精选）</option>
             <option value="0" ${!state.user.daily_report_enabled ? "selected" : ""}>关闭</option>
           </select>
         </div>

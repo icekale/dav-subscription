@@ -1278,6 +1278,35 @@ def test_daily_report_sent_to_enabled_user(monkeypatch):
     assert len(db.list_push_logs(channel="telegram")) == 1
 
 
+def test_daily_report_sends_ai_summary(monkeypatch):
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    db.insert_post("xueqiu", kid, "p1", "t", "今日内容", "u", "")
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.update_user(uid, daily_report=True)
+    db.add_subscription(uid, kid)
+
+    fake = FakeDailyNotifier()
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", lambda *a, **k: fake)
+    monkeypatch.setattr("app.llm.summarize_posts", lambda posts, cfg, cache=None: "AI 要点")
+    scheduler = Scheduler(
+        db,
+        {},
+        [],
+        SimpleNamespace(daily_report_hour=20),
+        notifiers_config=SimpleNamespace(
+            telegram=SimpleNamespace(bot_token="t", chat_id="111"),
+            feishu=SimpleNamespace(app_id="", app_secret=""),
+        ),
+        xueqiu_config=SimpleNamespace(cookie=""),
+        weibo_config=SimpleNamespace(cookie="", username="", password=""),
+        llm_config=SimpleNamespace(api_key="sk-test", api_base="https://api.deepseek.com", model="deepseek-chat"),
+    )
+    scheduler._send_daily_report()
+    assert any("AI 摘要" in t for t in fake.texts)
+    assert len(fake.daily) == 1
+
+
 def test_daily_report_wecom_user(monkeypatch):
     db = make_db()
     kid = db.add_kol("xueqiu", "A", "1")
