@@ -1007,26 +1007,24 @@ async function renderSettings() {
       <section class="section-panel">
         <header class="section-head">
           <div>
-            <p class="section-eyebrow">Telegram</p>
-            <h3 class="section-title">① 打开 Telegram 机器人</h3>
+            <p class="section-eyebrow">Channel Setup</p>
+            <h3 class="section-title">渠道绑定</h3>
+            <p class="section-meta">按序绑定想用的推送渠道，每个渠道的步骤可展开；绑定状态在「推送渠道状态」卡片查看。</p>
           </div>
         </header>
-        ${bindGuideHtml(!!state.user.telegram_chat_id, `
+        <div class="channel-bind-block">
+          <h4 class="section-title">① Telegram 机器人</h4>
+          ${bindGuideHtml(!!state.user.telegram_chat_id, `
         <ol style="padding-left:20px;line-height:2">
           <li>打开 Telegram，搜索并进入 ${tgTarget}（找不到就点上方链接）。</li>
           <li>点击「开始」或发送任意消息（如 <code>/start</code>），系统自动记录你的会话。</li>
           <li>回到本页，状态几秒内自动变成「已绑定 ✅」。</li>
           <li>发 <code>/list</code> 可查看大V目录，<code>/sub 大VID</code> 直接订阅。</li>
         </ol>`)}
-      </section>
-      <section class="section-panel">
-        <header class="section-head">
-          <div>
-            <p class="section-eyebrow">Feishu</p>
-            <h3 class="section-title">② 打开飞书机器人（重要：请用私聊）</h3>
-          </div>
-        </header>
-        ${bindGuideHtml(!!(state.user.feishu_open_id && state.user.feishu_chat_id), `
+        </div>
+        <div class="channel-bind-block">
+          <h4 class="section-title">② 飞书机器人（请用私聊）</h4>
+          ${bindGuideHtml(!!(state.user.feishu_open_id && state.user.feishu_chat_id), `
         <ol style="padding-left:20px;line-height:2">
           <li>打开飞书 App，点顶部「搜索」，搜索 ${fsTarget} 并进入。</li>
           <li>关键：请在该机器人的<b>「私聊」会话</b>里发任意消息（如 <code>/start</code>）——群聊不会推送新帖，这一步只是建立会话。</li>
@@ -1034,57 +1032,48 @@ async function renderSettings() {
           <li>发送后本页状态会变成「已绑定 ✅」，网页订阅与飞书推送自动同步。</li>
           <li>发 <code>/list</code> 可查看大V目录，点卡片上的按钮即可订阅。</li>
         </ol>`)}
-      </section>
-      <section class="section-panel" id="wecom-bind">
-        <header class="section-head">
-          <div>
-            <p class="section-eyebrow">WeCom</p>
-            <h3 class="section-title">③ 绑定企业微信群机器人</h3>
-            <p class="section-meta">无需申请应用；在企业微信任意群里添加「群机器人」即可，推送会发到这个群。</p>
-          </div>
-        </header>
-        ${bindGuideHtml(!!state.user.wecom_webhook, `
+        </div>
+        <div class="channel-bind-block" id="wecom-bind">
+          <h4 class="section-title">③ 企业微信群机器人</h4>
+          <p class="section-meta">无需申请应用；在企业微信任意群里添加「群机器人」即可，推送会发到这个群。</p>
+          ${bindGuideHtml(!!state.user.wecom_webhook, `
         <ol style="padding-left:20px;line-height:2">
           <li>打开企业微信，进入一个群（没有就新建一个，例如「大V推送」）。</li>
           <li>点右上角 <code>...</code> → 「群机器人」→「添加机器人」，按提示创建并起名。</li>
           <li>创建完成后复制 webhook 地址（<code>https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...</code>）。</li>
           <li>粘贴到下方输入框，点「保存绑定」，状态即变为「已绑定 ✅」。</li>
         </ol>`)}
-        <div class="form-row" style="margin-top:14px">
-          <label for="set-wecom-webhook">群机器人 webhook 地址</label>
-          <div class="row" style="gap:10px;flex-wrap:wrap">
-            <input id="set-wecom-webhook" class="form-control" style="flex:1;min-width:280px"
-              type="text" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..."
-              value="${escapeHtml(state.user.wecom_webhook || "")}">
-            <button class="btn-normal" onclick="saveWecomWebhook()">保存绑定</button>
+          <div class="form-row" style="margin-top:14px">
+            <label for="set-wecom-webhook">群机器人 webhook 地址</label>
+            <div class="row" style="gap:10px;flex-wrap:wrap">
+              <input id="set-wecom-webhook" class="form-control" style="flex:1;min-width:280px"
+                type="text" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..."
+                value="${escapeHtml(state.user.wecom_webhook || "")}">
+              <button class="btn-normal" onclick="saveWecomWebhook()">保存绑定</button>
+            </div>
           </div>
+          <p class="muted">⚠️ webhook 等同群管理权限，请勿泄露给他人；不同用户应使用各自的群机器人。</p>
         </div>
-        <p class="muted">⚠️ webhook 等同群管理权限，请勿泄露给他人；不同用户应使用各自的群机器人。</p>
-      </section>
-      <section class="section-panel" id="bark-bind">
-        <header class="section-head">
-          <div>
-            <p class="section-eyebrow">Bark</p>
-            <h3 class="section-title">④ 绑定 Bark（iPhone 推送）</h3>
-            <p class="section-meta">iOS 自托管用户神器：Bark App 免登录、免费、推送直达锁屏，无需申请任何开发者资质。</p>
-          </div>
-        </header>
-        ${bindGuideHtml(!!state.user.bark_key, `
+        <div class="channel-bind-block" id="bark-bind">
+          <h4 class="section-title">④ Bark（iPhone 推送）</h4>
+          <p class="section-meta">iOS 自托管用户神器：Bark App 免登录、免费、推送直达锁屏，无需申请任何开发者资质。</p>
+          ${bindGuideHtml(!!state.user.bark_key, `
         <ol style="padding-left:20px;line-height:2">
           <li>iPhone 在 App Store 搜索「Bark」安装，打开后主屏会显示你的推送 key（形如 <code>AaBbCcDdEe...</code>）。</li>
           <li>把这个 key 粘贴到下方输入框，点「保存绑定」即可。</li>
           <li>想用自建 Bark 服务器？直接把服务器里的完整地址（<code>https://bark.example.com/xxx</code>）粘贴进来也行。</li>
         </ol>`)}
-        <div class="form-row" style="margin-top:14px">
-          <label for="set-bark-key">Bark 推送 key 或完整地址</label>
-          <div class="row" style="gap:10px;flex-wrap:wrap">
-            <input id="set-bark-key" class="form-control" style="flex:1;min-width:280px"
-              type="text" placeholder="AaBbCcDdEeFf...（Bark App 里的 key）"
-              value="${escapeHtml(state.user.bark_key || "")}">
-            <button class="btn-normal" onclick="saveBarkKey()">保存绑定</button>
+          <div class="form-row" style="margin-top:14px">
+            <label for="set-bark-key">Bark 推送 key 或完整地址</label>
+            <div class="row" style="gap:10px;flex-wrap:wrap">
+              <input id="set-bark-key" class="form-control" style="flex:1;min-width:280px"
+                type="text" placeholder="AaBbCcDdEeFf...（Bark App 里的 key）"
+                value="${escapeHtml(state.user.bark_key || "")}">
+              <button class="btn-normal" onclick="saveBarkKey()">保存绑定</button>
+            </div>
           </div>
+          <p class="muted">🔔 key 等同推送权限，请勿泄露；系统告警不依赖此 key（管理员另配系统级 Bark）。</p>
         </div>
-        <p class="muted">🔔 key 等同推送权限，请勿泄露；系统告警不依赖此 key（管理员另配系统级 Bark）。</p>
       </section>
       </div>
       <div id="st-feed" class="settings-tab-panel">

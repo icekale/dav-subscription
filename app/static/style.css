@@ -830,6 +830,13 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
 .dnd-range-field.is-off input { pointer-events: none; }
 .dnd-actions { display: flex; align-items: center; gap: 12px; justify-content: flex-end; }
 
+/* 渠道绑定卡片内的渠道分块：块间细分隔线 */
+.channel-bind-block + .channel-bind-block {
+  border-top: var(--border-default);
+  margin-top: 18px;
+  padding-top: 18px;
+}
+
 /* 渠道绑定步骤折叠（设置页压缩） */
 details.bind-steps { margin-top: 10px; }
 details.bind-steps > summary {
