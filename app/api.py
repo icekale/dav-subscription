@@ -1336,6 +1336,19 @@ def create_api_router(
     @router.get("/stats", dependencies=[Depends(require_admin)])
     def stats():
         kols = db.list_kols()
+        # 「正常」状态有新鲜度窗口：source_ok 太久没更新视为近期无成功，
+        # 避免平台曾成功过一次就永远显示正常（连续失败被掩盖）。
+        # 窗口取 2× 全局轮询间隔，至少 5 分钟；无启用大V的平台不判定。
+        try:
+            poll_interval = int(db.get_setting("config_interval_seconds") or 0)
+        except (TypeError, ValueError):
+            poll_interval = 0
+        ok_window = max(poll_interval * 2, 300)
+        now = int(time.time())
+        enabled_by_platform: dict[str, int] = {}
+        for k in kols:
+            if k["enabled"]:
+                enabled_by_platform[k["platform"]] = enabled_by_platform.get(k["platform"], 0) + 1
         sources = []
         for platform in sorted(ALLOWED_PLATFORMS):
             ok_at = db.get_setting(f"source_ok_{platform}")
@@ -1343,9 +1356,17 @@ def create_api_router(
             fails = db.get_setting(f"source_fails_{platform}") or "0"
             ev = db.source_event_stats(platform, 24)
             total = ev["ok"] + ev["fail"]
+            fresh = False
+            if ok_at:
+                try:
+                    fresh = now - int(ok_at) <= ok_window
+                except (TypeError, ValueError):
+                    fresh = True  # 时间戳格式异常时按有效处理，不阻断展示
+            if enabled_by_platform.get(platform, 0) == 0:
+                fresh = bool(ok_at)  # 无启用大V：不判过期，保留原语义
             src = {
                 "platform": platform,
-                "ok": bool(ok_at),
+                "ok": fresh,
                 "last_ok_at": ok_at,
                 "last_error": err,
                 "consecutive_fails": int(fails),

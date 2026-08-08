@@ -1581,12 +1581,15 @@ def test_twitter_translation_uses_x_official_once_with_cookie(monkeypatch):
 
 def test_xueqiu_cookie_keepalive():
     db = make_db()
+    db.add_kol("xueqiu", "A", "1")  # 默认 enabled
     db.set_setting("xueqiu_cookie", "xq_a_token=old; u=1")
     notifier = FakeNotifier()
 
     def handler(request):
+        # 保活探测 timeline JSON 接口：200 + 合法 JSON + 下发新 cookie
         return httpx.Response(
             200,
+            json={"count": 1, "statuses": []},
             headers={"set-cookie": "xq_a_token=new; Path=/; Domain=.xueqiu.com"},
         )
 
@@ -1596,7 +1599,32 @@ def test_xueqiu_cookie_keepalive():
     )
     assert "xq_a_token=new" in db.get_setting("xueqiu_cookie")
     assert db.get_setting("xueqiu_cookie_updated_at")
+    assert db.get_setting("source_ok_xueqiu")  # 保活成功刷新「正常」状态
+    assert db.get_setting("source_err_xueqiu") in (None, "")
     assert notifier.texts == []
+
+
+def test_xueqiu_cookie_keepalive_expired_alerts():
+    db = make_db()
+    db.add_kol("xueqiu", "A", "1")  # 默认 enabled
+    db.set_setting("xueqiu_cookie", "xq_a_token=expired; u=1")
+    notifier = FakeNotifier()
+
+    def handler(request):
+        # 失效 cookie → timeline 返回 400 需登录（实测行为）
+        return httpx.Response(
+            400,
+            text='{"error_description":"遇到错误，请刷新页面或者重新登录帐号后再试"}',
+            headers={"content-type": "application/json;charset=UTF-8"},
+        )
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    keepalive_xueqiu_cookie(
+        db, [notifier], SimpleNamespace(cookie=""), client=client
+    )
+    assert "无效或已过期" in (db.get_setting("source_err_xueqiu") or "")
+    assert any("雪球" in t for t in notifier.texts)
+    assert db.get_setting("cookie_keepalive_alert_at")
 
 
 def test_weibo_cookie_keepalive_refresh_and_expired_alert():

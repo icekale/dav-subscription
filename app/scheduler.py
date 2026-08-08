@@ -666,12 +666,18 @@ def poll_once(
             list(ex.map(_worker, jobs))
         for platform, st in round_stats.items():
             if st["ok"]:
-                db.add_source_event(platform, "ok", f"ok={st['ok']} fail={st['fail']}")
+                db.add_source_event(
+                    platform,
+                    "ok",
+                    f"ok={st['ok']} fail={st['fail']}",
+                    ok_count=st["ok"],
+                )
             if st["fail"]:
                 db.add_source_event(
                     platform,
                     "fail",
                     f"fail={st['fail']} ok={st['ok']} kol={st['kol']} err={st['err'][:200]}",
+                    fail_count=st["fail"],
                 )
             if st["ok"] and not st["fail"]:
                 # 整轮无失败才清掉重试倒计时；有失败保留，避免并发顺序导致状态抖动
@@ -1121,11 +1127,25 @@ def _alert_cookie_keepalive(db: DB, notifiers: list[Notifier], label: str, detai
 def keepalive_xueqiu_cookie(
     db: DB, notifiers: list[Notifier], source_config, client=None
 ) -> None:
-    """定时访问雪球首页刷新会话，持久化最新 cookie。"""
-    from .fetchers.xueqiu import XUEQIU_COOKIE_KEY, XUEQIU_COOKIE_TIME_KEY, _is_waf_html
+    """定时探测雪球 cookie 是否仍有效，失效时告警（与抓取同路径）。
+
+    首页已被阿里云 WAF JS 挑战页接管，且不再下发登录态 token，无法续期；
+    改为请求 timeline JSON 接口（与 probe_xueqiu / fetch 同路径）：
+    有效 cookie → 200 正常返回；无/失效 cookie → 400 需登录。
+    保活从「续期」退化为「失效检测 + 告警」，cookie 需手动更新。
+    """
+    from .fetchers.xueqiu import (
+        XUEQIU_COOKIE_KEY,
+        XUEQIU_COOKIE_TIME_KEY,
+        XUEQIU_TIMELINE_URL,
+    )
 
     cookie = db.get_setting(XUEQIU_COOKIE_KEY) or source_config.cookie
     if not cookie:
+        return
+    # 没有启用的雪球大V则无从探测（与 probe_xueqiu 一致）
+    target = next((k for k in db.list_kols(platform="xueqiu") if k["enabled"]), None)
+    if target is None:
         return
     import httpx
 
@@ -1135,21 +1155,34 @@ def keepalive_xueqiu_cookie(
         follow_redirects=True,
         headers={
             "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X)",
-            "Referer": "https://xueqiu.com/",
+            "Accept": "application/json, text/plain, */*",
+            "X-Requested-With": "XMLHttpRequest",
+            "Referer": f"https://xueqiu.com/u/{target['external_id']}",
             "Cookie": cookie,
         },
     )
     try:
-        resp = client.get("https://xueqiu.com/")
-        if resp.status_code in (401, 403) or _is_waf_html(resp):
-            db.set_setting(SOURCE_ERR_KEY.format(platform="xueqiu"), "保活被反爬拦截")
-            _alert_cookie_keepalive(db, notifiers, "雪球", f"HTTP {resp.status_code}")
+        resp = client.get(
+            XUEQIU_TIMELINE_URL,
+            params={"user_id": target["external_id"], "page": 1, "count": 1},
+        )
+        status = resp.status_code
+        if status == 200:
+            try:
+                resp.json()
+            except ValueError:
+                status = 0  # 内容不是合法 JSON，按失效处理
+        if status != 200:
+            db.set_setting(SOURCE_ERR_KEY.format(platform="xueqiu"), "cookie 无效或已过期（保活探测）")
+            _alert_cookie_keepalive(db, notifiers, "雪球", f"timeline HTTP {status}")
             return
+        # 会话有效：合并本次响应下发的 cookie（一般无新 token，原样保留），更新状态
         new_cookie = _merge_cookie_string(cookie, client, "xueqiu.com")
         if new_cookie:
             db.set_setting(XUEQIU_COOKIE_KEY, new_cookie)
             db.set_setting(XUEQIU_COOKIE_TIME_KEY, str(int(time.time())))
-            db.set_setting(SOURCE_ERR_KEY.format(platform="xueqiu"), "")
+        db.set_setting(SOURCE_OK_KEY.format(platform="xueqiu"), str(int(time.time())))
+        db.set_setting(SOURCE_ERR_KEY.format(platform="xueqiu"), "")
     finally:
         if owns_client:
             client.close()

@@ -1060,7 +1060,12 @@ def test_stats_include_source_health():
     client = make_client()
     headers = auth_headers(client)
     db = client.app.state.db
-    db.set_setting("source_ok_xueqiu", str(1785840071))
+    import time as _time
+
+    now = int(_time.time())
+    # 有启用的雪球大V：source_ok 新 → 正常；source_ok 旧 → 状态降为「近期无成功」
+    db.add_kol("xueqiu", "A", "1")
+    db.set_setting("source_ok_xueqiu", str(now - 60))
     db.set_setting("source_err_weibo", "登录失败")
     db.set_setting("source_fails_weibo", "3")
     stats = client.get("/api/stats", headers=headers).json()
@@ -1068,6 +1073,26 @@ def test_stats_include_source_health():
     assert sources["xueqiu"]["ok"] is True
     assert sources["weibo"]["ok"] is False and sources["weibo"]["consecutive_fails"] == 3
     assert sources["weibo"]["last_error"] == "登录失败"
+
+    # source_ok 超出新鲜度窗口（2×轮询间隔，至少 5 分钟）→ 状态转 false
+    db.set_setting("source_ok_xueqiu", str(now - 3600))
+    stats = client.get("/api/stats", headers=headers).json()
+    sources = {s["platform"]: s for s in stats["sources"]}
+    assert sources["xueqiu"]["ok"] is False
+
+
+def test_stats_no_enabled_kol_not_stale():
+    """平台没有启用大V时，source_ok 即使陈旧也不判「近期无成功」。"""
+    client = make_client()
+    headers = auth_headers(client)
+    db = client.app.state.db
+    import time as _time
+
+    now = int(_time.time())
+    db.set_setting("source_ok_weibo", str(now - 3600))
+    stats = client.get("/api/stats", headers=headers).json()
+    sources = {s["platform"]: s for s in stats["sources"]}
+    assert sources["weibo"]["ok"] is True
 
 
 def test_polling_config_get_and_update():
@@ -1608,14 +1633,15 @@ def test_stats_returns_source_stability_fields():
     db = client.app.state.db
     kid = db.add_kol("xueqiu", "A", "1")
     db.insert_post("xueqiu", kid, "p1", "t", "c", "u", "")
-    db.add_source_event("xueqiu", "ok", "ok=1 fail=0")
-    db.add_source_event("xueqiu", "fail", "fail=1 ok=0 err=boom")
+    # 一轮成功抓取 5 个大V + 一轮失败 1 个大V → 成功率按「尝试次数」= 5/6
+    db.add_source_event("xueqiu", "ok", "ok=5 fail=0", ok_count=5)
+    db.add_source_event("xueqiu", "fail", "fail=1 ok=0 err=boom", fail_count=1)
     db.set_setting("stats_retry_pending", "2")
 
     data = client.get("/api/stats", headers=headers).json()
     xq = next(s for s in data["sources"] if s["platform"] == "xueqiu")
-    assert xq["ok_24h"] == 1 and xq["fail_24h"] == 1
-    assert xq["success_rate_24h"] == 50
+    assert xq["ok_24h"] == 5 and xq["fail_24h"] == 1
+    assert xq["success_rate_24h"] == 83
     assert len(data["recent_source_events"]) == 2
     assert data["retry_pending"] == 2
     assert any(h["id"] == kid and h["last_post_at"] for h in data["kol_health"])

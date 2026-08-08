@@ -170,7 +170,9 @@ CREATE TABLE IF NOT EXISTS source_events (
     platform TEXT NOT NULL,
     status TEXT NOT NULL,
     detail TEXT NOT NULL DEFAULT '',
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    ok_count INTEGER NOT NULL DEFAULT 0,
+    fail_count INTEGER NOT NULL DEFAULT 0
 );
 
 -- 性能索引：帖子/日志/订阅按数据量增长后的高频查询
@@ -288,6 +290,15 @@ class DB:
             self._conn.execute("ALTER TABLE kols ADD COLUMN avatar_source TEXT NOT NULL DEFAULT ''")
         if "original_only" not in kol_cols:
             self._conn.execute("ALTER TABLE kols ADD COLUMN original_only INTEGER NOT NULL DEFAULT 0")
+        ev_cols = {row["name"] for row in self._rows("PRAGMA table_info(source_events)")}
+        if "ok_count" not in ev_cols:
+            self._conn.execute(
+                "ALTER TABLE source_events ADD COLUMN ok_count INTEGER NOT NULL DEFAULT 0"
+            )
+        if "fail_count" not in ev_cols:
+            self._conn.execute(
+                "ALTER TABLE source_events ADD COLUMN fail_count INTEGER NOT NULL DEFAULT 0"
+            )
         # 渠道绑定唯一化：先清理重复（保留最早注册的用户），再建唯一索引，
         # 避免两个账号绑定同一个 chat_id/open_id 导致重复推送或 /bind 合并错账号。
         for column in (
@@ -1310,25 +1321,45 @@ class DB:
         )
 
     # ---- 数据源稳定性事件 ----
-    def add_source_event(self, platform: str, status: str, detail: str = "") -> None:
-        """记录一次数据源事件：ok（本轮有抓取成功）/ fail（本轮有失败）/ warn（降级）。"""
+    def add_source_event(
+        self, platform: str, status: str, detail: str = "", ok_count: int = 0, fail_count: int = 0
+    ) -> None:
+        """记录一次数据源事件：ok（本轮有抓取成功）/ fail（本轮有失败）/ warn（降级）。
+
+        ok_count/fail_count 是本轮该平台成功/失败的大V抓取次数，用于按
+        「尝试次数」统计真实成功率，避免单个大V失败被同平台多数成功掩盖。
+        """
         self._execute(
-            "INSERT INTO source_events (platform, status, detail) VALUES (?, ?, ?)",
-            (platform, status, detail[:300]),
+            "INSERT INTO source_events (platform, status, detail, ok_count, fail_count) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (platform, status, detail[:300], int(ok_count), int(fail_count)),
         )
 
     def source_event_stats(self, platform: str, hours: int = 24) -> dict[str, int]:
-        """最近 N 小时内的 ok/fail/warn 事件数。"""
+        """最近 N 小时内的抓取成功/失败次数与降级事件数。
+
+        ok/fail 按「尝试次数」求和；旧版事件行（迁移前 ok_count=0）按 1 次
+        计，避免升级后 24h 内成功率瞬时归零。
+        """
         rows = self._rows(
-            "SELECT status, COUNT(*) AS n FROM source_events "
+            "SELECT status, "
+            "SUM(CASE WHEN ok_count > 0 THEN ok_count ELSE 1 END) AS ok, "
+            "SUM(CASE WHEN fail_count > 0 THEN fail_count ELSE 1 END) AS fail, "
+            "COUNT(*) AS n "
+            "FROM source_events "
             "WHERE platform = ? AND created_at >= datetime('now', ?) "
             "GROUP BY status",
             (platform, f"-{hours} hours"),
         )
         out = {"ok": 0, "fail": 0, "warn": 0}
         for row in rows:
-            if row["status"] in out:
-                out[row["status"]] = row["n"]
+            status = row["status"]
+            if status == "warn":
+                out["warn"] = row["n"]
+            elif status == "ok":
+                out["ok"] = int(row["ok"] or 0)
+            elif status == "fail":
+                out["fail"] = int(row["fail"] or 0)
         return out
 
     def recent_source_events(self, limit: int = 30) -> list[dict]:

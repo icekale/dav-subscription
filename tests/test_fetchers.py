@@ -179,57 +179,54 @@ def test_xueqiu_fetch_full_text_for_truncated_long_post():
     assert posts[0].content == "这是完整的长文正文，远超时间线截断长度。"
 
 
-def test_xueqiu_cookie_refresh_on_401():
-    fixture = json.loads((FIXTURES / "xueqiu_sample.json").read_text(encoding="utf-8"))
-    timeline_hits = {"n": 0}
+def test_xueqiu_cookie_expired_401_raises_clear_error():
+    """401（会话失效）→ 抛清晰错误，不再访问已死续期的首页，也不重试。"""
+    homepage_hits = {"n": 0}
 
     def handler(request):
         if request.url.path == "/":
-            return httpx.Response(
-                200,
-                headers={"set-cookie": "xq_a_token=newtoken; Path=/; Domain=.xueqiu.com"},
-            )
-        timeline_hits["n"] += 1
-        if timeline_hits["n"] == 1:
-            return httpx.Response(401)
-        assert request.headers.get("Cookie", "").startswith("xq_a_token=newtoken")
-        return httpx.Response(200, json=fixture)
+            homepage_hits["n"] += 1
+            return httpx.Response(200, text="homepage")
+        return httpx.Response(401)
 
     client = httpx.Client(transport=httpx.MockTransport(handler))
     db = DB(":memory:")
     fetcher = XueqiuFetcher(XueqiuConfig(cookie="xq_a_token=old"), db=db, client=client)
-    posts = fetcher.fetch({"id": 1, "name": "大V", "external_id": "123"})
-    assert len(posts) == 2
-    assert "xq_a_token=newtoken" in db.get_setting("xueqiu_cookie")
+    try:
+        fetcher.fetch({"id": 1, "name": "大V", "external_id": "123"})
+    except RuntimeError as exc:
+        assert "cookie 已失效" in str(exc)
+        assert "手动更新" in str(exc)
+    else:
+        raise AssertionError("401 时应抛出 cookie 失效错误")
+    assert homepage_hits["n"] == 0  # 首页续期通道已废弃，不应再访问
+    assert db.get_setting("xueqiu_cookie") is None  # 不写入任何新 cookie
 
 
-def test_xueqiu_cookie_refresh_merges_old_tokens():
-    """续期只回发部分 token 时，旧会话的其他字段（u/device_id 等）不能被丢掉。"""
+def test_xueqiu_cookie_expired_keeps_stored_cookie():
+    """会话失效抛错时，数据库里已保存的 cookie 不能被覆盖或清除。"""
     fixture = json.loads((FIXTURES / "xueqiu_sample.json").read_text(encoding="utf-8"))
-    timeline_hits = {"n": 0}
 
     def handler(request):
-        if request.url.path == "/":
-            return httpx.Response(
-                200,
-                headers={"set-cookie": "xq_a_token=newtoken; Path=/; Domain=.xueqiu.com"},
-            )
-        timeline_hits["n"] += 1
-        if timeline_hits["n"] == 1:
-            return httpx.Response(401)
-        assert "device_id=d1" in request.headers.get("Cookie", "")
-        return httpx.Response(200, json=fixture)
+        return httpx.Response(401)
 
     client = httpx.Client(transport=httpx.MockTransport(handler))
     db = DB(":memory:")
+    db.set_setting("xueqiu_cookie", "xq_a_token=goodtoken; u=2964068165; device_id=d1")
     fetcher = XueqiuFetcher(
         XueqiuConfig(cookie="xq_a_token=old; u=2964068165; device_id=d1"),
         db=db,
         client=client,
     )
-    fetcher.fetch({"id": 1, "name": "大V", "external_id": "123"})
+    try:
+        fetcher.fetch({"id": 1, "name": "大V", "external_id": "123"})
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("401 时应抛出 cookie 失效错误")
+    assert fixture  # 引用 fixture 保持导入一致性
     saved = db.get_setting("xueqiu_cookie")
-    assert "xq_a_token=newtoken" in saved
+    assert "xq_a_token=goodtoken" in saved
     assert "u=2964068165" in saved and "device_id=d1" in saved
 
 
@@ -309,25 +306,22 @@ def test_combination_fetch_parses_rebalancing():
     assert p.detail["cash"] == "80.0%"
 
 
-def test_xueqiu_refresh_waf_html_raises_clear_error():
+def test_xueqiu_cookie_expired_403_raises_clear_error():
+    """403 与 401 同为会话失效，抛同样的清晰错误（403 不再走首页续期）。"""
+
     def handler(request):
         if request.url.path == "/":
-            return httpx.Response(
-                200,
-                headers={"content-type": "text/html"},
-                text='<textarea id="renderData">waf challenge</textarea><html>',
-            )
-        return httpx.Response(401)
+            raise AssertionError("首页续期通道已废弃，不应再访问")
+        return httpx.Response(403)
 
     client = httpx.Client(transport=httpx.MockTransport(handler))
     fetcher = XueqiuFetcher(XueqiuConfig(cookie="xq_a_token=old"), db=DB(":memory:"), client=client)
     try:
         fetcher.fetch({"id": 1, "name": "大V", "external_id": "123"})
     except RuntimeError as exc:
-        assert "反爬" in str(exc)
         assert "手动更新" in str(exc)
         return
-    raise AssertionError("WAF 拦截首页时应抛出清晰错误")
+    raise AssertionError("403 时应抛出清晰错误")
 
 
 def test_xueqiu_waf_html_raises_clear_error():
