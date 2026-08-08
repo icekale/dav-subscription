@@ -428,7 +428,7 @@ async function toggleSubscribe(kolId, btn) {
     }
     flash(`已${wasSubscribed ? "退订" : "订阅"}「${kol ? kol.name : "该大V"}」`);
     if (kol) kol.subscribed = !wasSubscribed;
-    renderHomeList();
+    await refreshKolsView();
   } catch (err) {
     alert("操作失败: " + err.message);
   }
@@ -464,12 +464,13 @@ async function quickSubscribe(kolId, btn) {
   }
 }
 
-function refreshKolsView() {
+async function refreshKolsView() {
   const hash = location.hash;
-  if (hash.startsWith("#/combinations")) renderCombinations();
-  else if (hash.startsWith("#/mysubs")) renderMySubs();
-  else if (hash.startsWith("#/kol/")) renderKolPage(Number(hash.split("/")[2] || 0));
-  else loadHomeKols();
+  if (hash.startsWith("#/home")) renderHomeList();
+  else if (hash.startsWith("#/combinations")) await renderCombinations();
+  else if (hash.startsWith("#/mysubs")) await renderMySubs();
+  else if (hash.startsWith("#/kol/")) await renderKolPage(Number(hash.split("/")[2] || 0));
+  else if (hash.startsWith("#/search")) doSearch();
 }
 
 function subTypeSwitchesHtml(kolId, current) {
