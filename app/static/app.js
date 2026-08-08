@@ -582,8 +582,17 @@ let _tlSeq = 0;
 const _tlPosts = [];
 let _tlOffset = 0;
 let _tlHasMore = true;
+let _tlLoadingMore = false;
 const _tlExpanded = new Set();
 let _tlCategories = null;
+
+const TL_PLATFORMS = [
+  ["", "全部"],
+  ["xueqiu", "雪球"],
+  ["combination", "雪球组合"],
+  ["weibo", "微博"],
+  ["twitter", "X"],
+];
 
 async function renderTimeline() {
   setPageTitle("动态");
@@ -594,21 +603,28 @@ async function renderTimeline() {
         <div>
           <p class="section-eyebrow">Feed</p>
           <h3 class="section-title">最新动态</h3>
-        </div>
-        <div class="toolbar" style="margin-top:12px">
-          <input id="tl-q" class="form-control" style="margin:0;width:220px" placeholder="搜索标题/内容关键词" value="${escapeHtml(state.timelineQ || "")}" onkeydown="if(event.key==='Enter')timelineFilter()">
-          <select id="tl-platform" class="form-control" style="margin:0;width:auto" onchange="timelineFilter()">
-            <option value="">全部平台</option>
-            <option value="xueqiu" ${state.timelinePlatform === "xueqiu" ? "selected" : ""}>雪球</option>
-            <option value="combination" ${state.timelinePlatform === "combination" ? "selected" : ""}>雪球组合</option>
-            <option value="weibo" ${state.timelinePlatform === "weibo" ? "selected" : ""}>微博</option>
-            <option value="twitter" ${state.timelinePlatform === "twitter" ? "selected" : ""}>X</option>
-          </select>
-          <select id="tl-category" class="form-control" style="margin:0;width:auto" onchange="timelineFilter()"><option value="">全部分类</option></select>
-          <button class="btn-normal" onclick="timelineFilter()">筛选</button>
-          <button id="timeline-fav-toggle" class="fav-toggle ${state.timelineFavorite ? "fav-on" : ""}" onclick="toggleTimelineFav()">${STAR_SVG} 特别关注</button>
+          <p class="section-meta" id="tl-meta">已加载 0 条 · 点「筛选」可搜索关键词或按分类过滤</p>
         </div>
       </header>
+    </section>
+    <div class="tl-filterbar" id="tl-filterbar">
+      <div class="tl-filterbar-top">
+        <div class="tl-pills" id="tl-pills">${tlPillsHtml()}</div>
+        <div class="tl-actions">
+          <button id="tl-filter-toggle" class="btn-ghost ${state.timelineQ || state.timelineCategory ? "has-filter" : ""}" aria-expanded="false" aria-controls="tl-filter-panel" onclick="tlFilterPanel()">筛选</button>
+          <button id="timeline-fav-toggle" class="fav-toggle ${state.timelineFavorite ? "fav-on" : ""}" aria-pressed="${state.timelineFavorite}" onclick="toggleTimelineFav()">${STAR_SVG} 特别关注</button>
+        </div>
+      </div>
+      <div class="tl-filter-panel" id="tl-filter-panel">
+        <input id="tl-q" class="form-control" placeholder="搜索标题/内容关键词" value="${escapeHtml(state.timelineQ || "")}" onkeydown="if(event.key==='Enter')tlApplyFilter()">
+        <select id="tl-category" class="form-control" onchange="tlApplyFilter()"><option value="">全部分类</option></select>
+        <div class="tl-filter-actions">
+          <button class="btn-ghost" onclick="tlResetFilters()">清除筛选</button>
+          <button class="btn-normal" onclick="tlApplyFilter()">完成</button>
+        </div>
+      </div>
+    </div>
+    <section class="section-panel">
       <div id="feed"></div>
     </section>`;
   _tlPosts.length = 0;
@@ -618,8 +634,64 @@ async function renderTimeline() {
     await loadTimelineCategories().catch(() => { _tlCategories = []; }); // 分类下拉失败降级，不阻塞 feed
     await loadTimeline(true);
   } catch (err) {
-    $("#feed").innerHTML = emptyState(err.message);
+    const feed = $("#feed");
+    if (feed) feed.innerHTML = emptyState(err.message);
   }
+}
+
+function tlPillsHtml() {
+  return TL_PLATFORMS.map(([p, label]) => `
+    <button class="tl-pill ${state.timelinePlatform === p ? "selected" : ""}" data-platform="${p}" aria-pressed="${state.timelinePlatform === p}" onclick="tlPickPlatform('${p}')">
+      ${p ? (PLATFORM_ICONS[p] || "") : ""}<span>${label}</span>
+    </button>`).join("");
+}
+
+function tlPickPlatform(p) {
+  state.timelinePlatform = p;
+  const pills = $("#tl-pills");
+  if (pills) pills.innerHTML = tlPillsHtml();
+  loadTimeline(true);
+}
+
+function tlFilterPanel() {
+  const bar = $("#tl-filterbar");
+  if (!bar) return;
+  const open = bar.classList.toggle("open");
+  const btn = $("#tl-filter-toggle");
+  if (btn) btn.setAttribute("aria-expanded", String(open));
+  if (open) $("#tl-q").focus();
+}
+
+function tlApplyFilter() {
+  state.timelineQ = $("#tl-q").value.trim();
+  state.timelineCategory = $("#tl-category").value;
+  $("#tl-filterbar").classList.remove("open");
+  const btn = $("#tl-filter-toggle");
+  if (btn) {
+    btn.classList.toggle("has-filter", !!(state.timelineQ || state.timelineCategory));
+    btn.setAttribute("aria-expanded", "false");
+  }
+  loadTimeline(true);
+}
+
+function tlResetFilters() {
+  state.timelineQ = "";
+  state.timelineCategory = "";
+  state.timelinePlatform = "";
+  state.timelineFavorite = false;
+  const q = $("#tl-q"); if (q) q.value = "";
+  const cat = $("#tl-category"); if (cat) cat.value = "";
+  const pills = $("#tl-pills"); if (pills) pills.innerHTML = tlPillsHtml();
+  const fb = $("#tl-filter-toggle"); if (fb) {
+    fb.classList.remove("has-filter");
+    fb.setAttribute("aria-expanded", "false");
+  }
+  const fav = $("#timeline-fav-toggle"); if (fav) {
+    fav.classList.remove("fav-on");
+    fav.setAttribute("aria-pressed", "false");
+  }
+  $("#tl-filterbar").classList.remove("open");
+  loadTimeline(true);
 }
 
 async function loadTimelineCategories() {
@@ -631,36 +703,40 @@ async function loadTimelineCategories() {
 }
 
 async function loadTimeline(reset = true) {
+  if (!reset && _tlLoadingMore) return;
+  if (!reset) _tlLoadingMore = true;
   const seq = ++_tlSeq;
-  const params = new URLSearchParams({ limit: "50", offset: String(reset ? 0 : _tlOffset) });
-  if (state.timelineQ) params.set("q", state.timelineQ);
-  if (state.timelinePlatform) params.set("platform", state.timelinePlatform);
-  if (state.timelineCategory) params.set("category_id", state.timelineCategory);
-  if (state.timelineFavorite) params.set("favorite", "1");
-  const posts = await api(`/api/my/feed?${params}`);
-  if (seq !== _tlSeq) return; // 筛选条件已变，丢弃过期响应
-  if (reset) {
-    _tlPosts.length = 0;
-    _tlOffset = 0;
+  try {
+    const params = new URLSearchParams({ limit: "50", offset: String(reset ? 0 : _tlOffset) });
+    if (state.timelineQ) params.set("q", state.timelineQ);
+    if (state.timelinePlatform) params.set("platform", state.timelinePlatform);
+    if (state.timelineCategory) params.set("category_id", state.timelineCategory);
+    if (state.timelineFavorite) params.set("favorite", "1");
+    const posts = await api(`/api/my/feed?${params}`);
+    if (seq !== _tlSeq || !$("#feed")) return; // 条件改变或已离开动态页
+    if (reset) {
+      _tlPosts.length = 0;
+      _tlOffset = 0;
+    }
+    _tlPosts.push(...posts);
+    _tlOffset += posts.length;
+    _tlHasMore = posts.length >= 50;
+    const meta = $("#tl-meta");
+    if (meta) meta.textContent = `已加载 ${_tlPosts.length} 条动态`;
+    renderTimelineFeed();
+  } finally {
+    if (!reset) _tlLoadingMore = false;
   }
-  _tlPosts.push(...posts);
-  _tlOffset += posts.length;
-  _tlHasMore = posts.length >= 50;
-  renderTimelineFeed();
-}
-
-function timelineFilter() {
-  state.timelineQ = $("#tl-q").value.trim();
-  state.timelinePlatform = $("#tl-platform").value;
-  state.timelineCategory = $("#tl-category").value;
-  loadTimeline(true);
 }
 
 function timelineLoadMore() {
+  if (_tlLoadingMore || !_tlHasMore) return;
   loadTimeline(false);
 }
 
 function renderTimelineFeed() {
+  const feed = $("#feed");
+  if (!feed) return;
   const posts = _tlPosts;
   const grouped = new Map();
   for (const p of posts) {
@@ -681,30 +757,20 @@ function renderTimelineFeed() {
     ? "还没有特别关注大V的动态"
     : (hasFilter ? "没有符合条件的动态" : "还没有订阅任何大V");
   const emptyAction = hasFilter
-    ? `<div><button class="btn-normal" onclick="timelineReset()">清除筛选</button></div>`
+    ? `<div><button class="btn-normal" onclick="tlResetFilters()">清除筛选</button></div>`
     : `<div><button class="btn-normal btn-add" onclick="location.hash='#/home'">去订阅</button></div>`;
-  $("#feed").innerHTML = posts.length
+  feed.innerHTML = posts.length
     ? html + footer
     : emptyState(emptyMsg, emptyAction);
-}
-
-function timelineReset() {
-  state.timelineQ = "";
-  state.timelinePlatform = "";
-  state.timelineCategory = "";
-  state.timelineFavorite = false;
-  const q = $("#tl-q"); if (q) q.value = "";
-  const pf = $("#tl-platform"); if (pf) pf.value = "";
-  const cat = $("#tl-category"); if (cat) cat.value = "";
-  const btn = $("#timeline-fav-toggle");
-  if (btn) btn.classList.remove("fav-on");
-  loadTimeline(true);
 }
 
 function toggleTimelineFav() {
   state.timelineFavorite = !state.timelineFavorite;
   const btn = $("#timeline-fav-toggle");
-  if (btn) btn.classList.toggle("fav-on", state.timelineFavorite);
+  if (btn) {
+    btn.classList.toggle("fav-on", state.timelineFavorite);
+    btn.setAttribute("aria-pressed", String(state.timelineFavorite));
+  }
   loadTimeline(true);
 }
 
