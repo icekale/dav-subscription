@@ -336,9 +336,11 @@ def _daily_lines(posts) -> list[str]:
 
 
 def _parse_daily_summary(text: str, post_count: int) -> DailySummary | None:
-    """宽松解析每日综述：首段（首个空行前）为总览，「- 」行为要点，行尾 [数字] 为帖子序号。
+    """宽松解析每日综述：首段（首个要点前的非列表行）为总览，列表行为要点。
 
-    序号必须落在 1..post_count 内，越界/非数字的标记丢弃；要点无有效序号则保留但不带链接。
+    要点行接受「- / • / * / 1.」等常见列表前缀；行尾形如（[1]）或（[1][3]）的
+    数字标记解析为帖子下标（容忍后面带句号/逗号等标点，LLM 常顺手加）。序号必须
+    落在 1..post_count 内，越界/非数字丢弃；要点无有效序号则保留但不带链接。
     解析失败或没有要点时返回 None（调用方降级为原始列表）。
     """
     if not text:
@@ -348,21 +350,24 @@ def _parse_daily_summary(text: str, post_count: int) -> DailySummary | None:
     points: list[DailyPoint] = []
     for line in lines:
         stripped = line.strip()
-        if stripped.startswith("- "):
-            body = stripped[2:].strip()
-            # 提取行尾形如（[1][3]）的序号标记
+        match = re.match(r"^(?:[-•*]\s+|[-•*]|\d+[.、]\s+)(.*)$", stripped, re.DOTALL)
+        if match:
+            body = match.group(1).strip()
+            if not body:
+                continue
+            # 提取行尾形如（[1]）或（[1][3]）的序号标记，容忍后随句读标点
             indexes: list[int] = []
             tail = body
             while True:
-                match = re.search(r"（\[(\d+)\]）\s*$", tail)
-                if not match:
+                idx_match = re.search(r"（((?:\[\d+\])+)）[。．.，,；;！!？?]?\s*$", tail)
+                if not idx_match:
                     break
-                num = int(match.group(1))
-                if 1 <= num <= post_count and num - 1 not in indexes:
-                    indexes.append(num - 1)
-                tail = tail[: match.start()].rstrip()
-            if tail:
-                points.append(DailyPoint(text=tail, post_indexes=indexes))
+                for num_str in re.findall(r"\[(\d+)\]", idx_match.group(1)):
+                    num = int(num_str)
+                    if 1 <= num <= post_count and num - 1 not in indexes:
+                        indexes.append(num - 1)
+                tail = tail[: idx_match.start()].rstrip("。．.，,；;！!？? ").rstrip()
+            points.append(DailyPoint(text=tail or body, post_indexes=indexes))
         elif stripped:
             overview_lines.append(stripped)
     if not points:

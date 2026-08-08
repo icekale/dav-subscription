@@ -441,6 +441,37 @@ def test_render_daily_summary_ignores_bad_indexes():
     assert "2. 正常（https://xueqiu.com/1）" in text
 
 
+def test_summarize_daily_parses_trailing_punctuation_and_multiple_indexes():
+    """LLM 常在（[N]）后带句号、多个序号连写——都应正确解析出链接依据。"""
+    client = httpx.Client(transport=httpx.MockTransport(_daily_handler(
+        "今日共 3 条动态。\n"
+        "- 要点一（[1]）。\n"
+        "- 要点二（[2][3]）\n"
+        "- 要点三"
+    )))
+    posts = [make_post(external_id=f"p{i}") for i in range(3)]
+    summary = summarize_daily(posts, make_config(), client=client)
+    assert summary is not None
+    assert summary.points[0].post_indexes == [0]
+    assert summary.points[1].post_indexes == [1, 2]
+    assert summary.points[2].post_indexes == []
+
+
+def test_summarize_daily_accepts_other_list_prefixes():
+    """LLM 偶发用 • / 1. 等列表前缀，不应导致整体降级。"""
+    client = httpx.Client(transport=httpx.MockTransport(_daily_handler(
+        "今日共 2 条动态。\n"
+        "1. 数字列表要点（[1]）\n"
+        "• 圆点要点（[2]）"
+    )))
+    posts = [make_post(external_id=f"p{i}") for i in range(2)]
+    summary = summarize_daily(posts, make_config(), client=client)
+    assert summary is not None
+    assert len(summary.points) == 2
+    assert summary.points[0].post_indexes == [0]
+    assert summary.points[1].post_indexes == [1]
+
+
 def test_summarize_daily_max_tokens():
     captured = {}
 
