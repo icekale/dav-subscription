@@ -1855,7 +1855,9 @@ class Scheduler:
                 for r in rows
             ]
             summary = None
-            llm_cfg = _user_llm_config(user, getattr(self, "llm_config", None))
+            # 每日综述是系统级推送内容，用全局 LLM 配置保证输出格式稳定；
+            # 用户级自配模型（可能含推理模型）继续用于 digest/免打扰汇总。
+            llm_cfg = getattr(self, "llm_config", None)
             if llm_cfg is not None:
                 try:
                     from .llm import summarize_daily
