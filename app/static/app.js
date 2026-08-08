@@ -905,6 +905,7 @@ async function renderSettings() {
         ])}
       <div class="settings-tabs" role="tablist">
         <button class="settings-tab active" data-tab="push" onclick="switchSettingsTab('push')">推送设置</button>
+        <button class="settings-tab" data-tab="bind" onclick="switchSettingsTab('bind')">渠道绑定</button>
         <button class="settings-tab" data-tab="feed" onclick="switchSettingsTab('feed')">RSS 订阅源</button>
         <button class="settings-tab" data-tab="llm" onclick="switchSettingsTab('llm')">AI 摘要</button>
         <button class="settings-tab" data-tab="account" onclick="switchSettingsTab('account')">账号</button>
@@ -1004,6 +1005,8 @@ async function renderSettings() {
         </div>
         <p class="muted">适用场景：只关心某个大V聊的特定话题（如「只想要 ETF 相关的」）；命中即实时送达，不受免打扰影响。</p>
       </section>
+      </div>
+      <div id="st-bind" class="settings-tab-panel">
       <section class="section-panel">
         <header class="section-head">
           <div>
@@ -1192,7 +1195,7 @@ function switchSettingsTab(name) {
   document.querySelectorAll(".settings-tab").forEach((b) =>
     b.classList.toggle("active", b.dataset.tab === name)
   );
-  ["push", "feed", "llm", "account"].forEach((t) => {
+  ["push", "bind", "feed", "llm", "account"].forEach((t) => {
     const el = document.getElementById("st-" + t);
     if (el) el.style.display = t === name ? "" : "none";
   });
@@ -1207,7 +1210,10 @@ function bindGuideHtml(bound, stepsHtml) {
 }
 
 function openBindGuide(sectionId) {
-  // 状态卡片「去绑定」→ 滚动到渠道区块并展开其步骤
+  // 渠道绑定块在独立「渠道绑定」分栏里，先切过去再滚动并展开步骤
+  if (sectionId === "wecom-bind" || sectionId === "bark-bind") {
+    switchSettingsTab("bind");
+  }
   const sec = document.getElementById(sectionId);
   if (!sec) return;
   sec.scrollIntoView({ behavior: "smooth", block: "start" });
