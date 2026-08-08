@@ -51,12 +51,11 @@ button:focus-visible {
 .brand-mark.small { width: 40px; height: 40px; border-radius: var(--radius-sm); font-size: 20px; margin: 0; box-shadow: 0 6px 14px rgba(22, 119, 255, 0.24); }
 .brand-mark.small.brand-logo { box-shadow: 0 6px 14px rgba(22, 119, 255, 0.22); }
 .login-eyebrow { font-size: var(--text-xs); font-weight: var(--font-weight-semibold); letter-spacing: 2px; text-transform: uppercase; color: var(--color-accent); }
-.login-brand-title { font-size: 30px; font-weight: var(--font-weight-bold); letter-spacing: 0.2px; margin: 10px 0 12px; color: var(--color-text); }
-.login-brand-copy { color: var(--color-text-subtle); font-size: var(--text-md); line-height: 1.8; max-width: 340px; }
+.login-brand-title { font-size: 30px; font-weight: var(--font-weight-bold); letter-spacing: 0.2px; margin: 10px 0 0; color: var(--color-text); }
 
 .login-features {
   list-style: none;
-  margin: 26px 0 0;
+  margin: 22px 0 0;
   padding: 0;
   display: flex;
   flex-direction: column;
@@ -95,7 +94,9 @@ button:focus-visible {
 }
 /* 密码可见性切换 */
 .pw-field { position: relative; margin-bottom: 16px; }
-.pw-field .form-control { margin-bottom: 0; padding-right: 46px; }
+.pw-field .form-control { margin-bottom: 0; padding-right: 46px; width: 100%; }
+/* 与密码框输入区等宽：用户名/邀请码框预留相同右侧留白，保持纵向对齐 */
+.login-form > .form-control { padding-right: 46px; }
 .pw-toggle {
   position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
   width: 34px; height: 34px;
@@ -864,7 +865,6 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
   .login-shell { flex-direction: column; gap: 28px; max-width: 420px; }
   .login-brand { text-align: center; }
   .login-brand .brand-mark { margin-left: auto; margin-right: auto; }
-  .login-brand-copy { margin: 0 auto; }
   .login-features { margin-left: auto; margin-right: auto; text-align: left; }
   .topbar { padding: 0 16px; }
   .page-main { padding: 16px; }
