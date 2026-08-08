@@ -1061,6 +1061,26 @@ def test_source_events_retention():
     assert db.recent_source_events() == []
 
 
+def test_source_event_stats_counting_and_legacy_compat():
+    """source_event_stats 按 ok_count/fail_count 求和；旧版 0/0 事件按 1 次计，兼容升级。"""
+    db = make_db()
+    # 新口径：带 ok_count/fail_count 的正常事件按尝试次数统计
+    db.add_source_event("xueqiu", "ok", "ok=5 fail=0", ok_count=5)
+    db.add_source_event("xueqiu", "fail", "fail=1 ok=0", fail_count=1)
+    assert db.source_event_stats("xueqiu", 24) == {"ok": 5, "fail": 1, "warn": 0}
+    # 旧版事件（迁移前 ok_count=0/fail_count=0）按 1 次计，避免升级后成功率瞬时归零
+    db.add_source_event("xueqiu", "ok", "legacy ok")
+    db.add_source_event("xueqiu", "fail", "legacy fail")
+    db.add_source_event("xueqiu", "warn", "降级")
+    stats = db.source_event_stats("xueqiu", 24)
+    assert stats == {"ok": 6, "fail": 2, "warn": 1}
+    # 混合：ok_count=0 但 detail 表示有成功的旧版 ok 事件，仍按 1 次计
+    db.add_source_event("xueqiu", "ok", "legacy mixed")
+    assert db.source_event_stats("xueqiu", 24)["ok"] == 7
+    # 其他平台不受影响
+    assert db.source_event_stats("weibo", 24) == {"ok": 0, "fail": 0, "warn": 0}
+
+
 def test_poll_once_fetches_never_fetched_kol_with_small_monotonic(monkeypatch):
     """容器启动早期 monotonic 可能小于轮询间隔，首轮不应被误跳过（CI 回归）。"""
     db = make_db()

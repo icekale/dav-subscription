@@ -59,7 +59,7 @@ def test_kol_detail_page_subscribes_via_toggle_subscribe():
     """KOL 详情页的订阅按钮必须复用 toggleSubscribe（从而获得路由感知刷新）。"""
     src = APP_JS.read_text()
     assert "toggleKolPageSubscribe" in src
-    m = re.search(r"async function toggleKolPageSubscribe.*?\n}", src, re.S)
+    m = re.search(r"async function toggleKolPageSubscribe.*?\n}", src, re.DOTALL)
     assert m, "未找到 toggleKolPageSubscribe"
     assert "toggleSubscribe(" in m.group(0)
 
