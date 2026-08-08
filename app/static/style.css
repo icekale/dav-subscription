@@ -440,6 +440,13 @@ textarea.form-control {
 .kol-card-info .desc { color: var(--color-text-muted); font-size: var(--text-xs); margin-top: 5px; }
 .kol-card-actions { display: flex; gap: 8px; margin-top: auto; }
 .kol-card-actions .btn-sub { flex: 1; }
+/* 操作区图标按钮（星标/删除）统一尺寸，与主按钮并排协调 */
+.kol-card-actions .fav-btn, .kol-card-actions .kol-del {
+  width: 44px; height: 44px; padding: 0; flex-shrink: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.kol-card-actions .kol-del:hover { border-color: var(--color-danger); color: var(--color-danger-strong); }
+.kol-card-actions .kol-del .trash-icon { width: 15px; height: 15px; }
 .kol-card-subtype { padding-top: 2px; }
 .kol-card-subtype .sub-type-switches { gap: 14px; }
 
