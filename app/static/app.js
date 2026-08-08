@@ -1117,6 +1117,28 @@ async function renderSettings() {
       <section class="section-panel">
         <header class="section-head">
           <div>
+            <p class="section-eyebrow">Security</p>
+            <h3 class="section-title">修改密码</h3>
+            <p class="section-meta">定期更换密码，保护你的账号安全。</p>
+          </div>
+        </header>
+        <div class="form-row">
+          <label for="pw-old">原密码</label>
+          <input id="pw-old" class="form-control" type="password" placeholder="输入当前密码" autocomplete="current-password">
+        </div>
+        <div class="form-row">
+          <label for="pw-new">新密码</label>
+          <input id="pw-new" class="form-control" type="password" placeholder="至少 6 位" autocomplete="new-password">
+        </div>
+        <div class="form-row">
+          <label for="pw-confirm">确认新密码</label>
+          <input id="pw-confirm" class="form-control" type="password" placeholder="再次输入新密码" autocomplete="new-password">
+        </div>
+        <button class="btn-normal" onclick="savePassword()">修改密码</button>
+      </section>
+      <section class="section-panel">
+        <header class="section-head">
+          <div>
             <p class="section-eyebrow">Sync</p>
             <h3 class="section-title">与网页/小程序账号同步（可选）</h3>
             <p class="section-meta">机器人是独立账号；想让机器人订阅与网页账号合并，用绑定码。</p>
@@ -1153,28 +1175,6 @@ async function renderSettings() {
           </div>
         </div>
         <p class="muted">⚠️ 地址内含订阅凭证，泄露后别人能读到你的关注流；泄露了就点「重新生成」立即作废旧地址。</p>
-      </section>
-      <section class="section-panel">
-        <header class="section-head">
-          <div>
-            <p class="section-eyebrow">Security</p>
-            <h3 class="section-title">修改密码</h3>
-            <p class="section-meta">定期更换密码，保护你的账号安全。</p>
-          </div>
-        </header>
-        <div class="form-row">
-          <label for="pw-old">原密码</label>
-          <input id="pw-old" class="form-control" type="password" placeholder="输入当前密码" autocomplete="current-password">
-        </div>
-        <div class="form-row">
-          <label for="pw-new">新密码</label>
-          <input id="pw-new" class="form-control" type="password" placeholder="至少 6 位" autocomplete="new-password">
-        </div>
-        <div class="form-row">
-          <label for="pw-confirm">确认新密码</label>
-          <input id="pw-confirm" class="form-control" type="password" placeholder="再次输入新密码" autocomplete="new-password">
-        </div>
-        <button class="btn-normal" onclick="savePassword()">修改密码</button>
       </section>
       </div>`;
     settingsPollTimer = setInterval(refreshSettingsStatus, 10000);
