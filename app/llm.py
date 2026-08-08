@@ -286,3 +286,182 @@ def _tag_chunk(posts, vocabulary, api_base, api_key, model, client=None) -> dict
     finally:
         if owns_client and client is not None:
             client.close()
+
+
+# ---- 每日精选综述 ----
+
+from dataclasses import dataclass, field
+
+
+@dataclass
+class DailyPoint:
+    """综述里的一个要点：text 是正文，post_indexes 是依据的帖子在输入列表中的下标。"""
+
+    text: str
+    post_indexes: list[int] = field(default_factory=list)
+
+
+@dataclass
+class DailySummary:
+    """每日精选综述：总览 + 按重要性/话题组织的要点列表。"""
+
+    overview: str
+    points: list[DailyPoint] = field(default_factory=list)
+
+
+DAILY_SUMMARY_SYSTEM_PROMPT = (
+    "你是财经内容主编，负责把用户今天订阅的社交动态整理成一份精炼的每日综述。"
+    "要求："
+    "1. 先写一句总览，点明今天共多少条动态、围绕哪些大V/话题；"
+    "2. 按重要性排序，把相关帖子按话题归并成要点：重要的展开讲，普通的一笔带过，不要逐条罗列原文；"
+    "3. 每条要点一行，以「- 」开头，行尾用（[帖子序号]）标注依据的帖子，可多个（如（[1][3]）），序号只能来自输入列表；"
+    "4. 保留关键数字与结论，去掉寒暄与无关细节；不要添加原文没有的信息，不要臆测。"
+    "输出除总览和要点外不要任何解释。"
+)
+
+
+def _daily_lines(posts) -> list[str]:
+    """把一批贴文转成「序号. [原帖|回复][平台] KOL：正文摘要」的行，供每日综述。"""
+    from .fetchers.base import digest_body
+
+    per_post = 2000 if len(posts) <= 2 else 400
+    lines = []
+    for idx, post in enumerate(posts, start=1):
+        platform = getattr(post, "platform", "") or ""
+        kol = getattr(post, "kol_name", "") or ""
+        mark = "[原帖]" if (getattr(post, "post_type", "") or "") != "reply" else "[回复]"
+        body = digest_body(post, full=False, max_chars=per_post)
+        lines.append(f"{idx}. {mark}[{platform}] {kol}：{body}")
+    return lines
+
+
+def _parse_daily_summary(text: str, post_count: int) -> DailySummary | None:
+    """宽松解析每日综述：首段（首个空行前）为总览，「- 」行为要点，行尾 [数字] 为帖子序号。
+
+    序号必须落在 1..post_count 内，越界/非数字的标记丢弃；要点无有效序号则保留但不带链接。
+    解析失败或没有要点时返回 None（调用方降级为原始列表）。
+    """
+    if not text:
+        return None
+    lines = text.strip().splitlines()
+    overview_lines: list[str] = []
+    points: list[DailyPoint] = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("- "):
+            body = stripped[2:].strip()
+            # 提取行尾形如（[1][3]）的序号标记
+            indexes: list[int] = []
+            tail = body
+            while True:
+                match = re.search(r"（\[(\d+)\]）\s*$", tail)
+                if not match:
+                    break
+                num = int(match.group(1))
+                if 1 <= num <= post_count and num - 1 not in indexes:
+                    indexes.append(num - 1)
+                tail = tail[: match.start()].rstrip()
+            if tail:
+                points.append(DailyPoint(text=tail, post_indexes=indexes))
+        elif stripped:
+            overview_lines.append(stripped)
+    if not points:
+        logger.warning("LLM 每日综述无要点，降级为原始列表")
+        return None
+    overview = " ".join(overview_lines).strip()
+    return DailySummary(overview=overview, points=points)
+
+
+def render_daily_summary(summary: DailySummary, posts) -> str:
+    """把综述渲染成纯文本（URL 直接可见可点击，各渠道通用）。
+
+    只把 LLM 输出的帖子序号替换成真实原文链接；同一要点多帖子时依次列出。
+    """
+    lines = ["📊 今日大V精选（LLM 梳理）"]
+    if summary.overview:
+        lines += ["", summary.overview]
+    for idx, point in enumerate(summary.points, start=1):
+        links = []
+        for pi in point.post_indexes:
+            if 0 <= pi < len(posts):
+                url = getattr(posts[pi], "url", "") or ""
+                if url:
+                    links.append(url)
+        suffix = ""
+        if len(links) == 1:
+            # 单条依据直接列 URL（多数渠道可点击）
+            suffix = f"（{links[0]}）"
+        elif len(links) > 1:
+            # 多条依据用编号链接串，避免一长串 URL 撑爆消息
+            suffix = "（" + " · ".join(f"[原文{i + 1}]({url})" for i, url in enumerate(links)) + "）"
+        lines.append(f"{idx}. {point.text}{suffix}")
+    return "\n".join(lines)
+
+
+def summarize_daily(posts, llm_config=None, client=None) -> DailySummary | None:
+    """生成每日精选综述；未配置或失败返回 None（调用方降级为原始列表）。
+
+    与 summarize_posts 同款降级/重试策略；只传帖文标题/大V/平台/摘要，不传用户隐私字段。
+    """
+    api_key = getattr(llm_config, "api_key", "") if llm_config else ""
+    if not api_key:
+        return None
+    api_base = (getattr(llm_config, "api_base", "") or "https://api.openai.com/v1").rstrip("/")
+    model = getattr(llm_config, "model", "") or "gpt-4o-mini"
+    import httpx
+
+    content = "\n".join(_daily_lines(posts))
+    if not content.strip():
+        return None
+    owns_client = client is None
+    client = client or httpx.Client(timeout=60)
+    try:
+        last_err: Exception | None = None
+        for attempt in range(2):
+            try:
+                resp = client.post(
+                    f"{api_base}/chat/completions",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    json={
+                        "model": model,
+                        "messages": [
+                            {"role": "system", "content": DAILY_SUMMARY_SYSTEM_PROMPT},
+                            {
+                                "role": "user",
+                                "content": (
+                                    f"共 {len(posts)} 条动态，请整理成每日综述：\n{content[:12000]}"
+                                ),
+                            },
+                        ],
+                        "temperature": 0.3,
+                        "max_tokens": min(8000, max(2000, 200 + 120 * len(posts))),
+                    },
+                )
+                if resp.status_code == 429 or resp.status_code >= 500:
+                    raise _RetryableError(f"LLM HTTP {resp.status_code}")
+                resp.raise_for_status()
+                data = resp.json()
+                text = (
+                    (data.get("choices") or [{}])[0]
+                    .get("message", {})
+                    .get("content", "")
+                    .strip()
+                )
+                summary = _parse_daily_summary(text, len(posts))
+                if summary is None:
+                    raise _RetryableError("LLM 每日综述无法解析")
+                usage = (data.get("usage") or {}).get("total_tokens") or 0
+                logger.info("LLM 每日综述完成 posts=%d points=%d tokens=%d", len(posts), len(summary.points), usage)
+                return summary
+            except httpx.HTTPStatusError as exc:
+                last_err = exc  # 4xx（鉴权/参数错误）重试无意义
+                break
+            except (httpx.TransportError, _RetryableError) as exc:
+                last_err = exc
+            if attempt == 0:
+                time.sleep(2)
+        logger.warning("LLM 每日综述失败，降级为原始列表: %s", last_err)
+        return None
+    finally:
+        if owns_client:
+            client.close()

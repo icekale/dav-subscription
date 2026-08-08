@@ -1858,11 +1858,17 @@ class Scheduler:
             llm_cfg = _user_llm_config(user, getattr(self, "llm_config", None))
             if llm_cfg is not None:
                 try:
-                    from .llm import summarize_posts
+                    from .llm import summarize_daily
 
-                    summary = summarize_posts(posts, llm_cfg)
-                except Exception as exc:  # noqa: BLE001 - 摘要失败降级，不影响推送
-                    logger.warning("LLM 摘要异常 user=%s err=%s", user["username"], exc)
+                    summary = summarize_daily(posts, llm_cfg)
+                except Exception as exc:  # noqa: BLE001 - 综述失败降级为原始列表，不影响推送
+                    logger.warning("LLM 每日综述异常 user=%s err=%s", user["username"], exc)
+            # LLM 精炼综述优先；未配置/失败时降级为原始贴文列表（保底不空发）
+            daily_text = None
+            if summary is not None:
+                from .llm import render_daily_summary
+
+                daily_text = render_daily_summary(summary, posts)
             if user.get("telegram_chat_id") and _channel_enabled(user, "telegram") and (
                 self.notifiers_config.telegram.bot_token or user.get("telegram_bot_token")
             ):
@@ -1872,9 +1878,10 @@ class Scheduler:
                     bot_token=user.get("telegram_bot_token") or None,
                 )
                 try:
-                    if summary:
-                        notifier.send_text(f"📊 AI 摘要\n\n{summary}")
-                    notifier.send_daily(posts)
+                    if daily_text:
+                        notifier.send_text(daily_text)
+                    else:
+                        notifier.send_daily(posts)
                     for post in posts:
                         post_id = self.db.get_post_id(post.platform, post.external_id)
                         if post_id:
@@ -1898,9 +1905,10 @@ class Scheduler:
                     chat_id=user.get("feishu_chat_id") or None,
                 )
                 try:
-                    if summary:
-                        notifier.send_text(f"📊 AI 摘要\n\n{summary}")
-                    notifier.send_daily(posts)
+                    if daily_text:
+                        notifier.send_text(daily_text)
+                    else:
+                        notifier.send_daily(posts)
                     for post in posts:
                         post_id = self.db.get_post_id(post.platform, post.external_id)
                         if post_id:
@@ -1921,9 +1929,10 @@ class Scheduler:
                     webhook_url=user["wecom_webhook"],
                 )
                 try:
-                    if summary:
-                        notifier.send_text(f"📊 AI 摘要\n\n{summary}")
-                    notifier.send_daily(posts)
+                    if daily_text:
+                        notifier.send_text(daily_text)
+                    else:
+                        notifier.send_daily(posts)
                     for post in posts:
                         post_id = self.db.get_post_id(post.platform, post.external_id)
                         if post_id:
@@ -1941,9 +1950,10 @@ class Scheduler:
             if user.get("bark_key") and _channel_enabled(user, "bark"):
                 notifier = BarkNotifier(bark_key=user["bark_key"])
                 try:
-                    if summary:
-                        notifier.send_text(f"📊 AI 摘要\n\n{summary}")
-                    notifier.send_daily(posts)
+                    if daily_text:
+                        notifier.send_text(daily_text)
+                    else:
+                        notifier.send_daily(posts)
                     for post in posts:
                         post_id = self.db.get_post_id(post.platform, post.external_id)
                         if post_id:

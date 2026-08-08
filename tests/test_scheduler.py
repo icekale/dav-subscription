@@ -1439,7 +1439,15 @@ def test_daily_report_sends_ai_summary(monkeypatch):
 
     fake = FakeDailyNotifier()
     monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", lambda *a, **k: fake)
-    monkeypatch.setattr("app.llm.summarize_posts", lambda posts, cfg, cache=None: "AI 要点")
+    from app.llm import DailyPoint, DailySummary
+
+    monkeypatch.setattr(
+        "app.llm.summarize_daily",
+        lambda posts, cfg, client=None: DailySummary(
+            overview="今日共 1 条动态，围绕 AI 与宏观。",
+            points=[DailyPoint(text="美联储释放降息信号", post_indexes=[0])],
+        ),
+    )
     scheduler = Scheduler(
         db,
         {},
@@ -1454,8 +1462,40 @@ def test_daily_report_sends_ai_summary(monkeypatch):
         llm_config=SimpleNamespace(api_key="sk-test", api_base="https://api.deepseek.com", model="deepseek-chat"),
     )
     scheduler._send_daily_report()
-    assert any("AI 摘要" in t for t in fake.texts)
-    assert len(fake.daily) == 1
+    # 综述走 send_text（含标题），不再发原始列表（send_daily 不被调用）
+    assert any("今日大V精选" in t for t in fake.texts)
+    assert fake.daily == []
+
+
+def test_daily_report_falls_back_to_raw_list_without_llm(monkeypatch):
+    """未配置 LLM 或综述失败时，降级发送原始贴文列表，保底不空发。"""
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    db.insert_post("xueqiu", kid, "p1", "t", "今日内容", "u", "")
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.update_user(uid, daily_report=True)
+    db.add_subscription(uid, kid)
+
+    fake = FakeDailyNotifier()
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", lambda *a, **k: fake)
+    # LLM 综述返回 None（失败/无法解析）
+    monkeypatch.setattr("app.llm.summarize_daily", lambda posts, cfg, client=None: None)
+    scheduler = Scheduler(
+        db,
+        {},
+        [],
+        SimpleNamespace(daily_report_hour=20),
+        notifiers_config=SimpleNamespace(
+            telegram=SimpleNamespace(bot_token="t", chat_id="111"),
+            feishu=SimpleNamespace(app_id="", app_secret=""),
+        ),
+        xueqiu_config=SimpleNamespace(cookie=""),
+        weibo_config=SimpleNamespace(cookie="", username="", password=""),
+        llm_config=SimpleNamespace(api_key="sk-test", api_base="https://api.deepseek.com", model="deepseek-chat"),
+    )
+    scheduler._send_daily_report()
+    assert fake.daily and fake.daily[0][0].kol_name == "A"
+    assert fake.texts == []
 
 
 def test_daily_report_wecom_user(monkeypatch):

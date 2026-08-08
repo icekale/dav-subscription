@@ -338,3 +338,116 @@ def test_tag_posts_chunks_over_limit():
     # 两块请求各自映射回原下标
     assert result[0] == ["科技"]
     assert result[TAG_CHUNK_SIZE] == ["科技"]
+
+
+# ---- 每日精选综述 ----
+
+from app.llm import DailyPoint, DailySummary, render_daily_summary, summarize_daily
+
+
+def _daily_handler(content):
+    def handler(request):
+        return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
+
+    return handler
+
+
+def test_summarize_daily_success_parses():
+    client = httpx.Client(transport=httpx.MockTransport(_daily_handler(
+        "今日共 2 条动态，围绕 AI 与宏观。\n"
+        "- 美联储释放降息信号，科技股受益（[1]）\n"
+        "- 市场整体波动不大（[2]）"
+    )))
+    posts = [make_post(external_id=f"p{i}") for i in range(2)]
+    summary = summarize_daily(posts, make_config(), client=client)
+    assert summary is not None
+    assert "AI" in summary.overview
+    assert len(summary.points) == 2
+    assert summary.points[0].text.startswith("美联储")
+    assert summary.points[0].post_indexes == [0]
+    assert summary.points[1].post_indexes == [1]
+
+
+def test_summarize_daily_prompt_includes_rules():
+    captured = {}
+
+    def handler(request):
+        payload = json.loads(request.read())
+        captured["system"] = payload["messages"][0]["content"]
+        captured["user"] = payload["messages"][1]["content"]
+        return httpx.Response(200, json={"choices": [{"message": {"content": "- 要点（[1]）"}}]})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    summarize_daily([make_post()], make_config(), client=client)
+    # system 指令要求按重要性排序、标注帖子序号
+    assert "重要性" in captured["system"] and "序号" in captured["system"]
+    # 输入行带序号，模型可引用
+    assert "1. [原帖][xueqiu] 张三：" in captured["user"]
+
+
+def test_summarize_daily_no_points_returns_none():
+    client = httpx.Client(transport=httpx.MockTransport(_daily_handler("今日无事。")))
+    assert summarize_daily([make_post()], make_config(), client=client) is None
+
+
+def test_summarize_daily_http_error_returns_none():
+    def handler(request):
+        return httpx.Response(500, json={})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    assert summarize_daily([make_post()], make_config(), client=client) is None
+
+
+def test_summarize_daily_no_config_returns_none():
+    assert summarize_daily([make_post()], None) is None
+    assert summarize_daily([make_post()], SimpleNamespace(api_key="")) is None
+
+
+def test_render_daily_summary_links():
+    posts = [make_post(external_id="p1"), make_post(external_id="p2")]
+    posts[0].url = "https://xueqiu.com/1"
+    posts[1].url = "https://xueqiu.com/2"
+    summary = DailySummary(
+        overview="今日共 2 条动态。",
+        points=[
+            DailyPoint(text="要点甲", post_indexes=[0]),
+            DailyPoint(text="要点乙", post_indexes=[0, 1]),
+            DailyPoint(text="无来源要点", post_indexes=[]),
+        ],
+    )
+    text = render_daily_summary(summary, posts)
+    assert "今日大V精选" in text
+    assert "今日共 2 条动态。" in text
+    # 单来源直接列 URL
+    assert "1. 要点甲（https://xueqiu.com/1）" in text
+    # 多来源用编号链接串
+    assert "2. 要点乙（[原文1](https://xueqiu.com/1) · [原文2](https://xueqiu.com/2)）" in text
+    # 无来源不带链接
+    assert "3. 无来源要点" in text and "原文" not in text.split("3. ")[1]
+
+
+def test_render_daily_summary_ignores_bad_indexes():
+    posts = [make_post(external_id="p1")]
+    posts[0].url = "https://xueqiu.com/1"
+    summary = DailySummary(
+        overview="",
+        points=[
+            DailyPoint(text="越界", post_indexes=[99]),
+            DailyPoint(text="正常", post_indexes=[0]),
+        ],
+    )
+    text = render_daily_summary(summary, posts)
+    assert "1. 越界" in text and "原文" not in text.split("1. ")[1]
+    assert "2. 正常（https://xueqiu.com/1）" in text
+
+
+def test_summarize_daily_max_tokens():
+    captured = {}
+
+    def handler(request):
+        captured["max_tokens"] = json.loads(request.read())["max_tokens"]
+        return httpx.Response(200, json={"choices": [{"message": {"content": "- 要点（[1]）"}}]})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    summarize_daily([make_post(external_id=f"p{i}") for i in range(30)], make_config(), client=client)
+    assert captured["max_tokens"] == 3800  # 200 + 120*30
