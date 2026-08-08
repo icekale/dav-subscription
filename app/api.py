@@ -222,6 +222,24 @@ def public_user(user: dict) -> dict:
     }
 
 
+def admin_user_summary(user: dict) -> dict:
+    """管理员用户列表摘要：只暴露管理所需字段，不含 feed_token/bark_key/wecom_webhook/llm_api_key 等凭证。"""
+    return {
+        "id": user["id"],
+        "username": user["username"],
+        "is_admin": bool(user["is_admin"]),
+        "created_at": user["created_at"],
+        "notify_enabled": bool(user["notify_enabled"]),
+        "daily_report_enabled": bool(user.get("daily_report")),
+        "push_channels": user.get("push_channels") or "",
+        "telegram_bound": bool(user.get("telegram_chat_id")),
+        "feishu_bound": bool(user.get("feishu_open_id") or user.get("feishu_chat_id")),
+        "wecom_bound": bool(user.get("wecom_webhook")),
+        "bark_bound": bool(user.get("bark_key")),
+        "custom_telegram_bot": bool(user.get("telegram_bot_token")),
+    }
+
+
 def create_api_router(
     db: DB,
     secret: str,
@@ -1331,7 +1349,7 @@ def create_api_router(
 
     @router.get("/users", dependencies=[Depends(require_admin)])
     def list_users():
-        return [public_user(u) for u in db.list_users()]
+        return [admin_user_summary(u) for u in db.list_users()]
 
     @router.get("/stats", dependencies=[Depends(require_admin)])
     def stats():
@@ -1473,7 +1491,7 @@ def create_api_router(
             str(user_id),
             f"is_admin={body.is_admin} password={'*' if body.password else ''} username={body.username}",
         )
-        return public_user(db.get_user(user_id))
+        return admin_user_summary(db.get_user(user_id))
 
     @router.delete("/users/{user_id}", dependencies=[Depends(require_admin)])
     def delete_user(user_id: int, admin: dict = Depends(require_admin)):

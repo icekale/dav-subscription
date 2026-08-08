@@ -2988,10 +2988,10 @@ async function loadAdminUsers() {
             <tr>
               <td>${u.id}</td><td>${escapeHtml(u.username)}</td>
               <td>${u.is_admin ? "管理员" : "用户"}</td>
-              <td>${escapeHtml(u.telegram_chat_id || "-")}</td>
-              <td>${escapeHtml(u.feishu_open_id || "-")}</td>
-              <td>${u.wecom_webhook ? "已绑定" : "-"}</td>
-              <td>${u.bark_key ? "已绑定" : "-"}</td>
+              <td>${u.telegram_bound ? "已绑定" : "-"}</td>
+              <td>${u.feishu_bound ? "已绑定" : "-"}</td>
+              <td>${u.wecom_bound ? "已绑定" : "-"}</td>
+              <td>${u.bark_bound ? "已绑定" : "-"}</td>
               <td>${u.notify_enabled ? "开启" : "关闭"}</td>
               <td>${escapeHtml(fmtDbTime(u.created_at))}</td>
               <td>

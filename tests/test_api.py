@@ -587,6 +587,44 @@ def test_admin_rename_username():
     assert client.post("/api/auth/login", json={"username": "renamed", "password": "pass123456"}).status_code == 200
 
 
+def test_admin_user_list_hides_credentials():
+    """管理员用户列表不得返回 feed_token / bark_key / wecom_webhook / llm_api_key 原文。
+
+    这些是用户私有凭证，只应在「当前用户自己的」接口（/api/me、登录/注册响应）中返回。
+    """
+    client = make_client()
+    admin_headers = auth_headers(client, "boss01")
+    reg = register(client, "victim")
+    uid = reg.json()["user"]["id"]
+    # 给 victim 写入敏感字段
+    client.app.state.db.update_user(
+        uid,
+        feed_token="topsecretfeedtoken123",
+        bark_key="AaBbCcDdEeFf1234567890",
+        wecom_webhook="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=wc1",
+        llm_api_key="sk-llmsecret123",
+    )
+    rows = client.get("/api/users", headers=admin_headers).json()
+    victim = next(u for u in rows if u["id"] == uid)
+    for secret in ("feed_token", "bark_key", "wecom_webhook", "llm_api_key", "llm_api_base"):
+        assert secret not in victim, f"管理员列表不应返回 {secret}"
+    assert victim["username"] == "victim"
+    assert victim["wecom_bound"] is True and victim["bark_bound"] is True
+
+    # 管理员更新用户的响应同样不能带凭证原文
+    resp = client.put(f"/api/users/{uid}", headers=admin_headers, json={"username": "victim2"})
+    assert resp.status_code == 200
+    for secret in ("feed_token", "bark_key", "wecom_webhook", "llm_api_key"):
+        assert secret not in resp.json(), f"管理员更新响应不应返回 {secret}"
+
+    # 当前用户自己的 /api/me 仍返回设置页面需要的字段
+    me = client.get("/api/me", headers={"Authorization": f"Bearer {reg.json()['token']}"}).json()
+    assert me["bark_key"] == "AaBbCcDdEeFf1234567890"
+    assert me["feed_token"] == "topsecretfeedtoken123"
+    assert me["wecom_webhook"] == "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=wc1"
+    assert me["llm_api_key"] == "sk-llmsecret123"
+
+
 def test_admin_test_push(monkeypatch):
     sent = []
 
