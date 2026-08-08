@@ -1865,7 +1865,14 @@ async function genBindCode() {
 async function renderAdmin(tab) {
   setPageTitle("管理后台");
   $("#main").innerHTML = `
-    <div id="admin-body"></div>`;
+    <div id="admin-body"><div class="admin-skeleton" aria-hidden="true">${Array(3).fill(`
+      <div class="admin-sk-card">
+        <div class="admin-sk-line admin-sk-head"></div>
+        <div class="admin-sk-table-row"><div class="admin-sk-line"></div><div class="admin-sk-line"></div><div class="admin-sk-line"></div></div>
+        <div class="admin-sk-table-row"><div class="admin-sk-line"></div><div class="admin-sk-line"></div></div>
+        <div class="admin-sk-table-row"><div class="admin-sk-line"></div><div class="admin-sk-line"></div><div class="admin-sk-line"></div></div>
+      </div>`).join("")}
+    </div>`;
   const loaders = { dashboard: loadAdminDashboard, stats: loadAdminStats, kols: loadAdminKols, requests: loadAdminRequests, codes: loadAdminCodes, categories: loadAdminCategories, tags: loadAdminTags, posts: loadAdminPosts, logs: loadAdminLogs, audit: loadAdminAudit, users: loadAdminUsers };
   try {
     await loaders[tab]();

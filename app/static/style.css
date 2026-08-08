@@ -632,6 +632,18 @@ textarea.form-control {
   background-size: 200% 100%; animation: tl-sk-shimmer 1.4s infinite;
 }
 @keyframes tl-sk-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+/* 管理后台加载骨架：与动态页 shimmer 同一动画，数据到达后整块被覆盖 */
+.admin-skeleton { display: flex; flex-direction: column; gap: 14px; padding: 2px 0; }
+.admin-sk-card { border: var(--border-default); border-radius: var(--radius-card); padding: 20px; display: flex; flex-direction: column; gap: 14px; }
+.admin-sk-line {
+  height: 14px; border-radius: var(--radius-2xs);
+  background: linear-gradient(90deg, var(--color-bg-muted) 25%, var(--color-surface-accent-soft) 50%, var(--color-bg-muted) 75%);
+  background-size: 200% 100%; animation: tl-sk-shimmer 1.4s infinite;
+}
+.admin-sk-head { height: 18px; width: 32%; }
+.admin-sk-table-row { display: flex; gap: 12px; }
+.admin-sk-table-row .admin-sk-line { flex: 1; }
 .tl-filterbar-top { display: flex; align-items: center; gap: 10px; }
 .tl-pills { display: flex; flex-wrap: wrap; gap: 8px; flex: 1; min-width: 0; }
 .tl-pill {
