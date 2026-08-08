@@ -102,7 +102,7 @@ const NAV = [
     { route: "timeline", icon: "☰", label: "动态" },
     { route: "settings", icon: "⚙", label: "推送设置" },
   ]},
-  { group: "管理", admin: true, subs: [
+  { group: "", admin: true, subs: [
     { label: "内容管理", items: [
       { route: "admin/dashboard", icon: "▦", label: "看板" },
       { route: "admin/kols", icon: V_ICON, label: "大V管理" },
@@ -130,7 +130,7 @@ function renderSidebar(user) {
         </button>`;
   const html = NAV.filter((g) => !g.admin || user.is_admin)
     .map((group) => `
-      <div class="nav-group-label">${group.group}</div>
+      ${group.group ? `<div class="nav-group-label">${group.group}</div>` : ""}
       ${(group.items || []).map(navItemHtml).join("")}
       ${(group.subs || []).map((sub) => `
         <details class="nav-sub" open>
