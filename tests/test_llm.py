@@ -379,8 +379,8 @@ def test_summarize_daily_prompt_includes_rules():
 
     client = httpx.Client(transport=httpx.MockTransport(handler))
     summarize_daily([make_post()], make_config(), client=client)
-    # system 指令要求按重要性排序、标注帖子序号
-    assert "重要性" in captured["system"] and "序号" in captured["system"]
+    # system 指令要求按重要性排序、要点点名大V
+    assert "重要性" in captured["system"] and "大V" in captured["system"]
     # 输入行带序号，模型可引用
     assert "1. [原帖][xueqiu] 张三：" in captured["user"]
 
@@ -403,10 +403,8 @@ def test_summarize_daily_no_config_returns_none():
     assert summarize_daily([make_post()], SimpleNamespace(api_key="")) is None
 
 
-def test_render_daily_summary_links():
-    posts = [make_post(external_id="p1"), make_post(external_id="p2")]
-    posts[0].url = "https://xueqiu.com/1"
-    posts[1].url = "https://xueqiu.com/2"
+def test_render_daily_summary_plain_text_no_links():
+    """综述渲染为纯文本：标题 + 总览 + 编号要点，不带任何原文链接。"""
     summary = DailySummary(
         overview="今日共 2 条动态。",
         points=[
@@ -415,30 +413,20 @@ def test_render_daily_summary_links():
             DailyPoint(text="无来源要点", post_indexes=[]),
         ],
     )
-    text = render_daily_summary(summary, posts)
+    text = render_daily_summary(summary)
     assert "今日大V精选" in text
     assert "今日共 2 条动态。" in text
-    # 单来源直接列 URL
-    assert "1. 要点甲（https://xueqiu.com/1）" in text
-    # 多来源用编号链接串
-    assert "2. 要点乙（[原文1](https://xueqiu.com/1) · [原文2](https://xueqiu.com/2)）" in text
-    # 无来源不带链接
-    assert "3. 无来源要点" in text and "原文" not in text.split("3. ")[1]
+    assert "1. 要点甲" in text
+    assert "2. 要点乙" in text
+    assert "3. 无来源要点" in text
+    # 不出现任何链接/原文标记
+    assert "http" not in text and "原文" not in text
 
 
-def test_render_daily_summary_ignores_bad_indexes():
-    posts = [make_post(external_id="p1")]
-    posts[0].url = "https://xueqiu.com/1"
-    summary = DailySummary(
-        overview="",
-        points=[
-            DailyPoint(text="越界", post_indexes=[99]),
-            DailyPoint(text="正常", post_indexes=[0]),
-        ],
-    )
-    text = render_daily_summary(summary, posts)
-    assert "1. 越界" in text and "原文" not in text.split("1. ")[1]
-    assert "2. 正常（https://xueqiu.com/1）" in text
+def test_render_daily_summary_empty_points():
+    summary = DailySummary(overview="")
+    text = render_daily_summary(summary)
+    assert "今日大V精选" in text
 
 
 def test_summarize_daily_parses_trailing_punctuation_and_multiple_indexes():

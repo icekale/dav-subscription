@@ -314,7 +314,7 @@ DAILY_SUMMARY_SYSTEM_PROMPT = (
     "要求："
     "1. 先写一句总览，点明今天共多少条动态、围绕哪些大V/话题；"
     "2. 按重要性排序，把相关帖子按话题归并成要点：重要的展开讲，普通的一笔带过，不要逐条罗列原文；"
-    "3. 每条要点一行，以「- 」开头，行尾用（[帖子序号]）标注依据的帖子，可多个（如（[1][3]）），序号只能来自输入列表；"
+    "3. 每条要点一行，以「- 」开头，正文里直接点明是谁（大V名）说的、说了什么；"
     "4. 保留关键数字与结论，去掉寒暄与无关细节；不要添加原文没有的信息，不要臆测。"
     "输出除总览和要点外不要任何解释。"
 )
@@ -377,29 +377,13 @@ def _parse_daily_summary(text: str, post_count: int) -> DailySummary | None:
     return DailySummary(overview=overview, points=points)
 
 
-def render_daily_summary(summary: DailySummary, posts) -> str:
-    """把综述渲染成纯文本（URL 直接可见可点击，各渠道通用）。
-
-    只把 LLM 输出的帖子序号替换成真实原文链接；同一要点多帖子时依次列出。
-    """
+def render_daily_summary(summary: DailySummary) -> str:
+    """把综述渲染成纯文本：标题 + 总览 + 编号要点，不带原文链接。"""
     lines = ["📊 今日大V精选（LLM 梳理）"]
     if summary.overview:
         lines += ["", summary.overview]
     for idx, point in enumerate(summary.points, start=1):
-        links = []
-        for pi in point.post_indexes:
-            if 0 <= pi < len(posts):
-                url = getattr(posts[pi], "url", "") or ""
-                if url:
-                    links.append(url)
-        suffix = ""
-        if len(links) == 1:
-            # 单条依据直接列 URL（多数渠道可点击）
-            suffix = f"（{links[0]}）"
-        elif len(links) > 1:
-            # 多条依据用编号链接串，避免一长串 URL 撑爆消息
-            suffix = "（" + " · ".join(f"[原文{i + 1}]({url})" for i, url in enumerate(links)) + "）"
-        lines.append(f"{idx}. {point.text}{suffix}")
+        lines.append(f"{idx}. {point.text}")
     return "\n".join(lines)
 
 

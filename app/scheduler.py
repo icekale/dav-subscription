@@ -1870,7 +1870,7 @@ class Scheduler:
             if summary is not None:
                 from .llm import render_daily_summary
 
-                daily_text = render_daily_summary(summary, posts)
+                daily_text = render_daily_summary(summary)
             if user.get("telegram_chat_id") and _channel_enabled(user, "telegram") and (
                 self.notifiers_config.telegram.bot_token or user.get("telegram_bot_token")
             ):
