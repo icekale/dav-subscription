@@ -419,6 +419,50 @@ textarea.form-control {
   border-bottom: var(--border-soft);
 }
 .kol-item:last-child { border-bottom: none; }
+
+/* 订阅广场网格卡片 */
+.kol-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+.kol-card {
+  display: flex; flex-direction: column; gap: 12px;
+  padding: 16px;
+  background: var(--color-surface);
+  border: var(--border-default);
+  border-radius: var(--radius-card);
+  transition: border-color var(--ease-standard), box-shadow var(--ease-standard);
+}
+.kol-card:hover { border-color: var(--color-accent); box-shadow: var(--shadow-xs); }
+.kol-card-head { display: flex; align-items: center; gap: 12px; }
+.kol-card .kol-avatar { width: 52px; height: 52px; font-size: var(--text-xl); }
+.kol-card-info { flex: 1; min-width: 0; cursor: pointer; }
+.kol-card-info .base { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.kol-card-info .name { font-size: var(--text-body); font-weight: var(--font-weight-semibold); color: var(--color-text-strong); }
+.kol-card-info .tag { font-size: var(--text-xs); color: var(--color-accent); background: var(--color-accent-soft); border-radius: var(--radius-pill); padding: 2px 10px; }
+.kol-card-info .desc { color: var(--color-text-muted); font-size: var(--text-xs); margin-top: 5px; }
+.kol-card-actions { display: flex; gap: 8px; margin-top: auto; }
+.kol-card-actions .btn-sub { flex: 1; }
+.kol-card-subtype { padding-top: 10px; border-top: var(--border-soft); }
+.kol-card-subtype .sub-type-switches { gap: 14px; }
+
+/* 分组头 */
+.group-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  margin: 20px 2px 10px; padding: 8px 14px;
+  background: var(--color-bg-muted);
+  border-radius: var(--radius-control);
+}
+.group-head .g-count { color: var(--color-text-muted); font-size: var(--text-xs); }
+
+/* 分类 chips */
+.home-cats { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.cat-chip {
+  height: 30px; padding: 0 14px;
+  border: var(--border-strong); border-radius: var(--radius-pill);
+  background: var(--color-surface); color: var(--color-text);
+  font-size: var(--text-xs); cursor: pointer;
+  transition: all var(--ease-standard);
+}
+.cat-chip:hover { border-color: var(--color-accent); color: var(--color-accent); }
+.cat-chip.selected { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-white); font-weight: var(--font-weight-semibold); }
 .kol-avatar {
   width: 44px; height: 44px;
   border-radius: 50%;
@@ -826,6 +870,9 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
   .kol-item { flex-wrap: wrap; }
   .kol-item .btn-sub { width: 100%; min-height: 44px; }
   .kol-item .btn-sm.danger { min-height: 44px; }
+  .kol-card { gap: 10px; }
+  .kol-card .btn-sub, .kol-card .fav-btn, .kol-card .btn-sm.danger { min-height: 44px; }
+  .cat-chip { height: 34px; }
   .search-bar { min-height: 44px; }
   .toolbar { flex-wrap: wrap; }
   .fav-toggle { min-height: 44px; }

@@ -29,6 +29,8 @@ const state = {
   mysubsFavorite: false,
   adminKolsPlatform: "",
   adminKols: [],
+  homeQ: "",
+  homeCategory: "",
   timelineFavorite: false,
   timelinePlatform: "",
   timelineCategory: "",
@@ -289,10 +291,11 @@ async function renderHome() {
         <div class="toolbar" style="margin-top:12px">
           <div class="search-bar" style="flex:1;min-width:220px">
             <span>🔍</span>
-            <input id="home-search" placeholder="搜索昵称或 ID，回车确认" onkeydown="if(event.key==='Enter')location.hash='#/search?q='+encodeURIComponent(this.value)">
+            <input id="home-search" placeholder="搜索昵称或 ID，即时过滤" oninput="homeSearch(this.value)">
           </div>
           <div class="platform-tabs" id="platform-tabs"></div>
         </div>
+        <div class="home-cats" id="home-cats"></div>
       </header>
       ${state.user?.is_admin ? "" : `
         <div class="request-banner">
@@ -303,7 +306,7 @@ async function renderHome() {
           </div>
           <button class="btn-normal" onclick="location.hash='#/search'">申请添加</button>
         </div>`}
-      <div id="kol-list"></div>
+      <div id="kol-list" class="kol-grid"></div>
     </section>`;
   state.platform = "";
   renderPlatformTabs();
@@ -312,6 +315,42 @@ async function renderHome() {
 
 function renderPlatformTabs() {
   $("#platform-tabs").innerHTML = PLATFORM_TABS.map((p) => platformTabHTML(p, state.platform, "switchPlatform")).join("");
+}
+
+function categoryChipsHtml() {
+  const cats = [...new Set(state.catalog.map((k) => k.category_name || ""))].filter(Boolean).sort();
+  const chip = (c, label) => `<button class="cat-chip ${state.homeCategory === c ? "selected" : ""}" data-cat="${escapeHtml(c)}" onclick="pickHomeCategory(this.dataset.cat)">${escapeHtml(label)}</button>`;
+  return chip("", "全部分类") + cats.map((c) => chip(c, c)).join("");
+}
+
+function pickHomeCategory(cat) {
+  state.homeCategory = cat;
+  renderHomeList();
+}
+
+function homeSearch(v) {
+  state.homeQ = v.trim();
+  renderHomeList();
+}
+
+function homeFilteredKols() {
+  const q = state.homeQ.toLowerCase();
+  return state.catalog.filter((k) => {
+    if (state.homeCategory && k.category_name !== state.homeCategory) return false;
+    if (!q) return true;
+    return (k.name || "").toLowerCase().includes(q) || (k.external_id || "").toLowerCase().includes(q);
+  });
+}
+
+function renderHomeList() {
+  const cats = $("#home-cats");
+  if (cats) cats.innerHTML = categoryChipsHtml();
+  const meta = $("#catalog-meta");
+  if (meta) meta.textContent = `共 ${state.catalog.length} 位大V · 已订阅 ${state.catalog.filter((k) => k.subscribed).length} 位`;
+  const list = homeFilteredKols();
+  $("#kol-list").innerHTML = list.length
+    ? groupedKolCards(list)
+    : emptyState(state.catalog.length ? "没有匹配的大V" : "暂无大V，管理员可在管理后台添加");
 }
 
 function platformTabHTML(p, current, handler) {
@@ -328,10 +367,7 @@ async function loadHomeKols() {
     const params = state.platform ? `?platform=${state.platform}` : "";
     state.catalog = await api(`/api/catalog${params}`);
     if (seq !== _homeKolsSeq) return; // 已切换到其他平台，丢弃过期响应
-    $("#catalog-meta").textContent = `共 ${state.catalog.length} 个大V`;
-    $("#kol-list").innerHTML = state.catalog.length
-      ? groupedKolCards(state.catalog)
-      : emptyState("暂无大V，管理员可在管理后台添加");
+    renderHomeList();
   } catch (err) {
     if (seq !== _homeKolsSeq) return;
     $("#kol-list").innerHTML = emptyState("加载失败: " + err.message);
@@ -346,9 +382,9 @@ function groupedKolCards(kols) {
   }
   return Object.entries(groups)
     .map(([name, items]) => `
-      ${name ? `<div class="group-head" style="display:flex;justify-content:space-between;align-items:baseline;margin:18px 2px 8px">
+      ${name ? `<div class="group-head">
         <span style="font-weight:600;color:var(--color-text-strong)">${escapeHtml(name)}</span>
-        <span class="muted">${items.length} 位</span>
+        <span class="g-count">${items.length} 位</span>
       </div>` : ""}
       ${items.map(kolCard).join("")}`)
     .join("");
@@ -362,22 +398,26 @@ async function switchPlatform(platform) {
 
 function kolCard(kol) {
   return `
-    <div class="kol-item">
-      ${avatarHtml(kol.name, kol.avatar_url)}
-      <div class="kol-info" onclick="location.hash='#/kol/${kol.id}'">
-        <div class="base">
-          <span class="name">${escapeHtml(kol.name)}</span>
-          <span class="tag">${PLATFORM_LABELS[kol.platform] || escapeHtml(kol.platform)}</span>
-          ${kol.category_name ? `<span class="tag">${escapeHtml(kol.category_name)}</span>` : ""}
+    <div class="kol-card">
+      <div class="kol-card-head">
+        ${avatarHtml(kol.name, kol.avatar_url)}
+        <div class="kol-card-info">
+          <div class="base">
+            <span class="name">${escapeHtml(kol.name)}</span>
+            <span class="tag">${PLATFORM_LABELS[kol.platform] || escapeHtml(kol.platform)}</span>
+            ${kol.category_name ? `<span class="tag">${escapeHtml(kol.category_name)}</span>` : ""}
+          </div>
+          <div class="desc">外部 ID：${escapeHtml(kol.external_id)}${kol.enabled ? "" : " · 已停用"}</div>
         </div>
-        <div class="desc">外部 ID：${escapeHtml(kol.external_id)}${kol.enabled ? "" : " · 已停用"}</div>
       </div>
-      <button class="btn-sub ${kol.subscribed ? "subscribed" : ""}" onclick="toggleSubscribe(${kol.id}, this)">
-        ${kol.subscribed ? "✓ 已订阅" : "订阅"}
-      </button>
-      ${kol.subscribed ? `<button class="fav-btn ${kol.favorite ? "fav-on" : ""}" onclick="toggleFavorite(${kol.id}, this)" title="特别关注：优先推送 ⭐">${STAR_SVG}</button>` : ""}
-      ${kol.subscribed && kol.platform === "xueqiu" ? subTypeSwitchesHtml(kol.id, kol.subscribe_type || "post") : ""}
-      ${state.user?.is_admin ? `<button class="btn-sm danger" onclick="adminDeleteKolFromHome(${kol.id})" title="删除该大V">删除</button>` : ""}
+      <div class="kol-card-actions">
+        <button class="btn-sub ${kol.subscribed ? "subscribed" : ""}" onclick="toggleSubscribe(${kol.id}, this)">
+          ${kol.subscribed ? "✓ 已订阅" : "订阅"}
+        </button>
+        ${kol.subscribed ? `<button class="fav-btn ${kol.favorite ? "fav-on" : ""}" onclick="toggleFavorite(${kol.id}, this)" title="特别关注：优先推送 ⭐">${STAR_SVG}</button>` : ""}
+        ${state.user?.is_admin ? `<button class="btn-sm danger" onclick="adminDeleteKolFromHome(${kol.id})" title="删除该大V">删除</button>` : ""}
+      </div>
+      ${kol.subscribed && kol.platform === "xueqiu" ? `<div class="kol-card-subtype">${subTypeSwitchesHtml(kol.id, kol.subscribe_type || "post")}</div>` : ""}
     </div>`;
 }
 
@@ -394,8 +434,9 @@ async function adminDeleteKolFromHome(kolId) {
 }
 
 async function toggleSubscribe(kolId, btn) {
+  const kol = state.catalog.find((k) => k.id === kolId);
+  if (kol?.subscribed && !confirm(`取消订阅「${kol.name}」？将不再推送其新动态。`)) return;
   try {
-    const kol = state.catalog.find((k) => k.id === kolId);
     const wasSubscribed = kol ? kol.subscribed : btn.classList.contains("subscribed");
     if (wasSubscribed) {
       await api(`/api/subscriptions/${kolId}`, { method: "DELETE" });
@@ -403,7 +444,8 @@ async function toggleSubscribe(kolId, btn) {
       await api("/api/subscriptions", { method: "POST", body: JSON.stringify({ kol_id: kolId, type: "post" }) });
     }
     flash(`已${wasSubscribed ? "退订" : "订阅"}「${kol ? kol.name : "该大V"}」`);
-    refreshKolsView();
+    if (kol) kol.subscribed = !wasSubscribed;
+    renderHomeList();
   } catch (err) {
     alert("操作失败: " + err.message);
   }
@@ -420,7 +462,8 @@ async function toggleFavorite(kolId, btn) {
     if (kol) kol.favorite = next;
     if (btn) btn.classList.toggle("fav-on", next);
     flash(next ? "已加星标" : "已取消星标");
-    if (location.hash.startsWith("#/mysubs")) renderMySubsList();
+    if (location.hash.startsWith("#/home")) renderHomeList();
+    else if (location.hash.startsWith("#/mysubs")) renderMySubsList();
   } catch (err) {
     alert("操作失败: " + err.message);
   }
