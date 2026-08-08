@@ -883,6 +883,97 @@ def test_dnd_summary_failure_alerts_admin(monkeypatch):
     assert any("推送失败" in t for t in notifier.texts)
 
 
+def test_dnd_summary_failure_enters_retry_queue(monkeypatch):
+    """免打扰汇总发送失败时，帖子必须写失败日志并入重试队列而不是静默丢失。"""
+    clock = {"t": 1000.0}
+    monkeypatch.setattr("app.scheduler.time.monotonic", lambda: clock["t"])
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    db.insert_post("xueqiu", kid, "p1", "t", "c", "u", "")
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.add_subscription(uid, kid)
+    notifier = FakeNotifier()
+    scheduler = Scheduler(
+        db,
+        {},
+        [notifier],
+        SimpleNamespace(),
+        notifiers_config=SimpleNamespace(
+            telegram=SimpleNamespace(bot_token="t", chat_id=""),
+            feishu=SimpleNamespace(),
+            wecom=SimpleNamespace(),
+        ),
+        xueqiu_config=SimpleNamespace(cookie=""),
+        weibo_config=SimpleNamespace(cookie="", username="", password=""),
+    )
+    post = make_post(kid)
+    scheduler._dnd_buffer[uid] = [post]
+    # 免打扰已结束（_in_dnd_window 返回 False 才触发发送）
+    monkeypatch.setattr("app.scheduler._in_dnd_window", lambda user, now=None: False)
+
+    class FailingTG:
+        def __init__(self, *args, **kwargs):
+            self.client = SimpleNamespace(close=lambda: None)
+
+        def send_dnd_summary(self, posts):
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FailingTG)
+    scheduler._flush_dnd_buffers()
+    # 唯一渠道失败：帖子进重试队列 + 失败日志，不静默丢失
+    assert scheduler.retry_queue.pending() == 1
+    assert len(db.list_push_logs(channel="telegram", status="failed")) == 1
+    assert db.list_push_logs(channel="telegram", status="success") == []
+
+    # 发送恢复后，重试能完成推送
+    retried = FakeNotifier()
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", lambda *a, **k: retried)
+    clock["t"] = 2000  # 越过 60 秒退避
+    for item in scheduler.retry_queue.due():
+        scheduler._retry_push(item)
+    assert len(retried.calls) == 1 and retried.calls[0].external_id == "p1"
+    assert scheduler.retry_queue.pending() == 0
+    # 帖子已入库：重试成功后失败日志翻转为 success
+    assert len(db.list_push_logs(channel="telegram", status="success")) == 1
+
+
+def test_dnd_summary_success_does_not_duplicate(monkeypatch):
+    """免打扰汇总成功时不入重试队列，避免已成功渠道重复发送。"""
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    db.insert_post("xueqiu", kid, "p1", "t", "c", "u", "")
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.add_subscription(uid, kid)
+    scheduler = Scheduler(
+        db,
+        {},
+        [],
+        SimpleNamespace(),
+        notifiers_config=SimpleNamespace(
+            telegram=SimpleNamespace(bot_token="t", chat_id=""),
+            feishu=SimpleNamespace(),
+            wecom=SimpleNamespace(),
+        ),
+        xueqiu_config=SimpleNamespace(cookie=""),
+        weibo_config=SimpleNamespace(cookie="", username="", password=""),
+    )
+    post = make_post(kid)
+    scheduler._dnd_buffer[uid] = [post]
+    monkeypatch.setattr("app.scheduler._in_dnd_window", lambda user, now=None: False)
+
+    class OkTG:
+        def __init__(self, *args, **kwargs):
+            self.client = SimpleNamespace(close=lambda: None)
+
+        def send_dnd_summary(self, posts):
+            pass
+
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", OkTG)
+    scheduler._flush_dnd_buffers()
+    assert scheduler.retry_queue.pending() == 0
+    assert len(db.list_push_logs(channel="telegram", status="success")) == 1
+
+
 class MixedFetcher:
     """按 KOL 区分成功/失败的假抓取器。"""
 

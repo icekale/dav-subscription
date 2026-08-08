@@ -1720,6 +1720,15 @@ class Scheduler:
                         self.notifiers or [],
                         f"user={user['username']} channel={channel} dnd err={exc}",
                     )
+                    # 失败渠道的帖子逐条写失败日志并入重试队列，避免免打扰缓冲静默丢失；
+                    # 重试按单帖发送（_retry_push），不依赖内存中的摘要文本
+                    for post in posts:
+                        post_id = self.db.get_post_id(post.platform, post.external_id)
+                        if post_id:
+                            self.db.add_push_log(
+                                post_id, channel, "failed", f"dnd summary: {exc}", user_id=user["id"]
+                            )
+                        self.retry_queue.add(post, channel, user["id"])
         finally:
             client.close()
 
