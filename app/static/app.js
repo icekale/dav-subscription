@@ -3184,4 +3184,9 @@ document.querySelectorAll(".switch-btn").forEach((btn) =>
 $("#btn-back").addEventListener("click", () => history.back());
 window.addEventListener("hashchange", router);
 
+// PWA：注册 Service Worker（HTTP 或私有模式下失败静默，不影响功能）
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("/sw.js").catch(() => {});
+}
+
 router();

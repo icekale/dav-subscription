@@ -1,0 +1,16 @@
+{
+  "name": "大V订阅",
+  "short_name": "大V订阅",
+  "description": "聚合订阅雪球 / 微博 / X 大V公开动态，新帖实时推送。",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f4f6fb",
+  "theme_color": "#0d5cff",
+  "lang": "zh-CN",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
