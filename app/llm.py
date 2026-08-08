@@ -423,8 +423,10 @@ def summarize_daily(posts, llm_config=None, client=None) -> DailySummary | None:
                             },
                         ],
                         "temperature": 0.3,
-                        # 推理模型思考预算可能很大，上限放宽到 16000（deepseek-chat 等普通模型用不满）
-                        "max_tokens": min(16000, max(2000, 200 + 120 * len(posts))),
+                        # 推理模型（deepseek-reasoner）思考预算可达 1 万+ tokens 且与帖数无关，
+                        # 用帖数公式（15 帖仅 2000）会被思考吃光致 content 为空；直接给足上限，
+                        # 普通模型不会用满。daily 场景帖数 ≤15，单条输入量可控。
+                        "max_tokens": 16000,
                     },
                 )
                 if resp.status_code == 429 or resp.status_code >= 500:

@@ -469,4 +469,5 @@ def test_summarize_daily_max_tokens():
 
     client = httpx.Client(transport=httpx.MockTransport(handler))
     summarize_daily([make_post(external_id=f"p{i}") for i in range(30)], make_config(), client=client)
-    assert captured["max_tokens"] == 3800  # 200 + 120*30
+    # 固定给足上限，兼容推理模型思考预算（普通模型不会用满）
+    assert captured["max_tokens"] == 16000
