@@ -1,3 +1,4 @@
+import datetime
 import json
 import tempfile
 import threading
@@ -2792,3 +2793,142 @@ def test_digest_bark_failure_enters_retry_queue(monkeypatch):
     logs = db.list_push_logs(channel="bark")
     assert len(logs) == 1 and logs[0]["status"] == "failed"
     assert any("用户推送失败" in a and "channel=bark" in a for a in alerts)
+
+
+def test_readable_subscribed_kol_ids_filters_private_without_acl():
+    """可读订阅集合：普通用户只拿公开 + ACL 私有大V；管理员不过滤。"""
+    db = make_db()
+    public_id = db.add_kol("xueqiu", "公开", "1")
+    private_id = db.add_kol("xueqiu", "私有", "2")
+    db.update_kol(private_id, is_private=True)
+    uid = db.add_user("u", "h")
+    db.add_subscription(uid, public_id)
+    db.add_subscription(uid, private_id)
+
+    assert db.readable_subscribed_kol_ids(uid) == {public_id}
+    db.set_kol_acl(private_id, [uid])
+    assert db.readable_subscribed_kol_ids(uid) == {public_id, private_id}
+    # 管理员保留已订阅私有大V
+    admin_id = db.add_user("admin", "h", is_admin=True)
+    db.add_subscription(admin_id, private_id)
+    assert db.readable_subscribed_kol_ids(admin_id, is_admin=True) == {private_id}
+
+
+def test_daily_report_skips_private_kol_content_without_acl(monkeypatch):
+    """每日精选不向无权用户生成已私有大V的内容。"""
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    db.insert_post("xueqiu", kid, "p1", "t", "私有内容", "u", "")
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.update_user(uid, daily_report=True)
+    db.add_subscription(uid, kid)
+
+    fake = FakeDailyNotifier()
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", lambda *a, **k: fake)
+    # 转私有后每日精选不再生成该大V内容
+    db.update_kol(kid, is_private=True)
+    scheduler = Scheduler(
+        db, {}, [],
+        SimpleNamespace(daily_report_hour=20),
+        notifiers_config=SimpleNamespace(
+            telegram=SimpleNamespace(bot_token="t", chat_id="111"),
+            feishu=SimpleNamespace(app_id="", app_secret=""),
+        ),
+        xueqiu_config=SimpleNamespace(cookie=""),
+        weibo_config=SimpleNamespace(cookie="", username="", password=""),
+    )
+    scheduler._send_daily_report()
+    assert fake.daily == []
+
+
+class _CountingTG:
+    """统计 send_text/send_daily 调用次数的 TG fake，无 client 连接。"""
+    channel = "telegram"
+
+    def __init__(self, *a, **k):
+        self.calls = {"text": 0, "daily": 0}
+
+    def send_text(self, text):
+        self.calls["text"] += 1
+
+    def send_daily(self, posts):
+        self.calls["daily"] += 1
+
+
+class _FailingWeCom:
+    channel = "wecom"
+
+    def __init__(self, *a, **k):
+        self.client = SimpleNamespace(close=lambda: None)
+
+    def send_text(self, text):
+        raise RuntimeError("wecom down")
+
+    def send_daily(self, posts):
+        raise RuntimeError("wecom down")
+
+
+def _make_daily_scheduler(db):
+    return Scheduler(
+        db, {}, [],
+        SimpleNamespace(daily_report_hour=20, push_logs_retention_days=90),
+        notifiers_config=SimpleNamespace(
+            telegram=SimpleNamespace(bot_token="t", chat_id=""),
+            feishu=SimpleNamespace(app_id="", app_secret=""),
+            wecom=SimpleNamespace(webhook_url=""),
+        ),
+        xueqiu_config=SimpleNamespace(cookie=""),
+        weibo_config=SimpleNamespace(cookie="", username="", password=""),
+    )
+
+
+def test_daily_report_retries_only_failed_channel(monkeypatch):
+    """Telegram 成功、企业微信失败：第二次调用只重试企业微信，Telegram 不重复发送。"""
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    db.insert_post("xueqiu", kid, "p1", "t", "内容", "u", "")
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.update_user(uid, daily_report=True, wecom_webhook="https://qyapi.weixin.qq.com/hook")
+    db.add_subscription(uid, kid)
+
+    tg = _CountingTG()
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", lambda *a, **k: tg)
+    monkeypatch.setattr("app.notifiers.wecom.WeComNotifier", _FailingWeCom)
+    scheduler = _make_daily_scheduler(db)
+
+    assert scheduler._send_daily_report() is False  # wecom 失败 → 整体 False
+    assert tg.calls["daily"] == 1
+    assert db.daily_report_delivered(uid, datetime.datetime.now().date().isoformat(), "telegram")
+
+    # 第二次：只重试 wecom，telegram 已成功不重复发
+    assert scheduler._send_daily_report() is False
+    assert tg.calls["daily"] == 1
+    assert tg.calls["text"] == 0
+
+
+def test_daily_report_channel_idempotent_across_restart(monkeypatch):
+    """成功渠道的状态持久化：重建 DB/scheduler（模拟进程重启）后仍不重复发送。"""
+    import tempfile
+    from pathlib import Path
+
+    tmp = tempfile.mkdtemp()
+    db = DB(Path(tmp) / "restart.db")
+    kid = db.add_kol("xueqiu", "A", "1")
+    db.insert_post("xueqiu", kid, "p1", "t", "内容", "u", "")
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.update_user(uid, daily_report=True)
+    db.add_subscription(uid, kid)
+
+    tg = _CountingTG()
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", lambda *a, **k: tg)
+    scheduler = _make_daily_scheduler(db)
+    assert scheduler._send_daily_report() is True
+    assert tg.calls["daily"] == 1
+
+    # 模拟重启：重新打开同一 DB、新建 scheduler，成功渠道不再重复发送
+    db.close()
+    db2 = DB(Path(tmp) / "restart.db")
+    scheduler2 = _make_daily_scheduler(db2)
+    assert scheduler2._send_daily_report() is True
+    assert tg.calls["daily"] == 1
+    db2.close()

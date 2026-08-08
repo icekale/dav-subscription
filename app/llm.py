@@ -371,6 +371,8 @@ def _parse_daily_summary(text: str, post_count: int) -> DailySummary | None:
             points.append(DailyPoint(text=tail or body, post_indexes=indexes))
         elif stripped:
             overview_lines.append(stripped)
+    # 解析层强制上限：模型可能输出超过 3 条，只保留前三条（顺序与引用序号不变）
+    points = points[:3]
     if not points:
         logger.warning("LLM 每日综述无要点，降级为原始列表")
         return None

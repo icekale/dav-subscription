@@ -39,6 +39,15 @@ def _normalize_weibo_id(external_id: str) -> str:
     return match.group(1) if match else external_id
 
 
+def _account_key(username: str) -> str:
+    """账号锁定/失败计数的统一键：去空白 + casefold。
+
+    登录大小写不敏感（COLLATE NOCASE），锁定键必须同样规范化，
+    否则 Alice/alice 会用不同字典键分散失败计数、绕过账号锁定。
+    """
+    return (username or "").strip().casefold()
+
+
 def _resolve_telegram_bot(token: str) -> tuple[str, str, str]:
     """验证用户自建 bot token：返回 (bot_username, chat_id, error)。
 
@@ -337,25 +346,27 @@ def create_api_router(
 
     def _account_lock_seconds_left(username: str) -> int:
         """账号剩余锁定秒数；未锁定返回 0（过期记录自动清理）。"""
-        until = account_locked_until.get(username)
+        key = _account_key(username)
+        until = account_locked_until.get(key)
         if not until:
             return 0
         left = int(until - time.time())
         if left <= 0:
-            account_locked_until.pop(username, None)
+            account_locked_until.pop(key, None)
             return 0
         return left
 
     def _record_account_failure(username: str, is_admin: bool, ip: str) -> None:
         """账号级失败计数（1 小时滚动窗口）；超阈值锁定账号并写操作日志。"""
+        key = _account_key(username)
         now = time.time()
-        recent = [t for t in account_failures.get(username, []) if now - t < ACCOUNT_FAILURE_WINDOW]
+        recent = [t for t in account_failures.get(key, []) if now - t < ACCOUNT_FAILURE_WINDOW]
         recent.append(now)
-        account_failures[username] = recent
+        account_failures[key] = recent
         threshold = ADMIN_LOGIN_LOCK_THRESHOLD if is_admin else LOGIN_ACCOUNT_LOCK_THRESHOLD
         if len(recent) >= threshold:
             window = ADMIN_LOGIN_LOCK_WINDOW if is_admin else LOGIN_ACCOUNT_LOCK_WINDOW
-            account_locked_until[username] = now + window
+            account_locked_until[key] = now + window
             db.log_admin_action(
                 None,
                 "login_locked",
@@ -539,8 +550,8 @@ def create_api_router(
             _record_account_failure(username, bool(user["is_admin"]), ip)
             raise HTTPException(status_code=401, detail="用户名或密码错误")
         login_attempts.pop(ip, None)  # 登录成功清零，避免历史失败锁住正常用户
-        account_failures.pop(username, None)
-        account_locked_until.pop(username, None)
+        account_failures.pop(_account_key(username), None)
+        account_locked_until.pop(_account_key(username), None)
         return {"token": auth.create_token(user["id"], user["username"], secret), "user": public_user(user)}
 
     @router.post("/auth/wechat")
@@ -574,7 +585,7 @@ def create_api_router(
         user = db.get_user_by_feed_token(token)
         if user is None:
             raise HTTPException(status_code=404, detail="feed 地址无效或已失效")
-        kol_ids = db.subscribed_kol_ids(user["id"])
+        kol_ids = db.readable_subscribed_kol_ids(user["id"], bool(user.get("is_admin")))
         posts = db.list_feed_posts(kol_ids, limit=50, user_id=user["id"])
         base = str(request.base_url).rstrip("/")
         xml = build_rss_xml(posts, user["username"], base)
@@ -838,7 +849,7 @@ def create_api_router(
         tag: str | None = None,
         user: dict = Depends(get_current_user),
     ):
-        kol_ids = sorted(db.subscribed_kol_ids(user["id"]))
+        kol_ids = sorted(db.readable_subscribed_kol_ids(user["id"], user["is_admin"]))
         return db.list_feed_posts(
             kol_ids,
             limit=bounded_limit(limit),
@@ -1412,8 +1423,7 @@ def create_api_router(
         from .llm import tag_posts
 
         limit = bounded_limit(body.limit, default=200)
-        recent = db.list_posts(limit=limit)
-        pending = [p for p in recent if not p.get("tags")]
+        pending = db.list_posts(limit=limit, untagged_only=True)
         if not pending:
             return {"processed": 0, "tagged": 0}
         posts = [

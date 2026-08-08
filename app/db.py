@@ -137,6 +137,15 @@ CREATE TABLE IF NOT EXISTS push_logs (
     error TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE TABLE IF NOT EXISTS daily_report_deliveries (
+    user_id INTEGER NOT NULL,
+    report_date TEXT NOT NULL,
+    channel TEXT NOT NULL,
+    status TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, report_date, channel)
+);
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -922,6 +931,17 @@ class DB:
         rows = self._rows("SELECT kol_id FROM subscriptions WHERE user_id = ?", (user_id,))
         return {row["kol_id"] for row in rows}
 
+    def readable_subscribed_kol_ids(self, user_id: int, is_admin: bool = False) -> set[int]:
+        """用户可读的已订阅大V集合：订阅集合 ∩ 可见集合（公开 + ACL 私有大V）。
+
+        内容读取（动态/RSS/每日精选）统一走该集合，权限判断必须在后端完成；
+        管理员保留对已订阅私有大V的管理访问语义，不做可见性过滤。
+        """
+        subscribed = self.subscribed_kol_ids(user_id)
+        if is_admin:
+            return subscribed
+        return subscribed & self.visible_kol_ids(user_id)
+
     def subscribed_kol_types(self, user_id: int) -> dict[int, str]:
         rows = self._rows(
             "SELECT kol_id, type FROM subscriptions WHERE user_id = ?", (user_id,)
@@ -1148,6 +1168,7 @@ class DB:
         kol_id: int | None = None,
         q: str | None = None,
         offset: int = 0,
+        untagged_only: bool = False,
     ) -> list[dict]:
         sql = (
             "SELECT p.*, k.name AS kol_name, k.category_id AS category_id, "
@@ -1167,6 +1188,10 @@ class DB:
             conds.append("(p.title LIKE ? ESCAPE '\\' OR p.content LIKE ? ESCAPE '\\')")
             like = f"%{escaped}%"
             params.extend([like, like])
+        if untagged_only:
+            # 直接过滤未打标帖（tags 为空串），避免先取全量再在 Python 里过滤导致
+            # 「最新 N 条都已打标」时回填数量恒为 0
+            conds.append("(p.tags IS NULL OR p.tags = '')")
         if conds:
             sql += " WHERE " + " AND ".join(conds)
         sql += " ORDER BY p.id DESC LIMIT ? OFFSET ?"
@@ -1245,10 +1270,12 @@ class DB:
             like = f"%{escaped}%"
             params.extend([like, like])
         if tag:
-            # tags 列存 JSON 数组文本，匹配带引号的完整元素，避免「宏观」误中「大盘」等子串
-            escaped = tag.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            # tags 列存 JSON 数组文本，按 JSON 编码后的元素边界匹配（%"标签"%），
+            # 避免「宏观」误中「宏观经济」；标签含引号/反斜杠时 json.dumps 保证转义一致
+            escaped_tag = json.dumps(tag, ensure_ascii=False)[1:-1]
+            escaped = escaped_tag.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             conds.append("p.tags LIKE ? ESCAPE '\\'")
-            params.append(f'%"{"".join(escaped)}"%')
+            params.append(f'%"{escaped}"%')
         if favorite:
             conds.append("s.favorite = 1")
         return _normalize_post_tags(_normalize_post_images(self._rows(
@@ -1390,6 +1417,48 @@ class DB:
         row = rows[0] if rows else {"n": 0, "tagged": 0}
         n, tagged = _to_int(row["n"]), _to_int(row["tagged"])
         return {"total": n, "tagged": tagged, "pending": n - tagged}
+
+    # ---- 每日精选投递状态（按渠道幂等） ----
+    def daily_report_delivered(self, user_id: int, report_date: str, channel: str) -> bool:
+        """该用户当日该渠道是否已成功投递。"""
+        rows = self._rows(
+            "SELECT 1 FROM daily_report_deliveries "
+            "WHERE user_id = ? AND report_date = ? AND channel = ? AND status = 'success'",
+            (user_id, report_date, channel),
+        )
+        return bool(rows)
+
+    def mark_daily_report_delivered(self, user_id: int, report_date: str, channel: str) -> None:
+        """标记渠道当日投递成功；重复标记覆盖为成功（幂等）。"""
+        self._execute(
+            "INSERT INTO daily_report_deliveries (user_id, report_date, channel, status) "
+            "VALUES (?, ?, ?, 'success') "
+            "ON CONFLICT(user_id, report_date, channel) "
+            "DO UPDATE SET status = 'success', updated_at = datetime('now')",
+            (user_id, report_date, channel),
+        )
+
+    def mark_daily_report_failed(self, user_id: int, report_date: str, channel: str) -> None:
+        """标记渠道当日投递失败（用于重试时区分，成功标记覆盖失败标记）。"""
+        self._execute(
+            "INSERT INTO daily_report_deliveries (user_id, report_date, channel, status) "
+            "VALUES (?, ?, ?, 'failed') "
+            "ON CONFLICT(user_id, report_date, channel) "
+            "DO UPDATE SET status = 'failed', updated_at = datetime('now')",
+            (user_id, report_date, channel),
+        )
+
+    def delete_daily_report_deliveries_older_than(self, days: int) -> int:
+        """清理超过 N 天的每日精选投递状态，避免表无限增长。"""
+        if days <= 0:
+            return 0
+        with self._lock:
+            cur = self._conn.execute(
+                "DELETE FROM daily_report_deliveries WHERE report_date < date('now', ?)",
+                (f"-{days} days",),
+            )
+            self._conn.commit()
+            return cur.rowcount
 
     # ---- 数据源稳定性事件 ----
     def add_source_event(

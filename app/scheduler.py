@@ -1827,6 +1827,13 @@ class Scheduler:
         """
         if self.notifiers_config is None:
             return True
+        # 清理过期的每日精选投递状态（每天一次，防止表无限增长）
+        try:
+            self.db.delete_daily_report_deliveries_older_than(
+                max(1, getattr(self.polling_config, "push_logs_retention_days", 90))
+            )
+        except Exception:  # noqa: BLE001 - 清理失败不影响推送
+            logger.warning("每日精选投递状态清理失败", exc_info=True)
         from .fetchers.base import Post
         from .notifiers.bark import BarkNotifier
         from .notifiers.feishu import FeishuNotifier
@@ -1834,9 +1841,54 @@ class Scheduler:
         from .notifiers.wecom import WeComNotifier
 
         failed = False
+        report_date = datetime.now().strftime("%Y-%m-%d")
         since = int(datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
+
+        def _deliver(channel: str, condition: bool, build_notifier, user) -> None:
+            """按渠道幂等投递每日精选：当日该渠道已成功则跳过（部分失败重试不重复发）。
+
+            成功立即标记投递状态（持久化，进程重启也不重复）；异常只标记该渠道失败。
+            """
+            nonlocal failed
+            if not condition:
+                return
+            if self.db.daily_report_delivered(user["id"], report_date, channel):
+                logger.info(
+                    "每日精选 channel=%s 当日已投递成功，跳过 user=%s",
+                    channel, user["username"],
+                )
+                return
+            notifier = build_notifier()
+            try:
+                if daily_text:
+                    notifier.send_text(daily_text)
+                else:
+                    notifier.send_daily(posts)
+                for post in posts:
+                    post_id = self.db.get_post_id(post.platform, post.external_id)
+                    if post_id:
+                        self.db.add_push_log(post_id, channel, "success", user_id=user["id"])
+                self.db.mark_daily_report_delivered(user["id"], report_date, channel)
+            except Exception as exc:  # noqa: BLE001
+                failed = True
+                self.db.mark_daily_report_failed(user["id"], report_date, channel)
+                logger.warning(
+                    "每日精选推送失败 user=%s channel=%s err=%s", user["username"], channel, exc
+                )
+                maybe_alert_push_failure(
+                    self.db,
+                    self.notifiers or [],
+                    f"user={user['username']} channel={channel} daily err={exc}",
+                )
+            finally:
+                client = getattr(notifier, "client", None)
+                if client is not None:
+                    client.close()
+
         for user in self.db.daily_report_users():
-            kol_ids = sorted(self.db.subscribed_kol_ids(user["id"]))
+            kol_ids = sorted(
+                self.db.readable_subscribed_kol_ids(user["id"], bool(user.get("is_admin")))
+            )
             rows = self.db.list_daily_posts(kol_ids, since, 15, user_id=user["id"])
             if not rows:
                 continue
@@ -1871,103 +1923,49 @@ class Scheduler:
                 from .llm import render_daily_summary
 
                 daily_text = render_daily_summary(summary)
-            if user.get("telegram_chat_id") and _channel_enabled(user, "telegram") and (
-                self.notifiers_config.telegram.bot_token or user.get("telegram_bot_token")
-            ):
-                notifier = TelegramNotifier(
+
+            _deliver(
+                "telegram",
+                bool(
+                    user.get("telegram_chat_id")
+                    and _channel_enabled(user, "telegram")
+                    and (
+                        self.notifiers_config.telegram.bot_token or user.get("telegram_bot_token")
+                    )
+                ),
+                lambda u=user: TelegramNotifier(
                     self.notifiers_config.telegram,
-                    chat_id=user["telegram_chat_id"],
-                    bot_token=user.get("telegram_bot_token") or None,
-                )
-                try:
-                    if daily_text:
-                        notifier.send_text(daily_text)
-                    else:
-                        notifier.send_daily(posts)
-                    for post in posts:
-                        post_id = self.db.get_post_id(post.platform, post.external_id)
-                        if post_id:
-                            self.db.add_push_log(post_id, "telegram", "success", user_id=user["id"])
-                except Exception as exc:  # noqa: BLE001
-                    failed = True
-                    logger.warning("每日精选推送失败 user=%s channel=telegram err=%s", user["username"], exc)
-                    maybe_alert_push_failure(
-                        self.db,
-                        self.notifiers or [],
-                        f"user={user['username']} channel=telegram daily err={exc}",
-                    )
-                finally:
-                    notifier.client.close()
-            if _channel_enabled(user, "feishu") and (
-                user.get("feishu_open_id") or user.get("feishu_chat_id")
-            ):
-                notifier = FeishuNotifier(
+                    chat_id=u["telegram_chat_id"],
+                    bot_token=u.get("telegram_bot_token") or None,
+                ),
+                user,
+            )
+            _deliver(
+                "feishu",
+                bool(
+                    _channel_enabled(user, "feishu")
+                    and (user.get("feishu_open_id") or user.get("feishu_chat_id"))
+                ),
+                lambda u=user: FeishuNotifier(
                     self.notifiers_config.feishu,
-                    open_id=user["feishu_open_id"] if not user.get("feishu_chat_id") else None,
-                    chat_id=user.get("feishu_chat_id") or None,
-                )
-                try:
-                    if daily_text:
-                        notifier.send_text(daily_text)
-                    else:
-                        notifier.send_daily(posts)
-                    for post in posts:
-                        post_id = self.db.get_post_id(post.platform, post.external_id)
-                        if post_id:
-                            self.db.add_push_log(post_id, "feishu", "success", user_id=user["id"])
-                except Exception as exc:  # noqa: BLE001
-                    failed = True
-                    logger.warning("每日精选推送失败 user=%s channel=feishu err=%s", user["username"], exc)
-                    maybe_alert_push_failure(
-                        self.db,
-                        self.notifiers or [],
-                        f"user={user['username']} channel=feishu daily err={exc}",
-                    )
-                finally:
-                    notifier.client.close()
-            if user.get("wecom_webhook") and _channel_enabled(user, "wecom"):
-                notifier = WeComNotifier(
+                    open_id=u["feishu_open_id"] if not u.get("feishu_chat_id") else None,
+                    chat_id=u.get("feishu_chat_id") or None,
+                ),
+                user,
+            )
+            _deliver(
+                "wecom",
+                bool(user.get("wecom_webhook") and _channel_enabled(user, "wecom")),
+                lambda u=user: WeComNotifier(
                     self.notifiers_config.wecom,
-                    webhook_url=user["wecom_webhook"],
-                )
-                try:
-                    if daily_text:
-                        notifier.send_text(daily_text)
-                    else:
-                        notifier.send_daily(posts)
-                    for post in posts:
-                        post_id = self.db.get_post_id(post.platform, post.external_id)
-                        if post_id:
-                            self.db.add_push_log(post_id, "wecom", "success", user_id=user["id"])
-                except Exception as exc:  # noqa: BLE001
-                    failed = True
-                    logger.warning("每日精选推送失败 user=%s channel=wecom err=%s", user["username"], exc)
-                    maybe_alert_push_failure(
-                        self.db,
-                        self.notifiers or [],
-                        f"user={user['username']} channel=wecom daily err={exc}",
-                    )
-                finally:
-                    notifier.client.close()
-            if user.get("bark_key") and _channel_enabled(user, "bark"):
-                notifier = BarkNotifier(bark_key=user["bark_key"])
-                try:
-                    if daily_text:
-                        notifier.send_text(daily_text)
-                    else:
-                        notifier.send_daily(posts)
-                    for post in posts:
-                        post_id = self.db.get_post_id(post.platform, post.external_id)
-                        if post_id:
-                            self.db.add_push_log(post_id, "bark", "success", user_id=user["id"])
-                except Exception as exc:  # noqa: BLE001
-                    failed = True
-                    logger.warning("每日精选推送失败 user=%s channel=bark err=%s", user["username"], exc)
-                    maybe_alert_push_failure(
-                        self.db,
-                        self.notifiers or [],
-                        f"user={user['username']} channel=bark daily err={exc}",
-                    )
-                finally:
-                    notifier.client.close()
+                    webhook_url=u["wecom_webhook"],
+                ),
+                user,
+            )
+            _deliver(
+                "bark",
+                bool(user.get("bark_key") and _channel_enabled(user, "bark")),
+                lambda u=user: BarkNotifier(bark_key=u["bark_key"]),
+                user,
+            )
         return not failed

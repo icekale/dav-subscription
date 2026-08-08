@@ -2396,3 +2396,132 @@ def test_backfill_tags_untagged_posts(monkeypatch):
     assert all_posts[db.get_post_id("xueqiu", "post2b")] == ["科技"]
     assert all_posts[db.get_post_id("xueqiu", "post3b")] == ["政策"]
 
+
+
+def test_private_kol_content_denied_on_feed_and_rss():
+    """公开转私有并撤销 ACL 后，动态 feed 与 RSS 都不再返回该大V帖子。"""
+    client = make_client()
+    admin_headers = auth_headers(client)
+    r = register(client, "privuser", "pass123456")
+    uid = r.json()["user"]["id"]
+    user_headers_h = {"Authorization": f"Bearer {r.json()['token']}"}
+    db = client.app.state.db
+
+    kid = db.add_kol("xueqiu", "公开大V", "priv1")
+    db.add_subscription(uid, kid)
+    db.insert_post("xueqiu", kid, "p1", "t", "公开帖子", "u", "")
+
+    feed = client.get("/api/my/feed", headers=user_headers_h).json()
+    assert any(p["external_id"] == "p1" for p in feed)
+
+    # 转为私有并清空 ACL：feed 不再返回
+    db.update_kol(kid, is_private=True)
+    feed2 = client.get("/api/my/feed", headers=user_headers_h).json()
+    assert all(p["external_id"] != "p1" for p in feed2)
+
+    # RSS 同样不返回
+    db.update_user(uid, feed_token="tok_priv_1")
+    xml = client.get("/feed/tok_priv_1.xml").text
+    assert "公开帖子" not in xml
+
+    # 管理员订阅后仍可读（管理访问语义保留）
+    admin_uid = db.get_user_by_username("testadmin")["id"]
+    db.add_subscription(admin_uid, kid)
+    admin_feed = client.get("/api/my/feed", headers=admin_headers).json()
+    assert any(p["external_id"] == "p1" for p in admin_feed)
+
+
+def test_subscribe_private_kol_via_api_still_denied_after_acl_revoke():
+    """订阅接口对私有大V的 404 拦截在 ACL 撤销后依然生效（回归）。"""
+    client = make_client()
+    r = register(client, "privuser2", "pass123456")
+    user_headers_h = {"Authorization": f"Bearer {r.json()['token']}"}
+    db = client.app.state.db
+    kid = db.add_kol("xueqiu", "私有大V", "priv2")
+    db.update_kol(kid, is_private=True)
+    assert client.post("/api/subscriptions", headers=user_headers_h, json={"kol_id": kid}).status_code == 404
+
+
+def test_account_lock_not_bypassable_by_username_case():
+    """不同大小写的用户名共享失败计数——不能靠大小写变体绕过账号锁定。"""
+    cfg = Config()
+    cfg.web.trust_proxy = True  # 模拟多 IP，只触发账号级锁定
+    client = make_client(config=cfg)
+    user_headers(client, "caseuser")
+
+    variants = ["caseuser", "CaseUser", "CASEUSER", "caseUSER"]
+    # 10 次失败轮换 IP + 大小写变体，任何单键都不足阈值（若键未规范化即可绕过）
+    for i in range(10):
+        name = variants[i % len(variants)]
+        r = client.post(
+            "/api/auth/login",
+            json={"username": name, "password": "bad"},
+            headers={"X-Forwarded-For": f"3.3.3.{i}"},
+        )
+        assert r.status_code == 401, f"变体 {name} 失败应 401"
+    # 10 次失败已跨大小写累积到锁定阈值：新 IP + 正确密码仍 429
+    r = client.post(
+        "/api/auth/login",
+        json={"username": "caseuser", "password": "pass123456"},
+        headers={"X-Forwarded-For": "4.4.4.4"},
+    )
+    assert r.status_code == 429
+    assert "锁定" in r.json()["detail"]
+
+
+def test_backfill_picks_untagged_older_posts(monkeypatch):
+    """最新 N 条都已打标时，回填仍处理更早的未打标帖子（不再 processed=0）。"""
+    from app.config import LLMConfig
+
+    config = Config()
+    config.llm = LLMConfig(api_base="https://api.deepseek.com", api_key="sk-test", model="deepseek-chat")
+    client = make_client(config=config)
+    admin = auth_headers(client, "tagadmin")
+    db = client.app.state.db
+    kid = db.add_kol("xueqiu", "标签大V", "tagbf1")
+    # 3 条帖子：前两条打标，第三条未打标
+    id1 = db.insert_post("xueqiu", kid, "bf1", "t", "c", "u", "")
+    id2 = db.insert_post("xueqiu", kid, "bf2", "t", "c", "u", "")
+    id3 = db.insert_post("xueqiu", kid, "bf3", "t", "c", "u", "")
+    db.update_post_tags(id1, ["宏观"])
+    db.update_post_tags(id2, ["科技"])
+
+    captured = {}
+
+    def fake_tag_posts(posts, vocab, cfg, client=None):
+        captured["posts"] = posts
+        return {i: ["政策"] for i in range(len(posts))}
+
+    monkeypatch.setattr("app.llm.tag_posts", fake_tag_posts)
+    resp = client.post("/api/tags/backfill", headers=admin, json={"limit": 2})
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["processed"] == 1
+    assert captured["posts"][0].external_id == "bf3"  # 未打标的第三条被处理
+    # get_post 返回原始行，tags 为 JSON 文本；list_posts 会解析成数组
+    assert db.get_post(id3)["tags"] == '["政策"]'
+    # list_posts 按 id 倒序，最新（bf3）在前，解析成数组
+    assert db.list_posts(limit=3)[0]["external_id"] == "bf3"
+    assert db.list_posts(limit=3)[0]["tags"] == ["政策"]
+
+
+def test_tag_filter_exact_element_match():
+    """tag=宏观 只匹配完整标签元素，不误中「宏观经济」。"""
+    client = make_client()
+    r = register(client, "tagfltuser")
+    token = r.json()["token"]
+    user_headers_h = {"Authorization": f"Bearer {token}"}
+    db = client.app.state.db
+    kid = db.add_kol("xueqiu", "标签大V", "tagflt1")
+    client.post("/api/subscriptions", headers=user_headers_h, json={"kol_id": kid})
+    # 两条帖子：一条标签「宏观」，一条标签「宏观经济」
+    p1 = db.insert_post("xueqiu", kid, "f1", "宏观展望", "宏观内容", "u", "")
+    p2 = db.insert_post("xueqiu", kid, "f2", "宏观经济", "宏观分析", "u", "")
+    db.update_post_tags(p1, ["宏观"])
+    db.update_post_tags(p2, ["宏观经济"])
+
+    feed = client.get("/api/my/feed", headers=user_headers_h).json()
+    assert {p["external_id"] for p in feed} == {"f1", "f2"}
+
+    filtered = client.get("/api/my/feed?tag=宏观", headers=user_headers_h).json()
+    assert [p["external_id"] for p in filtered] == ["f1"]

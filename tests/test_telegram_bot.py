@@ -265,3 +265,53 @@ def test_bot_mysubs_type_cycle_and_unsub_buttons():
     assert db.subscribed_kol_ids(user["id"]) == set()
     kb = json.loads(edit_call[1]["reply_markup"])
     assert kb["inline_keyboard"][0][0]["callback_data"] == "list:1"
+
+
+def test_bot_sub_private_kol_denied_without_acl():
+    """私有大V且不在 ACL：sub: 回调拒绝订阅并提示不可见。"""
+    db = DB(Path(tempfile.mkdtemp()) / "bot.db")
+    kid = db.add_kol("xueqiu", "私有大V", "222")
+    db.update_kol(kid, is_private=True)
+    bot = TelegramBot(db, "test_token", "secret")
+    calls = []
+    bot._call = lambda method, **params: calls.append((method, params))
+    bot.handle_update(update(111, "/search 私有"))
+    bot.handle_update(
+        {
+            "callback_query": {
+                "id": "cq2",
+                "from": {"username": "icekale"},
+                "data": f"sub:{kid}",
+                "message": {"chat": {"id": 111}, "message_id": 9},
+            }
+        }
+    )
+    edit_call = calls[-1]
+    assert edit_call[0] == "editMessageText"
+    assert "无权订阅" in edit_call[1]["text"]
+    user = db.get_user_by_telegram("111")
+    assert db.subscribed_kol_ids(user["id"]) == set()
+
+
+def test_bot_sub_private_kol_allowed_with_acl():
+    """私有大V但在 ACL：sub: 回调正常订阅。"""
+    db = DB(Path(tempfile.mkdtemp()) / "bot.db")
+    kid = db.add_kol("xueqiu", "私有大V", "333")
+    db.update_kol(kid, is_private=True)
+    bot = TelegramBot(db, "test_token", "secret")
+    calls = []
+    bot._call = lambda method, **params: calls.append((method, params))
+    bot.handle_update(update(111, "/search 私有"))
+    user = db.get_user_by_telegram("111")
+    db.set_kol_acl(kid, [user["id"]])
+    bot.handle_update(
+        {
+            "callback_query": {
+                "id": "cq3",
+                "from": {"username": "icekale"},
+                "data": f"sub:{kid}",
+                "message": {"chat": {"id": 111}, "message_id": 9},
+            }
+        }
+    )
+    assert db.subscribed_kol_ids(user["id"]) == {kid}

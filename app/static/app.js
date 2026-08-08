@@ -178,7 +178,7 @@ function renderBottomNav(user) {
     </button>`).join("");
 }
 
-async function renderMore() {
+async function renderMore(seq) {
   if (!state.user.is_admin) { location.hash = "#/timeline"; return; }
   setPageTitle("更多");
   const adminGroup = NAV.find((g) => g.admin) || { items: [], subs: [] };
@@ -396,7 +396,7 @@ function groupedKolCards(kols) {
 async function switchPlatform(platform) {
   state.platform = platform;
   renderPlatformTabs();
-  await loadHomeKols();
+  await loadHomeKols(routeRenderSeq);
 }
 
 function kolCard(kol) {
@@ -430,7 +430,7 @@ async function adminDeleteKolFromHome(kolId) {
   try {
     await api(`/api/kols/${kolId}`, { method: "DELETE" });
     flash(`已删除「${kol ? kol.name : "该大V"}」`);
-    await loadHomeKols();
+    await refreshKolsView(); // 按当前路由刷新，删除期间切走不会污染新页面
   } catch (err) {
     alert("删除失败: " + err.message);
   }
@@ -479,19 +479,21 @@ async function quickSubscribe(kolId, btn) {
     btn.textContent = "✓ 已订阅";
     btn.disabled = true;
     state.user.subscription_count = (state.user.subscription_count || 0) + 1;
-    loadHomeKols(); // 订阅后重拉 catalog，已订阅置顶即时生效
+    loadHomeKols(routeRenderSeq); // 订阅后重拉 catalog，已订阅置顶即时生效
   } catch (err) {
     alert("订阅失败: " + err.message);
   }
 }
 
 async function refreshKolsView() {
+  // 发起前捕获当前路由令牌；完成后再写 DOM，避免局部刷新覆盖已切走的新路由
+  const seq = routeRenderSeq;
   const hash = location.hash;
-  if (hash.startsWith("#/home")) await loadHomeKols(); // 重拉 catalog，已订阅置顶即时生效
-  else if (hash.startsWith("#/combinations")) await renderCombinations();
-  else if (hash.startsWith("#/mysubs")) await renderMySubs();
-  else if (hash.startsWith("#/kol/")) await renderKolPage(Number(hash.split("/")[2] || 0));
-  else if (hash.startsWith("#/search")) doSearch();
+  if (hash.startsWith("#/home")) await loadHomeKols(seq); // 重拉 catalog，已订阅置顶即时生效
+  else if (hash.startsWith("#/combinations")) await renderCombinations(seq);
+  else if (hash.startsWith("#/mysubs")) await renderMySubs(seq);
+  else if (hash.startsWith("#/kol/")) await renderKolPage(Number(hash.split("/")[2] || 0), seq);
+  else if (hash.startsWith("#/search")) doSearch(seq);
 }
 
 function subTypeSwitchesHtml(kolId, current) {
@@ -741,7 +743,7 @@ async function checkNewPosts() {
 async function refreshTimeline() {
   const badge = $("#tl-new-badge");
   if (badge) badge.classList.remove("show");
-  await loadTimeline(true);
+  await loadTimeline(true, routeRenderSeq);
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
@@ -756,7 +758,7 @@ function tlPickPlatform(p) {
   state.timelinePlatform = p;
   const pills = $("#tl-pills");
   if (pills) pills.innerHTML = tlPillsHtml();
-  loadTimeline(true);
+  loadTimeline(true, routeRenderSeq);
 }
 
 function tlFilterPanel() {
@@ -778,7 +780,7 @@ function tlApplyFilter() {
     btn.classList.toggle("has-filter", !!(state.timelineQ || state.timelineCategory || state.timelineTag));
     btn.setAttribute("aria-expanded", "false");
   }
-  loadTimeline(true);
+  loadTimeline(true, routeRenderSeq);
 }
 
 function tlResetFilters() {
@@ -800,7 +802,7 @@ function tlResetFilters() {
     fav.setAttribute("aria-pressed", "false");
   }
   $("#tl-filterbar").classList.remove("open");
-  loadTimeline(true);
+  loadTimeline(true, routeRenderSeq);
 }
 
 async function loadTimelineCategories() {
@@ -857,7 +859,7 @@ async function loadTimeline(reset = true, routeSeq) {
 
 function timelineLoadMore() {
   if (_tlLoadingMore || !_tlHasMore) return;
-  loadTimeline(false);
+  loadTimeline(false, routeRenderSeq);
 }
 
 function renderTimelineFeed() {
@@ -897,7 +899,7 @@ function toggleTimelineFav() {
     btn.classList.toggle("fav-on", state.timelineFavorite);
     btn.setAttribute("aria-pressed", String(state.timelineFavorite));
   }
-  loadTimeline(true);
+  loadTimeline(true, routeRenderSeq);
 }
 
 function tlTogglePost(id) {
@@ -1862,7 +1864,10 @@ async function genBindCode() {
 }
 
 // ---------- 管理后台（导航统一走左侧边栏） ----------
-async function renderAdmin(tab) {
+let _adminRenderSeq = 0; // 当前管理后台渲染令牌：loader 写 #admin-body 前凭此丢弃过期响应
+
+async function renderAdmin(tab, seq) {
+  _adminRenderSeq = seq;
   setPageTitle("管理后台");
   $("#main").innerHTML = `
     <div id="admin-body"><div class="admin-skeleton" aria-hidden="true">${Array(3).fill(`
@@ -1877,7 +1882,8 @@ async function renderAdmin(tab) {
   try {
     await loaders[tab]();
   } catch (err) {
-    $("#admin-body").innerHTML = emptyState("加载失败: " + err.message);
+    // 只有当前路由仍是本次渲染目标时才写错误状态，避免旧路由的错误覆盖新 tab
+    if (routeStillActive(seq)) $("#admin-body").innerHTML = emptyState("加载失败: " + err.message);
   }
 }
 
@@ -1919,6 +1925,7 @@ function rateBar(rate) {
 async function loadAdminStats() {
   stopStatsTimer();
   const [s, xq] = await Promise.all([api("/api/stats"), api("/api/admin/xueqiu-cookie")]);
+  if (!routeStillActive(_adminRenderSeq)) return;
   $("#admin-body").innerHTML = `
     <section class="section-panel">
       <header class="section-head">
@@ -2290,6 +2297,7 @@ async function loadAdminDashboard() {
         </div>`).join("")
       : `<p class="muted">近 24 小时无异常事件</p>`;
 
+    if (!routeStillActive(_adminRenderSeq)) return;
     $("#admin-body").innerHTML = `
       <section class="section-panel">
         <header class="section-head"><div><p class="section-eyebrow">Overview</p><h3 class="section-title">核心指标</h3>
@@ -2332,6 +2340,7 @@ async function loadAdminDashboard() {
         ${eventRows ? `<div style="margin-top:12px">${eventRows}</div>` : ""}
       </section>`;
   } catch (err) {
+    if (!routeStillActive(_adminRenderSeq)) return;
     $("#admin-body").innerHTML = emptyState("加载失败: " + err.message);
   }
 }
@@ -2346,12 +2355,14 @@ async function loadAdminKols() {
       api("/api/categories"),
     ]);
   } catch (err) {
+    if (!routeStillActive(_adminRenderSeq)) return;
     if (seq === _adminKolsSeq) $("#admin-body").innerHTML = emptyState("加载失败: " + err.message);
     return;
   }
   if (seq !== _adminKolsSeq) return; // 已切换平台，丢弃过期响应
   state.adminKols = kols;
   const catOptions = categories.map((c) => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
+  if (!routeStillActive(_adminRenderSeq)) return;
   $("#admin-body").innerHTML = `
     <section class="section-panel">
       <header class="section-head">
@@ -2589,6 +2600,7 @@ async function loadAdminRequests() {
       api("/api/admin/kol-requests"),
     ]);
   } catch (err) {
+    if (!routeStillActive(_adminRenderSeq)) return;
     $("#admin-body").innerHTML = emptyState("加载失败: " + err.message);
     return;
   }
@@ -2615,6 +2627,7 @@ async function loadAdminRequests() {
           <td class="${r.status === "approved" ? "status-ok" : "status-fail"}">${r.status === "approved" ? "已通过" : "已拒绝"}</td>
           <td>${escapeHtml(fmtDbTime(r.handled_at))}</td>
         </tr>`).join("");
+  if (!routeStillActive(_adminRenderSeq)) return;
   $("#admin-body").innerHTML = `
     <section class="section-panel">
       <header class="section-head"><div><p class="section-eyebrow">Requests</p><h3 class="section-title">用户求添加</h3>
@@ -2661,6 +2674,7 @@ async function adminRejectRequest(id) {
 async function loadAdminCodes() {
   const codes = await api("/api/admin/register-codes");
   const used = codes.filter((c) => c.used_by).length;
+  if (!routeStillActive(_adminRenderSeq)) return;
   $("#admin-body").innerHTML = `
     <section class="section-panel">
       <header class="section-head">
@@ -2729,6 +2743,7 @@ async function adminGenerateCodes() {
 
 async function loadAdminCategories() {
   const categories = await api("/api/categories");
+  if (!routeStillActive(_adminRenderSeq)) return;
   $("#admin-body").innerHTML = `
     <section class="section-panel">
       <header class="section-head">
@@ -2799,6 +2814,7 @@ async function loadAdminTags() {
   const data = await api("/api/tags");
   const tags = Array.isArray(data?.tags) ? data.tags : [];
   const stats = data?.stats || { total: 0, tagged: 0, pending: 0 };
+  if (!routeStillActive(_adminRenderSeq)) return;
   $("#admin-body").innerHTML = `
     <section class="section-panel">
       <header class="section-head">
@@ -2887,6 +2903,7 @@ async function _adminKolsSelect() {
 
 function renderAdminPosts() {
   const kolsHtml = _adminKolsOptions || `<option value="">全部大V</option>`;
+  if (!routeStillActive(_adminRenderSeq)) return;
   $("#admin-body").innerHTML = `
     <section class="section-panel">
       <header class="section-head">
@@ -2978,6 +2995,7 @@ async function loadAdminLogs() {
   const users = await api("/api/users");
   const logs = await api(`/api/push-logs?limit=100${state.adminLogsFilter || ""}`);
   if (seq !== _adminLogsSeq) return; // 筛选条件已变，丢弃过期响应
+  if (!routeStillActive(_adminRenderSeq)) return;
   $("#admin-body").innerHTML = `
     <section class="section-panel">
       <header class="section-head">
@@ -3020,6 +3038,7 @@ async function loadAdminLogs() {
 
 async function loadAdminAudit() {
   const logs = await api("/api/admin/logs?limit=100");
+  if (!routeStillActive(_adminRenderSeq)) return;
   $("#admin-body").innerHTML = `
     <section class="section-panel">
       <header class="section-head">
@@ -3110,6 +3129,7 @@ async function adminFilterLogs() {
 async function loadAdminUsers() {
   const users = await api("/api/users");
   state.adminUsers = users;
+  if (!routeStillActive(_adminRenderSeq)) return;
   $("#admin-body").innerHTML = `
     <section class="section-panel">
       <header class="section-head"><div><p class="section-eyebrow">Users</p><h3 class="section-title">注册用户</h3></div></header>
@@ -3238,8 +3258,8 @@ async function adminToggleAdmin(userId, makeAdmin) {
 let routeRenderSeq = 0; // 每次路由切换递增；异步渲染完成后凭此丢弃过期响应
 
 function routeStillActive(seq) {
-  // 未传 token 的局部刷新视为活跃（保持原行为）；带 token 的渲染只在最新路由下生效
-  return seq === undefined || seq === routeRenderSeq;
+  // 令牌必须是整数且等于当前路由序号；局部刷新必须在发起请求前捕获 routeRenderSeq 并回传
+  return Number.isInteger(seq) && seq === routeRenderSeq;
 }
 
 async function router() {
@@ -3264,6 +3284,8 @@ async function router() {
   $("#app-view").classList.remove("hidden");
   try {
     state.user = await api("/api/me");
+    // /api/me 挂起期间若已切走路由，旧响应不能覆盖新路由的 state.user
+    if (!routeStillActive(renderSeq)) return;
   } catch {
     return;
   }

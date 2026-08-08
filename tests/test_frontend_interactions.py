@@ -92,9 +92,10 @@ def test_renderers_check_route_token_after_await():
 
 
 def test_route_token_guard_checks_latest_seq():
-    """routeStillActive 必须与全局 routeRenderSeq 比较，未传 token 的局部刷新保持活跃。"""
+    """routeStillActive 必须与全局 routeRenderSeq 比较，未传 token 视为过期（局部刷新必须带令牌）。"""
     src = APP_JS.read_text()
     m = re.search(r"function routeStillActive\(seq\)\s*\{[^}]*\}", src)
     assert m, "未找到 routeStillActive"
     assert "routeRenderSeq" in m.group(0)
-    assert "undefined" in m.group(0)
+    # 严格令牌：已删除「未传 token 视为活跃」的兼容分支
+    assert "undefined" not in m.group(0)

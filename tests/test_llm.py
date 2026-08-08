@@ -473,3 +473,21 @@ def test_summarize_daily_max_tokens():
     summarize_daily([make_post(external_id=f"p{i}") for i in range(30)], make_config(), client=client)
     # 固定给足上限，兼容推理模型思考预算（普通模型不会用满）
     assert captured["max_tokens"] == 16000
+
+
+def test_summarize_daily_enforces_max_three_points():
+    """模型输出 5 条要点时，解析层只保留前三条（顺序与引用序号不变）。"""
+    client = httpx.Client(transport=httpx.MockTransport(_daily_handler(
+        "今日共 5 条动态。\n"
+        "- 要点一（[1]）\n"
+        "- 要点二（[2]）\n"
+        "- 要点三（[3]）\n"
+        "- 要点四（[4]）\n"
+        "- 要点五（[5]）"
+    )))
+    posts = [make_post(external_id=f"p{i}") for i in range(5)]
+    summary = summarize_daily(posts, make_config(), client=client)
+    assert summary is not None
+    assert len(summary.points) == 3
+    assert [p.text for p in summary.points] == ["要点一", "要点二", "要点三"]
+    assert [p.post_indexes for p in summary.points] == [[0], [1], [2]]
