@@ -951,7 +951,7 @@ function postCard(post) {
 }
 
 // ---------- 搜索 ----------
-async function renderSearch() {
+async function renderSearch(seq) {
   setPageTitle("搜索", true);
   const params = new URLSearchParams(location.hash.split("?")[1] || "");
   const query = params.get("q") || "";
@@ -993,9 +993,9 @@ async function renderSearch() {
     const myAskPanel = askSection.children[1];
     $("#main").appendChild(askPanel);
     $("#main").appendChild(myAskPanel);
-    loadMyAsks();
+    loadMyAsks(seq);
   }
-  if (query) doSearch();
+  if (query) doSearch(seq);
   else $("#search-input").focus();
 }
 
@@ -1018,9 +1018,10 @@ async function submitAsk() {
   }
 }
 
-async function loadMyAsks() {
+async function loadMyAsks(routeSeq) {
   try {
     const asks = await api("/api/my/kol-requests");
+    if (!routeStillActive(routeSeq)) return; // 已切走：不写旧页面
     const statusMap = { pending: "待审批", approved: "已通过 ✅", rejected: "已拒绝" };
     $("#my-asks").innerHTML = asks.length
       ? `<div class="table-wrap"><table>
@@ -1039,11 +1040,12 @@ async function loadMyAsks() {
   }
 }
 
-async function doSearch() {
+async function doSearch(routeSeq) {
   const keyword = $("#search-input").value.trim().toLowerCase();
   if (!keyword) return;
   try {
     const kols = await api("/api/catalog");
+    if (!routeStillActive(routeSeq)) return; // 已切走：不写旧搜索结果
     const hits = kols.filter(
       (k) => k.name.toLowerCase().includes(keyword) || k.external_id.toLowerCase().includes(keyword)
     );
@@ -1051,6 +1053,7 @@ async function doSearch() {
       ? hits.map(kolCard).join("")
       : emptyState("没有找到匹配的大V，可联系管理员添加");
   } catch (err) {
+    if (!routeStillActive(routeSeq)) return;
     $("#search-result").innerHTML = emptyState("搜索失败: " + err.message);
   }
 }
@@ -1204,10 +1207,11 @@ async function refreshSettingsStatus() {
   }
 }
 
-async function renderSettings() {
+async function renderSettings(seq) {
   setPageTitle("推送设置");
   try {
     state.user = await api("/api/me");
+    if (!routeStillActive(seq)) return; // 已切走：不覆盖新路由的 state.user
     const guide = state.user.push_guide || {};
     const tgBot = guide.telegram_bot_username || "";
     const fsBot = guide.feishu_bot_name || "";
