@@ -543,7 +543,7 @@ async function renderMySubs(seq) {
           <h3 class="section-title">已订阅</h3>
         </div>
       </header>
-      <div class="toolbar" style="margin-top:12px">
+      <div class="toolbar" style="margin:12px 0 16px">
         <div class="platform-tabs" id="mysubs-tabs"></div>
         <button id="mysubs-fav-toggle" class="fav-toggle ${state.mysubsFavorite ? "fav-on" : ""}" onclick="toggleMySubsFav()">${STAR_SVG} 特别关注</button>
       </div>
