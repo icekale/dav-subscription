@@ -55,6 +55,31 @@ def _normalize_post_images(rows: list[dict]) -> list[dict]:
     return rows
 
 
+def _normalize_post_tags(rows: list[dict]) -> list[dict]:
+    """posts 行的 tags 是 JSON 数组文本（LLM 打标结果），统一解析为列表。"""
+    for row in rows:
+        raw = row.get("tags")
+        if isinstance(raw, list):
+            continue
+        if isinstance(raw, str) and raw:
+            try:
+                parsed = json.loads(raw)
+                row["tags"] = parsed if isinstance(parsed, list) else []
+            except (TypeError, ValueError):
+                row["tags"] = []
+        else:
+            row["tags"] = []
+    return rows
+
+
+# 贴文 LLM 打标的默认话题词表；管理员可在后台改（存 settings 表 tag_vocabulary）
+DEFAULT_TAG_VOCABULARY = [
+    "宏观", "大盘", "板块", "个股", "策略", "科技",
+    "政策", "财报", "观点", "资讯", "公告", "生活",
+]
+TAG_VOCABULARY_KEY = "tag_vocabulary"
+
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS categories (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -216,6 +241,10 @@ class DB:
         if "images" not in post_cols:
             self._conn.execute(
                 "ALTER TABLE posts ADD COLUMN images TEXT NOT NULL DEFAULT ''"
+            )
+        if "tags" not in post_cols:
+            self._conn.execute(
+                "ALTER TABLE posts ADD COLUMN tags TEXT NOT NULL DEFAULT ''"
             )
         sub_cols = {row["name"] for row in self._rows("PRAGMA table_info(subscriptions)")}
         if "type" not in sub_cols:
@@ -1045,14 +1074,16 @@ class DB:
         post_type: str = "",
         detail: dict | None = None,
         images: list[str] | None = None,
+        tags: list[str] | None = None,
     ) -> int | None:
         detail_json = json.dumps(detail, ensure_ascii=False) if detail else ""
         images_json = json.dumps(images, ensure_ascii=False) if images else ""
+        tags_json = json.dumps(tags, ensure_ascii=False) if tags else ""
         try:
             with self._lock:
                 cur = self._conn.execute(
-                    "INSERT OR IGNORE INTO posts (platform, kol_id, external_id, title, content, post_type, images, url, published_at, detail) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT OR IGNORE INTO posts (platform, kol_id, external_id, title, content, post_type, images, url, published_at, detail, tags) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         platform,
                         kol_id,
@@ -1064,6 +1095,7 @@ class DB:
                         url,
                         published_at,
                         detail_json,
+                        tags_json,
                     ),
                 )
                 if cur.rowcount == 0:
@@ -1084,9 +1116,10 @@ class DB:
                 for p in posts:
                     detail_json = json.dumps(p.detail, ensure_ascii=False) if p.detail else ""
                     images_json = json.dumps(p.images, ensure_ascii=False) if p.images else ""
+                    tags_json = json.dumps(p.tags, ensure_ascii=False) if p.tags else ""
                     cur = self._conn.execute(
-                        "INSERT OR IGNORE INTO posts (platform, kol_id, external_id, title, content, post_type, images, url, published_at, detail) "
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        "INSERT OR IGNORE INTO posts (platform, kol_id, external_id, title, content, post_type, images, url, published_at, detail, tags) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                         (
                             p.platform,
                             p.kol_id,
@@ -1098,6 +1131,7 @@ class DB:
                             p.url,
                             p.published_at,
                             detail_json,
+                            tags_json,
                         ),
                     )
                     ids.append(cur.lastrowid if cur.rowcount else None)
@@ -1137,7 +1171,7 @@ class DB:
             sql += " WHERE " + " AND ".join(conds)
         sql += " ORDER BY p.id DESC LIMIT ? OFFSET ?"
         params.extend([limit, offset])
-        return _normalize_post_images(self._rows(sql, params))
+        return _normalize_post_tags(_normalize_post_images(self._rows(sql, params)))
 
     def count_posts(self) -> int:
         rows = self._rows("SELECT COUNT(*) AS n FROM posts")
@@ -1192,6 +1226,7 @@ class DB:
         category_id: int | None = None,
         q: str | None = None,
         favorite: bool = False,
+        tag: str | None = None,
     ) -> list[dict]:
         if not kol_ids:
             return []
@@ -1209,9 +1244,14 @@ class DB:
             conds.append("(p.title LIKE ? ESCAPE '\\' OR p.content LIKE ? ESCAPE '\\')")
             like = f"%{escaped}%"
             params.extend([like, like])
+        if tag:
+            # tags 列存 JSON 数组文本，匹配带引号的完整元素，避免「宏观」误中「大盘」等子串
+            escaped = tag.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            conds.append("p.tags LIKE ? ESCAPE '\\'")
+            params.append(f'%"{"".join(escaped)}"%')
         if favorite:
             conds.append("s.favorite = 1")
-        return _normalize_post_images(self._rows(
+        return _normalize_post_tags(_normalize_post_images(self._rows(
             "SELECT p.*, k.name AS kol_name, k.category_id AS category_id, "
             "k.avatar_url AS avatar_url, c.name AS category_name, "
             "COALESCE(s.favorite, 0) AS favorite FROM posts p "
@@ -1220,7 +1260,7 @@ class DB:
             "LEFT JOIN subscriptions s ON s.kol_id = p.kol_id AND s.user_id = ? "
             f"WHERE {' AND '.join(conds)} ORDER BY p.id DESC LIMIT ? OFFSET ?",
             (*params, limit, offset),
-        ))
+        )))
 
     def list_daily_posts(
         self, kol_ids: list[int], since_ts: int, limit: int = 15, user_id: int | None = None
@@ -1229,7 +1269,7 @@ class DB:
         if not kol_ids:
             return []
         placeholders = ", ".join("?" * len(kol_ids))
-        return self._rows(
+        return _normalize_post_tags(_normalize_post_images(self._rows(
             "SELECT p.*, k.name AS kol_name, k.avatar_url AS avatar_url, "
             "c.name AS category_name, COALESCE(s.favorite, 0) AS favorite FROM posts p "
             "JOIN kols k ON k.id = p.kol_id "
@@ -1238,7 +1278,7 @@ class DB:
             f"WHERE p.kol_id IN ({placeholders}) AND strftime('%s', p.fetched_at) >= ? "
             "ORDER BY p.id DESC LIMIT ?",
             (user_id, *kol_ids, since_ts, limit),
-        )
+        )))
 
     def daily_report_users(self) -> list[dict]:
         """开启每日精选、启用通知且绑定过渠道的用户。"""
@@ -1319,6 +1359,37 @@ class DB:
             "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             (key, value),
         )
+
+    def update_post_tags(self, post_id: int, tags: list[str]) -> None:
+        """回写单条贴文的 LLM 标签（回填/纠错用），tags 为空则清空。"""
+        tags_json = json.dumps(tags, ensure_ascii=False) if tags else ""
+        self._execute("UPDATE posts SET tags = ? WHERE id = ?", (tags_json, post_id))
+
+    def get_tag_vocabulary(self) -> list[str]:
+        """读贴文打标词表（settings 持久化），缺省用内置默认词表。"""
+        raw = self.get_setting(TAG_VOCABULARY_KEY)
+        if raw:
+            try:
+                parsed = json.loads(raw)
+                if isinstance(parsed, list) and parsed:
+                    return [str(t) for t in parsed]
+            except (TypeError, ValueError):
+                pass
+        return list(DEFAULT_TAG_VOCABULARY)
+
+    def set_tag_vocabulary(self, tags: list[str]) -> None:
+        """保存贴文打标词表。"""
+        self.set_setting(TAG_VOCABULARY_KEY, json.dumps(tags, ensure_ascii=False))
+
+    def tag_stats(self) -> dict:
+        """已打标/待打标贴文统计（管理端回填进度展示用）。"""
+        rows = self._rows(
+            "SELECT COUNT(*) AS n, "
+            "SUM(CASE WHEN tags != '' THEN 1 ELSE 0 END) AS tagged FROM posts"
+        )
+        row = rows[0] if rows else {"n": 0, "tagged": 0}
+        n, tagged = _to_int(row["n"]), _to_int(row["tagged"])
+        return {"total": n, "tagged": tagged, "pending": n - tagged}
 
     # ---- 数据源稳定性事件 ----
     def add_source_event(

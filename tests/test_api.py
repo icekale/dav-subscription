@@ -286,13 +286,18 @@ def test_system_logs_api():
 
 
 def test_version_api(monkeypatch):
-    monkeypatch.setattr("app.version.latest_github_version", lambda db: ("1.6.2", True))
+    from app.version import APP_VERSION
+
+    # 模拟 GitHub 上有比当前版本更新的版本（对版本号提升免疫）
+    parts = [int(x) for x in APP_VERSION.split(".") if x.isdigit()] or [0]
+    latest = ".".join(str(x) for x in (parts[:-1] + [parts[-1] + 1]))
+    monkeypatch.setattr("app.version.latest_github_version", lambda db: (latest, True))
     client = make_client()
     resp = client.get("/api/version")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["current"] == "1.6.1"
-    assert data["latest"] == "1.6.2"
+    assert data["current"] == APP_VERSION
+    assert data["latest"] == latest
     assert data["update_available"] is True
     assert "github.com" in data["url"]
 
@@ -2271,3 +2276,123 @@ def test_push_channels_accepts_bark():
     assert client.put(
         "/api/me", headers=headers, json={"push_channels": "telegram,slack"}
     ).status_code == 400
+
+
+# ---- 贴文标签 ----
+
+def make_tagged_feed(client, admin_headers, user_headers, suffix="1"):
+    """建大V + 用户订阅 + 两条已打标帖子，返回 kol_id；suffix 用于区分用例。"""
+    db = client.app.state.db
+    resp = client.post(
+        "/api/kols", headers=admin_headers,
+        json={"platform": "xueqiu", "name": f"标签大V{suffix}", "external_id": f"tagkol{suffix}"},
+    )
+    kid = resp.json()["id"]
+    client.post("/api/subscriptions", headers=user_headers, json={"kol_id": kid})
+    db.insert_post(
+        platform="xueqiu", kol_id=kid, external_id=f"post1{suffix}",
+        title="宏观展望", content="今日大盘整体上行", url="u", published_at="",
+    )
+    db.insert_post(
+        platform="xueqiu", kol_id=kid, external_id=f"post2{suffix}",
+        title="芯片进展", content="新工艺良率提升", url="u", published_at="",
+    )
+    # 取 id 后回写标签
+    p1 = db.get_post_id("xueqiu", f"post1{suffix}")
+    p2 = db.get_post_id("xueqiu", f"post2{suffix}")
+    db.update_post_tags(p1, ["宏观", "大盘"])
+    db.update_post_tags(p2, ["科技"])
+    return kid
+
+
+def test_post_tags_list_readable_by_any_user():
+    client = make_client()
+    headers = user_headers(client, "tagreader")
+    resp = client.get("/api/tags", headers=headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    # 默认词表包含 宏观/科技
+    assert "宏观" in data["tags"] and "科技" in data["tags"]
+    assert data["stats"]["total"] == 0
+
+
+def test_tag_vocabulary_update_admin_only():
+    client = make_client()
+    user = user_headers(client, "taguser")
+    admin = auth_headers(client, "tagadmin")
+    # 普通用户不能改词表
+    assert client.put("/api/tags", headers=user, json={"tags": ["宏观"]}).status_code == 403
+    # 管理员可保存（去重、去空白）
+    resp = client.put(
+        "/api/tags", headers=admin, json={"tags": [" 宏观 ", "大盘", "宏观", ""]}
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["tags"] == ["宏观", "大盘"]
+    # 空词表拒绝
+    assert client.put("/api/tags", headers=admin, json={"tags": []}).status_code == 400
+
+
+def test_feed_returns_tags_and_filters_by_tag():
+    client = make_client()
+    admin = auth_headers(client, "tagadmin")
+    user = user_headers(client, "taguser2")
+    make_tagged_feed(client, admin, user)
+
+    feed = client.get("/api/my/feed", headers=user).json()
+    assert len(feed) == 2
+    assert feed[0]["tags"] == ["科技"]
+    assert feed[1]["tags"] == ["宏观", "大盘"]
+
+    filtered = client.get("/api/my/feed?tag=宏观", headers=user).json()
+    assert len(filtered) == 1
+    assert filtered[0]["tags"] == ["宏观", "大盘"]
+
+    filtered2 = client.get("/api/my/feed?tag=科技", headers=user).json()
+    assert len(filtered2) == 1
+    assert filtered2[0]["tags"] == ["科技"]
+
+
+def test_backfill_requires_llm_config():
+    client = make_client(config=Config())
+    admin = auth_headers(client, "tagadmin")
+    # 未配 LLM_API_KEY：回填返回 503
+    resp = client.post("/api/tags/backfill", headers=admin, json={"limit": 50})
+    assert resp.status_code == 503
+
+
+def test_backfill_tags_untagged_posts(monkeypatch):
+    from app.config import LLMConfig
+
+    config = Config()
+    config.llm = LLMConfig(api_base="https://api.deepseek.com", api_key="sk-test", model="deepseek-chat")
+    client = make_client(config=config)
+    admin = auth_headers(client, "tagadmin")
+    user = user_headers(client, "taguser3")
+    kid = make_tagged_feed(client, admin, user, suffix="b")
+
+    # 追加一条未打标贴文
+    db = client.app.state.db
+    db.insert_post(
+        platform="xueqiu", kol_id=kid, external_id="post3b",
+        title="政策解读", content="新规出台", url="u", published_at="",
+    )
+
+    captured = {}
+
+    def fake_tag_posts(posts, vocab, cfg, client=None):
+        captured["posts"] = posts
+        return {i: ["政策"] for i in range(len(posts))}
+
+    monkeypatch.setattr("app.llm.tag_posts", fake_tag_posts)
+    resp = client.post("/api/tags/backfill", headers=admin, json={"limit": 100})
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["processed"] == 1
+    assert data["tagged"] == 1
+
+    # 此前已打标的两条标签不被覆盖，只有新帖被回填
+    all_posts = {p["id"]: p["tags"] for p in client.get("/api/posts", headers=admin).json()}
+    assert all_posts[db.get_post_id("xueqiu", "post1b")] == ["宏观", "大盘"]
+    assert all_posts[db.get_post_id("xueqiu", "post2b")] == ["科技"]
+    assert all_posts[db.get_post_id("xueqiu", "post3b")] == ["政策"]
+

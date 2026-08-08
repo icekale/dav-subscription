@@ -18,6 +18,7 @@ Page({
         ...p,
         platform_label: platformLabel(p.platform),
         avatar_url: resolveAvatar(p.avatar_url),
+        tags: Array.isArray(p.tags) ? p.tags : [],
       }));
       this.setData({ posts, loading: false });
     } catch (err) {

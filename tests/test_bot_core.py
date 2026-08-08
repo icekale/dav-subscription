@@ -88,3 +88,52 @@ def test_telegram_deeplink_start_bind():
     assert "已绑定到账号 web_user" in sent[-1]
     assert db.get_user(target_id)["telegram_chat_id"] == "222"
     assert db.get_user(bot_account["id"]) is None
+
+
+def test_search_by_name_and_external_id():
+    db, bot, sent = make_bot()
+    db.add_kol("xueqiu", "茅台一哥", "111")
+    db.add_kol("weibo", "科技狂人", "222")
+    db.add_kol("xueqiu", "普通", "333")
+
+    bot.handle("telegram_chat_id", "111", "u1", "/search 茅台")
+    assert "茅台一哥" in sent[-1]
+    assert "（雪球）" in sent[-1]
+    assert "科技狂人" not in sent[-1]
+
+    # 按 UID 搜索
+    bot.handle("telegram_chat_id", "111", "u1", "/search 222")
+    assert "科技狂人" in sent[-1]
+
+    # 无结果
+    bot.handle("telegram_chat_id", "111", "u1", "/search 不存在的大V")
+    assert "没有找到" in sent[-1]
+
+    # 缺参数提示用法
+    bot.handle("telegram_chat_id", "111", "u1", "/search")
+    assert "用法" in sent[-1]
+
+
+def test_search_payload_marks_subscribed():
+    db, bot, _ = make_bot()
+    kid = db.add_kol("xueqiu", "茅台一哥", "111")
+    uid = db.add_user("u1", "hash")
+    db.update_user(uid, telegram_chat_id="111")
+    db.add_subscription(uid, kid)
+
+    bot.handle("telegram_chat_id", "111", "u1", "/list")
+    user = db.get_user_by_telegram("111")
+    text, matches = bot.search_payload(user, "茅台")
+    assert "✅" in text
+    assert matches[0]["subscribed"] is True
+    assert matches[0]["id"] == kid
+
+
+def test_search_excludes_private_kol_for_normal_user():
+    db, bot, sent = make_bot()
+    private_id = db.add_kol("xueqiu", "私有大佬", "9")
+    db.update_kol(private_id, is_private=True)
+    db.set_kol_acl(private_id, [])
+
+    bot.handle("telegram_chat_id", "111", "u1", "/search 私有")
+    assert "没有找到" in sent[-1]

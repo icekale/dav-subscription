@@ -17,6 +17,7 @@ from .avatar_cache import cache_avatar
 from .bot_core import BIND_CODE_TTL
 from .db import ALLOWED_PLATFORMS, DB
 from .feed import build_rss_xml
+from .fetchers.base import Post
 from .fetchers.combination import extract_cube_symbol, resolve_combination_profile
 from .fetchers.twitter import resolve_x_profile
 from .fetchers.weibo import WEIBO_COOKIE_KEY, resolve_weibo_profile
@@ -146,6 +147,14 @@ class KolUpdate(BaseModel):
 
 class CategoryIn(BaseModel):
     name: str
+
+
+class TagVocabularyIn(BaseModel):
+    tags: list[str]
+
+
+class TagBackfillIn(BaseModel):
+    limit: int = 200
 
 
 class KolRequestIn(BaseModel):
@@ -280,6 +289,7 @@ def create_api_router(
     wechat_config=None,
     notifiers_config=None,
     trust_proxy: bool = False,
+    llm_config=None,
 ) -> APIRouter:
     router = APIRouter(prefix="/api")
     # 登录/注册限流（内存版，单实例够用）：每 IP 窗口内失败次数超限后 429
@@ -825,6 +835,7 @@ def create_api_router(
         category_id: int | None = None,
         q: str | None = None,
         favorite: int = 0,
+        tag: str | None = None,
         user: dict = Depends(get_current_user),
     ):
         kol_ids = sorted(db.subscribed_kol_ids(user["id"]))
@@ -837,6 +848,7 @@ def create_api_router(
             category_id=category_id,
             q=q,
             favorite=bool(favorite),
+            tag=tag,
         )
 
     @router.get("/kols/{kol_id}")
@@ -1361,6 +1373,74 @@ def create_api_router(
         db.delete_category(category_id)
         _audit(admin, "delete_category", str(category_id))
         return {"ok": True}
+
+    @router.get("/tags")
+    def list_tags(user: dict = Depends(get_current_user)):
+        """贴文话题词表：登录用户可读（动态页标签筛选），管理与写入仍需管理员。
+
+        stats 供管理端展示已打标/待打标贴文数量。
+        """
+        return {"tags": db.get_tag_vocabulary(), "stats": db.tag_stats()}
+
+    @router.put("/tags", dependencies=[Depends(require_admin)])
+    def update_tag_vocabulary(body: TagVocabularyIn, admin: dict = Depends(require_admin)):
+        from .llm import TAG_VOCABULARY_MAX
+
+        tags = [t.strip() for t in body.tags if t and t.strip()]
+        seen, deduped = set(), []
+        for t in tags:
+            if t not in seen:
+                seen.add(t)
+                deduped.append(t)
+        if not deduped:
+            raise HTTPException(status_code=400, detail="词表不能为空")
+        if len(deduped) > TAG_VOCABULARY_MAX:
+            raise HTTPException(
+                status_code=400, detail=f"词表最多 {TAG_VOCABULARY_MAX} 个标签"
+            )
+        db.set_tag_vocabulary(deduped)
+        _audit(admin, "update_tag_vocabulary", detail=f"{len(deduped)} tags")
+        return {"tags": db.get_tag_vocabulary()}
+
+    @router.post("/tags/backfill", dependencies=[Depends(require_admin)])
+    def backfill_post_tags(body: TagBackfillIn, admin: dict = Depends(require_admin)):
+        """给最近 N 条未打标贴文补标签（抓取时未配 LLM 或失败的存量数据）。"""
+        if llm_config is None or not getattr(llm_config, "api_key", ""):
+            raise HTTPException(
+                status_code=503, detail="未配置 LLM_API_KEY，无法生成标签"
+            )
+        from .llm import tag_posts
+
+        limit = bounded_limit(body.limit, default=200)
+        recent = db.list_posts(limit=limit)
+        pending = [p for p in recent if not p.get("tags")]
+        if not pending:
+            return {"processed": 0, "tagged": 0}
+        posts = [
+            Post(
+                platform=p["platform"],
+                kol_id=p["kol_id"],
+                kol_name=p["kol_name"],
+                external_id=p["external_id"],
+                title=p["title"],
+                content=p["content"],
+                url=p["url"],
+                published_at=p["published_at"],
+                category=p.get("category_name") or "",
+                post_type=p.get("post_type") or "",
+                images=p.get("images") or [],
+            )
+            for p in pending
+        ]
+        vocabulary = db.get_tag_vocabulary()
+        tagged = tag_posts(posts, vocabulary, llm_config)
+        count = 0
+        for i, post in enumerate(posts):
+            if tagged.get(i):
+                db.update_post_tags(pending[i]["id"], tagged[i])
+                count += 1
+        _audit(admin, "backfill_post_tags", detail=f"processed={len(posts)} tagged={count}")
+        return {"processed": len(posts), "tagged": count}
 
     @router.get("/posts", dependencies=[Depends(require_admin)])
     def list_posts(limit: int = 100, platform: str | None = None, kol_id: int | None = None, q: str | None = None, offset: int = 0):

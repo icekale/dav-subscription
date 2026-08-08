@@ -20,6 +20,7 @@ class TelegramBot:
         self.secret = secret
         self.offset = 0
         self.client = httpx.Client(timeout=35, proxy=proxy or None)
+        self._last_search: dict[str, str] = {}  # chat_id -> 最近一次 /search 关键词（用于按钮回调后重渲染）
         self.core = SubscriptionBot(
             db,
             lambda identity_type, identity, text, **kwargs: self._send(identity, text, **kwargs),
@@ -40,50 +41,90 @@ class TelegramBot:
             raise RuntimeError(f"Telegram API 错误: {data.get('description')}")
         return data["result"]
 
-    def _send(self, chat_id, text: str, kind: str | None = None, page: int | None = None, pages: int | None = None) -> None:
+    def _send(self, chat_id, text: str, kind: str | None = None, page: int | None = None, pages: int | None = None, search: str | None = None) -> None:
         params = {"chat_id": chat_id, "text": text, "disable_web_page_preview": True}
         keyboard = None
         if kind == "start":
             keyboard = [[{"text": "📋 查看大V", "callback_data": "list:1"}]]
         elif kind == "list":
-            keyboard = []
-            if pages and pages > 1:
-                keyboard.append(
-                    [
-                        {"text": "◀️ 上一页", "callback_data": f"list:prev:{max(1, (page or 1) - 1)}"},
-                        {"text": "下一页 ▶️", "callback_data": f"list:next:{page or 1}"},
-                    ]
-                )
-            keyboard.append(
-                [
-                    {"text": "📋 我的订阅", "callback_data": "mysubs"},
-                    {"text": "❓ 帮助", "callback_data": "help"},
-                ]
-            )
+            keyboard = self._list_keyboard(page, pages)
+        elif kind == "search" and search:
+            self._last_search[str(chat_id)] = search
+            user = self.db.get_user_by_telegram(str(chat_id))
+            if user is not None:
+                _, matches = self.core.search_payload(user, search)
+                keyboard = self._search_keyboard(matches)
+        elif kind == "mysubs":
+            user = self.db.get_user_by_telegram(str(chat_id))
+            if user is not None:
+                keyboard = self._mysubs_keyboard(user)
         if keyboard:
-            params["reply_markup"] = json.dumps({"inline_keyboard": keyboard})
+            params["reply_markup"] = json.dumps({"inline_keyboard": keyboard}, ensure_ascii=False)
         self._call("sendMessage", **params)
 
-    def _edit(self, chat_id, message_id, text: str, page: int | None = None, pages: int | None = None) -> None:
-        params = {"chat_id": chat_id, "message_id": message_id, "text": text}
-        keyboard = None
-        if page is not None and pages is not None:
-            keyboard = []
-            if pages > 1:
-                keyboard.append(
-                    [
-                        {"text": "◀️ 上一页", "callback_data": f"list:prev:{max(1, page - 1)}"},
-                        {"text": "下一页 ▶️", "callback_data": f"list:next:{page}"},
-                    ]
-                )
+    def _list_keyboard(self, page: int | None, pages: int | None) -> list[list[dict]]:
+        keyboard = []
+        if pages and pages > 1:
             keyboard.append(
                 [
-                    {"text": "📋 我的订阅", "callback_data": "mysubs"},
-                    {"text": "❓ 帮助", "callback_data": "help"},
+                    {"text": "◀️ 上一页", "callback_data": f"list:prev:{max(1, (page or 1) - 1)}"},
+                    {"text": "下一页 ▶️", "callback_data": f"list:next:{page or 1}"},
                 ]
             )
+        keyboard.append(
+            [
+                {"text": "📋 我的订阅", "callback_data": "mysubs"},
+                {"text": "❓ 帮助", "callback_data": "help"},
+            ]
+        )
+        return keyboard
+
+    def _search_keyboard(self, matches: list[dict]) -> list[list[dict]]:
+        """搜索结果键盘：每条大V一个订阅/退订按钮，末尾固定管理入口。"""
+        keyboard = []
+        for m in matches:
+            if m.get("subscribed"):
+                keyboard.append(
+                    [{"text": f"退订 {m['name']}", "callback_data": f"unsub:{m['id']}"}]
+                )
+            else:
+                keyboard.append(
+                    [{"text": f"➕ 订阅 {m['name']}", "callback_data": f"sub:{m['id']}"}]
+                )
+        keyboard.append(
+            [
+                {"text": "📋 我的订阅", "callback_data": "mysubs"},
+                {"text": "❓ 帮助", "callback_data": "help"},
+            ]
+        )
+        return keyboard
+
+    def _mysubs_keyboard(self, user: dict) -> list[list[dict]]:
+        """我的订阅键盘：每条「改类型 / 退订」，无订阅时引导去查看大V。"""
+        items = self.core.mysubs_items(user)
+        if not items:
+            return [[{"text": "📋 查看大V", "callback_data": "list:1"}]]
+        return [
+            [
+                {"text": f"📮 {it['type_label']}", "callback_data": f"mysubs:type:{it['kol_id']}"},
+                {"text": f"退订 {it['name']}", "callback_data": f"mysubs:unsub:{it['kol_id']}"},
+            ]
+            for it in items
+        ]
+
+    def _render_search(self, user: dict, keyword: str) -> tuple[str, list[list[dict]]]:
+        text, matches = self.core.search_payload(user, keyword)
+        return text, self._search_keyboard(matches)
+
+    def _render_mysubs(self, user: dict) -> tuple[str, list[list[dict]]]:
+        return self.core.mysubs_payload(user), self._mysubs_keyboard(user)
+
+    def _edit(self, chat_id, message_id, text: str, page: int | None = None, pages: int | None = None, keyboard: list[list[dict]] | None = None) -> None:
+        params = {"chat_id": chat_id, "message_id": message_id, "text": text}
+        if keyboard is None and page is not None and pages is not None:
+            keyboard = self._list_keyboard(page, pages)
         if keyboard:
-            params["reply_markup"] = json.dumps({"inline_keyboard": keyboard})
+            params["reply_markup"] = json.dumps({"inline_keyboard": keyboard}, ensure_ascii=False)
         self._call("editMessageText", **params)
 
     def _get_or_create_user(self, identity_type: str, identity: str, display_name: str) -> dict:
@@ -140,6 +181,48 @@ class TelegramBot:
                 self.db.remove_subscription(user["id"], kol_id)
                 self._edit(chat_id, message_id, f"已取消订阅「{kol['name']}」")
             return
+        if data.startswith("sub:"):
+            # /search 结果里的订阅按钮
+            try:
+                kol_id = int(data.split(":", 1)[1])
+            except ValueError:
+                kol_id = 0
+            kol = self.db.get_kol(kol_id)
+            if kol is not None:
+                self.db.add_subscription(user["id"], kol_id)
+                keyword = self._last_search.get(str(chat_id))
+                if keyword:
+                    text, keyboard = self._render_search(user, keyword)
+                    self._edit(chat_id, message_id, text, keyboard=keyboard)
+                else:
+                    self._edit(chat_id, message_id, f"已订阅「{kol['name']}」✅ 发 /list 或 /mysubs 管理订阅")
+            return
+        if data.startswith("mysubs:type:"):
+            # 我的订阅里切换订阅类型：post → reply → both → post
+            try:
+                kol_id = int(data.split(":", 2)[2])
+            except ValueError:
+                kol_id = 0
+            cycle = {"post": "reply", "reply": "both", "both": "post"}
+            items = {it["kol_id"]: it for it in self.core.mysubs_items(user)}
+            it = items.get(kol_id)
+            if it is not None:
+                new_type = cycle.get(it["type"], "post")
+                self.db.update_subscription_type(user["id"], kol_id, new_type)
+            text, keyboard = self._render_mysubs(user)
+            self._edit(chat_id, message_id, text, keyboard=keyboard)
+            return
+        if data.startswith("mysubs:unsub:"):
+            try:
+                kol_id = int(data.split(":", 2)[2])
+            except ValueError:
+                kol_id = 0
+            kol = self.db.get_kol(kol_id)
+            if kol is not None:
+                self.db.remove_subscription(user["id"], kol_id)
+            text, keyboard = self._render_mysubs(user)
+            self._edit(chat_id, message_id, text, keyboard=keyboard)
+            return
         if data.startswith("list:"):
             parts = data.split(":")
             if len(parts) == 3:
@@ -154,14 +237,34 @@ class TelegramBot:
             text, page, pages = self.core.list_payload(user, str(page))
             self._edit(chat_id, message_id, text, page=page, pages=pages)
         elif data == "mysubs":
-            self._edit(chat_id, message_id, self.core.mysubs_payload(user))
+            text, keyboard = self._render_mysubs(user)
+            self._edit(chat_id, message_id, text, keyboard=keyboard)
         elif data == "help":
             from .bot_core import HELP_TEXT
 
             self._edit(chat_id, message_id, HELP_TEXT)
 
+    def _set_commands(self) -> None:
+        """注册命令菜单，用户输入框里直接看到可用命令。"""
+        commands = [
+            {"command": "list", "description": "查看可订阅的大V"},
+            {"command": "search", "description": "搜索大V，如 /search 茅台"},
+            {"command": "sub", "description": "订阅大V，如 /sub 1 both"},
+            {"command": "unsub", "description": "取消订阅，如 /unsub 1"},
+            {"command": "mysubs", "description": "我的订阅（退订/改类型）"},
+            {"command": "ask", "description": "申请添加大V"},
+            {"command": "bind", "description": "绑定网页/小程序账号"},
+            {"command": "help", "description": "帮助"},
+        ]
+        self._call("setMyCommands", commands=json.dumps(commands))
+
     async def run(self):
         logger.info("Telegram bot 长轮询已启动")
+        try:
+            await asyncio.to_thread(self._set_commands)
+            logger.info("Telegram 命令菜单已注册")
+        except Exception as exc:  # noqa: BLE001 - 菜单注册失败不影响轮询
+            logger.warning("setMyCommands 失败: %s", exc)
         while True:
             try:
                 updates = await asyncio.to_thread(

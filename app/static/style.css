@@ -655,7 +655,10 @@ textarea.form-control {
 .tl-filter-panel { display: none; margin-top: 12px; padding-top: 12px; border-top: var(--border-default); flex-direction: column; gap: 10px; }
 .tl-filterbar.open .tl-filter-panel { display: flex; }
 .tl-filter-panel .form-control { margin: 0; width: 100%; }
+.tl-filter-row { display: flex; gap: 10px; }
+.tl-filter-row .form-control { flex: 1; min-width: 0; }
 .tl-filter-actions { display: flex; gap: 10px; justify-content: flex-end; }
+.tag-vocab-preview { display: flex; flex-wrap: wrap; gap: 8px; }
 .post-item .p-name-line .p-platform {
   display: inline-flex;
   align-items: center;

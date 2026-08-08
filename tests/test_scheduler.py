@@ -21,6 +21,7 @@ from app.scheduler import (
     keepalive_weibo_cookie,
     keepalive_xueqiu_cookie,
     maybe_alert_x_fallback,
+    notify_digest_subscribers,
     notify_subscribers,
     parse_twitter_cookie,
     poll_once,
@@ -1608,6 +1609,77 @@ def test_twitter_content_translated_once_for_new_posts(monkeypatch):
     assert db.list_posts(limit=10)[0]["title"] == "Stay hungry"
 
 
+def test_new_posts_tagged_by_llm_on_ingest(monkeypatch):
+    """配了 llm_config 时，新帖入库前调 tag_posts 并把标签写库。"""
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    post = make_post(kid)
+    post2 = make_post(kid)
+    post2.external_id = "p2"
+    fake_tag = lambda posts, vocab, cfg, client=None: {0: ["宏观"], 1: ["科技"]}  # noqa: E731
+    monkeypatch.setattr("app.llm.tag_posts", fake_tag)
+    llm_cfg = SimpleNamespace(api_base="https://api.deepseek.com", api_key="sk-test", model="deepseek-chat")
+    poll_once(db, {"xueqiu": FakeFetcher([post, post2])}, [FakeNotifier()], interval_seconds=0, llm_config=llm_cfg)
+    rows = db.list_posts(limit=5)
+    assert rows[1]["tags"] == ["宏观"]
+    assert rows[0]["tags"] == ["科技"]
+
+
+def test_new_posts_not_tagged_without_llm_config(monkeypatch):
+    """未配 llm_config（或 key 为空）时不做打标，原样入库。"""
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    calls = {"n": 0}
+
+    def fake_tag(posts, vocab, cfg, client=None):
+        calls["n"] += 1
+        return {}
+
+    monkeypatch.setattr("app.llm.tag_posts", fake_tag)
+    poll_once(db, {"xueqiu": FakeFetcher([make_post(kid)])}, [FakeNotifier()], interval_seconds=0)
+    assert calls["n"] == 0
+    # key 为空等同未配置
+    poll_once(db, {"xueqiu": FakeFetcher([make_post(kid)])}, [FakeNotifier()], interval_seconds=0,
+              llm_config=SimpleNamespace(api_key=""))
+    assert calls["n"] == 0
+    rows = db.list_posts(limit=5)
+    assert rows and all(r["tags"] == [] for r in rows)
+
+
+def test_tagging_failure_does_not_block_ingest(monkeypatch):
+    """打标抛异常时贴文仍入库（静默降级）。"""
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+
+    def boom(posts, vocab, cfg, client=None):
+        raise RuntimeError("llm down")
+
+    monkeypatch.setattr("app.llm.tag_posts", boom)
+    llm_cfg = SimpleNamespace(api_key="sk-test")
+    poll_once(db, {"xueqiu": FakeFetcher([make_post(kid)])}, [FakeNotifier()], interval_seconds=0, llm_config=llm_cfg)
+    rows = db.list_posts(limit=5)
+    assert rows and rows[0]["tags"] == []
+
+
+def test_existing_posts_not_retagged(monkeypatch):
+    """第二轮回抓时帖子已存在，不再调用打标。"""
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    post = make_post(kid)
+    calls = {"n": 0}
+
+    def fake_tag(posts, vocab, cfg, client=None):
+        calls["n"] += 1
+        return {0: ["宏观"]}
+
+    monkeypatch.setattr("app.llm.tag_posts", fake_tag)
+    llm_cfg = SimpleNamespace(api_key="sk-test")
+    poll_once(db, {"xueqiu": FakeFetcher([post])}, [FakeNotifier()], interval_seconds=0, llm_config=llm_cfg)
+    assert calls["n"] == 1
+    poll_once(db, {"xueqiu": FakeFetcher([post])}, [FakeNotifier()], interval_seconds=0, llm_config=llm_cfg)
+    assert calls["n"] == 1
+
+
 def test_translate_text_google_first():
     def handler(request):
         return httpx.Response(
@@ -2593,3 +2665,90 @@ def test_notify_subscribers_bark_skipped_without_key(monkeypatch):
     notify_subscribers(db, 1, make_post(kid), ncfg, notifiers=[], retry_queue=None)
     assert called["n"] == 0
     assert db.list_push_logs() == []
+
+
+def test_digest_pushes_to_bark_user(monkeypatch):
+    """只绑定 Bark 的用户也应收到合并摘要并记录推送日志（此前缺口）。"""
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    uid = db.add_user("barker", "h")
+    db.update_user(uid, bark_key="AaBbCcDdEeFf1234567890")
+    db.add_subscription(uid, kid)
+    posts = [make_post(kid), make_post(kid)]
+    posts[1].external_id = "p2"
+    for p in posts:
+        db.insert_post(p.platform, kid, p.external_id, p.title, p.content, p.url, p.published_at)
+
+    received = {"kwargs": None, "digests": []}
+
+    class FakeBark:
+        channel = "bark"
+
+        def __init__(self, *args, **kwargs):
+            received["kwargs"] = kwargs
+            self.client = SimpleNamespace(close=lambda: None)
+
+        def send_text(self, text):
+            pass
+
+        def send_digest(self, posts, kol_name, platform):
+            received["digests"].append((len(posts), kol_name))
+
+    monkeypatch.setattr("app.notifiers.bark.BarkNotifier", FakeBark)
+    ncfg = SimpleNamespace(
+        telegram=SimpleNamespace(bot_token="", chat_id=""),
+        feishu=SimpleNamespace(),
+        wecom=SimpleNamespace(),
+        bark=SimpleNamespace(bark_server="", bark_key=""),
+    )
+    notify_digest_subscribers(db, posts, db.get_kol(kid), ncfg, notifiers=[])
+    assert received["kwargs"].get("bark_key") == "AaBbCcDdEeFf1234567890"
+    assert received["digests"] == [(2, "A")]
+    logs = db.list_push_logs(channel="bark")
+    assert len(logs) == 2
+    assert all(l["status"] == "success" for l in logs)
+
+
+def test_digest_bark_failure_enters_retry_queue(monkeypatch):
+    """Bark 摘要推送失败：写失败日志 + 进重试队列 + 告警管理员。"""
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    uid = db.add_user("barker", "h")
+    db.update_user(uid, bark_key="AaBbCcDdEeFf1234567890")
+    db.add_subscription(uid, kid)
+    post = make_post(kid)
+    db.insert_post(post.platform, kid, post.external_id, post.title, post.content, post.url, post.published_at)
+    retry_queue = SimpleNamespace(add=lambda post, channel, uid: retry_queue.calls.append((channel, uid)))
+    retry_queue.calls = []
+
+    class FakeBark:
+        channel = "bark"
+
+        def __init__(self, *args, **kwargs):
+            self.client = SimpleNamespace(close=lambda: None)
+
+        def send_digest(self, posts, kol_name, platform):
+            raise RuntimeError("boom")
+
+    monkeypatch.setattr("app.notifiers.bark.BarkNotifier", FakeBark)
+    ncfg = SimpleNamespace(
+        telegram=SimpleNamespace(bot_token="", chat_id=""),
+        feishu=SimpleNamespace(),
+        wecom=SimpleNamespace(),
+        bark=SimpleNamespace(bark_server="", bark_key=""),
+    )
+    alerts = []
+
+    class FakeNotifier:
+        channel = "telegram"
+
+        def send_text(self, text):
+            alerts.append(text)
+
+    notify_digest_subscribers(
+        db, [post], db.get_kol(kid), ncfg, notifiers=[FakeNotifier()], retry_queue=retry_queue
+    )
+    assert retry_queue.calls == [("bark", uid)]
+    logs = db.list_push_logs(channel="bark")
+    assert len(logs) == 1 and logs[0]["status"] == "failed"
+    assert any("用户推送失败" in a and "channel=bark" in a for a in alerts)

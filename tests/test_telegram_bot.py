@@ -184,3 +184,84 @@ def test_bot_list_next_page():
     edit_call = calls[-1]
     assert edit_call[0] == "editMessageText"
     assert "第 2/2 页" in edit_call[1]["text"]
+
+
+def test_bot_search_keyboard_and_sub_button():
+    db = DB(Path(tempfile.mkdtemp()) / "bot.db")
+    kid = db.add_kol("xueqiu", "茅台一哥", "111")
+    bot = TelegramBot(db, "test_token", "secret")
+    calls = []
+    bot._call = lambda method, **params: calls.append((method, params))
+    bot.handle_update(update(111, "/search 茅台"))
+    method, params = calls[-1]
+    assert method == "sendMessage"
+    assert "茅台一哥" in params["text"]
+    kb = json.loads(params["reply_markup"])
+    assert kb["inline_keyboard"][0][0]["callback_data"] == f"sub:{kid}"
+
+    # 点击「➕ 订阅」按钮：订阅并重渲染（按钮变退订）
+    bot.handle_update(
+        {
+            "callback_query": {
+                "id": "cq1",
+                "from": {"username": "icekale"},
+                "data": f"sub:{kid}",
+                "message": {"chat": {"id": 111}, "message_id": 9},
+            }
+        }
+    )
+    edit_call = calls[-1]
+    assert edit_call[0] == "editMessageText"
+    kb = json.loads(edit_call[1]["reply_markup"])
+    assert kb["inline_keyboard"][0][0]["callback_data"] == f"unsub:{kid}"
+    user = db.get_user_by_telegram("111")
+    assert db.subscribed_kol_ids(user["id"]) == {kid}
+
+
+def test_bot_mysubs_type_cycle_and_unsub_buttons():
+    db = DB(Path(tempfile.mkdtemp()) / "bot.db")
+    kid = db.add_kol("xueqiu", "茅台一哥", "111")
+    bot = TelegramBot(db, "test_token", "secret")
+    calls = []
+    bot._call = lambda method, **params: calls.append((method, params))
+    bot.handle_update(update(111, "/sub 111"))
+    bot.handle_update(update(111, "/mysubs"))
+    method, params = calls[-1]
+    assert method == "sendMessage"
+    kb = json.loads(params["reply_markup"])
+    # 订阅条目：改类型 + 退订两个按钮
+    assert kb["inline_keyboard"][0][0]["callback_data"] == f"mysubs:type:{kid}"
+    assert kb["inline_keyboard"][0][1]["callback_data"] == f"mysubs:unsub:{kid}"
+
+    # 点击「📮 帖子」→ 类型切到 reply，重渲染后按钮文案变化
+    bot.handle_update(
+        {
+            "callback_query": {
+                "id": "cq2",
+                "from": {"username": "icekale"},
+                "data": f"mysubs:type:{kid}",
+                "message": {"chat": {"id": 111}, "message_id": 9},
+            }
+        }
+    )
+    edit_call = calls[-1]
+    assert edit_call[0] == "editMessageText"
+    user = db.get_user_by_telegram("111")
+    subs = db.list_subscriptions(user["id"])
+    assert subs[0]["subscribe_type"] == "reply"
+
+    # 点击「退订」→ 订阅被删除，重渲染后按钮只剩「查看大V」
+    bot.handle_update(
+        {
+            "callback_query": {
+                "id": "cq3",
+                "from": {"username": "icekale"},
+                "data": f"mysubs:unsub:{kid}",
+                "message": {"chat": {"id": 111}, "message_id": 9},
+            }
+        }
+    )
+    edit_call = calls[-1]
+    assert db.subscribed_kol_ids(user["id"]) == set()
+    kb = json.loads(edit_call[1]["reply_markup"])
+    assert kb["inline_keyboard"][0][0]["callback_data"] == "list:1"

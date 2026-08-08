@@ -1,11 +1,11 @@
-"""可选 LLM 摘要：未配置/失败降级为 None，成功返回文本。"""
+"""可选 LLM 摘要与打标：未配置/失败降级，成功返回文本/标签映射。"""
 import json
 from types import SimpleNamespace
 
 import httpx
 
 from app.fetchers.base import Post
-from app.llm import summarize_posts
+from app.llm import TAG_CHUNK_SIZE, summarize_posts, tag_posts
 
 
 def make_post(content="正文内容", external_id="p1", title="标题") -> Post:
@@ -184,3 +184,157 @@ def test_max_tokens_scales_with_post_count():
     assert captured["max_tokens"] == 2000
     summarize_posts([make_post(external_id=f"p{i}") for i in range(30)], make_config(), client=client)
     assert captured["max_tokens"] == 3800  # 200 + 120*30
+
+
+# ---- 贴文打标 ----
+
+VOCAB = ["宏观", "大盘", "科技", "政策", "生活"]
+
+
+def tag_posts_config(api_key="sk-test", api_base="https://api.openai.com/v1", model="gpt-4o-mini"):
+    return SimpleNamespace(api_key=api_key, api_base=api_base, model=model)
+
+
+def _tag_handler(content):
+    def handler(request):
+        return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
+
+    return handler
+
+
+def test_tag_posts_no_config_returns_empty():
+    assert tag_posts([make_post()], VOCAB, None) == {}
+    assert tag_posts([make_post()], VOCAB, SimpleNamespace(api_key="")) == {}
+    assert tag_posts([make_post()], [], tag_posts_config()) == {}
+
+
+def test_tag_posts_success_mapping():
+    def handler(request):
+        payload = json.loads(request.read())
+        assert payload["model"] == "gpt-4o-mini"
+        assert payload["temperature"] == 0
+        # 提示词包含完整词表
+        assert "宏观" in payload["messages"][1]["content"]
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {"message": {"content": '{"1": ["宏观", "政策"], "2": [], "3": ["科技"]}'}}
+                ]
+            },
+        )
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    posts = [make_post(external_id=f"p{i}") for i in range(3)]
+    result = tag_posts(posts, VOCAB, tag_posts_config(), client=client)
+    assert result[0] == ["宏观", "政策"]
+    assert result[1] == []
+    assert result[2] == ["科技"]
+
+
+def test_tag_posts_discards_unknown_and_dedupes():
+    def handler(request):
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {"message": {"content": '{"1": ["宏观", "不存在的标签", "宏观", "政策", "生活"]}'}}
+                ]
+            },
+        )
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    result = tag_posts([make_post()], VOCAB, tag_posts_config(), client=client)
+    # 未知标签被丢弃、重复去重、最多 3 个
+    assert result[0] == ["宏观", "政策", "生活"]
+
+
+def test_tag_posts_tolerates_markdown_fence():
+    def handler(request):
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {"message": {"content": '```json\n{"1": ["大盘"]}\n```'}}
+                ]
+            },
+        )
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    result = tag_posts([make_post()], VOCAB, tag_posts_config(), client=client)
+    assert result[0] == ["大盘"]
+
+
+def test_tag_posts_unparsable_returns_empty():
+    def handler(request):
+        return httpx.Response(200, json={"choices": [{"message": {"content": "抱歉，我无法处理"}}]})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    assert tag_posts([make_post()], VOCAB, tag_posts_config(), client=client) == {}
+
+
+def test_tag_posts_empty_choices_returns_empty():
+    def handler(request):
+        return httpx.Response(200, json={"choices": []})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    assert tag_posts([make_post()], VOCAB, tag_posts_config(), client=client) == {}
+
+
+def test_tag_posts_http_error_returns_empty():
+    def handler(request):
+        return httpx.Response(500, json={})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    assert tag_posts([make_post()], VOCAB, tag_posts_config(), client=client) == {}
+
+
+def test_tag_posts_retry_transient_then_success():
+    calls = {"n": 0}
+
+    def handler(request):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return httpx.Response(500, json={})
+        return httpx.Response(200, json={"choices": [{"message": {"content": '{"1": ["科技"]}'}}]})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    result = tag_posts([make_post()], VOCAB, tag_posts_config(), client=client)
+    assert result[0] == ["科技"]
+    assert calls["n"] == 2
+
+
+def test_tag_posts_no_retry_on_auth_error():
+    calls = {"n": 0}
+
+    def handler(request):
+        calls["n"] += 1
+        return httpx.Response(401, json={"error": "invalid key"})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    assert tag_posts([make_post()], VOCAB, tag_posts_config(), client=client) == {}
+    assert calls["n"] == 1
+
+
+def test_tag_posts_chunks_over_limit():
+    captured = []
+
+    def handler(request):
+        payload = json.loads(request.read())
+        # 帖子行以「序号. 」开头，候选标签/提示行不是；按帖子行数推断本块帖子数
+        lines = payload["messages"][1]["content"].splitlines()
+        captured.append(len([l for l in lines if l[0].isdigit()]))
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": '{"1": ["科技"]}'}}]},
+        )
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    posts = [make_post(external_id=f"p{i}") for i in range(TAG_CHUNK_SIZE + 5)]
+    result = tag_posts(posts, VOCAB, tag_posts_config(), client=client)
+    assert len(captured) == 2
+    assert captured[0] == TAG_CHUNK_SIZE
+    assert captured[1] == 5
+    # 两块请求各自映射回原下标
+    assert result[0] == ["科技"]
+    assert result[TAG_CHUNK_SIZE] == ["科技"]

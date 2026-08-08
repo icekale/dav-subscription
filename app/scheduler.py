@@ -660,6 +660,7 @@ def poll_once(
                     client,
                     dnd_buffer,
                     round_stats,
+                    llm_config,
                 )
 
         with ThreadPoolExecutor(max_workers=min(8, len(jobs))) as ex:
@@ -717,6 +718,7 @@ def _fetch_kol_once(
     client=None,
     dnd_buffer: dict[int, list[Post]] | None = None,
     round_stats: dict[str, dict] | None = None,
+    llm_config=None,
 ) -> None:
     """并发 worker：抓取单个大V并处理新帖（状态读写加锁保护）。"""
     effective = priority_interval_seconds if kol.get("priority") else interval_seconds
@@ -796,6 +798,22 @@ def _fetch_kol_once(
                     post.content = translate_text(post.content or "")
             except Exception as exc:  # noqa: BLE001 - 翻译失败退回原文
                 logger.warning("X 内容翻译失败 post=%s err=%s", post.external_id, exc)
+    # LLM 打标：仅对新帖（与翻译同判据），未配置或失败时静默跳过，不影响入库
+    if llm_config is not None and getattr(llm_config, "api_key", ""):
+        try:
+            from .llm import tag_posts
+
+            fresh = [p for p in posts if db.get_post_id(p.platform, p.external_id) is None]
+            if fresh:
+                vocabulary = db.get_tag_vocabulary()
+                tagged = tag_posts(fresh, vocabulary, llm_config)
+                for i, post in enumerate(fresh):
+                    if i in tagged:
+                        post.tags = tagged[i]
+        except Exception as exc:  # noqa: BLE001 - 打标失败不影响抓取/推送
+            logger.warning(
+                "LLM 打标失败 platform=%s kol=%s err=%s", kol["platform"], kol["name"], exc
+            )
     # 批量入库（一个事务），再逐条推送
     post_ids = db.insert_posts_batch(posts)
     for post, post_id in zip(posts, post_ids):
@@ -846,6 +864,7 @@ def notify_digest_subscribers(
         return
     import httpx
 
+    from .notifiers.bark import BarkNotifier
     from .notifiers.feishu import FeishuNotifier
     from .notifiers.telegram import TelegramNotifier
     from .notifiers.wecom import WeComNotifier
@@ -989,6 +1008,42 @@ def notify_digest_subscribers(
                         db.add_push_log(
                             db.get_post_id(post.platform, post.external_id),
                             "wecom",
+                            "failed",
+                            str(exc),
+                            user_id=user["id"],
+                        )
+            if user.get("bark_key") and _channel_enabled(user, "bark"):
+                notifier = BarkNotifier(
+                    getattr(notifiers_config, "bark", None) if notifiers_config is not None else None,
+                    client=client,
+                    bark_key=user["bark_key"],
+                    favorite=favorite,
+                )
+                try:
+                    if summary:
+                        notifier.send_text(f"📊 AI 摘要\n\n{summary}")
+                    notifier.send_digest(matched, kol["name"], kol["platform"])
+                    for post in matched:
+                        db.add_push_log(
+                            db.get_post_id(post.platform, post.external_id),
+                            "bark",
+                            "success",
+                            user_id=user["id"],
+                        )
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("摘要推送失败 user=%s channel=bark err=%s", user["username"], exc)
+                    maybe_alert_push_failure(
+                        db,
+                        notifiers or [],
+                        f"user={user['username']} channel=bark digest err={exc}",
+                    )
+                    if retry_queue is not None:
+                        for post in matched:
+                            retry_queue.add(post, "bark", user["id"])
+                    for post in matched:
+                        db.add_push_log(
+                            db.get_post_id(post.platform, post.external_id),
+                            "bark",
                             "failed",
                             str(exc),
                             user_id=user["id"],

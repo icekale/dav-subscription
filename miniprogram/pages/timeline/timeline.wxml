@@ -26,6 +26,9 @@
         <view class="post-meta">
           <text wx:if="{{item.post_type === 'reply'}}" class="tag">回复</text>
           <text wx:if="{{item.category_name}}" class="tag">{{item.category_name}}</text>
+          <block wx:for="{{item.tags}}" wx:for-item="tag" wx:key="*this">
+            <text class="tag">{{tag}}</text>
+          </block>
           <text style="margin-left:12rpx">{{item.platform_label}}</text>
           <text class="post-link" data-url="{{item.url}}" bindtap="copyLink">查看原文 →</text>
         </view>

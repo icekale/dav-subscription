@@ -8,11 +8,12 @@ from math import ceil
 HELP_TEXT = (
     "📌 大V订阅机器人\n"
     "/list — 查看可订阅的大V（/list 2 翻页）\n"
+    "/search 关键词 — 按名字/UID 搜索大V（结果带订阅按钮）\n"
     "/sub 1 / 雪球/微博主页链接 / UID — 订阅大V\n"
     "　可选：/sub 1 reply（只订回复）/ /sub 1 both（帖子+回复）\n"
     "/unsub 1 / 雪球/微博主页链接 / UID — 取消订阅\n"
     "/ask 主页链接/UID — 申请添加大V，管理员审批\n"
-    "/mysubs — 我的订阅\n"
+    "/mysubs — 我的订阅（带退订/改类型按钮）\n"
     "/bind 6位绑定码 — 绑定网页/小程序账号\n"
     "📌 飞书用户请在本机器人的「私聊」会话使用，群聊不会推送新帖\n"
     "/help — 帮助"
@@ -32,6 +33,7 @@ WELCOME_TEXT = (
 
 BIND_CODE_TTL = 600
 LIST_PAGE_SIZE = 20
+SEARCH_MAX = 10
 SUB_TYPE_LABELS = {"post": "帖子", "reply": "回复", "both": "帖子+回复"}
 PLATFORM_LABELS = {"xueqiu": "雪球", "combination": "雪球组合", "weibo": "微博", "twitter": "X"}
 
@@ -103,6 +105,8 @@ class SubscriptionBot:
             self._unsub(user, reply_type or identity_type, reply_id or identity, arg)
         elif cmd == "/mysubs":
             self._mysubs(user, reply_type or identity_type, reply_id or identity)
+        elif cmd == "/search":
+            self._search(user, reply_type or identity_type, reply_id or identity, arg)
         elif cmd == "/ask":
             self._ask(user, reply_type or identity_type, reply_id or identity, arg)
         else:
@@ -216,7 +220,7 @@ class SubscriptionBot:
         self.send(identity_type, identity, "已提交申请 ✅ 管理员审批通过后即可在 /list 中订阅")
 
     def _mysubs(self, user, identity_type: str, identity: str) -> None:
-        self.send(identity_type, identity, self.mysubs_payload(user))
+        self.send(identity_type, identity, self.mysubs_payload(user), kind="mysubs")
 
     def mysubs_payload(self, user: dict) -> str:
         subs = self.db.list_subscriptions(user["id"])
@@ -228,6 +232,66 @@ class SubscriptionBot:
             )
             return "\n".join(lines)
         return "还没有订阅任何大V，试试 /list"
+
+    def mysubs_items(self, user: dict) -> list[dict]:
+        """我的订阅条目（含订阅类型），供渠道层渲染退订/改类型按钮。"""
+        return [
+            {
+                "kol_id": s["id"],
+                "name": s["name"],
+                "type": s.get("subscribe_type") or "post",
+                "type_label": SUB_TYPE_LABELS.get(s.get("subscribe_type") or "post", "帖子"),
+            }
+            for s in self.db.list_subscriptions(user["id"])
+        ]
+
+    def _search(self, user, identity_type: str, identity: str, arg: str) -> None:
+        arg = arg.strip()
+        if not arg:
+            self.send(identity_type, identity, "用法：/search 关键词，如 /search 茅台")
+            return
+        text, _ = self.search_payload(user, arg)
+        self.send(identity_type, identity, text, kind="search", search=arg)
+
+    def search_payload(self, user: dict, keyword: str) -> tuple[str, list[dict]]:
+        """按关键词搜索大V（名字/UID/平台），返回 (文案, 匹配列表)。
+
+        匹配项含 subscribed 标志，渠道层据此渲染订阅/退订按钮；飞书等纯文本
+        渠道直接用文案即可。
+        """
+        kw = (keyword or "").strip().lower()
+        if not kw:
+            return "用法：/search 关键词，如 /search 茅台", []
+        kols = self.db.list_kols()
+        if not user.get("is_admin"):
+            visible = self.db.visible_kol_ids(user["id"])
+            kols = [k for k in kols if k["id"] in visible]
+        subscribed = self.db.subscribed_kol_ids(user["id"])
+        matches = [
+            {
+                "id": k["id"],
+                "name": k["name"],
+                "platform": PLATFORM_LABELS.get(k["platform"], k["platform"]),
+                "priority": bool(k.get("priority")),
+                "subscribed": k["id"] in subscribed,
+            }
+            for k in kols
+            if kw in (k["name"] or "").lower()
+            or kw in (k.get("external_id") or "").lower()
+            or kw in PLATFORM_LABELS.get(k["platform"], "").lower()
+        ]
+        if not matches:
+            return f"没有找到与「{keyword.strip()}」相关的大V，试试 /list", []
+        lines = [f"🔍 与「{keyword.strip()}」相关的大V："]
+        lines.extend(
+            f"{'✅' if m['subscribed'] else '➕'} {m['id']}. {m['name']}（{m['platform']}）"
+            f"{'🔥' if m['priority'] else ''}"
+            for m in matches[:SEARCH_MAX]
+        )
+        if len(matches) > SEARCH_MAX:
+            lines.append(f"…共 {len(matches)} 个，只显示前 {SEARCH_MAX} 个")
+        lines.append("点下方按钮订阅，或 /sub ID")
+        return "\n".join(lines), matches[:SEARCH_MAX]
 
     def _resolve_kol(self, user: dict, arg: str):
         arg = arg.strip()

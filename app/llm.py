@@ -1,13 +1,15 @@
-"""可选 LLM 摘要：把一批动态用 OpenAI 兼容接口生成中文要点。
+"""可选 LLM 摘要与打标：把一批动态用 OpenAI 兼容接口生成中文要点 / 话题标签。
 
 设计要点：
 - 默认关闭：未配置 LLM_API_KEY（或 config.llm.api_key）时不生效，推送管线零变化；
-- 失败静默降级：任何异常只记日志并返回 None，调用方回退原列表式汇总；
+- 失败静默降级：任何异常只记日志并返回 None（摘要）/ {}（标签），调用方回退原逻辑；
 - 只传帖文标题/大V/平台/摘要，不传用户隐私字段。
 """
 from __future__ import annotations
 
+import json
 import logging
+import re
 import time
 
 logger = logging.getLogger(__name__)
@@ -124,4 +126,163 @@ def summarize_posts(posts, llm_config=None, client=None, cache=None) -> str | No
         return None
     finally:
         if owns_client:
+            client.close()
+
+
+# ---- 贴文话题打标 ----
+
+# 单次请求最多贴文数：超出分块多次调用，控制单条输入长度与超时风险
+TAG_CHUNK_SIZE = 25
+# 词表上限：词表过大既稀释标签区分度，也会增加模型漏选概率
+TAG_VOCABULARY_MAX = 30
+# 每条贴文最多标签数
+TAG_PER_POST_MAX = 3
+
+
+TAG_SYSTEM_PROMPT = (
+    "你是财经社区内容编辑，负责给社交平台的动态打话题标签。"
+    "规则：只从给定的候选标签里选，不要自造标签；"
+    "每条最多 3 个，没有合适的就留空数组；只根据内容主题打标，不要臆测。"
+    "输出 JSON 对象，键是序号（字符串），值是标签数组，例如 "
+    '{"1": ["宏观", "政策"], "2": []}。除 JSON 外不要输出任何其他内容。'
+)
+
+
+def _tag_lines(posts) -> str:
+    """把一批贴文转成「序号. [平台] KOL：标题 ｜ 正文」的行，供 LLM 打标。"""
+    from .fetchers.base import digest_body
+
+    lines = []
+    for idx, post in enumerate(posts, start=1):
+        platform = getattr(post, "platform", "") or ""
+        kol = getattr(post, "kol_name", "") or ""
+        title = (getattr(post, "title", "") or "").strip()
+        body = digest_body(post, full=False, max_chars=300)
+        text = f"{title} ｜ {body}" if title and title not in body else body
+        lines.append(f"{idx}. [{platform}] {kol}：{text}")
+    return "\n".join(lines)
+
+
+def _parse_tag_response(text: str, vocabulary: list[str]) -> dict[str, list[str]]:
+    """宽松解析打标 JSON：容忍 markdown fence 与前后缀，丢弃词表外的标签。
+
+    不用 response_format=json_object 是为了兼容 Ollama/vLLM 等任意 OpenAI
+    兼容服务（与摘要/翻译一致），因此解析必须足够宽容。
+    """
+    vocab = set(vocabulary)
+    if not text:
+        return {}
+    match = re.search(r"\{.*\}", text, re.DOTALL)
+    if not match:
+        logger.warning("LLM 打标响应无 JSON 块: %.100s", text)
+        return {}
+    try:
+        data = json.loads(match.group(0))
+    except ValueError:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    result: dict[str, list[str]] = {}
+    for key, val in data.items():
+        if isinstance(val, list):
+            picked = []
+            for tag in val:
+                tag = str(tag).strip()
+                if tag in vocab and tag not in picked and len(picked) < TAG_PER_POST_MAX:
+                    picked.append(tag)
+            result[str(key)] = picked
+    return result
+
+
+def tag_posts(posts, vocabulary: list[str], llm_config=None, client=None) -> dict[int, list[str]]:
+    """给一批贴文打话题标签，返回「输入列表下标 → 标签列表」。
+
+    未配置、配置无效或任何失败都返回 {}（调用方按无标签处理），绝不抛异常；
+    标签严格限定在 vocabulary 内，保证词表可控、不碎片化。
+    """
+    api_key = getattr(llm_config, "api_key", "") if llm_config else ""
+    if not api_key or not vocabulary:
+        return {}
+    api_base = (getattr(llm_config, "api_base", "") or "https://api.openai.com/v1").rstrip("/")
+    model = getattr(llm_config, "model", "") or "gpt-4o-mini"
+
+    result: dict[int, list[str]] = {}
+    try:
+        for start in range(0, len(posts), TAG_CHUNK_SIZE):
+            chunk = posts[start : start + TAG_CHUNK_SIZE]
+            chunk_result = _tag_chunk(
+                chunk, vocabulary, api_base, api_key, model, client
+            )
+            for local_idx, tags in chunk_result.items():
+                result[start + local_idx] = tags
+    except Exception as exc:  # noqa: BLE001 - 打标失败不影响抓取/推送
+        logger.warning("LLM 打标失败，本轮贴文不带标签: %s", exc)
+        return {}
+    return result
+
+
+def _tag_chunk(posts, vocabulary, api_base, api_key, model, client=None) -> dict[int, list[str]]:
+    """对一批贴文（≤ TAG_CHUNK_SIZE 条）发起一次打标请求，返回下标映射。"""
+    import httpx
+
+    owns_client = client is None
+    client = client or httpx.Client(timeout=60)
+    try:
+        last_err: Exception | None = None
+        for attempt in range(2):
+            try:
+                resp = client.post(
+                    f"{api_base}/chat/completions",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    json={
+                        "model": model,
+                        "messages": [
+                            {"role": "system", "content": TAG_SYSTEM_PROMPT},
+                            {
+                                "role": "user",
+                                "content": (
+                                    f"候选标签（只能从中选择）：{json.dumps(vocabulary, ensure_ascii=False)}\n"
+                                    f"共 {len(posts)} 条动态，为每条选 0~3 个标签，输出 JSON：\n"
+                                    f"{_tag_lines(posts)}"
+                                ),
+                            },
+                        ],
+                        "temperature": 0,
+                        # 推理模型 max_tokens 含思考预算，托底 2000（与摘要一致）
+                        "max_tokens": min(4000, max(2000, 100 + 60 * len(posts))),
+                    },
+                )
+                if resp.status_code == 429 or resp.status_code >= 500:
+                    raise _RetryableError(f"LLM HTTP {resp.status_code}")
+                resp.raise_for_status()
+                data = resp.json()
+                text = (
+                    (data.get("choices") or [{}])[0]
+                    .get("message", {})
+                    .get("content", "")
+                    .strip()
+                )
+                usage = (data.get("usage") or {}).get("total_tokens") or 0
+                mapping = _parse_tag_response(text, vocabulary)
+                if not mapping and text:
+                    raise _RetryableError("LLM 打标返回无法解析")
+                if not mapping:
+                    # 空文本/空 choices：按无结果处理，不产出「全空标签」映射
+                    logger.warning("LLM 打标空响应 posts=%d", len(posts))
+                    return {}
+                logger.info("LLM 打标完成 posts=%d tags=%d tokens=%d", len(posts), len(mapping), usage)
+                if owns_client:
+                    client.close()
+                return {i: mapping.get(str(i + 1), []) for i in range(len(posts))}
+            except httpx.HTTPStatusError as exc:
+                last_err = exc  # 4xx（鉴权/参数错误）重试无意义
+                break
+            except (httpx.TransportError, _RetryableError) as exc:
+                last_err = exc
+            if attempt == 0:
+                time.sleep(2)
+        logger.warning("LLM 打标失败，本轮贴文不带标签: %s", last_err)
+        return {}
+    finally:
+        if owns_client and client is not None:
             client.close()

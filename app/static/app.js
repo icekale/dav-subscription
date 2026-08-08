@@ -35,6 +35,7 @@ const state = {
   timelineFavorite: false,
   timelinePlatform: "",
   timelineCategory: "",
+  timelineTag: "",
   timelineQ: "",
 };
 
@@ -116,6 +117,7 @@ const NAV = [
       { route: "admin/dashboard", icon: "▦", label: "看板" },
       { route: "admin/kols", icon: V_ICON, label: "大V管理" },
       { route: "admin/categories", icon: "▣", label: "分类管理" },
+      { route: "admin/tags", icon: "⌗", label: "标签管理" },
       { route: "admin/requests", icon: "✚", label: "求添加" },
     ]},
     { label: "数据与日志", items: [
@@ -632,6 +634,7 @@ let _tlHasMore = true;
 let _tlLoadingMore = false;
 const _tlExpanded = new Set();
 let _tlCategories = null;
+let _tlTags = null;
 let _tlLatestId = 0;        // 当前已加载的最新帖 id，用于后台检测新帖
 let _tlLoadedFilter = null; // 缓存列表对应的筛选条件快照
 let _tlSavedScrollY = 0;    // 离开动态页时的滚动位置，切回时恢复
@@ -639,7 +642,7 @@ let _tlSavedScrollY = 0;    // 离开动态页时的滚动位置，切回时恢�
 function tlFilterKey() {
   return JSON.stringify([
     state.timelineQ || "", state.timelinePlatform || "",
-    state.timelineCategory || "", state.timelineFavorite,
+    state.timelineCategory || "", state.timelineTag || "", state.timelineFavorite,
   ]);
 }
 
@@ -677,7 +680,10 @@ async function renderTimeline(seq) {
       </div>
       <div class="tl-filter-panel" id="tl-filter-panel">
         <input id="tl-q" class="form-control" placeholder="搜索标题/内容关键词" value="${escapeHtml(state.timelineQ || "")}" onkeydown="if(event.key==='Enter')tlApplyFilter()">
-        <select id="tl-category" class="form-control" onchange="tlApplyFilter()"><option value="">全部分类</option></select>
+        <div class="tl-filter-row">
+          <select id="tl-category" class="form-control" onchange="tlApplyFilter()"><option value="">全部分类</option></select>
+          <select id="tl-tag" class="form-control" onchange="tlApplyFilter()"><option value="">全部标签</option></select>
+        </div>
         <div class="tl-filter-actions">
           <button class="btn-ghost" onclick="tlResetFilters()">清除筛选</button>
           <button class="btn-normal" onclick="tlApplyFilter()">完成</button>
@@ -703,6 +709,7 @@ async function renderTimeline(seq) {
   _tlLatestId = 0;
   try {
     await loadTimelineCategories().catch(() => { _tlCategories = []; }); // 分类下拉失败降级，不阻塞 feed
+    await loadTimelineTags().catch(() => { _tlTags = []; }); // 标签下拉失败降级，不阻塞 feed
     await loadTimeline(true, seq);
   } catch (err) {
     if (!routeStillActive(seq)) return;
@@ -720,6 +727,7 @@ async function checkNewPosts() {
     if (state.timelineQ) params.set("q", state.timelineQ);
     if (state.timelinePlatform) params.set("platform", state.timelinePlatform);
     if (state.timelineCategory) params.set("category_id", state.timelineCategory);
+    if (state.timelineTag) params.set("tag", state.timelineTag);
     if (state.timelineFavorite) params.set("favorite", "1");
     const posts = await api(`/api/my/feed?${params}`);
     if (posts[0]?.id > _tlLatestId) {
@@ -762,10 +770,11 @@ function tlFilterPanel() {
 function tlApplyFilter() {
   state.timelineQ = $("#tl-q").value.trim();
   state.timelineCategory = $("#tl-category").value;
+  state.timelineTag = $("#tl-tag").value;
   $("#tl-filterbar").classList.remove("open");
   const btn = $("#tl-filter-toggle");
   if (btn) {
-    btn.classList.toggle("has-filter", !!(state.timelineQ || state.timelineCategory));
+    btn.classList.toggle("has-filter", !!(state.timelineQ || state.timelineCategory || state.timelineTag));
     btn.setAttribute("aria-expanded", "false");
   }
   loadTimeline(true);
@@ -774,10 +783,12 @@ function tlApplyFilter() {
 function tlResetFilters() {
   state.timelineQ = "";
   state.timelineCategory = "";
+  state.timelineTag = "";
   state.timelinePlatform = "";
   state.timelineFavorite = false;
   const q = $("#tl-q"); if (q) q.value = "";
   const cat = $("#tl-category"); if (cat) cat.value = "";
+  const tag = $("#tl-tag"); if (tag) tag.value = "";
   const pills = $("#tl-pills"); if (pills) pills.innerHTML = tlPillsHtml();
   const fb = $("#tl-filter-toggle"); if (fb) {
     fb.classList.remove("has-filter");
@@ -799,6 +810,17 @@ async function loadTimelineCategories() {
     `<option value="${c.id}" ${state.timelineCategory == c.id ? "selected" : ""}>${escapeHtml(c.name)}</option>`).join("");
 }
 
+async function loadTimelineTags() {
+  if (!_tlTags) {
+    const data = await api("/api/tags");
+    _tlTags = Array.isArray(data?.tags) ? data.tags : [];
+  }
+  const sel = $("#tl-tag");
+  if (!sel) return;
+  sel.innerHTML = `<option value="">全部标签</option>` + _tlTags.map((t) =>
+    `<option value="${escapeHtml(t)}" ${state.timelineTag === t ? "selected" : ""}>${escapeHtml(t)}</option>`).join("");
+}
+
 async function loadTimeline(reset = true, routeSeq) {
   if (!reset && _tlLoadingMore) return;
   if (!reset) _tlLoadingMore = true;
@@ -808,6 +830,7 @@ async function loadTimeline(reset = true, routeSeq) {
     if (state.timelineQ) params.set("q", state.timelineQ);
     if (state.timelinePlatform) params.set("platform", state.timelinePlatform);
     if (state.timelineCategory) params.set("category_id", state.timelineCategory);
+    if (state.timelineTag) params.set("tag", state.timelineTag);
     if (state.timelineFavorite) params.set("favorite", "1");
     const posts = await api(`/api/my/feed?${params}`);
     // 条件改变、已离开动态页或路由已切换：丢弃过期响应
@@ -954,6 +977,9 @@ function postCard(post) {
       <div class="p-meta">
         ${post.category_name ? `<span class="cat">${escapeHtml(post.category_name)}</span>` : ""}
         ${post.post_type === "reply" ? `<span class="cat">回复</span>` : ""}
+        ${Array.isArray(post.tags) && post.tags.length
+          ? post.tags.map((t) => `<span class="cat cat-tag">${escapeHtml(t)}</span>`).join("")
+          : ""}
         <a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener">查看原文 →</a>
       </div>
     </div>`;
@@ -1839,7 +1865,7 @@ async function renderAdmin(tab) {
   setPageTitle("管理后台");
   $("#main").innerHTML = `
     <div id="admin-body"></div>`;
-  const loaders = { dashboard: loadAdminDashboard, stats: loadAdminStats, kols: loadAdminKols, requests: loadAdminRequests, codes: loadAdminCodes, categories: loadAdminCategories, posts: loadAdminPosts, logs: loadAdminLogs, audit: loadAdminAudit, users: loadAdminUsers };
+  const loaders = { dashboard: loadAdminDashboard, stats: loadAdminStats, kols: loadAdminKols, requests: loadAdminRequests, codes: loadAdminCodes, categories: loadAdminCategories, tags: loadAdminTags, posts: loadAdminPosts, logs: loadAdminLogs, audit: loadAdminAudit, users: loadAdminUsers };
   try {
     await loaders[tab]();
   } catch (err) {
@@ -2758,6 +2784,73 @@ async function adminDeleteCategory(id) {
     loadAdminCategories();
   } catch (err) {
     alert("删除失败: " + err.message);
+  }
+}
+
+async function loadAdminTags() {
+  const data = await api("/api/tags");
+  const tags = Array.isArray(data?.tags) ? data.tags : [];
+  const stats = data?.stats || { total: 0, tagged: 0, pending: 0 };
+  $("#admin-body").innerHTML = `
+    <section class="section-panel">
+      <header class="section-head">
+        <div><p class="section-eyebrow">Vocabulary</p><h3 class="section-title">贴文标签词表</h3>
+        <p class="section-meta">新帖抓取入库时由 LLM 自动打标（仅从词表选，每条最多 3 个）。未配置 LLM_API_KEY 时跳过打标。</p></div>
+      </header>
+      <div class="toolbar" style="margin-top:12px">
+        <input id="tag-vocab-input" class="form-control" style="margin:0;flex:1;min-width:240px" placeholder="逗号分隔，如：宏观, 大盘, 科技" value="${escapeHtml(tags.join(", "))}">
+        <button class="btn-normal" onclick="adminSaveTags()">保存词表</button>
+      </div>
+      <p class="section-meta" style="margin-top:8px">已打标 ${stats.tagged} / ${stats.total} 条，待打标 ${stats.pending} 条</p>
+    </section>
+    <section class="section-panel">
+      <header class="section-head">
+        <div><p class="section-eyebrow">Backfill</p><h3 class="section-title">回填历史贴文</h3>
+        <p class="section-meta">给最近未打标的贴文补标签（配 LLM 后抓取期漏标/失败的存量数据）。</p></div>
+      </header>
+      <div class="toolbar" style="margin-top:12px">
+        <input id="tag-backfill-limit" class="form-control" type="number" min="1" max="500" value="200" style="margin:0;width:120px">
+        <button class="btn-normal" onclick="adminBackfillTags()">开始回填</button>
+        <span id="tag-backfill-result" class="muted"></span>
+      </div>
+    </section>
+    <section class="section-panel">
+      <header class="section-head"><div><p class="section-eyebrow">Preview</p><h3 class="section-title">当前词表（${tags.length} 个）</h3></div></header>
+      <div class="tag-vocab-preview">
+        ${tags.length ? tags.map((t) => `<span class="cat cat-tag">${escapeHtml(t)}</span>`).join("") : "（空）"}
+      </div>
+    </section>`;
+}
+
+async function adminSaveTags() {
+  const raw = $("#tag-vocab-input").value;
+  const tags = raw.split(/[,，]/).map((t) => t.trim()).filter(Boolean);
+  try {
+    const data = await api("/api/tags", { method: "PUT", body: JSON.stringify({ tags }) });
+    flash(`已保存词表（${data.tags.length} 个标签）`);
+    loadAdminTags();
+  } catch (err) {
+    alert("保存失败: " + err.message);
+  }
+}
+
+async function adminBackfillTags() {
+  const limitEl = $("#tag-backfill-limit");
+  const limit = Math.min(Math.max(Number(limitEl?.value || 200) || 200, 1), 500);
+  const btn = $("[onclick='adminBackfillTags()']");
+  if (btn) btn.disabled = true;
+  const result = $("#tag-backfill-result");
+  if (result) result.textContent = "回填中…";
+  try {
+    const data = await api("/api/tags/backfill", { method: "POST", body: JSON.stringify({ limit }) });
+    if (result) result.textContent = `已处理 ${data.processed} 条，其中打上标签 ${data.tagged} 条`;
+    flash("回填完成");
+    loadAdminTags();
+  } catch (err) {
+    if (result) result.textContent = "";
+    alert("回填失败: " + err.message);
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 
