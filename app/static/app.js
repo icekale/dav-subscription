@@ -609,6 +609,27 @@ let _tlHasMore = true;
 let _tlLoadingMore = false;
 const _tlExpanded = new Set();
 let _tlCategories = null;
+let _tlLatestId = 0;        // 当前已加载的最新帖 id，用于后台检测新帖
+let _tlLoadedFilter = null; // 缓存列表对应的筛选条件快照
+let _tlSavedScrollY = 0;    // 离开动态页时的滚动位置，切回时恢复
+
+function tlFilterKey() {
+  return JSON.stringify([
+    state.timelineQ || "", state.timelinePlatform || "",
+    state.timelineCategory || "", state.timelineFavorite,
+  ]);
+}
+
+const TL_SKELETON = `<div class="tl-skeleton">${Array(4).fill(`
+    <div class="tl-sk-item">
+      <div class="tl-sk-avatar"></div>
+      <div class="tl-sk-lines">
+        <div class="tl-sk-line" style="width:42%"></div>
+        <div class="tl-sk-line" style="width:96%"></div>
+        <div class="tl-sk-line" style="width:74%"></div>
+      </div>
+    </div>`).join("")}
+  </div>`;
 
 const TL_PLATFORMS = [
   ["", "全部"],
@@ -620,6 +641,8 @@ const TL_PLATFORMS = [
 
 async function renderTimeline() {
   setPageTitle("最新动态");
+  // 离开期间筛选条件未变且有缓存 → 直接恢复列表并检测新帖，不重新加载（保留阅读位置）
+  const reuse = _tlPosts.length && _tlLoadedFilter === tlFilterKey();
   $("#main").innerHTML = `
     <div class="tl-filterbar" id="tl-filterbar">
       <div class="tl-filterbar-top">
@@ -638,20 +661,55 @@ async function renderTimeline() {
         </div>
       </div>
     </div>
-    <p class="section-meta" id="tl-meta" style="margin:0 0 10px">已加载 0 条 · 点「筛选」可搜索关键词或按分类过滤</p>
+    <div class="tl-new-badge" id="tl-new-badge">
+      <button class="tl-new-badge-btn" onclick="refreshTimeline()">↑ 有新动态，点击刷新</button>
+    </div>
+    <p class="section-meta" id="tl-meta" style="margin:0 0 10px">已加载 ${_tlPosts.length} 条动态</p>
     <section class="section-panel">
-      <div id="feed"></div>
+      <div id="feed">${reuse ? "" : TL_SKELETON}</div>
     </section>`;
+  if (reuse) {
+    renderTimelineFeed();
+    window.scrollTo(0, _tlSavedScrollY); // 恢复离开时的阅读位置
+    checkNewPosts(); // 后台检测是否有新帖，有则浮出提示条
+    return;
+  }
   _tlPosts.length = 0;
   _tlOffset = 0;
   _tlHasMore = true;
+  _tlLatestId = 0;
   try {
     await loadTimelineCategories().catch(() => { _tlCategories = []; }); // 分类下拉失败降级，不阻塞 feed
     await loadTimeline(true);
   } catch (err) {
     const feed = $("#feed");
-    if (feed) feed.innerHTML = emptyState(err.message);
+    if (feed) feed.innerHTML = emptyState("加载失败: " + err.message,
+      `<div><button class="btn-normal" onclick="renderTimeline()">重试</button></div>`);
   }
+}
+
+async function checkNewPosts() {
+  // 静默对比当前列表最新帖与服务端最新帖，有更新才提示；失败不打扰
+  if (!_tlLatestId || !$("#feed")) return;
+  try {
+    const params = new URLSearchParams({ limit: "1", offset: "0" });
+    if (state.timelineQ) params.set("q", state.timelineQ);
+    if (state.timelinePlatform) params.set("platform", state.timelinePlatform);
+    if (state.timelineCategory) params.set("category_id", state.timelineCategory);
+    if (state.timelineFavorite) params.set("favorite", "1");
+    const posts = await api(`/api/my/feed?${params}`);
+    if (posts[0]?.id > _tlLatestId) {
+      const badge = $("#tl-new-badge");
+      if (badge) badge.classList.add("show");
+    }
+  } catch { /* 新帖检测失败静默 */ }
+}
+
+async function refreshTimeline() {
+  const badge = $("#tl-new-badge");
+  if (badge) badge.classList.remove("show");
+  await loadTimeline(true);
+  window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 function tlPillsHtml() {
@@ -736,6 +794,10 @@ async function loadTimeline(reset = true) {
     _tlPosts.push(...posts);
     _tlOffset += posts.length;
     _tlHasMore = posts.length >= 50;
+    if (reset) {
+      _tlLatestId = posts[0]?.id || 0; // 记录第一页最新帖 id，供新帖检测
+      _tlLoadedFilter = tlFilterKey();
+    }
     const meta = $("#tl-meta");
     if (meta) meta.textContent = `已加载 ${_tlPosts.length} 条动态`;
     renderTimelineFeed();
@@ -830,6 +892,8 @@ function feedDateBucket(s) {
   const key = dateKey(d);
   if (key === today) return "今天";
   if (key === yesterday) return "昨天";
+  // 今年内按具体日期分组（如 8月3日），跨年才归入「更早」
+  if (d.getFullYear() === now.getFullYear()) return `${d.getMonth() + 1}月${d.getDate()}日`;
   return "更早";
 }
 
@@ -844,7 +908,7 @@ function postCard(post) {
         ${avatarHtml(post.kol_name, post.avatar_url)}
         <div>
           <div class="p-name-line">
-            <span class="p-name">${escapeHtml(post.kol_name)}</span>
+            <a class="p-name" href="#/kol/${post.kol_id}">${escapeHtml(post.kol_name)}</a>
             <span class="p-platform" data-platform="${escapeHtml(post.platform)}" title="${escapeHtml(PLATFORM_LABELS[post.platform] || post.platform)}">
               ${PLATFORM_ICONS[post.platform] || ""}
             </span>
@@ -860,6 +924,7 @@ function postCard(post) {
         <div class="post-images">
           ${post.images.slice(0, 4).map((img) => `
             <a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener"><img src="${escapeHtml(img)}" loading="lazy" alt=""></a>`).join("")}
+          ${post.images.length > 4 ? `<span class="post-images-more">+${post.images.length - 4}</span>` : ""}
         </div>` : ""}
       <div class="p-meta">
         ${post.category_name ? `<span class="cat">${escapeHtml(post.category_name)}</span>` : ""}
@@ -3042,6 +3107,8 @@ async function router() {
   stopSettingsPoll();
   stopSysLogsTimer();
   stopStatsTimer();
+  // 离开动态页前记录滚动位置，切回时恢复阅读位置
+  if (document.querySelector("#feed")) _tlSavedScrollY = window.scrollY;
   const hash = location.hash.replace(/^#\/?/, "") || "timeline";
   // 先去掉 query（#/search?q=xxx），再按路径分段
   const path = hash.split("?")[0];
