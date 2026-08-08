@@ -372,6 +372,9 @@ textarea.form-control {
 
 /* 平台筛选 */
 .platform-tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+/* 移动端横向滑动时隐藏滚动条（保留滑动能力） */
+.platform-tabs, .tl-pills { scrollbar-width: none; -ms-overflow-style: none; }
+.platform-tabs::-webkit-scrollbar, .tl-pills::-webkit-scrollbar { display: none; }
 .platform-tab {
   border: var(--border-strong);
   border-radius: var(--radius-pill);
