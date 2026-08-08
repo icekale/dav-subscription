@@ -679,7 +679,18 @@ def poll_once(
                     f"fail={st['fail']} ok={st['ok']} kol={st['kol']} err={st['err'][:200]}",
                     fail_count=st["fail"],
                 )
-            if st["ok"] and not st["fail"]:
+            # 健康最终状态按整轮聚合写入（worker 内不再写），并发顺序不再影响结果
+            if st["fail"]:
+                db.set_setting(SOURCE_ERR_KEY.format(platform=platform), st["err"][:300])
+                db.set_setting(SOURCE_FAILS_KEY.format(platform=platform), str(st["fail"]))
+                db.set_setting(
+                    f"source_next_retry_at_{platform}",
+                    str(int(time.time()) + min(30 * (2 ** (st["fail"] - 1)), 600)),
+                )
+            elif st["ok"]:
+                db.set_setting(SOURCE_OK_KEY.format(platform=platform), str(int(time.time())))
+                db.set_setting(SOURCE_ERR_KEY.format(platform=platform), "")
+                db.set_setting(SOURCE_FAILS_KEY.format(platform=platform), "0")
                 # 整轮无失败才清掉重试倒计时；有失败保留，避免并发顺序导致状态抖动
                 db.set_setting(f"source_next_retry_at_{platform}", "")
     finally:
@@ -744,12 +755,8 @@ def _fetch_kol_once(
             kw in str(exc) for kw in ("cookie", "WAF", "反爬")
         ):
             maybe_warn_xueqiu_cookie(db, notifiers, str(exc))
-        db.set_setting(SOURCE_ERR_KEY.format(platform=kol["platform"]), str(exc)[:300])
-        db.set_setting(SOURCE_FAILS_KEY.format(platform=kol["platform"]), str(state.fail_count))
-        db.set_setting(
-            f"source_next_retry_at_{kol['platform']}",
-            str(int(time.time()) + delay),
-        )
+        # 数据源健康最终状态由 poll_once 依据 round_stats 聚合后一次性写入，
+        # 避免并发 worker 互相清空同平台的成功/失败状态
         return
     with state_lock:
         if state.alerted:
@@ -762,9 +769,6 @@ def _fetch_kol_once(
                 kol["platform"], {"ok": 0, "fail": 0, "err": "", "kol": ""}
             )
             st["ok"] += 1
-    db.set_setting(SOURCE_OK_KEY.format(platform=kol["platform"]), str(int(time.time())))
-    db.set_setting(SOURCE_FAILS_KEY.format(platform=kol["platform"]), "0")
-    db.set_setting(SOURCE_ERR_KEY.format(platform=kol["platform"]), "")
     # 按发布时间升序推送，避免各平台返回顺序（置顶/反爬兜底）导致乱序
     posts = sorted(posts, key=_post_sort_key)
     for post in posts:

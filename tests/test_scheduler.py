@@ -1006,6 +1006,45 @@ def test_poll_once_logs_source_events_and_next_retry():
     assert retry and int(retry) > 0  # 本轮有失败，保留重试倒计时
 
 
+def test_source_health_reflects_mixed_round(monkeypatch):
+    """同平台并发一轮：成功与失败并存时，健康状态必须反映整轮混合结果。
+
+    曾出现 worker 在锁外各自写 source_ok/err/fails 最终状态，最后完成的成功
+    worker 会把同一平台失败 worker 写的错误信息与连续失败计数随机清空。
+    """
+    db = make_db()
+    ok_kid = db.add_kol("xueqiu", "OK", "1")
+    fail_kid = db.add_kol("xueqiu", "FAIL", "2")
+
+    class SlowOkMixedFetcher(MixedFetcher):
+        def fetch(self, kol):
+            if kol["id"] in self.fail_kols:
+                raise RuntimeError("boom")
+            time.sleep(0.15)  # 成功 worker 慢一步完成，曾导致它最后清空失败状态
+            return self.ok_posts
+
+    poll_once(db, {"xueqiu": SlowOkMixedFetcher([make_post(ok_kid)], {fail_kid})}, [])
+    err = db.get_setting("source_err_xueqiu")
+    fails = db.get_setting("source_fails_xueqiu")
+    assert err and "boom" in err, "成功 worker 不应清空本轮失败的错误信息"
+    assert fails == "1", "成功 worker 不应把连续失败计数归零"
+    stats = db.source_event_stats("xueqiu", 24)
+    assert stats["ok"] == 1 and stats["fail"] == 1
+    assert db.get_setting("source_next_retry_at_xueqiu")  # 整轮有失败，保留重试倒计时
+
+
+def test_source_health_cleared_when_all_success():
+    """整轮全成功：错误信息与失败计数被清空，健康状态正常。"""
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    db.set_setting("source_err_xueqiu", "旧错误")
+    db.set_setting("source_fails_xueqiu", "3")
+    poll_once(db, {"xueqiu": FakeFetcher([make_post(kid)])}, [])
+    assert db.get_setting("source_err_xueqiu") == ""
+    assert db.get_setting("source_fails_xueqiu") == "0"
+    assert db.get_setting("source_ok_xueqiu")
+
+
 def test_poll_once_clears_next_retry_on_all_success():
     db = make_db()
     kid = db.add_kol("xueqiu", "A", "1")
