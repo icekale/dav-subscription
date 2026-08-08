@@ -913,12 +913,29 @@ async function renderSettings() {
       <section class="section-panel">
         <header class="section-head">
           <div>
-            <p class="section-eyebrow">DND</p>
-            <h3 class="section-title">免打扰时段</h3>
-            <p class="section-meta">时段内不推送新帖（支持跨午夜），结束后一次性补一条汇总；系统告警不受影响。特别关注可设为穿透免打扰。</p>
+            <p class="section-eyebrow">Preferences</p>
+            <h3 class="section-title">推送偏好</h3>
+            <p class="section-meta">总开关与每日精选摘要；免打扰时段内的新帖暂缓，结束后补一条汇总。</p>
           </div>
         </header>
-        <div class="dnd-form">
+        <div class="form-row">
+          <label for="set-notify">新帖推送开关</label>
+          <select id="set-notify" class="form-control" onchange="saveNotify()">
+            <option value="1" ${state.user.notify_enabled ? "selected" : ""}>开启</option>
+            <option value="0" ${!state.user.notify_enabled ? "selected" : ""}>关闭</option>
+          </select>
+        </div>
+        <p class="muted">关闭后不会向任何渠道推送新帖，订阅关系保留。</p>
+        <div class="form-row" style="margin-top:16px">
+          <label for="set-daily">每日精选摘要</label>
+          <select id="set-daily" class="form-control" onchange="saveDailyReport()">
+            <option value="1" ${state.user.daily_report_enabled ? "selected" : ""}>开启（每天 20:00 推一次 AI 每日精选）</option>
+            <option value="0" ${!state.user.daily_report_enabled ? "selected" : ""}>关闭</option>
+          </select>
+        </div>
+        <p class="muted">开启后，每天 20:00 把你订阅大V当天的新动态汇总成一条推送。</p>
+        <div class="dnd-form" style="margin-top:18px;padding-top:18px;border-top:var(--border-default)">
+          <p class="section-meta">免打扰：时段内不推送新帖（支持跨午夜），结束后一次性补一条汇总；系统告警不受影响。</p>
           <label class="switch">
             <input id="dnd-enabled" type="checkbox" ${state.user.dnd_start ? "checked" : ""} onchange="toggleDnd()">
             <span class="track"></span>
@@ -1068,24 +1085,6 @@ async function renderSettings() {
           </div>
         </div>
         <p class="muted">🔔 key 等同推送权限，请勿泄露；系统告警不依赖此 key（管理员另配系统级 Bark）。</p>
-      </section>
-      <section class="section-panel">
-        <div class="form-row">
-          <label for="set-notify">新帖推送开关</label>
-          <select id="set-notify" class="form-control" onchange="saveNotify()">
-            <option value="1" ${state.user.notify_enabled ? "selected" : ""}>开启</option>
-            <option value="0" ${!state.user.notify_enabled ? "selected" : ""}>关闭</option>
-          </select>
-        </div>
-        <p class="muted">关闭后不会向任何渠道推送新帖，订阅关系保留。</p>
-        <div class="form-row" style="margin-top:16px">
-          <label for="set-daily">每日精选摘要</label>
-          <select id="set-daily" class="form-control" onchange="saveDailyReport()">
-            <option value="1" ${state.user.daily_report_enabled ? "selected" : ""}>开启（每天 20:00 推一次 AI 每日精选）</option>
-            <option value="0" ${!state.user.daily_report_enabled ? "selected" : ""}>关闭</option>
-          </select>
-        </div>
-        <p class="muted">开启后，每天 20:00 把你订阅大V当天的新动态汇总成一条推送。</p>
       </section>
       </div>
       <div id="st-feed" class="settings-tab-panel">
