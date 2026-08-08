@@ -615,7 +615,7 @@ async function renderTimeline() {
   _tlOffset = 0;
   _tlHasMore = true;
   try {
-    await loadTimelineCategories();
+    await loadTimelineCategories().catch(() => { _tlCategories = []; }); // 分类下拉失败降级，不阻塞 feed
     await loadTimeline(true);
   } catch (err) {
     $("#feed").innerHTML = emptyState(err.message);
@@ -676,11 +676,29 @@ function renderTimelineFeed() {
   const footer = _tlHasMore
     ? `<div class="toolbar" style="margin-top:14px;justify-content:center"><button class="btn-normal" onclick="timelineLoadMore()">加载更多</button></div>`
     : (posts.length ? `<p class="muted" style="text-align:center;margin-top:14px">已加载全部</p>` : "");
+  const hasFilter = state.timelineQ || state.timelinePlatform || state.timelineCategory;
+  const emptyMsg = state.timelineFavorite && !hasFilter
+    ? "还没有特别关注大V的动态"
+    : (hasFilter ? "没有符合条件的动态" : "还没有订阅任何大V");
+  const emptyAction = hasFilter
+    ? `<div><button class="btn-normal" onclick="timelineReset()">清除筛选</button></div>`
+    : `<div><button class="btn-normal btn-add" onclick="location.hash='#/home'">去订阅</button></div>`;
   $("#feed").innerHTML = posts.length
     ? html + footer
-    : emptyState(state.timelineFavorite
-        ? "还没有特别关注大V的动态"
-        : "还没有订阅任何大V", `<div><button class="btn-normal btn-add" onclick="location.hash='#/home'">去订阅</button></div>`);
+    : emptyState(emptyMsg, emptyAction);
+}
+
+function timelineReset() {
+  state.timelineQ = "";
+  state.timelinePlatform = "";
+  state.timelineCategory = "";
+  state.timelineFavorite = false;
+  const q = $("#tl-q"); if (q) q.value = "";
+  const pf = $("#tl-platform"); if (pf) pf.value = "";
+  const cat = $("#tl-category"); if (cat) cat.value = "";
+  const btn = $("#timeline-fav-toggle");
+  if (btn) btn.classList.remove("fav-on");
+  loadTimeline(true);
 }
 
 function toggleTimelineFav() {
@@ -696,11 +714,15 @@ function tlTogglePost(id) {
   renderTimelineFeed();
 }
 
-// published_at 是北京时间 "YYYY-MM-DD HH:MM(:SS)"，解析成 Date 后按本地时区展示
+// published_at 支持 "YYYY-MM-DD HH:MM(:SS)"（雪球）与 RFC2822（微博/X 存 GMT/+0000），
+// 解析成 Date 后按本地时区展示；无法解析返回 null（回退原样显示）
 function parsePublished(s) {
-  const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/.exec(String(s || ""));
-  if (!m) return null;
-  return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0));
+  const raw = String(s || "").trim();
+  if (!raw) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/.exec(raw);
+  if (m) return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0));
+  const d = new Date(raw); // RFC2822 等 JS 可解析格式（带时区偏移，正确换算本地时间）
+  return isNaN(d.getTime()) ? null : d;
 }
 
 function fmtPublished(s) {
