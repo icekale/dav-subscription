@@ -906,7 +906,6 @@ async function renderSettings() {
       <div class="settings-tabs" role="tablist">
         <button class="settings-tab active" data-tab="push" onclick="switchSettingsTab('push')">推送设置</button>
         <button class="settings-tab" data-tab="bind" onclick="switchSettingsTab('bind')">渠道绑定</button>
-        <button class="settings-tab" data-tab="feed" onclick="switchSettingsTab('feed')">RSS 订阅源</button>
         <button class="settings-tab" data-tab="llm" onclick="switchSettingsTab('llm')">AI 摘要</button>
         <button class="settings-tab" data-tab="account" onclick="switchSettingsTab('account')">账号</button>
       </div>
@@ -1078,27 +1077,6 @@ async function renderSettings() {
         </div>
       </section>
       </div>
-      <div id="st-feed" class="settings-tab-panel">
-      <section class="section-panel">
-        <header class="section-head">
-          <div>
-            <p class="section-eyebrow">RSS</p>
-            <h3 class="section-title">RSS 订阅源（用任意阅读器收动态）</h3>
-            <p class="section-meta">不想用聊天工具？把下面地址加进 Reeder / NetNewsWire / 其他任何 RSS 阅读器，就能直接收你订阅大V的动态，无需登录。</p>
-          </div>
-        </header>
-        <div class="form-row">
-          <label for="set-feed-url">你的私有订阅源地址</label>
-          <div class="row" style="gap:10px;flex-wrap:wrap">
-            <input id="set-feed-url" class="form-control" style="flex:1;min-width:280px" readonly
-              value="${location.origin}/api/feed/${escapeHtml(state.user.feed_token || "")}.xml">
-            <button class="btn-normal" onclick="copyFeedUrl()">复制</button>
-            <button class="btn-ghost" onclick="regenerateFeedToken()">重新生成</button>
-          </div>
-        </div>
-        <p class="muted">⚠️ 地址内含订阅凭证，泄露后别人能读到你的关注流；泄露了就点「重新生成」立即作废旧地址。</p>
-      </section>
-      </div>
       <div id="st-llm" class="settings-tab-panel">
       <section class="section-panel">
         <header class="section-head">
@@ -1160,6 +1138,25 @@ async function renderSettings() {
       <section class="section-panel">
         <header class="section-head">
           <div>
+            <p class="section-eyebrow">RSS</p>
+            <h3 class="section-title">RSS 订阅源（用任意阅读器收动态）</h3>
+            <p class="section-meta">不想用聊天工具？把下面地址加进 Reeder / NetNewsWire / 其他任何 RSS 阅读器，就能直接收你订阅大V的动态，无需登录。</p>
+          </div>
+        </header>
+        <div class="form-row">
+          <label for="set-feed-url">你的私有订阅源地址</label>
+          <div class="row" style="gap:10px;flex-wrap:wrap">
+            <input id="set-feed-url" class="form-control" style="flex:1;min-width:280px" readonly
+              value="${location.origin}/api/feed/${escapeHtml(state.user.feed_token || "")}.xml">
+            <button class="btn-normal" onclick="copyFeedUrl()">复制</button>
+            <button class="btn-ghost" onclick="regenerateFeedToken()">重新生成</button>
+          </div>
+        </div>
+        <p class="muted">⚠️ 地址内含订阅凭证，泄露后别人能读到你的关注流；泄露了就点「重新生成」立即作废旧地址。</p>
+      </section>
+      <section class="section-panel">
+        <header class="section-head">
+          <div>
             <p class="section-eyebrow">Security</p>
             <h3 class="section-title">修改密码</h3>
             <p class="section-meta">定期更换密码，保护你的账号安全。</p>
@@ -1194,7 +1191,7 @@ function switchSettingsTab(name) {
   document.querySelectorAll(".settings-tab").forEach((b) =>
     b.classList.toggle("active", b.dataset.tab === name)
   );
-  ["push", "bind", "feed", "llm", "account"].forEach((t) => {
+  ["push", "bind", "llm", "account"].forEach((t) => {
     const el = document.getElementById("st-" + t);
     if (el) el.style.display = t === name ? "" : "none";
   });
