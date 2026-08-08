@@ -8,6 +8,7 @@ queryId 由 X 前端轮换，启动后每 6 小时自动从前端 main bundle �
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
@@ -386,7 +387,7 @@ class TwitterFetcher(Fetcher):
         if resp.status_code != 200:
             hint = ""
             detail = ""
-            try:
+            with contextlib.suppress(Exception):  # noqa: BLE001 - 非 JSON 响应体忽略
                 err = resp.json()
                 errs = err.get("errors") or []
                 code = err.get("code") or next(
@@ -400,8 +401,6 @@ class TwitterFetcher(Fetcher):
                     )
                     if msg:
                         detail = f" {str(msg)[:80]}"
-            except Exception:  # noqa: BLE001 - 非 JSON 响应体忽略
-                pass
             if resp.status_code in (400, 404):
                 hint = "（可能是 X 轮换了 GraphQL queryId，需更新 DEFAULT_QUERY_IDS）"
             raise RuntimeError(f"X GraphQL {operation} HTTP {resp.status_code}{detail}{hint}")

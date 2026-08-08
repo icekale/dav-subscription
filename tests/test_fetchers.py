@@ -442,11 +442,10 @@ def test_rss_resolve_x_url():
 
 def test_rss_fetch_resolves_x_and_saves_avatar():
     import datetime
-
     import email.utils
 
     recent = email.utils.format_datetime(
-        datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=10)
+        datetime.datetime.now(datetime.UTC) - datetime.timedelta(minutes=10)
     )
     feed_xml = (
         '<?xml version="1.0" encoding="UTF-8"?>'
@@ -489,14 +488,13 @@ def test_rss_normalize_twitter_id():
 
 def test_rss_fetch_skips_stale_entries():
     import datetime
-
     import email.utils
 
     fresh = email.utils.format_datetime(
-        datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=1)
+        datetime.datetime.now(datetime.UTC) - datetime.timedelta(hours=1)
     )
     stale = email.utils.format_datetime(
-        datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=200)
+        datetime.datetime.now(datetime.UTC) - datetime.timedelta(days=200)
     )
     feed_xml = (
         '<?xml version="1.0" encoding="UTF-8"?>'
@@ -754,13 +752,12 @@ def test_weibo_prelogin_missing_pubkey_raises():
 
 def test_rss_parse_fixture():
     import datetime
-
     import email.utils
 
     content = (FIXTURES / "rss_sample.xml").read_bytes()
     # fixture 的 pubDate 是固定旧日期，换成当前时间避免触发陈旧过滤
     fresh = email.utils.format_datetime(
-        datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=1)
+        datetime.datetime.now(datetime.UTC) - datetime.timedelta(hours=1)
     )
     content = re.sub(rb"<pubDate>[^<]*</pubDate>", f"<pubDate>{fresh}</pubDate>".encode(), content)
 

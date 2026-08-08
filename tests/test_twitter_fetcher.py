@@ -256,9 +256,9 @@ def test_twitter_suspended_user_falls_back_no_false_ok(monkeypatch):
     """用户被封/不存在时 UserTweets 返回空壳，不应记「直抓成功」，应回退 RSSHub。"""
     monkeypatch.setenv("TWITTER_COOKIE", "auth_token=a; ct0=b")
     feed_xml = (
-        '<?xml version="1.0" encoding="UTF-8"?>'
-        '<rss version="2.0"><channel></channel></rss>'
-    ).encode()
+        b'<?xml version="1.0" encoding="UTF-8"?>'
+        b'<rss version="2.0"><channel></channel></rss>'
+    )
 
     def handler(request):
         if request.url.host == "x.com":
@@ -375,12 +375,11 @@ def test_twitter_direct_fetch_parses_tweets_and_avatar(monkeypatch):
 
 def test_twitter_falls_back_to_rsshub(monkeypatch):
     import datetime
-
     import email.utils
 
     monkeypatch.setenv("TWITTER_COOKIE", "auth_token=a; ct0=b")
     recent = email.utils.format_datetime(
-        datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=10)
+        datetime.datetime.now(datetime.UTC) - datetime.timedelta(minutes=10)
     )
     feed_xml = (
         '<?xml version="1.0" encoding="UTF-8"?>'

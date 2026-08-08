@@ -11,7 +11,6 @@ import httpx
 from ..avatar_cache import cache_avatar
 from .base import Fetcher, Post, strip_html
 
-
 # 兜底通道只认 48 小时内的条目：RSSHub 的 X 路由可能返回数月前的缓存内容
 # （实测 2026-08 把 qinbafrank 去年 11 月的老转发当新帖推给用户），超期直接跳过。
 STALE_MAX_AGE = 48 * 3600
