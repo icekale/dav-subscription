@@ -96,10 +96,10 @@ function avatarHtml(name, url) {
 // ---------- 壳 ----------
 const NAV = [
   { group: "订阅", items: [
+    { route: "timeline", icon: "☰", label: "最新动态" },
     { route: "home", icon: "◎", label: "订阅广场" },
     { route: "combinations", icon: "◈", label: "组合订阅" },
     { route: "mysubs", icon: "▤", label: "我的订阅" },
-    { route: "timeline", icon: "☰", label: "最新动态" },
     { route: "settings", icon: "⚙", label: "推送设置" },
   ]},
   { group: "", admin: true, subs: [
@@ -149,10 +149,10 @@ function renderSidebar(user) {
 }
 
 const MOBILE_NAV = [
+  { route: "timeline", icon: "☰", label: "动态" },
   { route: "home", icon: "◎", label: "广场" },
   { route: "combinations", icon: "◈", label: "组合" },
   { route: "mysubs", icon: "▤", label: "订阅" },
-  { route: "timeline", icon: "☰", label: "最新动态" },
   { route: "settings", icon: "⚙", label: "设置" },
 ];
 
