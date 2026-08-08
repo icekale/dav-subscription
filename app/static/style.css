@@ -421,7 +421,7 @@ textarea.form-control {
 .kol-item:last-child { border-bottom: none; }
 
 /* 订阅广场网格卡片 */
-.kol-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+.kol-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; align-items: stretch; }
 .kol-card {
   display: flex; flex-direction: column; gap: 12px;
   padding: 16px;
@@ -440,7 +440,7 @@ textarea.form-control {
 .kol-card-info .desc { color: var(--color-text-muted); font-size: var(--text-xs); margin-top: 5px; }
 .kol-card-actions { display: flex; gap: 8px; margin-top: auto; }
 .kol-card-actions .btn-sub { flex: 1; }
-.kol-card-subtype { padding-top: 10px; border-top: var(--border-soft); }
+.kol-card-subtype { padding-top: 2px; }
 .kol-card-subtype .sub-type-switches { gap: 14px; }
 
 /* 分组头（grid 容器内横跨整行） */
