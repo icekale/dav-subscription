@@ -232,9 +232,9 @@ textarea.form-control {
 .sidebar-brand-meta { font-size: 11px; color: var(--color-text-faint); letter-spacing: 0.4px; }
 .sidebar-nav {
   flex: 1; min-height: 0; overflow-y: auto;
-  padding-top: 14px; display: flex; flex-direction: column; gap: 2px;
+  padding-top: 10px; display: flex; flex-direction: column; gap: 2px;
 }
-.nav-group-label { font-size: 11px; font-weight: var(--font-weight-semibold); color: var(--color-text-faint); letter-spacing: 1px; padding: 14px 12px 6px; }
+.nav-group-label { font-size: 11px; font-weight: var(--font-weight-semibold); color: var(--color-text-faint); letter-spacing: 1px; padding: 12px 12px 6px; }
 .nav-item {
   display: flex; align-items: center; gap: 10px;
   border: none; background: transparent;
@@ -250,14 +250,14 @@ textarea.form-control {
 .nav-item .nav-icon { width: 20px; text-align: center; font-size: var(--text-body); }
 .nav-item .nav-icon svg { width: 15px; height: 15px; vertical-align: -2px; }
 
-/* 管理侧边栏折叠子组 */
-.nav-sub { margin-top: 2px; }
+/* 管理侧边栏折叠子组：分组标签与顶级分组统一样式与间距 */
+.nav-sub { margin-top: 0; }
 .nav-sub summary { list-style: none; cursor: pointer; }
 .nav-sub summary::-webkit-details-marker { display: none; }
 .nav-sub-label {
-  font-size: 12px; font-weight: var(--font-weight-semibold);
-  color: var(--color-text-faint);
-  padding: 8px 12px 4px;
+  font-size: 11px; font-weight: var(--font-weight-semibold);
+  color: var(--color-text-faint); letter-spacing: 1px;
+  padding: 12px 12px 6px;
   display: flex; align-items: center; justify-content: space-between;
   user-select: none;
 }
