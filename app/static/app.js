@@ -30,7 +30,9 @@ const state = {
   adminKolsPlatform: "",
   adminKols: [],
   timelineFavorite: false,
-  timelinePosts: [],
+  timelinePlatform: "",
+  timelineCategory: "",
+  timelineQ: "",
 };
 
 function escapeHtml(text) {
@@ -575,6 +577,14 @@ async function renderCombinations() {
   }
 }
 
+// ---------- 动态 ----------
+let _tlSeq = 0;
+const _tlPosts = [];
+let _tlOffset = 0;
+let _tlHasMore = true;
+const _tlExpanded = new Set();
+let _tlCategories = null;
+
 async function renderTimeline() {
   setPageTitle("动态");
   $("#main").innerHTML = `
@@ -586,25 +596,88 @@ async function renderTimeline() {
           <h3 class="section-title">最新动态</h3>
         </div>
         <div class="toolbar" style="margin-top:12px">
+          <input id="tl-q" class="form-control" style="margin:0;width:220px" placeholder="搜索标题/内容关键词" value="${escapeHtml(state.timelineQ || "")}" onkeydown="if(event.key==='Enter')timelineFilter()">
+          <select id="tl-platform" class="form-control" style="margin:0;width:auto" onchange="timelineFilter()">
+            <option value="">全部平台</option>
+            <option value="xueqiu" ${state.timelinePlatform === "xueqiu" ? "selected" : ""}>雪球</option>
+            <option value="combination" ${state.timelinePlatform === "combination" ? "selected" : ""}>雪球组合</option>
+            <option value="weibo" ${state.timelinePlatform === "weibo" ? "selected" : ""}>微博</option>
+            <option value="twitter" ${state.timelinePlatform === "twitter" ? "selected" : ""}>X</option>
+          </select>
+          <select id="tl-category" class="form-control" style="margin:0;width:auto" onchange="timelineFilter()"><option value="">全部分类</option></select>
+          <button class="btn-normal" onclick="timelineFilter()">筛选</button>
           <button id="timeline-fav-toggle" class="fav-toggle ${state.timelineFavorite ? "fav-on" : ""}" onclick="toggleTimelineFav()">${STAR_SVG} 特别关注</button>
         </div>
       </header>
       <div id="feed"></div>
     </section>`;
+  _tlPosts.length = 0;
+  _tlOffset = 0;
+  _tlHasMore = true;
   try {
-    const posts = await api("/api/my/feed?limit=100");
-    state.timelinePosts = posts;
-    renderTimelineFeed();
+    await loadTimelineCategories();
+    await loadTimeline(true);
   } catch (err) {
     $("#feed").innerHTML = emptyState(err.message);
   }
 }
 
+async function loadTimelineCategories() {
+  if (!_tlCategories) _tlCategories = await api("/api/categories");
+  const sel = $("#tl-category");
+  if (!sel) return;
+  sel.innerHTML = `<option value="">全部分类</option>` + _tlCategories.map((c) =>
+    `<option value="${c.id}" ${state.timelineCategory == c.id ? "selected" : ""}>${escapeHtml(c.name)}</option>`).join("");
+}
+
+async function loadTimeline(reset = true) {
+  const seq = ++_tlSeq;
+  const params = new URLSearchParams({ limit: "50", offset: String(reset ? 0 : _tlOffset) });
+  if (state.timelineQ) params.set("q", state.timelineQ);
+  if (state.timelinePlatform) params.set("platform", state.timelinePlatform);
+  if (state.timelineCategory) params.set("category_id", state.timelineCategory);
+  if (state.timelineFavorite) params.set("favorite", "1");
+  const posts = await api(`/api/my/feed?${params}`);
+  if (seq !== _tlSeq) return; // 筛选条件已变，丢弃过期响应
+  if (reset) {
+    _tlPosts.length = 0;
+    _tlOffset = 0;
+  }
+  _tlPosts.push(...posts);
+  _tlOffset += posts.length;
+  _tlHasMore = posts.length >= 50;
+  renderTimelineFeed();
+}
+
+function timelineFilter() {
+  state.timelineQ = $("#tl-q").value.trim();
+  state.timelinePlatform = $("#tl-platform").value;
+  state.timelineCategory = $("#tl-category").value;
+  loadTimeline(true);
+}
+
+function timelineLoadMore() {
+  loadTimeline(false);
+}
+
 function renderTimelineFeed() {
-  const posts = state.timelinePosts || [];
-  const shown = state.timelineFavorite ? posts.filter((p) => p.favorite) : posts;
-  $("#feed").innerHTML = shown.length
-    ? shown.map(postCard).join("")
+  const posts = _tlPosts;
+  const grouped = new Map();
+  for (const p of posts) {
+    const bucket = feedDateBucket(p.published_at);
+    if (!grouped.has(bucket)) grouped.set(bucket, []);
+    grouped.get(bucket).push(p);
+  }
+  const html = [...grouped.entries()].map(([bucket, list]) => `
+    <div class="tl-group">
+      <div class="tl-group-head">${escapeHtml(bucket)}</div>
+      ${list.map(postCard).join("")}
+    </div>`).join("");
+  const footer = _tlHasMore
+    ? `<div class="toolbar" style="margin-top:14px;justify-content:center"><button class="btn-normal" onclick="timelineLoadMore()">加载更多</button></div>`
+    : (posts.length ? `<p class="muted" style="text-align:center;margin-top:14px">已加载全部</p>` : "");
+  $("#feed").innerHTML = posts.length
+    ? html + footer
     : emptyState(state.timelineFavorite
         ? "还没有特别关注大V的动态"
         : "还没有订阅任何大V", `<div><button class="btn-normal btn-add" onclick="location.hash='#/home'">去订阅</button></div>`);
@@ -614,11 +687,54 @@ function toggleTimelineFav() {
   state.timelineFavorite = !state.timelineFavorite;
   const btn = $("#timeline-fav-toggle");
   if (btn) btn.classList.toggle("fav-on", state.timelineFavorite);
+  loadTimeline(true);
+}
+
+function tlTogglePost(id) {
+  if (_tlExpanded.has(id)) _tlExpanded.delete(id);
+  else _tlExpanded.add(id);
   renderTimelineFeed();
+}
+
+// published_at 是北京时间 "YYYY-MM-DD HH:MM(:SS)"，解析成 Date 后按本地时区展示
+function parsePublished(s) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/.exec(String(s || ""));
+  if (!m) return null;
+  return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] || 0));
+}
+
+function fmtPublished(s) {
+  const d = parsePublished(s);
+  if (!d) return escapeHtml(s || "");
+  const now = new Date();
+  const p = (n) => String(n).padStart(2, "0");
+  const sameDay = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  if (sameDay(d, now)) return `今天 ${p(d.getHours())}:${p(d.getMinutes())}`;
+  const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+  if (sameDay(d, yesterday)) return `昨天 ${p(d.getHours())}:${p(d.getMinutes())}`;
+  if (d.getFullYear() === now.getFullYear()) return `${d.getMonth() + 1}月${d.getDate()}日`;
+  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
+}
+
+function feedDateBucket(s) {
+  const d = parsePublished(s);
+  if (!d) return "更早";
+  const now = new Date();
+  const p = (n) => String(n).padStart(2, "0");
+  const dateKey = (x) => `${x.getFullYear()}-${p(x.getMonth() + 1)}-${p(x.getDate())}`;
+  const today = dateKey(now);
+  const yesterday = dateKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1));
+  const key = dateKey(d);
+  if (key === today) return "今天";
+  if (key === yesterday) return "昨天";
+  return "更早";
 }
 
 function postCard(post) {
   const safeUrl = /^https?:\/\//i.test(post.url || "") ? post.url : "#";
+  const body = post.content || "（无正文）";
+  const expanded = _tlExpanded.has(post.id);
+  const shown = expanded ? body : body.slice(0, 200);
   return `
     <div class="post-item">
       <div class="p-header">
@@ -630,11 +746,13 @@ function postCard(post) {
               ${PLATFORM_ICONS[post.platform] || ""}
             </span>
           </div>
-          <div class="p-time">${escapeHtml(post.published_at)}</div>
+          <div class="p-time" title="${escapeHtml(post.published_at)}">${fmtPublished(post.published_at)}</div>
         </div>
       </div>
       ${post.title ? `<div class="p-title">${escapeHtml(post.title)}</div>` : ""}
-      <div class="p-content">${escapeHtml(post.content || "（无正文）")}</div>
+      <div class="p-content">${escapeHtml(shown)}${body.length > 200
+        ? `<span class="post-expand-btn" onclick="tlTogglePost(${post.id})">${expanded ? "收起 ▲" : "展开全文 ▼"}</span>`
+        : ""}</div>
       ${Array.isArray(post.images) && post.images.length ? `
         <div class="post-images">
           ${post.images.slice(0, 4).map((img) => `

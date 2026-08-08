@@ -767,9 +767,26 @@ def create_api_router(
         return db.list_subscriptions(user["id"])
 
     @router.get("/my/feed")
-    def my_feed(limit: int = 100, user: dict = Depends(get_current_user)):
+    def my_feed(
+        limit: int = 100,
+        offset: int = 0,
+        platform: str | None = None,
+        category_id: int | None = None,
+        q: str | None = None,
+        favorite: int = 0,
+        user: dict = Depends(get_current_user),
+    ):
         kol_ids = sorted(db.subscribed_kol_ids(user["id"]))
-        return db.list_feed_posts(kol_ids, limit=min(limit, 500), user_id=user["id"])
+        return db.list_feed_posts(
+            kol_ids,
+            limit=min(limit, 500),
+            user_id=user["id"],
+            offset=max(offset, 0),
+            platform=platform,
+            category_id=category_id,
+            q=q,
+            favorite=bool(favorite),
+        )
 
     @router.get("/kols/{kol_id}")
     def get_kol(kol_id: int, user: dict = Depends(get_current_user)):
@@ -1255,8 +1272,9 @@ def create_api_router(
         _audit(admin, "delete_kol", str(kol_id))
         return {"ok": True}
 
-    @router.get("/categories", dependencies=[Depends(require_admin)])
-    def list_categories():
+    @router.get("/categories")
+    def list_categories(user: dict = Depends(get_current_user)):
+        """分类列表：登录用户可读（动态页分类筛选），管理与写入仍需管理员。"""
         return db.list_categories()
 
     @router.post("/categories", dependencies=[Depends(require_admin)])

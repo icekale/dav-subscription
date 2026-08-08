@@ -1316,6 +1316,68 @@ def test_subscription_flow():
     assert resp.json()["telegram_chat_id"] == "tg123"
 
 
+def test_my_feed_filters_and_pagination():
+    """/api/my/feed 的 offset 分页与 platform/category/q/favorite 筛选（动态页加载更多/筛选）。"""
+    client = make_client()
+    db = client.app.state.db
+
+    cid = db.add_category("财经")
+    kid1 = db.add_kol("xueqiu", "雪球大V", "x1", category_id=cid)
+    kid2 = db.add_kol("weibo", "微博大V", "w1", category_id=None)
+    kid3 = db.add_kol("twitter", "X大V", "t1", category_id=None)
+
+    reg = register(client, "feeduser")
+    headers = {"Authorization": f"Bearer {reg.json()['token']}"}
+    uid = reg.json()["user"]["id"]
+    for kid in (kid1, kid2, kid3):
+        db.add_subscription(uid, kid, type="post")
+    # 特别关注 kid1 所属的雪球大V
+    db.set_subscription_favorite(uid, kid1, True)
+
+    db.insert_post("xueqiu", kid1, "p1", "茅台财报", "茅台大涨了", "u1", "2026-08-07 10:00")
+    db.insert_post("xueqiu", kid1, "p2", "降息预期", "降息落地", "u2", "2026-08-07 11:00")
+    db.insert_post("weibo", kid2, "p3", "午后闲聊", "随便说说", "u3", "2026-08-07 12:00")
+    db.insert_post("twitter", kid3, "p4", "ETF 观点", "ETF 资金流向", "u4", "2026-08-07 13:00")
+
+    # 默认请求：不带新参数，行为与旧版一致（全部帖子、无分页叠加）
+    feed = client.get("/api/my/feed", headers=headers).json()
+    assert [p["external_id"] for p in feed] == ["p4", "p3", "p2", "p1"]
+
+    # offset 分页：两页无重叠，且按 id 倒序
+    page1 = client.get("/api/my/feed?limit=2&offset=0", headers=headers).json()
+    page2 = client.get("/api/my/feed?limit=2&offset=2", headers=headers).json()
+    ids1 = [p["id"] for p in page1]
+    ids2 = [p["id"] for p in page2]
+    assert ids1[0] > ids1[1] > ids2[0] > ids2[1]
+    assert set(ids1).isdisjoint(set(ids2))
+
+    # platform 筛选
+    weibo = client.get("/api/my/feed?platform=weibo", headers=headers).json()
+    assert [p["external_id"] for p in weibo] == ["p3"]
+    assert client.get("/api/my/feed?platform=xueqiu", headers=headers).json()
+
+    # category 筛选（kols.category_id 关联）
+    cat_feed = client.get(f"/api/my/feed?category_id={cid}", headers=headers).json()
+    assert [p["external_id"] for p in cat_feed] == ["p2", "p1"]
+
+    # 关键词搜索（title/content LIKE）
+    q_feed = client.get("/api/my/feed?q=茅台", headers=headers).json()
+    assert [p["external_id"] for p in q_feed] == ["p1"]
+    assert client.get("/api/my/feed?q=不存在", headers=headers).json() == []
+
+    # favorite 筛选：只返回特别关注大V的动态
+    fav_feed = client.get("/api/my/feed?favorite=1", headers=headers).json()
+    assert [p["external_id"] for p in fav_feed] == ["p2", "p1"]
+
+    # 组合筛选：favorite + platform + q 同时生效
+    combined = client.get("/api/my/feed?favorite=1&platform=xueqiu&q=茅台", headers=headers).json()
+    assert [p["external_id"] for p in combined] == ["p1"]
+
+    # /api/categories 登录用户可读（供动态页分类下拉），无需管理员
+    cats = client.get("/api/categories", headers=headers).json()
+    assert any(c["id"] == cid and c["name"] == "财经" for c in cats)
+
+
 def test_wechat_login(monkeypatch):
     cfg = Config()
     cfg.wechat.app_id = "wx_app"

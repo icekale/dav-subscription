@@ -1171,10 +1171,35 @@ class DB:
             removed += len(ids)
         return removed
 
-    def list_feed_posts(self, kol_ids: list[int], limit: int = 100, user_id: int | None = None) -> list[dict]:
+    def list_feed_posts(
+        self,
+        kol_ids: list[int],
+        limit: int = 100,
+        user_id: int | None = None,
+        offset: int = 0,
+        platform: str | None = None,
+        category_id: int | None = None,
+        q: str | None = None,
+        favorite: bool = False,
+    ) -> list[dict]:
         if not kol_ids:
             return []
         placeholders = ", ".join("?" * len(kol_ids))
+        conds = [f"p.kol_id IN ({placeholders})"]
+        params: list = [user_id, *kol_ids]
+        if platform:
+            conds.append("p.platform = ?")
+            params.append(platform)
+        if category_id:
+            conds.append("k.category_id = ?")
+            params.append(category_id)
+        if q:
+            escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            conds.append("(p.title LIKE ? ESCAPE '\\' OR p.content LIKE ? ESCAPE '\\')")
+            like = f"%{escaped}%"
+            params.extend([like, like])
+        if favorite:
+            conds.append("s.favorite = 1")
         return _normalize_post_images(self._rows(
             "SELECT p.*, k.name AS kol_name, k.category_id AS category_id, "
             "k.avatar_url AS avatar_url, c.name AS category_name, "
@@ -1182,8 +1207,8 @@ class DB:
             "JOIN kols k ON k.id = p.kol_id "
             "LEFT JOIN categories c ON c.id = k.category_id "
             "LEFT JOIN subscriptions s ON s.kol_id = p.kol_id AND s.user_id = ? "
-            f"WHERE p.kol_id IN ({placeholders}) ORDER BY p.id DESC LIMIT ?",
-            (user_id, *kol_ids, limit),
+            f"WHERE {' AND '.join(conds)} ORDER BY p.id DESC LIMIT ? OFFSET ?",
+            (*params, limit, offset),
         ))
 
     def list_daily_posts(
