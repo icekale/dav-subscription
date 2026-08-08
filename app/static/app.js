@@ -51,6 +51,7 @@ function flash(message, type = "success") {
   if (!el) {
     el = document.createElement("div");
     el.id = "toast";
+    el.setAttribute("aria-live", "polite"); // 操作反馈对读屏可感知
     document.body.appendChild(el);
   }
   el.className = `toast ${type}`;
@@ -1060,7 +1061,7 @@ async function loadMyAsks(routeSeq) {
     const statusMap = { pending: "待审批", approved: "已通过 ✅", rejected: "已拒绝" };
     $("#my-asks").innerHTML = asks.length
       ? `<div class="table-wrap"><table>
-          <thead><tr><th>平台</th><th>外部 ID</th><th>状态</th><th>提交时间</th></tr></thead>
+          <thead><tr><th scope="col">平台</th><th scope="col">外部 ID</th><th scope="col">状态</th><th scope="col">提交时间</th></tr></thead>
           <tbody>${asks.map((a) => `
             <tr>
               <td>${PLATFORM_LABELS[a.platform] || escapeHtml(a.platform)}</td>
@@ -1958,7 +1959,7 @@ async function loadAdminStats() {
       <div id="stats-ops" style="margin-top:16px"></div>
       <div class="table-wrap" style="margin-top:16px">
         <table>
-          <thead><tr><th>平台</th><th>状态</th><th>通道</th><th>24h 成功率</th><th>成功 / 失败</th><th>连续失败</th><th>最近成功</th><th>下次重试</th><th>最近错误</th></tr></thead>
+          <thead><tr><th scope="col">平台</th><th scope="col">状态</th><th scope="col">通道</th><th scope="col">24h 成功率</th><th scope="col">成功 / 失败</th><th scope="col">连续失败</th><th scope="col">最近成功</th><th scope="col">下次重试</th><th scope="col">最近错误</th></tr></thead>
           <tbody id="sources-table"></tbody>
         </table>
       </div>
@@ -2072,7 +2073,7 @@ function renderStatsData(s) {
     const rows = s.recent_source_events || [];
     events.innerHTML = rows.length
       ? `<div class="table-wrap"><table>
-          <thead><tr><th>时间</th><th>平台</th><th>状态</th><th>详情</th></tr></thead>
+          <thead><tr><th scope="col">时间</th><th scope="col">平台</th><th scope="col">状态</th><th scope="col">详情</th></tr></thead>
           <tbody>${rows.map((e) => `
             <tr>
               <td class="muted">${escapeHtml(fmtDbTime(e.created_at))}</td>
@@ -2092,7 +2093,7 @@ function renderStatsData(s) {
     const rows = s.kol_health || [];
     kh.innerHTML = rows.length
       ? `<div class="table-wrap"><table>
-          <thead><tr><th>大V</th><th>平台</th><th>状态</th><th>最近抓到新帖</th></tr></thead>
+          <thead><tr><th scope="col">大V</th><th scope="col">平台</th><th scope="col">状态</th><th scope="col">最近抓到新帖</th></tr></thead>
           <tbody>${rows.map((h) => `
             <tr>
               <td>${escapeHtml(h.name)}</td>
@@ -2317,7 +2318,7 @@ async function loadAdminDashboard() {
         <p class="section-meta">各平台抓取状态与 24h 成功率，以及最近事件流。</p></div></header>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>平台</th><th>状态</th><th>通道</th><th>24h 成功率</th><th>连续失败</th><th>最近错误</th></tr></thead>
+            <thead><tr><th scope="col">平台</th><th scope="col">状态</th><th scope="col">通道</th><th scope="col">24h 成功率</th><th scope="col">连续失败</th><th scope="col">最近错误</th></tr></thead>
             <tbody>${srcRows}</tbody>
           </table>
         </div>
@@ -2387,7 +2388,7 @@ async function loadAdminKols() {
       </header>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>ID</th><th>平台</th><th>昵称</th><th>分类</th><th>外部ID</th><th>优先</th><th>原创</th><th>可见性</th><th>状态</th><th>操作</th></tr></thead>
+          <thead><tr><th scope="col">ID</th><th scope="col">平台</th><th scope="col">昵称</th><th scope="col">分类</th><th scope="col">外部ID</th><th scope="col">优先</th><th scope="col">原创</th><th scope="col">可见性</th><th scope="col">状态</th><th scope="col">操作</th></tr></thead>
           <tbody>${kols.map((k) => `
             <tr>
               <td>${k.id}</td><td>${PLATFORM_LABELS[k.platform] || k.platform}</td>
@@ -2613,7 +2614,7 @@ async function loadAdminRequests() {
       <p class="section-meta">用户申请添加的大V，审批通过后进入订阅广场。</p></div></header>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>ID</th><th>平台</th><th>昵称</th><th>外部ID</th><th>申请人</th><th>申请时间</th><th>操作</th></tr></thead>
+          <thead><tr><th scope="col">ID</th><th scope="col">平台</th><th scope="col">昵称</th><th scope="col">外部ID</th><th scope="col">申请人</th><th scope="col">申请时间</th><th scope="col">操作</th></tr></thead>
           <tbody>${pendingRows}</tbody>
         </table>
       </div>
@@ -2622,7 +2623,7 @@ async function loadAdminRequests() {
       <header class="section-head"><div><p class="section-eyebrow">History</p><h3 class="section-title">处理记录</h3></div></header>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>ID</th><th>平台</th><th>昵称</th><th>外部ID</th><th>申请人</th><th>状态</th><th>处理时间</th></tr></thead>
+          <thead><tr><th scope="col">ID</th><th scope="col">平台</th><th scope="col">昵称</th><th scope="col">外部ID</th><th scope="col">申请人</th><th scope="col">状态</th><th scope="col">处理时间</th></tr></thead>
           <tbody>${historyRows}</tbody>
         </table>
       </div>
@@ -2674,7 +2675,7 @@ async function loadAdminCodes() {
       <header class="section-head"><div><p class="section-eyebrow">List</p><h3 class="section-title">注册码列表</h3></div></header>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>邀请码</th><th>备注</th><th>状态</th><th>使用者</th><th>生成时间</th><th>使用时间</th><th>操作</th></tr></thead>
+          <thead><tr><th scope="col">邀请码</th><th scope="col">备注</th><th scope="col">状态</th><th scope="col">使用者</th><th scope="col">生成时间</th><th scope="col">使用时间</th><th scope="col">操作</th></tr></thead>
           <tbody>${codes.length === 0 ? `<tr><td colspan="7" class="muted">暂无注册码</td></tr>` : codes.map((c) => `
             <tr>
               <td><code>${escapeHtml(c.code)}</code></td>
@@ -2735,7 +2736,7 @@ async function loadAdminCategories() {
       <header class="section-head"><div><p class="section-eyebrow">List</p><h3 class="section-title">分类列表</h3></div></header>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>ID</th><th>分类名</th><th>大V数</th><th>操作</th></tr></thead>
+          <thead><tr><th scope="col">ID</th><th scope="col">分类名</th><th scope="col">大V数</th><th scope="col">操作</th></tr></thead>
           <tbody>${categories.map((c) => `
             <tr>
               <td>${c.id}</td><td>${escapeHtml(c.name)}</td><td>${c.kol_count}</td>
@@ -2897,7 +2898,7 @@ function renderAdminPosts() {
       </header>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>ID</th><th>大V</th><th>分类</th><th>内容</th><th>时间</th><th>链接</th></tr></thead>
+          <thead><tr><th scope="col">ID</th><th scope="col">大V</th><th scope="col">分类</th><th scope="col">内容</th><th scope="col">时间</th><th scope="col">链接</th></tr></thead>
           <tbody>${_adminPosts.map(postRowHtml).join("")}</tbody>
         </table>
       </div>
@@ -2995,7 +2996,7 @@ async function loadAdminLogs() {
       </header>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>时间</th><th>用户</th><th>大V</th><th>渠道</th><th>状态</th><th>错误</th></tr></thead>
+          <thead><tr><th scope="col">时间</th><th scope="col">用户</th><th scope="col">大V</th><th scope="col">渠道</th><th scope="col">状态</th><th scope="col">错误</th></tr></thead>
           <tbody>${logs.map((l) => `
             <tr>
               <td>${escapeHtml(fmtDbTime(l.created_at))}</td>
@@ -3039,7 +3040,7 @@ async function loadAdminAudit() {
       <p class="section-meta">管理员关键操作记录（改权限/删用户/增删大V/注册码/cookie）。</p></div></header>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>时间</th><th>管理员</th><th>操作</th><th>目标</th><th>详情</th></tr></thead>
+          <thead><tr><th scope="col">时间</th><th scope="col">管理员</th><th scope="col">操作</th><th scope="col">目标</th><th scope="col">详情</th></tr></thead>
           <tbody>${logs.length === 0 ? `<tr><td colspan="5" class="muted">暂无记录</td></tr>` : logs.map((l) => `
             <tr>
               <td>${escapeHtml(fmtDbTime(l.created_at))}</td>
@@ -3107,7 +3108,7 @@ async function loadAdminUsers() {
       <header class="section-head"><div><p class="section-eyebrow">Users</p><h3 class="section-title">注册用户</h3></div></header>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>ID</th><th>用户名</th><th>角色</th><th>Telegram</th><th>飞书</th><th>企业微信</th><th>Bark</th><th>推送</th><th>注册时间</th><th>操作</th></tr></thead>
+          <thead><tr><th scope="col">ID</th><th scope="col">用户名</th><th scope="col">角色</th><th scope="col">Telegram</th><th scope="col">飞书</th><th scope="col">企业微信</th><th scope="col">Bark</th><th scope="col">推送</th><th scope="col">注册时间</th><th scope="col">操作</th></tr></thead>
           <tbody>${users.map((u) => `
             <tr>
               <td>${u.id}</td><td>${escapeHtml(u.username)}</td>

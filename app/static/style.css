@@ -481,7 +481,7 @@ textarea.form-control {
 /* 分类 chips */
 .home-cats { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .cat-chip {
-  height: 30px; padding: 0 14px;
+  height: 32px; padding: 0 14px;
   border: var(--border-strong); border-radius: var(--radius-pill);
   background: var(--color-surface); color: var(--color-text);
   font-size: var(--text-xs); cursor: pointer;
