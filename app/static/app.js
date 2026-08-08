@@ -597,16 +597,6 @@ const TL_PLATFORMS = [
 async function renderTimeline() {
   setPageTitle("动态");
   $("#main").innerHTML = `
-    ${heroPanel("Timeline", "动态", "你订阅大V的最新动态，按时间倒序。", ["实时抓取", "去重推送"])}
-    <section class="section-panel">
-      <header class="section-head">
-        <div>
-          <p class="section-eyebrow">Feed</p>
-          <h3 class="section-title">最新动态</h3>
-          <p class="section-meta" id="tl-meta">已加载 0 条 · 点「筛选」可搜索关键词或按分类过滤</p>
-        </div>
-      </header>
-    </section>
     <div class="tl-filterbar" id="tl-filterbar">
       <div class="tl-filterbar-top">
         <div class="tl-pills" id="tl-pills">${tlPillsHtml()}</div>
@@ -624,6 +614,7 @@ async function renderTimeline() {
         </div>
       </div>
     </div>
+    <p class="section-meta" id="tl-meta" style="margin:0 0 10px">已加载 0 条 · 点「筛选」可搜索关键词或按分类过滤</p>
     <section class="section-panel">
       <div id="feed"></div>
     </section>`;
