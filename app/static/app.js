@@ -99,27 +99,40 @@ const NAV = [
   ]},
   { group: "管理", admin: true, items: [
     { route: "admin/dashboard", icon: "▦", label: "看板" },
-    { route: "admin/stats", icon: BOOK_ICON, label: "数据源" },
-    { route: "admin/kols", icon: V_ICON, label: "大V管理" },
-    { route: "admin/requests", icon: "✚", label: "求添加" },
-    { route: "admin/codes", icon: "✉", label: "注册码" },
-    { route: "admin/categories", icon: "▣", label: "分类管理" },
-    { route: "admin/posts", icon: "▤", label: "帖子" },
-    { route: "admin/logs", icon: "☰", label: "推送记录" },
-    { route: "admin/audit", icon: "◈", label: "操作日志" },
-    { route: "admin/users", icon: "◉", label: "用户" },
+  ], subs: [
+    { label: "内容管理", items: [
+      { route: "admin/kols", icon: V_ICON, label: "大V管理" },
+      { route: "admin/categories", icon: "▣", label: "分类管理" },
+      { route: "admin/requests", icon: "✚", label: "求添加" },
+    ]},
+    { label: "数据与日志", items: [
+      { route: "admin/stats", icon: BOOK_ICON, label: "数据源" },
+      { route: "admin/posts", icon: "▤", label: "帖子" },
+      { route: "admin/logs", icon: "☰", label: "推送记录" },
+      { route: "admin/audit", icon: "◈", label: "操作日志" },
+    ]},
+    { label: "用户与注册", items: [
+      { route: "admin/users", icon: "◉", label: "用户" },
+      { route: "admin/codes", icon: "✉", label: "注册码" },
+    ]},
   ]},
 ];
 
 function renderSidebar(user) {
-  const html = NAV.filter((g) => !g.admin || user.is_admin)
-    .map((group) => `
-      <div class="nav-group-label">${group.group}</div>
-      ${group.items.map((item) => `
+  const navItemHtml = (item) => `
         <button class="nav-item" data-route="${item.route}" onclick="location.hash='#/${item.route}'">
           <span class="nav-icon">${item.icon}</span>
           <span class="nav-label">${item.label}</span>
-        </button>`).join("")}
+        </button>`;
+  const html = NAV.filter((g) => !g.admin || user.is_admin)
+    .map((group) => `
+      <div class="nav-group-label">${group.group}</div>
+      ${(group.items || []).map(navItemHtml).join("")}
+      ${(group.subs || []).map((sub) => `
+        <details class="nav-sub" open>
+          <summary class="nav-sub-label">${sub.label}</summary>
+          ${sub.items.map(navItemHtml).join("")}
+        </details>`).join("")}
     `).join("");
   $("#sidebar-nav").innerHTML = html;
   $("#sidebar-user").innerHTML = `
@@ -152,12 +165,16 @@ function renderBottomNav(user) {
 async function renderMore() {
   if (!state.user.is_admin) { location.hash = "#/home"; return; }
   setPageTitle("更多");
-  const adminGroup = NAV.find((g) => g.admin) || { items: [] };
+  const adminGroup = NAV.find((g) => g.admin) || { items: [], subs: [] };
+  const adminItems = [
+    ...(adminGroup.items || []),
+    ...(adminGroup.subs || []).flatMap((s) => s.items || []),
+  ];
   $("#main").innerHTML = `
     ${heroPanel("More", "更多", "管理后台入口。")}
     <section class="section-panel">
       <div class="more-grid">
-        ${adminGroup.items.map((item) => `
+        ${adminItems.map((item) => `
           <button class="more-item" onclick="location.hash='#/${item.route}'">
             <span class="more-icon">${item.icon}</span>
             <span class="more-label">${escapeHtml(item.label)}</span>

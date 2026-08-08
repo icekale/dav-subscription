@@ -249,6 +249,21 @@ textarea.form-control {
 .nav-item.active { background: var(--color-accent-soft); color: var(--color-accent-strong); font-weight: var(--font-weight-semibold); }
 .nav-item .nav-icon { width: 20px; text-align: center; font-size: var(--text-body); }
 .nav-item .nav-icon svg { width: 15px; height: 15px; vertical-align: -2px; }
+
+/* 管理侧边栏折叠子组 */
+.nav-sub { margin-top: 2px; }
+.nav-sub summary { list-style: none; cursor: pointer; }
+.nav-sub summary::-webkit-details-marker { display: none; }
+.nav-sub-label {
+  font-size: 12px; font-weight: var(--font-weight-semibold);
+  color: var(--color-text-faint);
+  padding: 8px 12px 4px;
+  display: flex; align-items: center; justify-content: space-between;
+  user-select: none;
+}
+.nav-sub-label::after { content: "▸"; font-size: 10px; transition: transform var(--ease-standard); }
+.nav-sub[open] > .nav-sub-label::after { transform: rotate(90deg); }
+.nav-sub .nav-item { padding-left: 22px; }
 .sidebar-foot { padding: 24px 12px 14px; }
 .sidebar-user { font-size: var(--text-xs); color: var(--color-text-muted); display: block; }
 .sidebar-foot-links { display: flex; flex-direction: column; align-items: center; gap: 5px; }
@@ -707,8 +722,9 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
 @media (max-width: 900px) {
   .sidebar { width: 68px; padding: 18px 8px; }
   .sidebar-brand { justify-content: center; padding: 6px 0 16px; }
-  .sidebar-brand-text, .sidebar-brand-meta, .nav-item .nav-label, .nav-group-label, .sidebar-user { display: none; }
+  .sidebar-brand-text, .sidebar-brand-meta, .nav-item .nav-label, .nav-group-label, .nav-sub-label, .sidebar-user { display: none; }
   .nav-item { justify-content: center; padding: 12px; }
+  .nav-sub .nav-item { padding-left: 12px; }
   .login-shell { flex-direction: column; gap: 28px; max-width: 420px; }
   .login-brand { text-align: center; }
   .login-brand .brand-mark { margin-left: auto; margin-right: auto; }
