@@ -1933,6 +1933,22 @@ def test_register_username_case_insensitive_unique():
     assert resp.status_code == 400 and "用户名已存在" in resp.json()["detail"]
 
 
+def test_login_username_case_insensitive():
+    """注册用 COLLATE NOCASE 判重，登录也必须大小写不敏感，否则同名不同大小写无法登录。"""
+    client = make_client()
+    register(client, "Yansy102", "secret123")
+    # 大小写变体登录成功
+    resp = client.post("/api/auth/login", json={"username": "yansy102", "password": "secret123"})
+    assert resp.status_code == 200
+    assert resp.json()["user"]["username"] == "Yansy102"  # token 中保留数据库原始用户名
+    resp = client.post("/api/auth/login", json={"username": "YANSY102", "password": "secret123"})
+    assert resp.status_code == 200
+    # 密码错误仍被拒
+    assert client.post(
+        "/api/auth/login", json={"username": "yansy102", "password": "wrong123"}
+    ).status_code == 401
+
+
 def test_add_user_username_case_insensitive_unique():
     """机器人/微信自动建号也遵守大小写不敏感唯一约束。"""
     client = make_client()

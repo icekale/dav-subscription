@@ -488,7 +488,8 @@ def create_api_router(
                 status_code=429,
                 detail=f"该账号因多次失败登录被临时锁定，请约 {minutes} 分钟后再试",
             )
-        user = db.get_user_by_username(username)
+        # 注册按 COLLATE NOCASE 判重，登录同样大小写不敏感，避免同名不同大小写无法登录
+        user = db.get_user_by_username_ci(username)
         if user is None:
             auth.verify_password(body.password, auth.DUMMY_HASH)
             _record_login_failure(ip)
@@ -1287,7 +1288,7 @@ def create_api_router(
         if "visible_users" in body.model_fields_set and body.visible_users is not None:
             user_ids = []
             for username in body.visible_users:
-                target = db.get_user_by_username(username.strip())
+                target = db.get_user_by_username_ci(username.strip())
                 if target is None:
                     raise HTTPException(status_code=400, detail=f"用户不存在: {username}")
                 user_ids.append(target["id"])
