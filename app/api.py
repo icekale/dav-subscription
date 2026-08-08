@@ -240,6 +240,15 @@ def admin_user_summary(user: dict) -> dict:
     }
 
 
+def bounded_limit(value: int, default: int = 100) -> int:
+    """分页 limit 统一钳制：负数/0 按 1 处理（SQLite 的 LIMIT -1 表示不限制），上限 500。"""
+    try:
+        value = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(1, min(value, 500))
+
+
 def create_api_router(
     db: DB,
     secret: str,
@@ -801,7 +810,7 @@ def create_api_router(
         kol_ids = sorted(db.subscribed_kol_ids(user["id"]))
         return db.list_feed_posts(
             kol_ids,
-            limit=min(limit, 500),
+            limit=bounded_limit(limit),
             user_id=user["id"],
             offset=max(offset, 0),
             platform=platform,
@@ -832,7 +841,7 @@ def create_api_router(
             not user["is_admin"] and kol["id"] not in db.visible_kol_ids(user["id"])
         ):
             raise HTTPException(status_code=404, detail="大V不存在")
-        return db.list_posts(limit=min(limit, 500), kol_id=kol_id)
+        return db.list_posts(limit=bounded_limit(limit), kol_id=kol_id)
 
     @router.post("/kol-requests")
     def create_kol_request(body: KolRequestIn, user: dict = Depends(get_current_user)):
@@ -1053,7 +1062,7 @@ def create_api_router(
 
     @router.get("/admin/logs", dependencies=[Depends(require_admin)])
     def list_audit_logs(limit: int = 100):
-        return db.list_admin_logs(limit=min(limit, 500))
+        return db.list_admin_logs(limit=bounded_limit(limit))
 
     @router.get("/admin/dashboard", dependencies=[Depends(require_admin)])
     def dashboard():
@@ -1335,7 +1344,7 @@ def create_api_router(
 
     @router.get("/posts", dependencies=[Depends(require_admin)])
     def list_posts(limit: int = 100, platform: str | None = None, kol_id: int | None = None, q: str | None = None, offset: int = 0):
-        return db.list_posts(limit=min(limit, 500), platform=platform, kol_id=kol_id, q=q, offset=offset)
+        return db.list_posts(limit=bounded_limit(limit), platform=platform, kol_id=kol_id, q=q, offset=offset)
 
     @router.get("/push-logs", dependencies=[Depends(require_admin)])
     def list_push_logs(
@@ -1345,7 +1354,7 @@ def create_api_router(
         status: str | None = None,
     ):
         return db.list_push_logs(
-            limit=min(limit, 500),
+            limit=bounded_limit(limit),
             user_id=user_id,
             channel=channel,
             status=status,

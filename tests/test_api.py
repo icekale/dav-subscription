@@ -1216,6 +1216,47 @@ def test_delete_kol_cascades_posts_and_logs():
     assert db.list_subscriptions(uid) == []
 
 
+def test_pagination_limits_are_bounded():
+    """分页 limit 必须被钳制：负数/0 不得变成 SQLite 的无限制查询（LIMIT -1），最大不超过 500。"""
+    client = make_client()
+    headers = auth_headers(client)
+    kid = client.post(
+        "/api/kols", headers=headers, json={"platform": "xueqiu", "name": "A", "external_id": "1"}
+    ).json()["id"]
+    # 造 3 条帖子；若 limit=-1 未被钳制（SQLite LIMIT -1 = 无限制）会返回全部 3 条
+    for i in range(3):
+        client.app.state.db.insert_post("xueqiu", kid, f"p{i}", f"t{i}", "c", "u", "")
+    client.app.state.db.add_push_log(1, "telegram", "success", user_id=1)
+    client.app.state.db.add_push_log(1, "telegram", "success", user_id=1)
+    client.app.state.db.add_push_log(1, "telegram", "success", user_id=1)
+
+    # 用户接口
+    user_h = user_headers(client, "reader")
+    client.post("/api/subscriptions", headers=user_h, json={"kol_id": kid})
+    assert len(client.get("/api/my/feed?limit=-1", headers=user_h).json()) <= 1
+    assert len(client.get("/api/my/feed?limit=0", headers=user_h).json()) <= 1
+    assert len(client.get("/api/my/feed?limit=2", headers=user_h).json()) == 2
+    assert len(client.get(f"/api/kols/{kid}/posts?limit=-1", headers=user_h).json()) <= 1
+    assert len(client.get(f"/api/kols/{kid}/posts?limit=0", headers=user_h).json()) <= 1
+    assert len(client.get(f"/api/kols/{kid}/posts?limit=2", headers=user_h).json()) == 2
+
+    # 管理员接口
+    assert len(client.get("/api/posts?limit=-1", headers=headers).json()) <= 1
+    assert len(client.get("/api/posts?limit=0", headers=headers).json()) <= 1
+    assert len(client.get("/api/posts?limit=2", headers=headers).json()) == 2
+    assert len(client.get("/api/push-logs?limit=-1", headers=headers).json()) <= 1
+    assert len(client.get("/api/push-logs?limit=0", headers=headers).json()) <= 1
+    assert len(client.get("/api/push-logs?limit=2", headers=headers).json()) == 2
+    assert len(client.get("/api/admin/logs?limit=-1", headers=headers).json()) <= 1
+    assert len(client.get("/api/admin/logs?limit=0", headers=headers).json()) <= 1
+
+    # 大 limit 上限 500
+    assert len(client.get("/api/posts?limit=501", headers=headers).json()) == 3
+    assert len(client.get("/api/push-logs?limit=501", headers=headers).json()) == 3
+    # 负数 offset 安全钳制为 0
+    assert len(client.get("/api/posts?limit=10&offset=-5", headers=headers).json()) == 3
+
+
 def test_posts_and_push_logs_api():
     client = make_client()
     headers = auth_headers(client)
