@@ -830,8 +830,8 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
   .sub-type-switch { min-height: 44px; }
   .post-item { padding: 14px 4px; }
   .post-item a { min-height: 40px; display: inline-flex; align-items: center; }
-  .post-images { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-  .post-images img { width: 100%; height: auto; aspect-ratio: 1; }
+  .tl-group .post-images { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .tl-group .post-images img { width: 100%; height: auto; aspect-ratio: 1; }
   .tl-filterbar-top { flex-direction: column; align-items: stretch; }
   .tl-pills { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 4px; }
   .tl-actions { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
