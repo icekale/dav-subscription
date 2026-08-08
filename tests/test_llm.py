@@ -379,8 +379,10 @@ def test_summarize_daily_prompt_includes_rules():
 
     client = httpx.Client(transport=httpx.MockTransport(handler))
     summarize_daily([make_post()], make_config(), client=client)
-    # system 指令要求综合成最多 3 条、要点点名大V
-    assert "最多 3 条" in captured["system"] and "大V" in captured["system"]
+    # system 指令要求综合成最多 3 条、每条限定字数、要点点名大V
+    assert "最多 3 条" in captured["system"]
+    assert "60~80 字" in captured["system"]
+    assert "大V" in captured["system"]
     # 输入行带序号，模型可引用
     assert "1. [原帖][xueqiu] 张三：" in captured["user"]
 
