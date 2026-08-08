@@ -456,8 +456,9 @@ textarea.form-control {
 .kol-card-info .name { font-size: var(--text-body); font-weight: var(--font-weight-semibold); color: var(--color-text-strong); }
 .kol-card-info .tag { font-size: var(--text-xs); color: var(--color-accent); background: var(--color-accent-soft); border-radius: var(--radius-pill); padding: 2px 10px; }
 .kol-card-info .desc { color: var(--color-text-muted); font-size: var(--text-xs); margin-top: 5px; }
-.kol-card-actions { display: flex; gap: 8px; margin-top: auto; }
-.kol-card-actions .btn-sub { flex: 1; }
+.kol-card-actions { display: flex; align-items: center; gap: 8px; margin-top: auto; }
+/* 主按钮与星标/删除圆按钮等高（44px），垂直居中，避免矮一截偏上 */
+.kol-card-actions .btn-sub { flex: 1; height: 44px; }
 /* 操作区图标按钮（星标/删除）统一尺寸，与主按钮并排协调 */
 .kol-card-actions .fav-btn, .kol-card-actions .kol-del {
   width: 44px; height: 44px; padding: 0; flex-shrink: 0;
