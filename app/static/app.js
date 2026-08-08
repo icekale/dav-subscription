@@ -79,7 +79,7 @@ function logout() {
   state.token = "";
   state.user = null;
   localStorage.removeItem("dav_token");
-  location.hash = "#/home";
+  location.hash = "#/timeline";
   $("#app-view").classList.add("hidden");
   $("#auth-view").classList.remove("hidden");
 }
@@ -99,7 +99,7 @@ const NAV = [
     { route: "home", icon: "◎", label: "订阅广场" },
     { route: "combinations", icon: "◈", label: "组合订阅" },
     { route: "mysubs", icon: "▤", label: "我的订阅" },
-    { route: "timeline", icon: "☰", label: "动态" },
+    { route: "timeline", icon: "☰", label: "最新动态" },
     { route: "settings", icon: "⚙", label: "推送设置" },
   ]},
   { group: "", admin: true, subs: [
@@ -152,7 +152,7 @@ const MOBILE_NAV = [
   { route: "home", icon: "◎", label: "广场" },
   { route: "combinations", icon: "◈", label: "组合" },
   { route: "mysubs", icon: "▤", label: "订阅" },
-  { route: "timeline", icon: "☰", label: "动态" },
+  { route: "timeline", icon: "☰", label: "最新动态" },
   { route: "settings", icon: "⚙", label: "设置" },
 ];
 
@@ -167,7 +167,7 @@ function renderBottomNav(user) {
 }
 
 async function renderMore() {
-  if (!state.user.is_admin) { location.hash = "#/home"; return; }
+  if (!state.user.is_admin) { location.hash = "#/timeline"; return; }
   setPageTitle("更多");
   const adminGroup = NAV.find((g) => g.admin) || { items: [], subs: [] };
   const adminItems = [
@@ -619,7 +619,7 @@ const TL_PLATFORMS = [
 ];
 
 async function renderTimeline() {
-  setPageTitle("动态");
+  setPageTitle("最新动态");
   $("#main").innerHTML = `
     <div class="tl-filterbar" id="tl-filterbar">
       <div class="tl-filterbar-top">
@@ -3042,7 +3042,7 @@ async function router() {
   stopSettingsPoll();
   stopSysLogsTimer();
   stopStatsTimer();
-  const hash = location.hash.replace(/^#\/?/, "") || "home";
+  const hash = location.hash.replace(/^#\/?/, "") || "timeline";
   // 先去掉 query（#/search?q=xxx），再按路径分段
   const path = hash.split("?")[0];
   const [page, rawParam] = path.split("/");
@@ -3081,10 +3081,10 @@ async function router() {
     else if (page === "search") await renderSearch();
     else if (page === "kol") await renderKolPage(Number(param));
     else if (page === "admin") {
-      if (!state.user.is_admin) { location.hash = "#/home"; return; }
+      if (!state.user.is_admin) { location.hash = "#/timeline"; return; }
       await renderAdmin(param || "dashboard");
     }
-    else { location.hash = "#/home"; await renderHome(); }
+    else { location.hash = "#/timeline"; await renderTimeline(); }
   } catch (err) {
     $("#main").innerHTML = emptyState(err.message);
   }
@@ -3101,7 +3101,7 @@ async function doLogin(e) {
     });
     state.token = data.token;
     localStorage.setItem("dav_token", data.token);
-    location.hash = "#/home";
+    location.hash = "#/timeline";
     router();
   } catch (err) {
     $("#auth-error").textContent = err.message;
@@ -3122,7 +3122,7 @@ async function doRegister(e) {
     });
     state.token = data.token;
     localStorage.setItem("dav_token", data.token);
-    location.hash = "#/home";
+    location.hash = "#/timeline";
     router();
   } catch (err) {
     $("#reg-error").textContent = err.message;
