@@ -636,7 +636,7 @@ textarea.form-control {
   display: flex; align-items: center; justify-content: center;
   padding: 28px;
   cursor: zoom-out;
-  animation: lightbox-in 0.18s ease-out;
+  animation: lightbox-in 0.25s ease-out;
 }
 .lightbox-img {
   /* 按原始尺寸显示：小图不放大；仅当超过视口（减去 padding 与留白）时才缩放 */
@@ -647,7 +647,7 @@ textarea.form-control {
   box-shadow: var(--shadow-lg);
   object-fit: contain;
   cursor: default;
-  animation: lightbox-img-in 0.22s ease-out;
+  animation: lightbox-img-in 0.28s ease-out;
 }
 .lightbox-close {
   position: absolute; top: 18px; right: 18px;
@@ -666,9 +666,9 @@ body.lightbox-open { overflow: hidden; }
   from { opacity: 0; transform: scale(0.96); }
   to { opacity: 1; transform: none; }
 }
-/* 关闭过渡：比打开略快（160ms），淡出 + 轻微缩小，快进快出更克制 */
-.lightbox.closing { animation: lightbox-out 0.16s ease-in forwards; }
-.lightbox.closing .lightbox-img { animation: lightbox-img-out 0.16s ease-in forwards; }
+/* 关闭过渡：比打开略快（200ms），淡出 + 轻微缩小，快进快出更克制 */
+.lightbox.closing { animation: lightbox-out 0.2s ease-in forwards; }
+.lightbox.closing .lightbox-img { animation: lightbox-img-out 0.2s ease-in forwards; }
 @keyframes lightbox-out { to { opacity: 0; } }
 @keyframes lightbox-img-out { to { opacity: 0; transform: scale(0.97); } }
 @media (prefers-reduced-motion: reduce) {

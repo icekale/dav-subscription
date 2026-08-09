@@ -96,7 +96,7 @@ function closeLightbox() {
   // 动画结束后移除 DOM；reduced-motion 下 animation 被禁用（animationend 不触发），用超时兜底
   const remove = () => overlay.remove();
   overlay.addEventListener("animationend", remove, { once: true });
-  setTimeout(remove, 200);
+  setTimeout(remove, 240); // 略大于关闭动画 200ms；reduced-motion 下 animationend 不触发时兜底
   document.body.classList.remove("lightbox-open");
   document.removeEventListener("keydown", lightboxKeyHandler);
 }
