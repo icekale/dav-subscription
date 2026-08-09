@@ -221,8 +221,6 @@ def resolve_x_profile(external_id: str, cookie: str = "") -> dict:
 
     失败（cookie 失效/风控/未配置）时返回空 dict，调用方回退占位名。
     """
-    import os
-
     cookie = cookie or os.environ.get("TWITTER_COOKIE", "")
     screen_name = extract_screen_name(external_id)
     if not screen_name or not cookie:

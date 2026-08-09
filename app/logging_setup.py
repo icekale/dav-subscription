@@ -14,7 +14,6 @@ RING_SIZE = 2000
 
 _ring: deque[str] = deque(maxlen=RING_SIZE)
 _ring_lock = threading.Lock()
-_configured = False
 _configured_lock = threading.Lock()
 
 
@@ -59,7 +58,6 @@ def _line_rank(line: str) -> int | None:
 
 def setup_logging(level: str | None = None, log_file: str | None = None) -> None:
     """配置根日志器（幂等）：stdout + 可选滚动文件 + 环形缓冲。"""
-    global _configured
     level = level or os.environ.get("LOG_LEVEL", "INFO")
     log_file = log_file if log_file is not None else os.environ.get("LOG_FILE", "")
     with _configured_lock:
@@ -84,7 +82,6 @@ def setup_logging(level: str | None = None, log_file: str | None = None) -> None
                 )
                 file_handler.setFormatter(formatter)
                 root.addHandler(file_handler)
-        _configured = True
     # httpx 访问日志会打印完整 URL（含 bot token），默认降到 WARNING 防泄露
     logging.getLogger("httpx").setLevel(
         logging.DEBUG if (level or "").upper() == "DEBUG" else logging.WARNING

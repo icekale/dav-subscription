@@ -109,8 +109,6 @@ def _extract_images(status: dict) -> list[str]:
 
 def resolve_profile(external_id: str, cookie: str = "") -> dict:
     """查询雪球用户昵称与头像（取最新一条动态里的 user 信息），失败返回空 dict。"""
-    import httpx
-
     uid = normalize_xueqiu_id(external_id)
     client = httpx.Client(
         timeout=15,
@@ -201,9 +199,8 @@ class XueqiuFetcher(Fetcher):
             params=params,
         )
         if resp.status_code in (401, 403):
+            # cookie 失效：_refresh_cookie 永远 raise（续期通道已被 WAF 接管），进入退避告警链路
             self._refresh_cookie()
-            self._apply_cookie()
-            resp = self.client.get(url, params=params)
         resp.raise_for_status()
         try:
             data = resp.json()

@@ -56,12 +56,6 @@ def mask_app_id(app_id: str) -> str:
     return f"{app_id[:8]}…" if len(app_id) > 8 else "…"
 
 
-def sanitize_error(text: str) -> str:
-    """错误文本脱敏：截断并去掉可能的凭据/设备码形态。"""
-    text = (text or "")[:300]
-    return text
-
-
 def qr_data_uri(url: str) -> str:
     """把链接渲染成二维码 PNG 的 data URI（前端 <img> 直接显示）。
 
@@ -317,7 +311,7 @@ class FeishuPersonalManager:
                         self.db.update_feishu_registration_session(session_id, status="expired", last_error=exc.code)
                         return
                     else:
-                        self.db.update_feishu_registration_session(session_id, status="degraded", last_error=sanitize_error(str(exc)))
+                        self.db.update_feishu_registration_session(session_id, status="degraded", last_error=str(exc)[:300])
                         return
                 except Exception as exc:  # noqa: BLE001 - 网络类异常保留 pending 下次重试
                     logger.warning("飞书注册轮询异常 session=%s err=%s", session_id[:8], exc)
@@ -453,7 +447,7 @@ class FeishuPersonalManager:
         try:
             notifier.send_text("✅ 个人机器人绑定成功！之后的新帖推送会通过本机器人发送。")
         except Exception as exc:  # noqa: BLE001
-            self.db.update_feishu_registration_session(session_id, status="degraded", last_error=sanitize_error(str(exc)))
+            self.db.update_feishu_registration_session(session_id, status="degraded", last_error=str(exc)[:300])
             self._stop_listener(session_id)
             logger.warning("飞书个人机器人测试消息失败 user=%s err=%s", user_id, exc)
             return
@@ -465,7 +459,7 @@ class FeishuPersonalManager:
                 open_id=sender_open_id, chat_id=chat_id,
             )
         except Exception as exc:  # noqa: BLE001 - app_id 唯一冲突（已被他人绑定）等
-            self.db.update_feishu_registration_session(session_id, status="degraded", last_error=sanitize_error(str(exc)))
+            self.db.update_feishu_registration_session(session_id, status="degraded", last_error=str(exc)[:300])
             self._stop_listener(session_id)
             logger.warning("保存个人机器人记录失败 user=%s err=%s", user_id, exc)
             return
@@ -535,4 +529,4 @@ def is_definitive_feishu_error(exc: Exception) -> bool:
 def mark_personal_degraded(db, user_id: int, message: str) -> None:
     bot = db.get_feishu_personal_bot(user_id)
     if bot is not None and bot["status"] == "active":
-        db.update_feishu_personal_bot(user_id, status="degraded", last_error=sanitize_error(message))
+        db.update_feishu_personal_bot(user_id, status="degraded", last_error=str(message)[:300])
