@@ -337,18 +337,18 @@ textarea.form-control {
 
 /* 主题切换（侧边栏底部三态）：与 GitHub 圆钮同语言——无边框小图标，选中用蓝色+淡蓝底 */
 .theme-switcher {
-  display: flex; gap: 2px;
+  display: flex; gap: 6px;
   justify-content: center; margin-top: 12px;
   padding-top: 12px; border-top: var(--border-soft);
 }
 .theme-mode {
-  width: 26px; height: 26px; border-radius: var(--radius-2xs);
+  width: 32px; height: 32px; border-radius: var(--radius-xs);
   border: none; background: transparent;
   display: inline-flex; align-items: center; justify-content: center;
   color: var(--color-text-faint);
   transition: all var(--ease-standard);
 }
-.theme-mode .theme-ic { width: 15px; height: 15px; }
+.theme-mode .theme-ic { width: 17px; height: 17px; }
 .theme-mode:hover { background: var(--color-surface-hover); color: var(--color-accent); }
 .theme-mode.selected { background: var(--color-surface-accent); color: var(--color-accent); }
 .theme-mode.selected .theme-ic { stroke-width: 2.4; }
