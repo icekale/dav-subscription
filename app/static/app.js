@@ -63,11 +63,23 @@ function imgOnError(img) {
   img.onerror = null;
 }
 
-// ---------- 图片灯箱（点击放大原图，背景变暗） ----------
+// ---------- 图片灯箱（点击放大原图，背景变暗，多图可左右切换） ----------
+let _lightboxImages = [];
+let _lightboxIndex = 0;
+
 function openLightbox(img) {
   if (!img) return;
-  const src = img.currentSrc || img.src || "";
-  if (!src) return;
+  // 收集当前帖子（同一 .post-images 容器）里的全部图片，支持左右切换
+  const container = img.closest(".post-images");
+  if (container) {
+    _lightboxImages = [...container.querySelectorAll("img")]
+      .map((im) => im.currentSrc || im.src || "")
+      .filter(Boolean);
+  } else {
+    _lightboxImages = [(img.currentSrc || img.src || "")].filter(Boolean);
+  }
+  if (!_lightboxImages.length) return;
+  _lightboxIndex = Math.max(0, _lightboxImages.indexOf(img.currentSrc || img.src || ""));
   closeLightbox(); // 防重复打开
   const overlay = document.createElement("div");
   overlay.className = "lightbox";
@@ -76,7 +88,11 @@ function openLightbox(img) {
   overlay.setAttribute("aria-label", "查看大图");
   overlay.innerHTML = `
     <button class="lightbox-close" aria-label="关闭" onclick="event.stopPropagation();closeLightbox()">✕</button>
-    <img class="lightbox-img" src="${escapeHtml(src)}" alt="" onerror="imgOnError(this)">`;
+    <img class="lightbox-img" src="${escapeHtml(_lightboxImages[_lightboxIndex])}" alt="" onerror="imgOnError(this)">
+    ${_lightboxImages.length > 1 ? `
+      <button class="lightbox-nav lightbox-prev" aria-label="上一张" onclick="event.stopPropagation();lightboxStep(-1)">‹</button>
+      <button class="lightbox-nav lightbox-next" aria-label="下一张" onclick="event.stopPropagation();lightboxStep(1)">›</button>
+      <span class="lightbox-count">${_lightboxIndex + 1} / ${_lightboxImages.length}</span>` : ""}`;
   overlay.addEventListener("click", (e) => {
     if (e.target === overlay) closeLightbox();
   });
@@ -85,8 +101,25 @@ function openLightbox(img) {
   document.addEventListener("keydown", lightboxKeyHandler);
 }
 
+function lightboxStep(dir) {
+  if (_lightboxImages.length < 2) return;
+  _lightboxIndex = (_lightboxIndex + dir + _lightboxImages.length) % _lightboxImages.length;
+  const img = document.querySelector(".lightbox-img");
+  if (!img) return;
+  img.style.opacity = "0";
+  setTimeout(() => {
+    img.src = _lightboxImages[_lightboxIndex];
+    img.style.opacity = "";
+    img.onerror = imgOnError;
+    const count = document.querySelector(".lightbox-count");
+    if (count) count.textContent = `${_lightboxIndex + 1} / ${_lightboxImages.length}`;
+  }, 120); // 与淡出过渡衔接
+}
+
 function lightboxKeyHandler(e) {
   if (e.key === "Escape") closeLightbox();
+  else if (e.key === "ArrowLeft") lightboxStep(-1);
+  else if (e.key === "ArrowRight") lightboxStep(1);
 }
 
 function closeLightbox() {

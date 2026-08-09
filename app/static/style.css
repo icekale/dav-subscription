@@ -660,6 +660,28 @@ textarea.form-control {
   transition: background var(--ease-standard);
 }
 .lightbox-close:hover { background: rgba(255, 255, 255, 0.26); }
+/* 多图切换：左右箭头（半透明圆钮，hover 增强）+ 计数 */
+.lightbox-nav {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  width: 46px; height: 46px; border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.12); color: var(--color-white);
+  font-size: 26px; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  transition: background var(--ease-standard);
+}
+.lightbox-nav:hover { background: rgba(255, 255, 255, 0.26); }
+.lightbox-prev { left: 20px; }
+.lightbox-next { right: 20px; }
+.lightbox-count {
+  position: absolute; bottom: 22px; left: 50%; transform: translateX(-50%);
+  color: rgba(255, 255, 255, 0.85);
+  font-size: var(--text-sm);
+  background: rgba(0, 0, 0, 0.4);
+  padding: 4px 12px; border-radius: var(--radius-pill);
+}
+.lightbox-img { transition: opacity 0.12s ease-out; }
 body.lightbox-open { overflow: hidden; }
 @keyframes lightbox-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes lightbox-img-in {
