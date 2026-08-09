@@ -574,6 +574,8 @@ textarea.form-control {
 .channel-pick {
   position: relative;
   display: inline-flex; align-items: center; gap: 9px;
+  /* 同一行内均分等宽：Telegram/飞书等文字长度不同也要视觉一致；超宽换行后仍均分 */
+  flex: 1 1 0; min-width: 150px;
   padding: 10px 16px; border: var(--border-strong); border-radius: var(--radius-control);
   background: var(--color-surface); cursor: pointer; user-select: none;
   font-size: var(--text-sm); color: var(--color-text-strong);
@@ -590,6 +592,7 @@ textarea.form-control {
 .ch-label { font-weight: var(--font-weight-medium); }
 .ch-check {
   width: 18px; height: 18px; border-radius: 50%;
+  margin-left: auto; /* 等宽后把勾选圈推到最右，内部布局不变 */
   display: inline-flex; align-items: center; justify-content: center;
   font-size: 12px; line-height: 1; color: transparent;
   border: 1px solid var(--color-line-strong);
