@@ -100,6 +100,9 @@ def build_feishu_card(post: Post, favorite: bool = False, keyword: bool = False)
     meta_lines = []
     if category:
         meta_lines.append(f"🗂 {category}")
+    tags = post.tags or []
+    if tags:
+        meta_lines.append(" ".join(f"#{t}" for t in tags))
     meta_lines.append(f"🕐 {post.published_at}")
     return {
         "msg_type": "interactive",
