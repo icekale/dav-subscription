@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import httpx
 from cryptography.fernet import Fernet
 
 from app.config import Config, FeishuConfig
@@ -103,6 +104,19 @@ def test_begin_session_creates_pending(monkeypatch):
     # 设备码必须加密存储，不出现明文
     assert session["device_code_ciphertext"] != "v1:dc123"
     assert "v1:dc123" not in session["device_code_ciphertext"]
+
+
+def test_poll_waiting_400_is_pending(monkeypatch):
+    """扫码等待：HTTP 400 + authorization_pending 是正常等待，不是异常。"""
+    from app.feishu_personal import RegistrationFlowError, poll_registration
+
+    def fake_post(url, data, timeout):
+        return httpx.Response(400, json={"error": "authorization_pending", "error_description": "", "code": 20094})
+
+    monkeypatch.setattr("app.feishu_personal.httpx.post", fake_post)
+    with pytest.raises(RegistrationFlowError) as exc:
+        poll_registration("v1:dc", "https://accounts.feishu.cn")
+    assert exc.value.code == "authorization_pending"
 
 
 def test_poll_success_issues_bind_code(monkeypatch):

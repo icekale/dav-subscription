@@ -64,6 +64,13 @@ def sanitize_error(text: str) -> str:
 
 def _post_form(url: str, data: dict, timeout: int = 15) -> dict:
     resp = httpx.post(url, data=data, timeout=timeout)
+    if resp.status_code == 400:
+        # 注册协议用 HTTP 400 表达正常等待/业务错误（authorization_pending 等），
+        # body 仍是 JSON；其余 4xx/5xx 直接抛给调用方按网络异常处理
+        try:
+            return resp.json()
+        except ValueError:
+            pass
     resp.raise_for_status()
     return resp.json()
 

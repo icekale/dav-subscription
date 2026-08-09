@@ -1523,7 +1523,7 @@ async function renderSettings(seq) {
           <div class="form-row" style="margin-top:16px;padding-top:16px;border-top:var(--border-default)">
             <label>⭐ 个人机器人（扫码自动创建，免共享限频）</label>
             <p class="section-meta">共享机器人所有用户共用一个应用配额；个人机器人是<b>属于你自己的飞书应用</b>，推送配额独立、不受共享应用限制。扫码自动创建，无需填任何凭据。</p>
-            ${feishuPersonalHtml(state.user.feishu_personal)}
+            <div id="fs-personal-block">${feishuPersonalHtml(state.user.feishu_personal)}</div>
           </div>
         </div>
         <div class="channel-bind-block" id="wecom-bind">
@@ -1721,9 +1721,9 @@ function feishuPersonalHtml(fs) {
   if (fsPersonalState.sessionId) {
     return fsPersonalStateHtml();
   }
-  return `<div class="row" style="gap:10px;flex-wrap:wrap">
-    <button class="channel-btn primary" onclick="startFeishuPersonal()">扫码创建个人机器人</button>
-    <p class="muted" style="margin:0">需要飞书电脑端/手机端扫码；个人应用会创建在你自己的飞书租户里。</p>
+  return `<div class="row" style="gap:10px;flex-wrap:wrap;margin-top:8px">
+    <button class="btn-normal" onclick="startFeishuPersonal()">扫码创建个人机器人</button>
+    <span class="muted">需要飞书扫码；个人应用会创建在你自己的飞书租户里。</span>
   </div>`;
 }
 
@@ -1758,11 +1758,17 @@ async function startFeishuPersonal() {
     fsPersonalState.sessionId = data.session_id;
     fsPersonalState.bindCommand = "";
     fsPersonalState.verificationUri = data.verification_uri;
-    renderSettings();
+    fsPersonalRender();
     startFeishuPersonalPoll(data.session_id);
   } catch (err) {
     alert("发起个人机器人注册失败: " + err.message);
   }
+}
+
+function fsPersonalRender() {
+  // 局部重绘个人机器人区块（不整页重绘：renderSettings 需要路由序号，轮询里拿不到）
+  const el = $("#fs-personal-block");
+  if (el) el.innerHTML = feishuPersonalHtml(state.user.feishu_personal);
 }
 
 function startFeishuPersonalPoll(sessionId) {
@@ -1771,33 +1777,35 @@ function startFeishuPersonalPoll(sessionId) {
     try {
       const data = await api(`/api/me/feishu-personal/register/${sessionId}`);
       fsPersonalState.verificationUri = data.verification_uri;
+      // 同步个人机器人展示状态（轮询期间 /api/me 不会刷新）
+      state.user.feishu_personal = state.user.feishu_personal || {};
+      if (data.personal_bot_status) state.user.feishu_personal.status = data.personal_bot_status;
       if (data.status === "awaiting_bind" && data.bind_command) {
         fsPersonalState.bindCommand = data.bind_command;
         fsPersonalState.bindExpiresAt = (data.bind_code_expires_at || 0) * 1000;
         stopFeishuPersonalPoll();
-        renderSettings();
+        fsPersonalRender();
         startFeishuBindCountdown();
       } else if (data.status === "active") {
         stopFeishuPersonalPoll();
         fsPersonalState.sessionId = "";
-        renderSettings();
+        fsPersonalRender();
         alert("个人机器人绑定成功 ✅ 之后推送会通过你的个人机器人发送");
       } else if (["expired", "cancelled", "degraded"].includes(data.status)) {
         stopFeishuPersonalPoll();
         fsPersonalState.sessionId = "";
-        renderSettings();
+        fsPersonalRender();
         if (data.status === "degraded") alert("个人机器人绑定失败：" + (data.last_error || "未知错误"));
       } else {
-        // pending / credentials_created：保持轮询
-        const el = $("#fs-personal-flow");
-        if (el) el.innerHTML = fsPersonalStateHtml();
+        // pending / credentials_created：局部刷新等待扫码区域
+        fsPersonalRender();
       }
     } catch (err) {
       // 轮询失败静默，下轮再试；会话不存在则结束
       if (String(err.message).includes("404")) {
         stopFeishuPersonalPoll();
         fsPersonalState.sessionId = "";
-        renderSettings();
+        fsPersonalRender();
       }
     }
   }, 2500);
@@ -1835,7 +1843,7 @@ async function refreshFeishuBindCode() {
     fsPersonalState.bindCommand = data.bind_command;
     fsPersonalState.bindExpiresAt = (data.bind_code_expires_at || 0) * 1000;
     stopFeishuPersonalPoll();
-    renderSettings();
+    fsPersonalRender();
     startFeishuBindCountdown();
   } catch (err) {
     $("#fs-personal-error").textContent = "刷新失败：" + err.message;
@@ -1849,7 +1857,7 @@ async function cancelFeishuPersonal() {
   } catch { /* 忽略 */ }
   stopFeishuPersonalPoll();
   fsPersonalState.sessionId = "";
-  renderSettings();
+  fsPersonalRender();
 }
 
 function openBindGuide(sectionId) {
@@ -2019,7 +2027,8 @@ async function unbindChannel(channel) {
       stopFeishuPersonalPoll();
       fsPersonalState.sessionId = "";
       await api("/api/me/feishu-personal", { method: "DELETE" });
-      renderSettings();
+      state.user.feishu_personal = { available: state.user.feishu_personal?.available, status: "", app_id_masked: "" };
+      fsPersonalRender();
       return;
     }
     const body = channel === "feishu"
