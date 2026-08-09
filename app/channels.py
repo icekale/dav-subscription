@@ -65,9 +65,11 @@ def build_channel_notifier(
     *,
     favorite: bool = False,
     keyword: bool = False,
+    db=None,
 ):
     """按渠道与用户绑定信息构造 notifier；未绑定抛 RuntimeError。
 
+    db 供飞书个人机器人路由使用（个人 active 优先）；缺省时回退共享应用路径。
     注意：notifier 类用函数内延迟导入，保证测试里
     monkeypatch.setattr("app.notifiers.xxx.Notifier", Fake) 对本模块生效。
     """
@@ -85,17 +87,29 @@ def build_channel_notifier(
             keyword=keyword,
         )
     if channel == "feishu":
+        from .feishu_personal import build_personal_feishu_kwargs
         from .notifiers.feishu import FeishuNotifier
 
-        if not (user.get("feishu_open_id") or user.get("feishu_chat_id")):
+        if db is not None:
+            kwargs = build_personal_feishu_kwargs(db, notifiers_config.feishu, user)
+        else:
+            kwargs = {
+                "app_id": None,
+                "app_secret": None,
+                "open_id": user["feishu_open_id"] if not user.get("feishu_chat_id") else None,
+                "chat_id": user.get("feishu_chat_id") or None,
+            }
+        if not (kwargs["open_id"] or kwargs["chat_id"]):
             raise RuntimeError("用户未绑定飞书")
         return FeishuNotifier(
             notifiers_config.feishu,
             client=client,
-            open_id=user["feishu_open_id"] if not user.get("feishu_chat_id") else None,
-            chat_id=user.get("feishu_chat_id") or None,
+            open_id=kwargs["open_id"],
+            chat_id=kwargs["chat_id"],
             favorite=favorite,
             keyword=keyword,
+            app_id=kwargs["app_id"],
+            app_secret=kwargs["app_secret"],
         )
     if channel == "wecom":
         from .notifiers.wecom import WeComNotifier
@@ -151,6 +165,7 @@ def deliver_post(
         client=client,
         favorite=favorite,
         keyword=keyword,
+        db=db,
     )
     try:
         notifier.notify(post)
@@ -158,6 +173,31 @@ def deliver_post(
     except Exception as exc:  # noqa: BLE001 - 单渠道失败不影响其他渠道/用户
         db.add_push_log(post_id, channel, "failed", str(exc), user_id=user["id"])
         logger.warning("用户推送失败 user=%s channel=%s err=%s", user["username"], channel, exc)
+        # 个人机器人明确的凭据/权限/应用类错误：降级个人路由，本条消息共享回退
+        if channel == "feishu":
+            from .feishu_personal import (
+                is_definitive_feishu_error,
+                mark_personal_degraded,
+                resolve_personal_target,
+            )
+
+            if resolve_personal_target(db, notifiers_config.feishu, user) is not None:
+                if is_definitive_feishu_error(exc):
+                    mark_personal_degraded(db, user["id"], str(exc))
+                    try:
+                        notifier = build_channel_notifier(
+                            channel, user, notifiers_config, client=client,
+                            favorite=favorite, keyword=keyword, db=db,
+                        )
+                        notifier.notify(post)
+                        db.add_push_log(post_id, channel, "success", user_id=user["id"])
+                        logger.info("飞书个人推送失败，已共享回退 user=%s", user["username"])
+                        return
+                    except Exception:  # noqa: BLE001 - 回退也失败，走常规失败路径
+                        logger.warning("飞书共享回退也失败 user=%s", user["username"], exc_info=True)
+                else:
+                    # 网络等模糊错误：不进重试队列双发，交给重试队列（设计 8.4）
+                    logger.info("飞书个人推送模糊错误，进重试队列 user=%s", user["username"])
         if retry_queue is not None:
             retry_queue.add(post, channel, user["id"])
         if alert_cb is not None:

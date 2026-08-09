@@ -114,6 +114,11 @@ def create_app(config=None, db_path: str | Path | None = None) -> FastAPI:
                 from .feishu_bot import FeishuBot
 
                 FeishuBot(db, config.notifiers.feishu.app_id, config.notifiers.feishu.app_secret).start()
+            # 飞书个人机器人：清理进程重启遗留的未结束注册会话
+            if config.notifiers.feishu.credential_key:
+                from .feishu_personal import FeishuPersonalManager
+
+                FeishuPersonalManager(db, config.notifiers.feishu).expire_stale()
         else:
             logger.warning("DAV_UI_ONLY=1 已跳过调度器与机器人长连接，仅提供网页 UI")
         yield

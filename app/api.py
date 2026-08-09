@@ -414,7 +414,7 @@ def create_api_router(
                     if not channel_bound(user, channel, notifiers_config):
                         continue
                     try:
-                        notifier = build_channel_notifier(channel, user, notifiers_config, client=client)
+                        notifier = build_channel_notifier(channel, user, notifiers_config, client=client, db=db)
                         notifier.send_text(message)
                     except Exception as exc:  # noqa: BLE001
                         logger.warning(
@@ -624,6 +624,17 @@ def create_api_router(
                 "telegram_bot_username": notifiers_config.telegram.bot_username,
                 "feishu_bot_name": notifiers_config.feishu.bot_name,
             }
+        from .feishu_personal import FeishuPersonalManager, mask_app_id
+
+        fs_personal_mgr = FeishuPersonalManager(
+            db, notifiers_config.feishu if notifiers_config is not None else None
+        )
+        personal_bot = db.get_feishu_personal_bot(user["id"])
+        profile["feishu_personal"] = {
+            "available": fs_personal_mgr.available(),
+            "status": personal_bot["status"] if personal_bot else "",
+            "app_id_masked": mask_app_id(personal_bot["app_id"]) if personal_bot else "",
+        }
         return profile
 
     @router.put("/me")
@@ -750,6 +761,92 @@ def create_api_router(
         code = f"{secrets.randbelow(1_000_000):06d}"
         db.create_bind_code(code, user["id"], int(time.time()) + BIND_CODE_TTL)
         return {"code": code, "expires_in_seconds": BIND_CODE_TTL}
+
+    # ---- 飞书个人机器人（扫码注册） ----
+
+    def _feishu_personal_manager():
+        from .feishu_personal import FeishuPersonalManager
+
+        return FeishuPersonalManager(
+            db, notifiers_config.feishu if notifiers_config is not None else None
+        )
+
+    def _require_feishu_personal():
+        manager = _feishu_personal_manager()
+        if not manager.available():
+            raise HTTPException(
+                status_code=400,
+                detail="个人机器人功能未启用（服务端未配置 FEISHU_CREDENTIAL_KEY）",
+            )
+        return manager
+
+    def _personal_session_payload(session: dict) -> dict:
+        """注册会话状态接口：只暴露展示字段，不返回密钥/设备码/绑定码明文。"""
+        from .feishu_personal import mask_app_id
+
+        personal_bot = db.get_feishu_personal_bot(session["user_id"])
+        return {
+            "session_id": session["session_id"],
+            "status": session["status"],
+            "verification_uri": session["verification_uri"],
+            "session_expires_at": session["session_expires_at"],
+            "bind_command": "",
+            "bind_code_expires_at": session.get("bind_code_expires_at"),
+            "last_error": session.get("last_error") or "",
+            "candidate_app_id_masked": mask_app_id(session["candidate_app_id"])
+            if session.get("candidate_app_id") else "",
+            "personal_bot_status": personal_bot["status"] if personal_bot else "",
+            "personal_bot_app_id_masked": mask_app_id(personal_bot["app_id"])
+            if personal_bot else "",
+        }
+
+    @router.post("/me/feishu-personal/register")
+    def feishu_personal_register(user: dict = Depends(get_current_user)):
+        manager = _require_feishu_personal()
+        try:
+            session = manager.begin_session(user["id"])
+        except Exception as exc:  # noqa: BLE001 - 飞书协议异常，展示给用户
+            raise HTTPException(status_code=502, detail=f"发起注册失败：{exc}") from exc
+        return _personal_session_payload(session)
+
+    @router.get("/me/feishu-personal/register/{session_id}")
+    def feishu_personal_register_status(session_id: str, user: dict = Depends(get_current_user)):
+        session = db.get_feishu_registration_session(session_id)
+        if session is None or session["user_id"] != user["id"]:
+            raise HTTPException(status_code=404, detail="注册会话不存在")
+        return _personal_session_payload(session)
+
+    @router.post("/me/feishu-personal/register/{session_id}/refresh-code")
+    def feishu_personal_refresh_code(session_id: str, user: dict = Depends(get_current_user)):
+        session = db.get_feishu_registration_session(session_id)
+        if session is None or session["user_id"] != user["id"]:
+            raise HTTPException(status_code=404, detail="注册会话不存在")
+        if session["status"] != "awaiting_bind":
+            raise HTTPException(status_code=400, detail="当前状态无需刷新绑定码")
+        manager = _feishu_personal_manager()
+        try:
+            issued = manager.issue_bind_code(session_id)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        session = db.get_feishu_registration_session(session_id)
+        payload = _personal_session_payload(session)
+        payload["bind_command"] = issued["bind_command"]
+        payload["bind_code_expires_at"] = issued["bind_code_expires_at"]
+        return payload
+
+    @router.post("/me/feishu-personal/register/{session_id}/cancel")
+    def feishu_personal_cancel(session_id: str, user: dict = Depends(get_current_user)):
+        session = db.get_feishu_registration_session(session_id)
+        if session is None or session["user_id"] != user["id"]:
+            raise HTTPException(status_code=404, detail="注册会话不存在")
+        _feishu_personal_manager().cancel_session(session_id)
+        return {"ok": True}
+
+    @router.delete("/me/feishu-personal")
+    def feishu_personal_delete(user: dict = Depends(get_current_user)):
+        """解绑个人机器人：擦除个人凭据与身份；共享飞书字段保持原值。"""
+        _feishu_personal_manager().disable(user["id"])
+        return {"ok": True}
 
     @router.post("/me/password")
     def change_password(body: PasswordChangeIn, user: dict = Depends(get_current_user)):
@@ -1651,7 +1748,7 @@ def create_api_router(
         for channel in CHANNELS:
             if not channel_bound(user, channel, notifiers_config):
                 continue
-            notifier = build_channel_notifier(channel, user, notifiers_config)
+            notifier = build_channel_notifier(channel, user, notifiers_config, db=db)
             try:
                 notifier.send_text(f"【测试推送】{body.message}")
                 results.append({"channel": channel, "ok": True})

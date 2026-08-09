@@ -14,6 +14,9 @@ class FeishuConfig:
     app_id: str = ""
     app_secret: str = ""
     bot_name: str = ""
+    # 飞书个人机器人凭据加密密钥（Fernet 兼容的 32 字节 Base64）。
+    # 只从环境变量读取，不写入 SQLite；缺失时个人机器人功能不可用，共享机器人照常。
+    credential_key: str = ""
 
 
 @dataclass
@@ -139,6 +142,7 @@ _ENV_MAP = {
     "TELEGRAM_PROXY": ("notifiers", "telegram", "proxy"),
     "TELEGRAM_BOT_USERNAME": ("notifiers", "telegram", "bot_username"),
     "FEISHU_BOT_NAME": ("notifiers", "feishu", "bot_name"),
+    "FEISHU_CREDENTIAL_KEY": ("notifiers", "feishu", "credential_key"),
     "WECOM_WEBHOOK_URL": ("notifiers", "wecom", "webhook_url"),
     "BARK_SERVER": ("notifiers", "bark", "bark_server"),
     "BARK_KEY": ("notifiers", "bark", "bark_key"),

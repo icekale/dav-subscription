@@ -334,10 +334,13 @@ class FeishuNotifier(Notifier):
         unsub_kol_id: int | None = None,
         favorite: bool = False,
         keyword: bool = False,
+        app_id: str | None = None,
+        app_secret: str | None = None,
     ):
         self.webhook_url = config.webhook_url
-        self.app_id = config.app_id
-        self.app_secret = config.app_secret
+        # 个人机器人凭据优先，缺省回退全局共享应用（同 TelegramNotifier 的 bot_token 模式）
+        self.app_id = app_id or config.app_id
+        self.app_secret = app_secret or config.app_secret
         self.open_id = open_id
         self.chat_id = chat_id
         self.unsub_kol_id = unsub_kol_id
@@ -372,7 +375,10 @@ class FeishuNotifier(Notifier):
             )
             data = resp.json()
             if data.get("code") != 0:
-                raise RuntimeError(f"飞书发送失败: {data.get('msg', data)}")
+                # 错误带 code，供个人路由判定「明确错误 → 降级 + 共享回退」
+                raise RuntimeError(
+                    f"飞书发送失败(code={data.get('code')}): {data.get('msg', data)}"
+                )
             return
         if not self.webhook_url:
             raise RuntimeError("未配置飞书 webhook_url 或应用凭据")
@@ -461,7 +467,9 @@ class FeishuNotifier(Notifier):
             )
             data = resp.json()
             if data.get("code") != 0:
-                raise RuntimeError(f"飞书发送失败: {data.get('msg', data)}")
+                raise RuntimeError(
+                    f"飞书发送失败(code={data.get('code')}): {data.get('msg', data)}"
+                )
             return
         if not self.webhook_url:
             raise RuntimeError("未配置飞书 webhook_url")

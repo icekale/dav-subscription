@@ -944,13 +944,18 @@ def notify_digest_subscribers(
             if _channel_enabled(user, "feishu") and (
                 user.get("feishu_open_id") or user.get("feishu_chat_id")
             ):
+                from .feishu_personal import build_personal_feishu_kwargs
+
+                fs_kwargs = build_personal_feishu_kwargs(db, notifiers_config.feishu, user)
                 notifier = FeishuNotifier(
                     notifiers_config.feishu,
                     client=client,
-                    open_id=user["feishu_open_id"] if not user.get("feishu_chat_id") else None,
-                    chat_id=user.get("feishu_chat_id") or None,
+                    open_id=fs_kwargs["open_id"],
+                    chat_id=fs_kwargs["chat_id"],
                     unsub_kol_id=kol["id"],
                     favorite=favorite,
+                    app_id=fs_kwargs["app_id"],
+                    app_secret=fs_kwargs["app_secret"],
                 )
                 try:
                     if summary:
@@ -1438,11 +1443,16 @@ class Scheduler:
                     except Exception as exc:  # noqa: BLE001
                         logger.warning("启动提示 TG 发送失败 user=%s err=%s", user["username"], exc)
                 if user.get("feishu_open_id") or user.get("feishu_chat_id"):
+                    from .feishu_personal import build_personal_feishu_kwargs
+
+                    fs_kwargs = build_personal_feishu_kwargs(self.db, self.notifiers_config.feishu, user)
                     notifier = FeishuNotifier(
                         self.notifiers_config.feishu,
                         client=client,
-                        open_id=user["feishu_open_id"] if not user.get("feishu_chat_id") else None,
-                        chat_id=user.get("feishu_chat_id") or None,
+                        open_id=fs_kwargs["open_id"],
+                        chat_id=fs_kwargs["chat_id"],
+                        app_id=fs_kwargs["app_id"],
+                        app_secret=fs_kwargs["app_secret"],
                     )
                     try:
                         await asyncio.to_thread(notifier.send_text, message)
@@ -1769,7 +1779,7 @@ class Scheduler:
                 if not channel_enabled(user, channel) or not channel_bound(user, channel, self.notifiers_config):
                     continue
                 try:
-                    notifier = build_channel_notifier(channel, user, self.notifiers_config, client=client)
+                    notifier = build_channel_notifier(channel, user, self.notifiers_config, client=client, db=self.db)
                     if summary:
                         notifier.send_text(f"📊 AI 摘要\n\n{summary}")
                     notifier.send_dnd_summary(posts)
@@ -1814,6 +1824,7 @@ class Scheduler:
             user,
             self.notifiers_config,
             favorite=favorite,
+            db=self.db,
         )
 
     def _daily_report_due(self) -> bool:
@@ -1839,6 +1850,7 @@ class Scheduler:
             )
         except Exception:  # noqa: BLE001 - 清理失败不影响推送
             logger.warning("每日精选投递状态清理失败", exc_info=True)
+        from .feishu_personal import build_personal_feishu_kwargs
         from .fetchers.base import Post
         from .notifiers.bark import BarkNotifier
         from .notifiers.feishu import FeishuNotifier
@@ -1953,8 +1965,7 @@ class Scheduler:
                 ),
                 lambda u=user: FeishuNotifier(
                     self.notifiers_config.feishu,
-                    open_id=u["feishu_open_id"] if not u.get("feishu_chat_id") else None,
-                    chat_id=u.get("feishu_chat_id") or None,
+                    **build_personal_feishu_kwargs(self.db, self.notifiers_config.feishu, u),
                 ),
                 user,
             )

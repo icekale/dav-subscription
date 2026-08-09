@@ -209,6 +209,46 @@ CREATE TABLE IF NOT EXISTS source_events (
     fail_count INTEGER NOT NULL DEFAULT 0
 );
 
+-- 飞书个人机器人（扫码自动创建的应用，纯推送、共享回退）
+CREATE TABLE IF NOT EXISTS feishu_personal_bots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER UNIQUE NOT NULL,
+    app_id TEXT UNIQUE NOT NULL,
+    app_secret_ciphertext TEXT NOT NULL,
+    open_id TEXT NOT NULL DEFAULT '',
+    chat_id TEXT NOT NULL DEFAULT '',
+    tenant_brand TEXT NOT NULL DEFAULT 'feishu',
+    status TEXT NOT NULL,
+    last_error TEXT NOT NULL DEFAULT '',
+    verified_at TEXT,
+    last_success_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_fpb_status ON feishu_personal_bots(status);
+-- 飞书个人机器人扫码注册会话（同一用户同时只有一个未结束会话）
+CREATE TABLE IF NOT EXISTS feishu_registration_sessions (
+    session_id TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    device_code_ciphertext TEXT NOT NULL,
+    registration_base_url TEXT NOT NULL,
+    verification_uri TEXT NOT NULL,
+    candidate_app_id TEXT NOT NULL DEFAULT '',
+    candidate_app_secret_ciphertext TEXT NOT NULL DEFAULT '',
+    candidate_tenant_brand TEXT NOT NULL DEFAULT 'feishu',
+    expected_open_id TEXT NOT NULL DEFAULT '',
+    bind_code_hash TEXT NOT NULL DEFAULT '',
+    bind_code_expires_at INTEGER,
+    session_expires_at INTEGER NOT NULL,
+    poll_interval INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    last_error TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_frs_user ON feishu_registration_sessions(user_id, status);
+CREATE INDEX IF NOT EXISTS idx_frs_status ON feishu_registration_sessions(status);
+
 -- 性能索引：帖子/日志/订阅按数据量增长后的高频查询
 CREATE INDEX IF NOT EXISTS idx_posts_kol_id ON posts(kol_id);
 CREATE INDEX IF NOT EXISTS idx_posts_fetched_at ON posts(fetched_at);
@@ -1539,3 +1579,132 @@ class DB:
             )
             self._conn.commit()
             return cur.rowcount
+
+    # ---- 飞书个人机器人 ----
+    _PERSONAL_BOT_COLUMNS = frozenset({
+        "app_id", "app_secret_ciphertext", "open_id", "chat_id",
+        "tenant_brand", "status", "last_error", "verified_at", "last_success_at",
+    })
+
+    def get_feishu_personal_bot(self, user_id: int) -> dict | None:
+        rows = self._rows(
+            "SELECT * FROM feishu_personal_bots WHERE user_id = ?", (user_id,)
+        )
+        return rows[0] if rows else None
+
+    def get_feishu_personal_bot_by_app(self, app_id: str) -> dict | None:
+        rows = self._rows(
+            "SELECT * FROM feishu_personal_bots WHERE app_id = ?", (app_id,)
+        )
+        return rows[0] if rows else None
+
+    def save_feishu_personal_bot(self, user_id: int, app_id: str,
+                                 app_secret_ciphertext: str, tenant_brand: str,
+                                 status: str, *, open_id: str = "", chat_id: str = "",
+                                 last_error: str = "") -> None:
+        """按 user_id upsert 个人机器人记录（唯一约束：每用户一条）。"""
+        self._execute(
+            "INSERT INTO feishu_personal_bots "
+            "(user_id, app_id, app_secret_ciphertext, tenant_brand, status, open_id, chat_id, last_error, verified_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, CASE WHEN ? = 'active' THEN datetime('now') ELSE NULL END, datetime('now')) "
+            "ON CONFLICT(user_id) DO UPDATE SET "
+            "app_id=excluded.app_id, app_secret_ciphertext=excluded.app_secret_ciphertext, "
+            "tenant_brand=excluded.tenant_brand, status=excluded.status, open_id=excluded.open_id, "
+            "chat_id=excluded.chat_id, last_error=excluded.last_error, "
+            "verified_at=CASE WHEN excluded.status = 'active' THEN datetime('now') ELSE verified_at END, "
+            "updated_at=datetime('now')",
+            (user_id, app_id, app_secret_ciphertext, tenant_brand, status, open_id, chat_id, last_error, status),
+        )
+
+    def update_feishu_personal_bot(self, user_id: int, **kwargs) -> None:
+        sets, params = [], []
+        for key, value in kwargs.items():
+            if key not in self._PERSONAL_BOT_COLUMNS:
+                raise ValueError(f"非法个人机器人字段: {key}")
+            sets.append(f"{key} = ?")
+            params.append(value)
+        if not sets:
+            return
+        sets.append("updated_at = datetime('now')")
+        params.append(user_id)
+        self._execute(
+            f"UPDATE feishu_personal_bots SET {', '.join(sets)} WHERE user_id = ?", params
+        )
+
+    def delete_feishu_personal_bot(self, user_id: int) -> None:
+        self._execute("DELETE FROM feishu_personal_bots WHERE user_id = ?", (user_id,))
+
+    # ---- 飞书个人机器人注册会话 ----
+    _REG_SESSION_COLUMNS = frozenset({
+        "device_code_ciphertext", "registration_base_url", "verification_uri",
+        "candidate_app_id", "candidate_app_secret_ciphertext", "candidate_tenant_brand",
+        "expected_open_id", "bind_code_hash", "bind_code_expires_at",
+        "session_expires_at", "poll_interval", "status", "last_error",
+    })
+
+    def create_feishu_registration_session(self, **kwargs) -> None:
+        keys = [k for k in kwargs if k in self._REG_SESSION_COLUMNS or k == "session_id" or k == "user_id"]
+        missing = {"session_id", "user_id", "device_code_ciphertext", "registration_base_url",
+                   "verification_uri", "session_expires_at", "poll_interval", "status"} - set(keys)
+        if missing:
+            raise ValueError(f"注册会话缺少必填字段: {', '.join(sorted(missing))}")
+        cols = ", ".join(keys)
+        marks = ", ".join("?" for _ in keys)
+        self._execute(
+            f"INSERT INTO feishu_registration_sessions ({cols}) VALUES ({marks})",
+            tuple(kwargs[k] for k in keys),
+        )
+
+    def get_feishu_registration_session(self, session_id: str) -> dict | None:
+        rows = self._rows(
+            "SELECT * FROM feishu_registration_sessions WHERE session_id = ?", (session_id,)
+        )
+        return rows[0] if rows else None
+
+    def get_active_feishu_registration_session(self, user_id: int) -> dict | None:
+        rows = self._rows(
+            "SELECT * FROM feishu_registration_sessions WHERE user_id = ? "
+            "AND status NOT IN ('expired', 'cancelled') ORDER BY created_at DESC LIMIT 1",
+            (user_id,),
+        )
+        return rows[0] if rows else None
+
+    def update_feishu_registration_session(self, session_id: str, **kwargs) -> None:
+        sets, params = [], []
+        for key, value in kwargs.items():
+            if key not in self._REG_SESSION_COLUMNS:
+                raise ValueError(f"非法注册会话字段: {key}")
+            sets.append(f"{key} = ?")
+            params.append(value)
+        if not sets:
+            return
+        sets.append("updated_at = datetime('now')")
+        params.append(session_id)
+        self._execute(
+            f"UPDATE feishu_registration_sessions SET {', '.join(sets)} WHERE session_id = ?",
+            params,
+        )
+
+    def cancel_feishu_registration_sessions_by_user(self, user_id: int) -> None:
+        """取消某用户所有未结束的注册会话（开始新会话前调用）。"""
+        self._execute(
+            "UPDATE feishu_registration_sessions SET status = 'cancelled', "
+            "updated_at = datetime('now') WHERE user_id = ? AND status NOT IN ('expired', 'cancelled')",
+            (user_id,),
+        )
+
+    def expire_stale_feishu_registration_sessions(self, now: int | None = None) -> int:
+        """把已过期的非终态会话置为 expired（启动清理），返回处理条数。"""
+        now = int(now if now is not None else time.time())
+        stale = self._rows(
+            "SELECT session_id FROM feishu_registration_sessions "
+            "WHERE status NOT IN ('expired', 'cancelled', 'active') AND session_expires_at < ?",
+            (now,),
+        )
+        for row in stale:
+            self._execute(
+                "UPDATE feishu_registration_sessions SET status = 'expired', "
+                "updated_at = datetime('now') WHERE session_id = ?",
+                (row["session_id"],),
+            )
+        return len(stale)
