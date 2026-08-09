@@ -13,6 +13,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
+from .channels import channel_enabled
 from .db import DB
 from .fetchers.base import Fetcher, Post
 from .notifiers.base import Notifier
@@ -285,12 +286,8 @@ def _sub_type_matches(sub_type: str, post_type: str) -> bool:
     return sub_type in ("post", "both", "")
 
 
-def _channel_enabled(user: dict, channel: str) -> bool:
-    """用户是否选择用该渠道接收推送；未设置时默认全部已绑定渠道都推。"""
-    selected = user.get("push_channels") or ""
-    if not selected:
-        return True
-    return channel in {c.strip() for c in selected.split(",") if c.strip()}
+# 渠道选择判断与 channels.channel_enabled 逐字一致，本地别名保持调用点不变
+_channel_enabled = channel_enabled
 
 
 def _can_still_push(user: dict, channel: str, post: Post, db: DB) -> bool:
