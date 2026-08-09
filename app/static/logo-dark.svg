@@ -1,13 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="大V订阅 DaV Subscription">
-  <!-- 深色模式版：低饱和暗蓝紫渐变，融入深色 UI 而非刺眼 -->
+  <!-- 深色模式版：更深一档的低饱和暗蓝紫渐变，融入深色 UI -->
   <defs>
     <linearGradient id="dav-bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#24508f"/>
-      <stop offset="0.55" stop-color="#1b3d74"/>
-      <stop offset="1" stop-color="#47307e"/>
+      <stop offset="0" stop-color="#1c3a66"/>
+      <stop offset="0.55" stop-color="#162e52"/>
+      <stop offset="1" stop-color="#33255e"/>
     </linearGradient>
     <linearGradient id="dav-gloss" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#ffffff" stop-opacity="0.16"/>
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.14"/>
       <stop offset="0.55" stop-color="#ffffff" stop-opacity="0"/>
     </linearGradient>
   </defs>

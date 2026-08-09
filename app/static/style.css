@@ -1040,7 +1040,7 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
   .bottom-nav { display: flex; }
   .theme-toggle-btn { display: inline-flex; }
   .main-col { min-height: 100vh; }
-  .topbar { padding: 0 12px; }
+  .topbar { padding: 0 14px; } /* 左右 14px 与内容区 page-main 对齐，logo 和下方胶囊同列 */
   /* 移动端左上角显示 logo、隐藏文字标题 */
   .topbar-logo { display: inline-block; }
   .topbar-title h2 { display: none; }
