@@ -382,7 +382,7 @@ textarea.form-control {
 .topbar-title { display: flex; align-items: center; gap: 6px; }
 .topbar-title h2 { font-size: var(--text-lg); font-weight: var(--font-weight-bold); color: var(--color-text-strong); }
 /* 移动端左上角：品牌融合符号（无背景色块，V 用文本同色系），桌面端保持文字标题 */
-.topbar-logo { display: none; height: 24px; width: auto; flex-shrink: 0; }
+.topbar-logo { display: none; height: 28px; width: auto; flex-shrink: 0; }
 .icon-btn { width: 30px; height: 30px; border: none; background: none; font-size: 20px; color: var(--color-text); border-radius: var(--radius-2xs); }
 .icon-btn:hover { background: var(--color-surface-hover); }
 .topbar-user { display: flex; align-items: center; gap: 12px; }
