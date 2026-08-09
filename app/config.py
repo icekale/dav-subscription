@@ -265,23 +265,7 @@ def load_config(path: str | Path | None = None) -> Config:
         value = os.environ.get(env_name)
         if not value:
             continue
-        try:
-            if env_name in (
-                "POLLING_INTERVAL_SECONDS",
-                "POLLING_PRIORITY_INTERVAL_SECONDS",
-                "POLLING_JITTER_SECONDS",
-                "POLLING_POSTS_RETENTION_DAYS",
-                "POLLING_PUSH_LOGS_RETENTION_DAYS",
-                "POLLING_DIGEST_INTERVAL_SECONDS",
-                "POLLING_SOURCE_PROBE_INTERVAL_SECONDS",
-                "POLLING_COOKIE_KEEPALIVE_INTERVAL_SECONDS",
-                "POLLING_DAILY_REPORT_HOUR",
-            ):
-                value = int(value)
-            elif env_name in ("NOTIFY_ON_START", "WEB_ALLOW_REGISTER", "WEB_TRUST_PROXY"):
-                value = value.strip().lower() in ("1", "true", "yes", "on")
-        except ValueError as exc:
-            raise ValueError(f"环境变量 {env_name} 无效: {exc}") from exc
+        # 原始字符串交给 _validate 的 checks 表归一化（str→int/bool），不在此重复转换
         _set_path(config, attr_path, value)
     _validate(config)
     return config

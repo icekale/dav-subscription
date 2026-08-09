@@ -97,7 +97,8 @@ def test_wrong_type_raises(tmp_path):
 
 def test_bad_env_int_raises(tmp_path, monkeypatch):
     monkeypatch.setenv("POLLING_INTERVAL_SECONDS", "abc")
-    with pytest.raises(ValueError, match="POLLING_INTERVAL_SECONDS"):
+    # env 原始字符串统一交 _validate 归一化，错误信息用配置路径（比 env 名更精确）
+    with pytest.raises(ValueError, match="polling.interval_seconds"):
         load_config(tmp_path / "nope.yaml")
 
 
