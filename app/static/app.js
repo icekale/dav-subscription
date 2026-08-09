@@ -1811,7 +1811,7 @@ function startFeishuPersonalPoll(sessionId) {
         fsPersonalRender();
       }
     }
-  }, 2500);
+  }, 1000);  // 绑定轮询：1s 一次，扫码/绑定完成及时反映（状态接口很轻量）
 }
 
 function stopFeishuPersonalPoll() {
