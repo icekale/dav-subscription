@@ -381,8 +381,8 @@ textarea.form-control {
 }
 .topbar-title { display: flex; align-items: center; gap: 6px; }
 .topbar-title h2 { font-size: var(--text-lg); font-weight: var(--font-weight-bold); color: var(--color-text-strong); }
-/* 移动端左上角：用品牌 logo 代替文字标题（桌面端保持文字） */
-.topbar-logo { display: none; height: 26px; width: auto; flex-shrink: 0; }
+/* 移动端左上角：用品牌 logo 代替文字标题（桌面端保持文字）；32px 与用户头像同尺寸，视觉平衡 */
+.topbar-logo { display: none; height: 32px; width: auto; flex-shrink: 0; }
 .icon-btn { width: 30px; height: 30px; border: none; background: none; font-size: 20px; color: var(--color-text); border-radius: var(--radius-2xs); }
 .icon-btn:hover { background: var(--color-surface-hover); }
 .topbar-user { display: flex; align-items: center; gap: 12px; }
