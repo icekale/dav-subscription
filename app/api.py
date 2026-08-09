@@ -165,6 +165,7 @@ class TagRuleIn(BaseModel):
 
 class TagVocabularyIn(BaseModel):
     tags: list[TagRuleIn]
+    stock_names: list[str] = []
 
 
 class TagBackfillIn(BaseModel):
@@ -1518,8 +1519,15 @@ def create_api_router(
         """贴文话题词表：登录用户可读（动态页标签筛选），管理与写入仍需管理员。
 
         stats 供管理端展示已打标/待打标贴文数量。
+        stock_names 为常用股票名表（纯文字提及打标用）；dynamic_tags 为贴文里
+        实际出现过的标签（含股票名，去重按频次），供时间线筛选下拉合并展示。
         """
-        return {"tags": db.get_tag_vocabulary(), "stats": db.tag_stats()}
+        return {
+            "tags": db.get_tag_vocabulary(),
+            "stock_names": db.get_stock_names(),
+            "dynamic_tags": db.aggregate_post_tags(),
+            "stats": db.tag_stats(),
+        }
 
     @router.put("/tags", dependencies=[Depends(require_admin)])
     def update_tag_vocabulary(body: TagVocabularyIn, admin: dict = Depends(require_admin)):
@@ -1551,8 +1559,20 @@ def create_api_router(
                 status_code=400, detail=f"词表最多 {TAG_VOCABULARY_MAX} 个标签"
             )
         db.set_tag_vocabulary(deduped)
+        if body.stock_names is not None:
+            stock_names = [n.strip() for n in body.stock_names if n and n.strip()]
+            seen_stocks, deduped_stocks = set(), []
+            for n in stock_names:
+                if n not in seen_stocks:
+                    seen_stocks.add(n)
+                    deduped_stocks.append(n)
+            db.set_stock_names(deduped_stocks)
         _audit(admin, "update_tag_vocabulary", detail=f"{len(deduped)} tags")
-        return {"tags": db.get_tag_vocabulary()}
+        return {
+            "tags": db.get_tag_vocabulary(),
+            "stock_names": db.get_stock_names(),
+            "dynamic_tags": db.aggregate_post_tags(),
+        }
 
     @router.post("/tags/backfill", dependencies=[Depends(require_admin)])
     def backfill_post_tags(body: TagBackfillIn, admin: dict = Depends(require_admin)):
@@ -1561,9 +1581,10 @@ def create_api_router(
         用 id 游标分页：未命中关键词的帖子保持未打标（tags 为空），若按
         untagged_only 循环拉取会永远捞起同一批帖而死循环——游标只扫一遍。
         """
-        from .tagging import rule_tag_posts
+        from .tagging import rule_tag_posts, stock_tag_posts
 
         tag_rules = db.get_tag_vocabulary()
+        stock_names = db.get_stock_names()
         processed = 0
         tagged_count = 0
         below_id: int | None = None  # None 表示从最新开始，之后按每批最小 id 推进
@@ -1590,9 +1611,12 @@ def create_api_router(
                 for p in batch
             ]
             tagged = rule_tag_posts(posts, tag_rules)
+            stock_tagged = stock_tag_posts(posts, stock_names)
             for i, post in enumerate(posts):
-                if tagged.get(i):
-                    db.update_post_tags(batch[i]["id"], tagged[i])
+                # 合并：话题（≤3）+ 股票（≤2）
+                merged = list((tagged.get(i) or [])[:3]) + list((stock_tagged.get(i) or [])[:2])
+                if merged:
+                    db.update_post_tags(batch[i]["id"], merged)
                     tagged_count += 1
             processed += len(batch)
             # 游标推进到本批最小 id（ORDER BY id DESC），下一批只扫更早的帖

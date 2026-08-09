@@ -938,8 +938,11 @@ async function loadTimelineCategories() {
 async function loadTimelineTags() {
   if (!_tlTags) {
     const data = await api("/api/tags");
-    // 词表是对象数组（{tag, keywords}），下拉只取标签名
-    _tlTags = (Array.isArray(data?.tags) ? data.tags : []).map((r) => (typeof r === "string" ? r : r.tag)).filter(Boolean);
+    // 词表是对象数组（{tag, keywords}）+ 贴文实际出现的动态标签（含股票名），下拉合并去重
+    const vocabTags = (Array.isArray(data?.tags) ? data.tags : [])
+      .map((r) => (typeof r === "string" ? r : r.tag)).filter(Boolean);
+    const dynamicTags = Array.isArray(data?.dynamic_tags) ? data.dynamic_tags : [];
+    _tlTags = [...new Set([...vocabTags, ...dynamicTags])];
   }
   const sel = $("#tl-tag");
   if (!sel) return;
@@ -3129,6 +3132,7 @@ async function adminDeleteCategory(id) {
 async function loadAdminTags() {
   const data = await api("/api/tags");
   const tags = Array.isArray(data?.tags) ? data.tags : [];
+  const stockNames = Array.isArray(data?.stock_names) ? data.stock_names : [];
   const stats = data?.stats || { total: 0, tagged: 0, pending: 0 };
   if (!routeStillActive(_adminRenderSeq)) return;
   // 词表编辑：每行一个标签，格式「标签名 | 关键词,关键词」；关键词为空则该标签不命中
@@ -3147,8 +3151,15 @@ async function loadAdminTags() {
     </section>
     <section class="section-panel">
       <header class="section-head">
+        <div><p class="section-eyebrow">Stocks</p><h3 class="section-title">常用股票名</h3>
+        <p class="section-meta">帖子纯文字提及这些股票名时会打上股票标签（每行一个；$股票名(代码)$ 标记自动识别、无需在此登记）。</p></div>
+      </header>
+      <textarea id="stock-names-input" class="form-control" rows="6" style="margin-top:12px;font-family:monospace;line-height:1.6" placeholder="贵州茅台&#10;宁德时代">${escapeHtml(stockNames.join("\n"))}</textarea>
+    </section>
+    <section class="section-panel">
+      <header class="section-head">
         <div><p class="section-eyebrow">Backfill</p><h3 class="section-title">回填历史贴文</h3>
-        <p class="section-meta">给全部未打标贴文按当前词表补标签（关键词规则，零成本）。</p></div>
+        <p class="section-meta">给全部未打标贴文按当前词表 + 股票名单补标签（关键词规则，零成本）。</p></div>
       </header>
       <div class="toolbar" style="margin-top:12px">
         <button class="btn-normal" onclick="adminBackfillTags()">回填全部未打标</button>
@@ -3171,9 +3182,10 @@ async function adminSaveTags() {
     const keywords = kw ? kw.split(/[,，]/).map((k) => k.trim()).filter(Boolean) : [];
     return { tag, keywords };
   }).filter((r) => r.tag);
+  const stockNames = $("#stock-names-input").value.split(/\n/).map((s) => s.trim()).filter(Boolean);
   try {
-    const data = await api("/api/tags", { method: "PUT", body: JSON.stringify({ tags }) });
-    flash(`已保存词表（${data.tags.length} 个标签）`);
+    const data = await api("/api/tags", { method: "PUT", body: JSON.stringify({ tags, stock_names: stockNames }) });
+    flash(`已保存词表（${data.tags.length} 个标签，${data.stock_names.length} 只股票）`);
     loadAdminTags();
   } catch (err) {
     alert("保存失败: " + err.message);

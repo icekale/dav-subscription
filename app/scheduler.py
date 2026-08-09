@@ -805,15 +805,19 @@ def _fetch_kol_once(
                 logger.warning("X 内容翻译失败 post=%s err=%s", post.external_id, exc)
     # 关键词规则打标：仅对新帖（与翻译同判据），纯本地计算零成本，异常不影响入库
     try:
-        from .tagging import rule_tag_posts
+        from .tagging import rule_tag_posts, stock_tag_posts
 
         fresh = [p for p in posts if db.get_post_id(p.platform, p.external_id) is None]
         if fresh:
             tag_rules = db.get_tag_vocabulary()
             tagged = rule_tag_posts(fresh, tag_rules)
+            stock_names = db.get_stock_names()
+            stock_tagged = stock_tag_posts(fresh, stock_names)
             for i, post in enumerate(fresh):
-                if i in tagged:
-                    post.tags = tagged[i]
+                # 合并：话题标签（≤3）+ 股票标签（≤2），总上限 5
+                topics = tagged.get(i, [])
+                stocks = stock_tagged.get(i, [])
+                post.tags = list(topics[:3]) + list(stocks[:2])
     except Exception as exc:  # noqa: BLE001 - 打标失败不影响抓取/推送
         logger.warning(
             "规则打标失败 platform=%s kol=%s err=%s", kol["platform"], kol["name"], exc

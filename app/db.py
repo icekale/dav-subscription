@@ -87,6 +87,17 @@ DEFAULT_TAG_RULES = [
 ]
 TAG_VOCABULARY_KEY = "tag_vocabulary"
 
+# 常用股票名表：纯文字提及（无 $标记$）时按名称子串匹配打股票标签。
+# 管理员可在后台增删；$股票名(代码)$ 标记会自动识别、无需在此登记。
+DEFAULT_STOCK_NAMES = [
+    "贵州茅台", "宁德时代", "比亚迪", "中芯国际", "英伟达", "台积电", "三星",
+    "SK海力士", "长鑫", "中船特气", "神火", "云铝", "中际旭创", "药明康德",
+    "恒瑞医药", "招商银行", "中国平安", "茅台", "腾讯", "阿里", "小米",
+    "华为", "赛力斯", "理想", "蔚来", "小鹏", "隆基", "通威", "阳光电源",
+    "京东方", "立讯精密", "海康威视", "紫光国微", "兆易创新", "寒武纪",
+]
+STOCK_NAMES_KEY = "stock_names"
+
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS categories (
@@ -1503,6 +1514,45 @@ class DB:
         row = rows[0] if rows else {"n": 0, "tagged": 0}
         n, tagged = _to_int(row["n"]), _to_int(row["tagged"])
         return {"total": n, "tagged": tagged, "pending": n - tagged}
+
+    def get_stock_names(self) -> list[str]:
+        """读常用股票名表（settings 持久化），缺省用内置默认名单。"""
+        raw = self.get_setting(STOCK_NAMES_KEY)
+        if raw:
+            try:
+                parsed = json.loads(raw)
+                if isinstance(parsed, list) and parsed:
+                    return [str(n) for n in parsed]
+            except (TypeError, ValueError):
+                pass
+        return list(DEFAULT_STOCK_NAMES)
+
+    def set_stock_names(self, names: list[str]) -> None:
+        """保存常用股票名表。"""
+        self.set_setting(STOCK_NAMES_KEY, json.dumps(names, ensure_ascii=False))
+
+    def aggregate_post_tags(self, limit: int = 50) -> list[str]:
+        """聚合贴文里出现过的全部标签（去重，按出现次数降序）。
+
+        供前端动态标签筛选下拉使用（词表标签之外的实际标签，如股票名）。
+        全表扫描 tags 列；1500+ 帖量级一次扫描可接受。
+        """
+        counts: dict[str, int] = {}
+        for row in self._rows("SELECT tags FROM posts WHERE tags != ''"):
+            raw = row["tags"]
+            if not raw:
+                continue
+            try:
+                parsed = json.loads(raw)
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(parsed, list):
+                continue
+            for tag in parsed:
+                tag = str(tag).strip()
+                if tag:
+                    counts[tag] = counts.get(tag, 0) + 1
+        return [tag for tag, _ in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))][:limit]
 
     # ---- 每日精选投递状态（按渠道幂等） ----
     def daily_report_delivered(self, user_id: int, report_date: str, channel: str) -> bool:

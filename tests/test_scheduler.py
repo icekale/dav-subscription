@@ -1809,9 +1809,26 @@ def test_new_posts_tagged_by_rules_on_ingest():
     post2.content = "今天天气不错"
     poll_once(db, {"xueqiu": FakeFetcher([post, post2])}, [FakeNotifier()], interval_seconds=0)
     rows = db.list_posts(limit=5)
-    # list_posts 按 id 倒序：post2（后插入）在前、无关键词不命中；post 命中宏观+科技
+    # list_posts 按 id 倒序：post2（后插入）在前、无关键词不命中；post 命中宏观+板块+科技
     assert rows[0]["tags"] == []
     assert rows[1]["tags"] == ["宏观", "板块", "科技"]
+
+
+def test_new_posts_tagged_with_stock_names():
+    """新帖含 $股票名(代码)$ 标记或命中常用股票名表时，叠加股票标签（话题+股票，上限 5）。"""
+    db = make_db()
+    kid = add_kol_subscribed(db, "xueqiu", "A", "1")
+    post = make_post(kid)
+    post.content = "$中船特气(SH688146)$ 涨价，央行降息受益"
+    post2 = make_post(kid)
+    post2.external_id = "p2"
+    post2.content = "梭哈了长鑫，$宁德时代(SZ300750)$ 也反弹"
+    poll_once(db, {"xueqiu": FakeFetcher([post, post2])}, [FakeNotifier()], interval_seconds=0)
+    rows = db.list_posts(limit=5)
+    # rows[0] = post2（后插入）：$标记$ 提取的宁德时代在前、名表命中的长鑫在后
+    assert rows[0]["tags"] == ["宁德时代", "长鑫"]
+    # rows[1] = post：话题「宏观」+ 股票「中船特气」
+    assert rows[1]["tags"] == ["宏观", "中船特气"]
 
 
 def test_new_posts_without_keyword_hits_not_tagged(monkeypatch):

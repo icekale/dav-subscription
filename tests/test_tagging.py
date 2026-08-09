@@ -1,6 +1,6 @@
 """纯代码关键词规则打标：零 token，子串匹配，词表顺序取前 3 个。"""
 from app.fetchers.base import Post
-from app.tagging import TAG_PER_POST_MAX, rule_tag_posts
+from app.tagging import TAG_PER_POST_MAX, rule_tag_posts, stock_tag_posts
 
 
 def make_post(content="正文内容", title="标题", external_id="p1") -> Post:
@@ -72,4 +72,56 @@ def test_multiple_posts_mapping():
     posts = [make_post(content="央行降息", external_id="a"), make_post(content="无聊内容", external_id="b")]
     result = rule_tag_posts(posts, RULES)
     assert result[0] == ["宏观"]
+    assert result[1] == []
+
+
+def test_stock_mark_extraction():
+    """$股票名(代码)$ 标记精确提取，排除 ZH 组合/BK 板块。"""
+    post = make_post(content="我关注了 $中船特气(SH688146)$，今天继续涨价。")
+    result = stock_tag_posts([post], [])
+    assert result[0] == ["中船特气"]
+
+
+def test_stock_mark_excludes_combination_and_index():
+    """ZH 组合、BK 板块指数等非个股标记不打标。"""
+    post = make_post(content="关注了 $伯言-A股(ZH3623878)$ 组合，$半导体(BK1036)$ 板块。")
+    result = stock_tag_posts([post], [])
+    assert result[0] == []
+
+
+def test_stock_mark_strips_new_prefix():
+    """新股前缀（N长鑫）去掉后才是股票名。"""
+    post = make_post(content="$N长鑫(SH688825)$ 今日上市。")
+    result = stock_tag_posts([post], [])
+    assert result[0] == ["长鑫"]
+
+
+def test_stock_name_substring_match():
+    """纯文字提及命中常用股票名表。"""
+    post = make_post(content="昨天清仓中际旭创，梭哈了长鑫。")
+    result = stock_tag_posts([post], ["中际旭创", "长鑫"])
+    assert result[0] == ["中际旭创", "长鑫"]
+
+
+def test_stock_tags_dedup_and_limit():
+    """$标记$ 与股票名表命中同名去重；最多 2 个。"""
+    post = make_post(content="$长鑫(SH688825)$ 长鑫大涨，$中船特气(SH688146)$ 也涨，$神火股份(SZ000933)$ 跟进。")
+    result = stock_tag_posts([post], ["长鑫"])
+    # 长鑫去重后剩 2 个（长鑫、中船特气），第 3 个（神火）被截断
+    assert result[0] == ["长鑫", "中船特气"]
+
+
+def test_stock_no_match_empty():
+    post = make_post(content="今天天气不错。")
+    result = stock_tag_posts([post], ["长鑫", "宁德时代"])
+    assert result[0] == []
+
+
+def test_stock_multiple_posts():
+    posts = [
+        make_post(content="$宁德时代(SZ300750)$ 反弹", external_id="a"),
+        make_post(content="无聊内容", external_id="b"),
+    ]
+    result = stock_tag_posts(posts, ["长鑫"])
+    assert result[0] == ["宁德时代"]
     assert result[1] == []

@@ -2370,6 +2370,9 @@ def test_post_tags_list_readable_by_any_user():
     tag_names = [r["tag"] for r in data["tags"]]
     assert "宏观" in tag_names and "科技" in tag_names
     assert data["tags"][0]["keywords"]  # 默认规则带关键词
+    # 常用股票名表（默认含宁德时代）+ 动态标签聚合（空库无）
+    assert "宁德时代" in data["stock_names"]
+    assert data["dynamic_tags"] == []
     assert data["stats"]["total"] == 0
 
 
@@ -2379,20 +2382,24 @@ def test_tag_vocabulary_update_admin_only():
     admin = auth_headers(client, "tagadmin")
     # 普通用户不能改词表
     assert client.put("/api/tags", headers=user, json={"tags": [{"tag": "宏观"}]}).status_code == 403
-    # 管理员可保存（去空白、按 tag 去重、关键词清理空串）
+    # 管理员可保存（去空白、按 tag 去重、关键词清理空串；股票名单去重保存）
     resp = client.put(
         "/api/tags",
         headers=admin,
-        json={"tags": [
-            {"tag": " 宏观 ", "keywords": ["央行", " ", "降息"]},
-            {"tag": "大盘", "keywords": []},
-            {"tag": "宏观", "keywords": []},
-        ]},
+        json={
+            "tags": [
+                {"tag": " 宏观 ", "keywords": ["央行", " ", "降息"]},
+                {"tag": "大盘", "keywords": []},
+                {"tag": "宏观", "keywords": []},
+            ],
+            "stock_names": ["长鑫", "宁德时代", "长鑫", " "],
+        },
     )
     assert resp.status_code == 200, resp.text
     saved = resp.json()["tags"]
     assert [r["tag"] for r in saved] == ["宏观", "大盘"]
     assert saved[0]["keywords"] == ["央行", "降息"]
+    assert resp.json()["stock_names"] == ["长鑫", "宁德时代"]
     # 空词表拒绝
     assert client.put("/api/tags", headers=admin, json={"tags": []}).status_code == 400
 
@@ -2602,3 +2609,22 @@ def test_backfill_terminates_with_unmatched_posts():
     # 命中的帖子确实写库了
     pid = db.get_post_id("xueqiu", "lp1")
     assert db.get_post(pid)["tags"] == '["宏观"]'
+
+
+def test_backfill_merges_stock_tags(monkeypatch):
+    """回填按话题+股票合并打标（$标记$ 提取的股票名也写入）。"""
+    client = make_client()
+    admin = auth_headers(client, "tagadmin")
+    db = client.app.state.db
+    kid = db.add_kol("xueqiu", "标签大V", "tagstk1")
+    db.insert_post("xueqiu", kid, "stk1", "$中船特气(SH688146)$ 涨价", "央行降息，$中船特气(SH688146)$ 继续涨价", "u", "")
+
+    resp = client.post("/api/tags/backfill", headers=admin, json={})
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["processed"] == 1
+    assert data["tagged"] == 1
+    tags = db.list_posts(limit=5)[0]["tags"]
+    # 话题「宏观」（央行/降息）+ 股票「中船特气」（$标记$）
+    assert "宏观" in tags and "中船特气" in tags
+    assert tags == ["宏观", "中船特气"]
