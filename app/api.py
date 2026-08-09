@@ -240,6 +240,16 @@ def public_user(user: dict) -> dict:
     }
 
 
+# 图片代理白名单图床：这些域名在部分家庭/公司网络会被 DNS 劫持到透明代理网段
+# （198.18/15 保留段），SSRF 的 IP 网段校验会误拒。白名单内放宽网段校验，
+# 但仍强制图片类型与大小限制，避免被当作任意内容代理。
+IMAGE_PROXY_HOSTS = frozenset({
+    "pbs.twimg.com", "video.twimg.com", "abs.twimg.com",
+    "xqimg.imedao.com", "xueqiuimg.com",
+    "wx1.sinaimg.cn", "wx2.sinaimg.cn", "wx3.sinaimg.cn", "wx4.sinaimg.cn",
+})
+
+
 def admin_user_summary(user: dict) -> dict:
     """管理员用户列表摘要：只暴露管理所需字段，不含 feed_token/bark_key/wecom_webhook/llm_api_key 等凭证。"""
     return {
@@ -1704,14 +1714,24 @@ def create_api_router(
     def img_proxy(url: str, request: Request):
         """第三方图床图片代理：X/雪球图床在部分网络（如大陆直连 X）不可达，经服务器转发。
 
-        复用 safe_get 的 SSRF 校验（仅 http/https、拒绝内网/保留网段、重定向逐跳校验），
-        限制图片类型与大小，防被滥用为任意内容代理。
+        优先走 safe_get 的 SSRF 校验（仅 http/https、拒绝内网/保留网段、重定向逐跳校验）。
+        已知公共图床域名（pbs.twimg.com 等）在部分家庭/公司网络会被 DNS 劫持到
+        透明代理地址（198.18/15 保留段），SSRF 校验会误拒；对这些白名单域名放宽
+        IP 网段校验（仍强制图片类型与大小限制，防被当作任意内容代理）。
         """
+        from urllib.parse import urlparse
+
         from .url_safety import safe_get
 
         url = (url or "").strip()
         if not url:
             raise HTTPException(status_code=400, detail="缺少 url 参数")
+        try:
+            parsed = urlparse(url)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="非法 url") from None
+        if parsed.scheme not in ("http", "https") or not parsed.hostname:
+            raise HTTPException(status_code=400, detail="非法 url")
         import httpx
 
         client = httpx.Client(
@@ -1723,10 +1743,14 @@ def create_api_router(
             },
         )
         try:
-            try:
-                resp = safe_get(client, url)
-            except ValueError as exc:
-                raise HTTPException(status_code=400, detail=str(exc)) from None
+            if parsed.hostname.lower() in IMAGE_PROXY_HOSTS:
+                # 白名单图床：DNS 可能被劫持到透明代理网段，跳过 IP 网段校验直接下载
+                resp = client.get(url, timeout=15, follow_redirects=False)
+            else:
+                try:
+                    resp = safe_get(client, url)
+                except ValueError as exc:
+                    raise HTTPException(status_code=400, detail=str(exc)) from None
             content_type = (resp.headers.get("content-type") or "").split(";")[0].strip().lower()
             if content_type not in ("image/jpeg", "image/png", "image/webp", "image/gif"):
                 raise HTTPException(status_code=400, detail="非图片内容")

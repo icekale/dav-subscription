@@ -1869,13 +1869,14 @@ def test_db_busy_timeout_set():
 
 
 def test_img_proxy_fetches_image(monkeypatch):
-    """图片代理：合法图片 URL 经服务器转发并返回图片内容。"""
+    """图片代理：合法图片 URL（非白名单域名走 SSRF 校验）经服务器转发。"""
     import httpx as _httpx
 
     fake_resp = _httpx.Response(200, content=b"\xff\xd8\xfffakejpeg", headers={"content-type": "image/jpeg"})
     monkeypatch.setattr("app.url_safety.safe_get", lambda client, url, timeout=15: fake_resp)
     client = make_client()
-    resp = client.get("/api/img-proxy", params={"url": "https://pbs.twimg.com/media/x.jpg"})
+    # 非白名单域名（如任意图床）：走 safe_get + SSRF 校验
+    resp = client.get("/api/img-proxy", params={"url": "https://example-cdn.com/x.jpg"})
     assert resp.status_code == 200
     assert resp.content == b"\xff\xd8\xfffakejpeg"
     assert resp.headers["content-type"] == "image/jpeg"
@@ -1895,9 +1896,31 @@ def test_img_proxy_rejects_non_image(monkeypatch):
 def test_img_proxy_rejects_unsafe_url(monkeypatch):
     """图片代理：内网地址（SSRF）拒绝转发。"""
     client = make_client()
-    # 不 patch safe_get：真实 SSRF 校验应拒绝内网地址
     resp = client.get("/api/img-proxy", params={"url": "http://192.168.1.1/x.jpg"})
     assert resp.status_code == 400
+
+
+def test_img_proxy_whitelisted_host_bypasses_dns_hijack(monkeypatch):
+    """白名单图床（pbs.twimg.com）：DNS 被劫持到透明代理网段时仍能转发。"""
+    import httpx as _httpx
+
+    fake_resp = _httpx.Response(200, content=b"\xff\xd8\xffok", headers={"content-type": "image/jpeg"})
+
+    class FakeClient:
+        def __init__(self, *a, **k):
+            self.headers = {}
+
+        def get(self, url, timeout=None, follow_redirects=False):
+            return fake_resp
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(_httpx, "Client", FakeClient)
+    client = make_client()
+    resp = client.get("/api/img-proxy", params={"url": "https://pbs.twimg.com/media/x.jpg"})
+    assert resp.status_code == 200
+    assert resp.content == b"\xff\xd8\xffok"
 
 
 def test_me_subscription_count():
