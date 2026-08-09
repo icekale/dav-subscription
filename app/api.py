@@ -158,8 +158,13 @@ class CategoryIn(BaseModel):
     name: str
 
 
+class TagRuleIn(BaseModel):
+    tag: str
+    keywords: list[str] = []
+
+
 class TagVocabularyIn(BaseModel):
-    tags: list[str]
+    tags: list[TagRuleIn]
 
 
 class TagBackfillIn(BaseModel):
@@ -308,7 +313,6 @@ def create_api_router(
     wechat_config=None,
     notifiers_config=None,
     trust_proxy: bool = False,
-    llm_config=None,
 ) -> APIRouter:
     router = APIRouter(prefix="/api")
     # 登录/注册限流（内存版，单实例够用）：每 IP 窗口内失败次数超限后 429
@@ -1519,14 +1523,27 @@ def create_api_router(
 
     @router.put("/tags", dependencies=[Depends(require_admin)])
     def update_tag_vocabulary(body: TagVocabularyIn, admin: dict = Depends(require_admin)):
-        from .llm import TAG_VOCABULARY_MAX
+        from .tagging import TAG_VOCABULARY_MAX
 
-        tags = [t.strip() for t in body.tags if t and t.strip()]
+        tags = []
+        for rule in body.tags:
+            tag = (rule.tag or "").strip()
+            if not tag:
+                continue
+            tags.append(
+                {
+                    "tag": tag,
+                    "keywords": [
+                        str(k).strip() for k in (rule.keywords or []) if str(k).strip()
+                    ],
+                }
+            )
+        # 按 tag 去重（保留首个）
         seen, deduped = set(), []
-        for t in tags:
-            if t not in seen:
-                seen.add(t)
-                deduped.append(t)
+        for rule in tags:
+            if rule["tag"] not in seen:
+                seen.add(rule["tag"])
+                deduped.append(rule)
         if not deduped:
             raise HTTPException(status_code=400, detail="词表不能为空")
         if len(deduped) > TAG_VOCABULARY_MAX:
@@ -1539,42 +1556,43 @@ def create_api_router(
 
     @router.post("/tags/backfill", dependencies=[Depends(require_admin)])
     def backfill_post_tags(body: TagBackfillIn, admin: dict = Depends(require_admin)):
-        """给最近 N 条未打标贴文补标签（抓取时未配 LLM 或失败的存量数据）。"""
-        if llm_config is None or not getattr(llm_config, "api_key", ""):
-            raise HTTPException(
-                status_code=503, detail="未配置 LLM_API_KEY，无法生成标签"
-            )
-        from .llm import tag_posts
+        """给全部未打标贴文补标签（关键词规则，零成本；分页处理避免大表一次拉爆）。"""
+        from .tagging import rule_tag_posts
 
-        limit = bounded_limit(body.limit, default=200)
-        pending = db.list_posts(limit=limit, untagged_only=True)
-        if not pending:
-            return {"processed": 0, "tagged": 0}
-        posts = [
-            Post(
-                platform=p["platform"],
-                kol_id=p["kol_id"],
-                kol_name=p["kol_name"],
-                external_id=p["external_id"],
-                title=p["title"],
-                content=p["content"],
-                url=p["url"],
-                published_at=p["published_at"],
-                category=p.get("category_name") or "",
-                post_type=p.get("post_type") or "",
-                images=p.get("images") or [],
-            )
-            for p in pending
-        ]
-        vocabulary = db.get_tag_vocabulary()
-        tagged = tag_posts(posts, vocabulary, llm_config)
-        count = 0
-        for i, post in enumerate(posts):
-            if tagged.get(i):
-                db.update_post_tags(pending[i]["id"], tagged[i])
-                count += 1
-        _audit(admin, "backfill_post_tags", detail=f"processed={len(posts)} tagged={count}")
-        return {"processed": len(posts), "tagged": count}
+        tag_rules = db.get_tag_vocabulary()
+        processed = 0
+        tagged_count = 0
+        # 循环分页拉全部未打标帖（tags 为空串），规则打标写库
+        while True:
+            batch = db.list_posts(limit=500, untagged_only=True)
+            if not batch:
+                break
+            posts = [
+                Post(
+                    platform=p["platform"],
+                    kol_id=p["kol_id"],
+                    kol_name=p["kol_name"],
+                    external_id=p["external_id"],
+                    title=p["title"],
+                    content=p["content"],
+                    url=p["url"],
+                    published_at=p["published_at"],
+                    category=p.get("category_name") or "",
+                    post_type=p.get("post_type") or "",
+                    images=p.get("images") or [],
+                )
+                for p in batch
+            ]
+            tagged = rule_tag_posts(posts, tag_rules)
+            for i, post in enumerate(posts):
+                if tagged.get(i):
+                    db.update_post_tags(batch[i]["id"], tagged[i])
+                    tagged_count += 1
+            processed += len(batch)
+        _audit(
+            admin, "backfill_post_tags", detail=f"processed={processed} tagged={tagged_count}"
+        )
+        return {"processed": processed, "tagged": tagged_count}
 
     @router.get("/posts", dependencies=[Depends(require_admin)])
     def list_posts(limit: int = 100, platform: str | None = None, kol_id: int | None = None, q: str | None = None, offset: int = 0):

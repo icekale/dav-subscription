@@ -72,10 +72,18 @@ def _normalize_post_tags(rows: list[dict]) -> list[dict]:
     return rows
 
 
-# 贴文 LLM 打标的默认话题词表；管理员可在后台改（存 settings 表 tag_vocabulary）
-DEFAULT_TAG_VOCABULARY = [
-    "宏观", "大盘", "板块", "个股", "策略", "科技",
-    "政策", "财报", "观点", "资讯", "公告", "生活",
+# 贴文规则打标的默认词表（标签 + 关键词，管理员可在后台改，存 settings 表 tag_vocabulary）。
+# 关键词做子串匹配：任一命中即给该标签；英文关键词打标时统一小写比较，故此处可混用大小写。
+DEFAULT_TAG_RULES = [
+    {"tag": "宏观", "keywords": ["央行", "降息", "加息", "GDP", "通胀", "CPI", "PPI", "利率", "美联储", "货币政策", "汇率"]},
+    {"tag": "大盘", "keywords": ["A股", "沪指", "上证", "深成指", "创业板指", "大盘", "指数", "两市", "涨停", "跌停", "成交量"]},
+    {"tag": "板块", "keywords": ["板块", "概念股", "半导体", "新能源", "光伏", "锂电", "白酒", "券商", "地产", "汽车"]},
+    {"tag": "个股", "keywords": ["个股", "股价", "买入", "卖出", "目标价", "重仓", "持仓", "业绩", "市盈率", "PE"]},
+    {"tag": "科技", "keywords": ["AI", "人工智能", "芯片", "大模型", "OpenAI", "英伟达", "NVIDIA", "算力", "机器人", "半导体设备", "GPU"]},
+    {"tag": "政策", "keywords": ["政策", "监管", "证监会", "国务院", "发改委", "央行行长", "降准", "专项债", "限购", "补贴"]},
+    {"tag": "财报", "keywords": ["财报", "季报", "年报", "营收", "净利润", "EPS", "毛利率", "分红", "回购", "指引"]},
+    {"tag": "公告", "keywords": ["公告", "停牌", "复牌", "减持", "增持", "重组", "要约收购", "重大合同", "诉讼", "立案"]},
+    {"tag": "资讯", "keywords": ["消息", "传闻", "报道", "据悉", "知情人士", "来源", "表示", "称", "透露"]},
 ]
 TAG_VOCABULARY_KEY = "tag_vocabulary"
 
@@ -1441,20 +1449,44 @@ class DB:
         tags_json = json.dumps(tags, ensure_ascii=False) if tags else ""
         self._execute("UPDATE posts SET tags = ? WHERE id = ?", (tags_json, post_id))
 
-    def get_tag_vocabulary(self) -> list[str]:
-        """读贴文打标词表（settings 持久化），缺省用内置默认词表。"""
+    def get_tag_vocabulary(self) -> list[dict]:
+        """读贴文打标词表（settings 持久化），返回「标签 + 关键词」对象数组。
+
+        兼容旧格式：settings 里若是纯字符串数组（旧 LLM 打标版本），自动迁移——
+        tag 在默认规则里则补默认关键词，否则给空关键词（管理页可见可改）。
+        """
+        default_tags = {r["tag"]: r.get("keywords") or [] for r in DEFAULT_TAG_RULES}
         raw = self.get_setting(TAG_VOCABULARY_KEY)
         if raw:
             try:
                 parsed = json.loads(raw)
                 if isinstance(parsed, list) and parsed:
-                    return [str(t) for t in parsed]
+                    if isinstance(parsed[0], str):
+                        # 旧格式：字符串数组 → 迁移为对象数组
+                        return [
+                            {"tag": t, "keywords": list(default_tags.get(t, []))}
+                            for t in parsed
+                        ]
+                    rules = []
+                    for r in parsed:
+                        if not isinstance(r, dict) or not str(r.get("tag") or "").strip():
+                            continue
+                        rules.append(
+                            {
+                                "tag": str(r["tag"]).strip(),
+                                "keywords": [
+                                    str(k).strip() for k in (r.get("keywords") or []) if str(k).strip()
+                                ],
+                            }
+                        )
+                    if rules:
+                        return rules
             except (TypeError, ValueError):
                 pass
-        return list(DEFAULT_TAG_VOCABULARY)
+        return [dict(r) for r in DEFAULT_TAG_RULES]
 
-    def set_tag_vocabulary(self, tags: list[str]) -> None:
-        """保存贴文打标词表。"""
+    def set_tag_vocabulary(self, tags: list[dict]) -> None:
+        """保存贴文打标词表（对象数组：tag + keywords）。"""
         self.set_setting(TAG_VOCABULARY_KEY, json.dumps(tags, ensure_ascii=False))
 
     def tag_stats(self) -> dict:

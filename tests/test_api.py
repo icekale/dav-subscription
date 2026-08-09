@@ -2366,8 +2366,10 @@ def test_post_tags_list_readable_by_any_user():
     resp = client.get("/api/tags", headers=headers)
     assert resp.status_code == 200
     data = resp.json()
-    # 默认词表包含 宏观/科技
-    assert "宏观" in data["tags"] and "科技" in data["tags"]
+    # 默认词表是「标签+关键词」对象数组，包含 宏观/科技
+    tag_names = [r["tag"] for r in data["tags"]]
+    assert "宏观" in tag_names and "科技" in tag_names
+    assert data["tags"][0]["keywords"]  # 默认规则带关键词
     assert data["stats"]["total"] == 0
 
 
@@ -2376,13 +2378,21 @@ def test_tag_vocabulary_update_admin_only():
     user = user_headers(client, "taguser")
     admin = auth_headers(client, "tagadmin")
     # 普通用户不能改词表
-    assert client.put("/api/tags", headers=user, json={"tags": ["宏观"]}).status_code == 403
-    # 管理员可保存（去重、去空白）
+    assert client.put("/api/tags", headers=user, json={"tags": [{"tag": "宏观"}]}).status_code == 403
+    # 管理员可保存（去空白、按 tag 去重、关键词清理空串）
     resp = client.put(
-        "/api/tags", headers=admin, json={"tags": [" 宏观 ", "大盘", "宏观", ""]}
+        "/api/tags",
+        headers=admin,
+        json={"tags": [
+            {"tag": " 宏观 ", "keywords": ["央行", " ", "降息"]},
+            {"tag": "大盘", "keywords": []},
+            {"tag": "宏观", "keywords": []},
+        ]},
     )
     assert resp.status_code == 200, resp.text
-    assert resp.json()["tags"] == ["宏观", "大盘"]
+    saved = resp.json()["tags"]
+    assert [r["tag"] for r in saved] == ["宏观", "大盘"]
+    assert saved[0]["keywords"] == ["央行", "降息"]
     # 空词表拒绝
     assert client.put("/api/tags", headers=admin, json={"tags": []}).status_code == 400
 
@@ -2407,20 +2417,9 @@ def test_feed_returns_tags_and_filters_by_tag():
     assert filtered2[0]["tags"] == ["科技"]
 
 
-def test_backfill_requires_llm_config():
-    client = make_client(config=Config())
-    admin = auth_headers(client, "tagadmin")
-    # 未配 LLM_API_KEY：回填返回 503
-    resp = client.post("/api/tags/backfill", headers=admin, json={"limit": 50})
-    assert resp.status_code == 503
-
-
 def test_backfill_tags_untagged_posts(monkeypatch):
-    from app.config import LLMConfig
-
-    config = Config()
-    config.llm = LLMConfig(api_base="https://api.deepseek.com", api_key="sk-test", model="deepseek-chat")
-    client = make_client(config=config)
+    """全量回填：只处理未打标帖，已打标的不覆盖（规则打标，无需 LLM 配置）。"""
+    client = make_client()
     admin = auth_headers(client, "tagadmin")
     user = user_headers(client, "taguser3")
     kid = make_tagged_feed(client, admin, user, suffix="b")
@@ -2434,12 +2433,12 @@ def test_backfill_tags_untagged_posts(monkeypatch):
 
     captured = {}
 
-    def fake_tag_posts(posts, vocab, cfg, client=None):
+    def fake_rule(posts, rules):
         captured["posts"] = posts
         return {i: ["政策"] for i in range(len(posts))}
 
-    monkeypatch.setattr("app.llm.tag_posts", fake_tag_posts)
-    resp = client.post("/api/tags/backfill", headers=admin, json={"limit": 100})
+    monkeypatch.setattr("app.tagging.rule_tag_posts", fake_rule)
+    resp = client.post("/api/tags/backfill", headers=admin, json={})
     assert resp.status_code == 200, resp.text
     data = resp.json()
     assert data["processed"] == 1
@@ -2525,12 +2524,8 @@ def test_account_lock_not_bypassable_by_username_case():
 
 
 def test_backfill_picks_untagged_older_posts(monkeypatch):
-    """最新 N 条都已打标时，回填仍处理更早的未打标帖子（不再 processed=0）。"""
-    from app.config import LLMConfig
-
-    config = Config()
-    config.llm = LLMConfig(api_base="https://api.deepseek.com", api_key="sk-test", model="deepseek-chat")
-    client = make_client(config=config)
+    """全量回填：最新已打标时仍处理更早的未打标帖，不被最近 N 条限制。"""
+    client = make_client()
     admin = auth_headers(client, "tagadmin")
     db = client.app.state.db
     kid = db.add_kol("xueqiu", "标签大V", "tagbf1")
@@ -2543,20 +2538,18 @@ def test_backfill_picks_untagged_older_posts(monkeypatch):
 
     captured = {}
 
-    def fake_tag_posts(posts, vocab, cfg, client=None):
+    def fake_rule(posts, rules):
         captured["posts"] = posts
         return {i: ["政策"] for i in range(len(posts))}
 
-    monkeypatch.setattr("app.llm.tag_posts", fake_tag_posts)
-    resp = client.post("/api/tags/backfill", headers=admin, json={"limit": 2})
+    monkeypatch.setattr("app.tagging.rule_tag_posts", fake_rule)
+    resp = client.post("/api/tags/backfill", headers=admin, json={})
     assert resp.status_code == 200, resp.text
     data = resp.json()
     assert data["processed"] == 1
     assert captured["posts"][0].external_id == "bf3"  # 未打标的第三条被处理
-    # get_post 返回原始行，tags 为 JSON 文本；list_posts 会解析成数组
+    # get_post 返回原始行，tags 为 JSON 文本
     assert db.get_post(id3)["tags"] == '["政策"]'
-    # list_posts 按 id 倒序，最新（bf3）在前，解析成数组
-    assert db.list_posts(limit=3)[0]["external_id"] == "bf3"
     assert db.list_posts(limit=3)[0]["tags"] == ["政策"]
 
 

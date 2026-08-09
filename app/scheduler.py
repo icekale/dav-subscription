@@ -803,22 +803,21 @@ def _fetch_kol_once(
                     post.content = translate_text(post.content or "")
             except Exception as exc:  # noqa: BLE001 - 翻译失败退回原文
                 logger.warning("X 内容翻译失败 post=%s err=%s", post.external_id, exc)
-    # LLM 打标：仅对新帖（与翻译同判据），未配置或失败时静默跳过，不影响入库
-    if llm_config is not None and getattr(llm_config, "api_key", ""):
-        try:
-            from .llm import tag_posts
+    # 关键词规则打标：仅对新帖（与翻译同判据），纯本地计算零成本，异常不影响入库
+    try:
+        from .tagging import rule_tag_posts
 
-            fresh = [p for p in posts if db.get_post_id(p.platform, p.external_id) is None]
-            if fresh:
-                vocabulary = db.get_tag_vocabulary()
-                tagged = tag_posts(fresh, vocabulary, llm_config)
-                for i, post in enumerate(fresh):
-                    if i in tagged:
-                        post.tags = tagged[i]
-        except Exception as exc:  # noqa: BLE001 - 打标失败不影响抓取/推送
-            logger.warning(
-                "LLM 打标失败 platform=%s kol=%s err=%s", kol["platform"], kol["name"], exc
-            )
+        fresh = [p for p in posts if db.get_post_id(p.platform, p.external_id) is None]
+        if fresh:
+            tag_rules = db.get_tag_vocabulary()
+            tagged = rule_tag_posts(fresh, tag_rules)
+            for i, post in enumerate(fresh):
+                if i in tagged:
+                    post.tags = tagged[i]
+    except Exception as exc:  # noqa: BLE001 - 打标失败不影响抓取/推送
+        logger.warning(
+            "规则打标失败 platform=%s kol=%s err=%s", kol["platform"], kol["name"], exc
+        )
     # 批量入库（一个事务），再逐条推送
     post_ids = db.insert_posts_batch(posts)
     for post, post_id in zip(posts, post_ids):

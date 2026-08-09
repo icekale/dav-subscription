@@ -185,7 +185,6 @@ def create_app(config=None, db_path: str | Path | None = None) -> FastAPI:
             wechat_config=config.wechat,
             notifiers_config=config.notifiers,
             trust_proxy=config.web.trust_proxy,
-            llm_config=config.llm,
         )
     )
     # 本地头像缓存（数据目录/avatars），避免第三方图床过期/外链失效

@@ -938,7 +938,8 @@ async function loadTimelineCategories() {
 async function loadTimelineTags() {
   if (!_tlTags) {
     const data = await api("/api/tags");
-    _tlTags = Array.isArray(data?.tags) ? data.tags : [];
+    // 词表是对象数组（{tag, keywords}），下拉只取标签名
+    _tlTags = (Array.isArray(data?.tags) ? data.tags : []).map((r) => (typeof r === "string" ? r : r.tag)).filter(Boolean);
   }
   const sel = $("#tl-tag");
   if (!sel) return;
@@ -3130,14 +3131,16 @@ async function loadAdminTags() {
   const tags = Array.isArray(data?.tags) ? data.tags : [];
   const stats = data?.stats || { total: 0, tagged: 0, pending: 0 };
   if (!routeStillActive(_adminRenderSeq)) return;
+  // 词表编辑：每行一个标签，格式「标签名 | 关键词,关键词」；关键词为空则该标签不命中
+  const vocabText = tags.map((r) => `${r.tag} | ${(r.keywords || []).join(", ")}`).join("\n");
   $("#admin-body").innerHTML = `
     <section class="section-panel">
       <header class="section-head">
         <div><p class="section-eyebrow">Vocabulary</p><h3 class="section-title">贴文标签词表</h3>
-        <p class="section-meta">新帖抓取入库时由 LLM 自动打标（仅从词表选，每条最多 3 个）。未配置 LLM_API_KEY 时跳过打标。</p></div>
+        <p class="section-meta">新帖抓取入库时按关键词规则自动打标（零成本、不依赖 LLM）。每行一个标签：<b>标签名 | 关键词1,关键词2</b>，正文/标题命中任一关键词即打该标签，每条最多 3 个。</p></div>
       </header>
+      <textarea id="tag-vocab-input" class="form-control" rows="10" style="margin-top:12px;font-family:monospace;line-height:1.6" placeholder="宏观 | 央行,降息,GDP&#10;大盘 | A股,沪指,指数">${escapeHtml(vocabText)}</textarea>
       <div class="toolbar" style="margin-top:12px">
-        <input id="tag-vocab-input" class="form-control" style="margin:0;flex:1;min-width:240px" placeholder="逗号分隔，如：宏观, 大盘, 科技" value="${escapeHtml(tags.join(", "))}">
         <button class="btn-normal" onclick="adminSaveTags()">保存词表</button>
       </div>
       <p class="section-meta" style="margin-top:8px">已打标 ${stats.tagged} / ${stats.total} 条，待打标 ${stats.pending} 条</p>
@@ -3145,25 +3148,29 @@ async function loadAdminTags() {
     <section class="section-panel">
       <header class="section-head">
         <div><p class="section-eyebrow">Backfill</p><h3 class="section-title">回填历史贴文</h3>
-        <p class="section-meta">给最近未打标的贴文补标签（配 LLM 后抓取期漏标/失败的存量数据）。</p></div>
+        <p class="section-meta">给全部未打标贴文按当前词表补标签（关键词规则，零成本）。</p></div>
       </header>
       <div class="toolbar" style="margin-top:12px">
-        <input id="tag-backfill-limit" class="form-control" type="number" min="1" max="500" value="200" style="margin:0;width:120px">
-        <button class="btn-normal" onclick="adminBackfillTags()">开始回填</button>
+        <button class="btn-normal" onclick="adminBackfillTags()">回填全部未打标</button>
         <span id="tag-backfill-result" class="muted"></span>
       </div>
     </section>
     <section class="section-panel">
       <header class="section-head"><div><p class="section-eyebrow">Preview</p><h3 class="section-title">当前词表（${tags.length} 个）</h3></div></header>
       <div class="tag-vocab-preview">
-        ${tags.length ? tags.map((t) => `<span class="cat cat-tag">${escapeHtml(t)}</span>`).join("") : "（空）"}
+        ${tags.length ? tags.map((r) => `<span class="cat cat-tag">${escapeHtml(r.tag)}</span>`).join("") : "（空）"}
       </div>
     </section>`;
 }
 
 async function adminSaveTags() {
   const raw = $("#tag-vocab-input").value;
-  const tags = raw.split(/[,，]/).map((t) => t.trim()).filter(Boolean);
+  const tags = raw.split(/\n/).map((line) => line.trim()).filter(Boolean).map((line) => {
+    // 每行「标签名 | 关键词,关键词」；无 | 时整行视为标签名（无关键词）
+    const [tag, kw] = line.split("|").map((s) => s.trim());
+    const keywords = kw ? kw.split(/[,，]/).map((k) => k.trim()).filter(Boolean) : [];
+    return { tag, keywords };
+  }).filter((r) => r.tag);
   try {
     const data = await api("/api/tags", { method: "PUT", body: JSON.stringify({ tags }) });
     flash(`已保存词表（${data.tags.length} 个标签）`);
@@ -3174,14 +3181,12 @@ async function adminSaveTags() {
 }
 
 async function adminBackfillTags() {
-  const limitEl = $("#tag-backfill-limit");
-  const limit = Math.min(Math.max(Number(limitEl?.value || 200) || 200, 1), 500);
   const btn = $("[onclick='adminBackfillTags()']");
   if (btn) btn.disabled = true;
   const result = $("#tag-backfill-result");
   if (result) result.textContent = "回填中…";
   try {
-    const data = await api("/api/tags/backfill", { method: "POST", body: JSON.stringify({ limit }) });
+    const data = await api("/api/tags/backfill", { method: "POST", body: JSON.stringify({}) });
     if (result) result.textContent = `已处理 ${data.processed} 条，其中打上标签 ${data.tagged} 条`;
     flash("回填完成");
     loadAdminTags();

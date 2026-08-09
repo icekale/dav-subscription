@@ -1798,41 +1798,37 @@ def test_twitter_content_translated_once_for_new_posts(monkeypatch):
     assert db.list_posts(limit=10)[0]["title"] == "Stay hungry"
 
 
-def test_new_posts_tagged_by_llm_on_ingest(monkeypatch):
-    """配了 llm_config 时，新帖入库前调 tag_posts 并把标签写库。"""
+def test_new_posts_tagged_by_rules_on_ingest():
+    """新帖入库前按关键词规则打标（纯本地，无需 LLM 配置）。"""
     db = make_db()
     kid = add_kol_subscribed(db, "xueqiu", "A", "1")
     post = make_post(kid)
+    post.content = "央行宣布降息，AI 芯片板块走强"
     post2 = make_post(kid)
     post2.external_id = "p2"
-    fake_tag = lambda posts, vocab, cfg, client=None: {0: ["宏观"], 1: ["科技"]}  # noqa: E731
-    monkeypatch.setattr("app.llm.tag_posts", fake_tag)
-    llm_cfg = SimpleNamespace(api_base="https://api.deepseek.com", api_key="sk-test", model="deepseek-chat")
-    poll_once(db, {"xueqiu": FakeFetcher([post, post2])}, [FakeNotifier()], interval_seconds=0, llm_config=llm_cfg)
+    post2.content = "今天天气不错"
+    poll_once(db, {"xueqiu": FakeFetcher([post, post2])}, [FakeNotifier()], interval_seconds=0)
     rows = db.list_posts(limit=5)
-    assert rows[1]["tags"] == ["宏观"]
-    assert rows[0]["tags"] == ["科技"]
+    # list_posts 按 id 倒序：post2（后插入）在前、无关键词不命中；post 命中宏观+科技
+    assert rows[0]["tags"] == []
+    assert rows[1]["tags"] == ["宏观", "板块", "科技"]
 
 
-def test_new_posts_not_tagged_without_llm_config(monkeypatch):
-    """未配 llm_config（或 key 为空）时不做打标，原样入库。"""
+def test_new_posts_without_keyword_hits_not_tagged(monkeypatch):
+    """无关键词命中的新帖不打标签，原样入库（规则打标不再依赖 LLM 配置）。"""
     db = make_db()
     kid = add_kol_subscribed(db, "xueqiu", "A", "1")
     calls = {"n": 0}
 
-    def fake_tag(posts, vocab, cfg, client=None):
+    def fake_rule(posts, rules):
         calls["n"] += 1
         return {}
 
-    monkeypatch.setattr("app.llm.tag_posts", fake_tag)
+    monkeypatch.setattr("app.tagging.rule_tag_posts", fake_rule)
     poll_once(db, {"xueqiu": FakeFetcher([make_post(kid)])}, [FakeNotifier()], interval_seconds=0)
-    assert calls["n"] == 0
-    # key 为空等同未配置
-    poll_once(db, {"xueqiu": FakeFetcher([make_post(kid)])}, [FakeNotifier()], interval_seconds=0,
-              llm_config=SimpleNamespace(api_key=""))
-    assert calls["n"] == 0
+    assert calls["n"] == 1  # 规则打标无条件执行
     rows = db.list_posts(limit=5)
-    assert rows and all(r["tags"] == [] for r in rows)
+    assert rows and rows[0]["tags"] == []
 
 
 def test_tagging_failure_does_not_block_ingest(monkeypatch):
@@ -1840,12 +1836,11 @@ def test_tagging_failure_does_not_block_ingest(monkeypatch):
     db = make_db()
     kid = add_kol_subscribed(db, "xueqiu", "A", "1")
 
-    def boom(posts, vocab, cfg, client=None):
-        raise RuntimeError("llm down")
+    def boom(posts, rules):
+        raise RuntimeError("rule error")
 
-    monkeypatch.setattr("app.llm.tag_posts", boom)
-    llm_cfg = SimpleNamespace(api_key="sk-test")
-    poll_once(db, {"xueqiu": FakeFetcher([make_post(kid)])}, [FakeNotifier()], interval_seconds=0, llm_config=llm_cfg)
+    monkeypatch.setattr("app.tagging.rule_tag_posts", boom)
+    poll_once(db, {"xueqiu": FakeFetcher([make_post(kid)])}, [FakeNotifier()], interval_seconds=0)
     rows = db.list_posts(limit=5)
     assert rows and rows[0]["tags"] == []
 
@@ -1857,15 +1852,14 @@ def test_existing_posts_not_retagged(monkeypatch):
     post = make_post(kid)
     calls = {"n": 0}
 
-    def fake_tag(posts, vocab, cfg, client=None):
+    def fake_rule(posts, rules):
         calls["n"] += 1
         return {0: ["宏观"]}
 
-    monkeypatch.setattr("app.llm.tag_posts", fake_tag)
-    llm_cfg = SimpleNamespace(api_key="sk-test")
-    poll_once(db, {"xueqiu": FakeFetcher([post])}, [FakeNotifier()], interval_seconds=0, llm_config=llm_cfg)
+    monkeypatch.setattr("app.tagging.rule_tag_posts", fake_rule)
+    poll_once(db, {"xueqiu": FakeFetcher([post])}, [FakeNotifier()], interval_seconds=0)
     assert calls["n"] == 1
-    poll_once(db, {"xueqiu": FakeFetcher([post])}, [FakeNotifier()], interval_seconds=0, llm_config=llm_cfg)
+    poll_once(db, {"xueqiu": FakeFetcher([post])}, [FakeNotifier()], interval_seconds=0)
     assert calls["n"] == 1
 
 
