@@ -92,6 +92,18 @@ def make_db() -> DB:
     return DB(Path(tmp) / "test.db")
 
 
+def add_kol_subscribed(db, platform, name, external_id, **kw):
+    """建大V + 自动建一个订阅用户，使抓取调度认为该大V有人订阅。
+
+    调度按「无订阅者不抓取」优化后，纯抓取逻辑测试需要先建订阅关系。
+    telegram_chat_id 有唯一索引，每个测试用户必须用不同值。
+    """
+    kid = db.add_kol(platform, name, external_id, **kw)
+    uid = db.add_user(f"sub_{kid}", "h", telegram_chat_id=f"tg{kid}")
+    db.add_subscription(uid, kid)
+    return kid
+
+
 def make_post(kol_id):
     return Post(
         platform="xueqiu",
@@ -273,7 +285,7 @@ def test_poll_once_fetches_platforms_concurrently():
     db = make_db()
     kids = {}
     for platform in ("xueqiu", "weibo", "twitter"):
-        kids[platform] = db.add_kol(platform, platform, platform)
+        kids[platform] = add_kol_subscribed(db, platform, platform, platform)
     lock = threading.Lock()
     stats = {"active": 0, "max": 0}
 
@@ -591,7 +603,7 @@ def test_notify_subscribers_respects_selected_channels(monkeypatch):
 
 def test_source_failure_alert_and_recovery(monkeypatch):
     db = make_db()
-    kid = db.add_kol("xueqiu", "A", "1")
+    kid = add_kol_subscribed(db, "xueqiu", "A", "1")
     notifier = FakeNotifier()
     states = {}
     clock = {"t": 0.0}
@@ -695,7 +707,7 @@ def test_priority_kol_bypasses_digest(monkeypatch):
 
 def test_source_health_recorded():
     db = make_db()
-    db.add_kol("xueqiu", "A", "1")
+    add_kol_subscribed(db, "xueqiu", "A", "1")
     poll_once(db, {"xueqiu": FakeFetcherError()}, [FakeNotifier()], interval_seconds=0)
     assert db.get_setting("source_fails_xueqiu") == "1"
     assert db.get_setting("source_err_xueqiu") == "boom"
@@ -991,8 +1003,8 @@ class MixedFetcher:
 
 def test_poll_once_logs_source_events_and_next_retry():
     db = make_db()
-    ok_kid = db.add_kol("xueqiu", "OK", "1")
-    fail_kid = db.add_kol("xueqiu", "FAIL", "2")
+    ok_kid = add_kol_subscribed(db, "xueqiu", "OK", "1")
+    fail_kid = add_kol_subscribed(db, "xueqiu", "FAIL", "2")
     poll_once(
         db,
         {"xueqiu": MixedFetcher([make_post(ok_kid)], {fail_kid})},
@@ -1015,8 +1027,8 @@ def test_source_health_reflects_mixed_round(monkeypatch):
     worker 会把同一平台失败 worker 写的错误信息与连续失败计数随机清空。
     """
     db = make_db()
-    ok_kid = db.add_kol("xueqiu", "OK", "1")
-    fail_kid = db.add_kol("xueqiu", "FAIL", "2")
+    ok_kid = add_kol_subscribed(db, "xueqiu", "OK", "1")
+    fail_kid = add_kol_subscribed(db, "xueqiu", "FAIL", "2")
 
     class SlowOkMixedFetcher(MixedFetcher):
         def fetch(self, kol):
@@ -1038,7 +1050,7 @@ def test_source_health_reflects_mixed_round(monkeypatch):
 def test_source_health_cleared_when_all_success():
     """整轮全成功：错误信息与失败计数被清空，健康状态正常。"""
     db = make_db()
-    kid = db.add_kol("xueqiu", "A", "1")
+    kid = add_kol_subscribed(db, "xueqiu", "A", "1")
     db.set_setting("source_err_xueqiu", "旧错误")
     db.set_setting("source_fails_xueqiu", "3")
     poll_once(db, {"xueqiu": FakeFetcher([make_post(kid)])}, [])
@@ -1049,10 +1061,45 @@ def test_source_health_cleared_when_all_success():
 
 def test_poll_once_clears_next_retry_on_all_success():
     db = make_db()
-    kid = db.add_kol("xueqiu", "A", "1")
+    kid = add_kol_subscribed(db, "xueqiu", "A", "1")
     db.set_setting("source_next_retry_at_xueqiu", "9999999999")
     poll_once(db, {"xueqiu": FakeFetcher([make_post(kid)])}, [])
     assert db.get_setting("source_next_retry_at_xueqiu") == ""
+
+
+def test_poll_once_skips_kol_without_subscribers():
+    """无订阅者的大V不抓取：没有接收者就不白耗抓取配额。"""
+    db = make_db()
+    db.add_kol("xueqiu", "无订阅", "1")  # 无人订阅
+    calls = []
+
+    class CountingFetcher:
+        def fetch(self, kol):
+            calls.append(kol["id"])
+            return [make_post(kol["id"])]
+
+    poll_once(db, {"xueqiu": CountingFetcher()}, [])
+    assert calls == []  # 不被抓取
+    assert db.list_posts() == []  # 不产生帖子
+
+
+def test_poll_once_fetches_kol_after_subscription():
+    """有订阅者后才开始抓取：订阅动作使 KOL 进入抓取范围。"""
+    db = make_db()
+    kid = db.add_kol("xueqiu", "刚订阅", "1")
+    calls = []
+
+    class CountingFetcher:
+        def fetch(self, kol):
+            calls.append(kol["id"])
+            return []
+
+    poll_once(db, {"xueqiu": CountingFetcher()}, [])
+    assert calls == []  # 未订阅不抓
+    uid = db.add_user("new_sub", "h", telegram_chat_id="tg999")
+    db.add_subscription(uid, kid)
+    poll_once(db, {"xueqiu": CountingFetcher()}, [])
+    assert calls == [kid]  # 订阅后开始抓取
 
 
 def test_source_events_retention():
@@ -1086,7 +1133,7 @@ def test_source_event_stats_counting_and_legacy_compat():
 def test_poll_once_fetches_never_fetched_kol_with_small_monotonic(monkeypatch):
     """容器启动早期 monotonic 可能小于轮询间隔，首轮不应被误跳过（CI 回归）。"""
     db = make_db()
-    kid = db.add_kol("xueqiu", "A", "1")
+    kid = add_kol_subscribed(db, "xueqiu", "A", "1")
     calls = []
 
     class CountingFetcher:
@@ -1613,7 +1660,7 @@ def test_polling_bool_override():
 
 def test_twitter_content_translated_once_for_new_posts(monkeypatch):
     db = make_db()
-    kid = db.add_kol("twitter", "Semi", "https://x.com/Semi")
+    kid = add_kol_subscribed(db, "twitter", "Semi", "https://x.com/Semi")
     db.set_setting("config_translate_twitter_content", "1")
     post = Post(
         platform="twitter", kol_id=kid, kol_name="Semi",
@@ -1653,7 +1700,7 @@ def test_twitter_content_translated_once_for_new_posts(monkeypatch):
 def test_new_posts_tagged_by_llm_on_ingest(monkeypatch):
     """配了 llm_config 时，新帖入库前调 tag_posts 并把标签写库。"""
     db = make_db()
-    kid = db.add_kol("xueqiu", "A", "1")
+    kid = add_kol_subscribed(db, "xueqiu", "A", "1")
     post = make_post(kid)
     post2 = make_post(kid)
     post2.external_id = "p2"
@@ -1669,7 +1716,7 @@ def test_new_posts_tagged_by_llm_on_ingest(monkeypatch):
 def test_new_posts_not_tagged_without_llm_config(monkeypatch):
     """未配 llm_config（或 key 为空）时不做打标，原样入库。"""
     db = make_db()
-    kid = db.add_kol("xueqiu", "A", "1")
+    kid = add_kol_subscribed(db, "xueqiu", "A", "1")
     calls = {"n": 0}
 
     def fake_tag(posts, vocab, cfg, client=None):
@@ -1690,7 +1737,7 @@ def test_new_posts_not_tagged_without_llm_config(monkeypatch):
 def test_tagging_failure_does_not_block_ingest(monkeypatch):
     """打标抛异常时贴文仍入库（静默降级）。"""
     db = make_db()
-    kid = db.add_kol("xueqiu", "A", "1")
+    kid = add_kol_subscribed(db, "xueqiu", "A", "1")
 
     def boom(posts, vocab, cfg, client=None):
         raise RuntimeError("llm down")
@@ -1705,7 +1752,7 @@ def test_tagging_failure_does_not_block_ingest(monkeypatch):
 def test_existing_posts_not_retagged(monkeypatch):
     """第二轮回抓时帖子已存在，不再调用打标。"""
     db = make_db()
-    kid = db.add_kol("xueqiu", "A", "1")
+    kid = add_kol_subscribed(db, "xueqiu", "A", "1")
     post = make_post(kid)
     calls = {"n": 0}
 
@@ -1855,7 +1902,7 @@ def test_translate_text_x_official_missing_cookie_falls_back():
 
 def test_twitter_translation_uses_x_official_once_with_cookie(monkeypatch):
     db = make_db()
-    kid = db.add_kol("twitter", "Semi", "https://x.com/Semi")
+    kid = add_kol_subscribed(db, "twitter", "Semi", "https://x.com/Semi")
     db.set_setting("config_translate_twitter_content", "1")
     post = Post(
         platform="twitter", kol_id=kid, kol_name="Semi",
@@ -2006,7 +2053,7 @@ def test_push_failure_logged(monkeypatch):
 
 def test_weibo_login_failure_warns_once_per_day():
     db = make_db()
-    db.add_kol("weibo", "微博大V", "123")
+    add_kol_subscribed(db, "weibo", "微博大V", "123")
 
     class LoginErrorFetcher:
         def fetch(self, kol):
@@ -2024,7 +2071,7 @@ def test_weibo_login_failure_warns_once_per_day():
 
 def test_backoff_skips_failing_platform():
     db = make_db()
-    db.add_kol("xueqiu", "A", "1")
+    add_kol_subscribed(db, "xueqiu", "A", "1")
 
     class CountingFetcherError:
         def __init__(self):
@@ -2046,8 +2093,8 @@ def test_priority_kol_fetched_more_often(monkeypatch):
     clock = {"now": 1_000_000.0}
     monkeypatch.setattr("app.scheduler.time.monotonic", lambda: clock["now"])
     db = make_db()
-    normal_id = db.add_kol("xueqiu", "普通", "1")
-    priority_id = db.add_kol("xueqiu", "优先", "2", priority=True)
+    normal_id = add_kol_subscribed(db, "xueqiu", "普通", "1")
+    priority_id = add_kol_subscribed(db, "xueqiu", "优先", "2", priority=True)
     calls = []
 
     class CountingFetcher:

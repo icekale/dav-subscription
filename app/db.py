@@ -931,6 +931,15 @@ class DB:
         rows = self._rows("SELECT kol_id FROM subscriptions WHERE user_id = ?", (user_id,))
         return {row["kol_id"] for row in rows}
 
+    def kol_ids_with_subscribers(self) -> set[int]:
+        """当前有任何订阅关系的大V id 集合（含关闭通知的订阅者）。
+
+        抓取调度用它跳过无人订阅的大V——没有订阅者就没有推送/阅读对象，
+        不值得每轮白耗抓取配额。
+        """
+        rows = self._rows("SELECT DISTINCT kol_id FROM subscriptions")
+        return {row["kol_id"] for row in rows}
+
     def readable_subscribed_kol_ids(self, user_id: int, is_admin: bool = False) -> set[int]:
         """用户可读的已订阅大V集合：订阅集合 ∩ 可见集合（公开 + ACL 私有大V）。
 

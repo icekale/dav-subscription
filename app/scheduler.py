@@ -608,9 +608,14 @@ def poll_once(
     """执行一轮：并发抓取启用 KOL → 去重 → 推送。"""
     states = states if states is not None else {}
     now = time.monotonic()
+    # 无人订阅的大V不抓取：没有订阅者就没有推送/阅读对象，白耗抓取配额。
+    # 新上架的大V需要先有用户订阅（订阅广场/组合订阅）才开始抓取。
+    subscribed_ids = db.kol_ids_with_subscribers()
     jobs = []
     for kol in db.list_kols():
         if not kol["enabled"]:
+            continue
+        if kol["id"] not in subscribed_ids:
             continue
         fetcher = fetchers.get(kol["platform"])
         if fetcher is None:
