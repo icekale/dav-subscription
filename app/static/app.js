@@ -3591,9 +3591,9 @@ function applyTheme() {
   // 同步顶部浏览器 UI（桌面无意义，PWA/移动端状态栏）
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) meta.setAttribute("content", dark ? "#0d1014" : "#0d5cff");
-  // 移动端 topbar logo 切换深色版（高饱和亮渐变在深色 UI 上刺眼）
+  // 移动端 topbar logo 用融合符号版（无背景色块，V 用文本同色系），深浅各一
   const logo = document.querySelector(".topbar-logo");
-  if (logo) logo.src = dark ? "/logo-dark.svg" : "/logo.svg";
+  if (logo) logo.src = dark ? "/logo-mark-dark.svg" : "/logo-mark.svg";
   return dark;
 }
 

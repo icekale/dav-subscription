@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-label="大V订阅">
+  <!-- 移动端 topbar 融合符号（深色版）：V 用深色文本同色（浅灰白），蓝点提亮 -->
+  <path d="M6.8 8.1 L12 16.4 L17.2 8.1" fill="none" stroke="#e4e6eb" stroke-width="2.8"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="18.5" cy="5.6" r="1.7" fill="#4a9aff"/>
+</svg>
