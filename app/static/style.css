@@ -335,22 +335,22 @@ textarea.form-control {
 .sidebar-update { color: var(--color-accent); font-weight: 600; text-decoration: none; margin-left: 2px; }
 .sidebar-update:hover { text-decoration: underline; }
 
-/* 主题切换（侧边栏底部三态） */
+/* 主题切换（侧边栏底部三态）：与 GitHub 圆钮同语言——无边框小图标，选中用蓝色+淡蓝底 */
 .theme-switcher {
-  display: flex; gap: 4px;
+  display: flex; gap: 2px;
   justify-content: center; margin-top: 12px;
   padding-top: 12px; border-top: var(--border-soft);
 }
 .theme-mode {
-  width: 30px; height: 30px; border-radius: var(--radius-2xs);
-  border: var(--border-strong); background: var(--color-surface);
+  width: 26px; height: 26px; border-radius: var(--radius-2xs);
+  border: none; background: transparent;
   display: inline-flex; align-items: center; justify-content: center;
-  color: var(--color-text-muted);
+  color: var(--color-text-faint);
   transition: all var(--ease-standard);
 }
 .theme-mode .theme-ic { width: 15px; height: 15px; }
-.theme-mode:hover { border-color: var(--color-accent); color: var(--color-accent); }
-.theme-mode.selected { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-white); }
+.theme-mode:hover { background: var(--color-surface-hover); color: var(--color-accent); }
+.theme-mode.selected { background: var(--color-surface-accent); color: var(--color-accent); }
 .theme-mode.selected .theme-ic { stroke-width: 2.4; }
 
 /* 顶部主题切换按钮：桌面用侧边栏三态，仅移动端（无侧边栏）显示 */
