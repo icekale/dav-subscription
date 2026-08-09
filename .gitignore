@@ -12,3 +12,7 @@ backups/
 .pi-subagents/
 .zcode/
 .worktrees/
+
+# 彩蛋相关设计/计划文档：不入库，保持神秘
+docs/superpowers/specs/2026-08-09-logo-easter-egg-design.md
+docs/superpowers/plans/2026-08-09-logo-easter-egg.md
