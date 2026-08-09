@@ -1291,7 +1291,7 @@ function channelStatusHtml(user) {
       </div>
       <div class="channel-card" data-channel="feishu">
         <div class="channel-head">
-          <span class="channel-title">${CHANNEL_ICONS.feishu}<b>飞书${fsPersonalActive ? ' <span class="tag">个人</span>' : ""}</b></span>
+          <span class="channel-title">${CHANNEL_ICONS.feishu}<b>飞书${fsPersonalActive ? ' <span class="tag">个人</span>' : (fsOk ? ' <span class="tag">共享</span>' : "")}</b></span>
           ${fsPersonalActive ? statusPill("status-ok", "已绑定")
             : fsOk ? statusPill("status-ok", "已绑定")
             : fsPersonal?.status === "degraded" || fsPersonal?.status === "disabled"
@@ -1301,9 +1301,9 @@ function channelStatusHtml(user) {
         </div>
         <p class="muted channel-desc">
           ${fsPersonalActive ? `个人机器人推送已启用（免共享限频）${fsPersonal.app_id_masked ? " · " + escapeHtml(fsPersonal.app_id_masked) : ""}`
-            : fsOk ? "私聊会话已建立，推送正常（共享机器人）"
+            : fsOk ? "共享机器人推送（不推荐，受限频影响）；建议升级个人机器人"
             : (fsOpen ? "已关联账号，请先在飞书私聊机器人发一条消息"
-            : "按下方步骤操作，本页会自动刷新状态")}
+            : "推荐个人机器人：扫码自动创建，免共享限频")}
         </p>
         <div class="channel-actions">
           ${fsOpen || fsPersonalActive ? "" : `<div id="bind-result-feishu"></div>`}
@@ -1518,7 +1518,8 @@ async function renderSettings(seq) {
         </ol>`)}
         </div>
         <div class="channel-bind-block" id="feishu-bind">
-          <h4 class="section-title">② 飞书机器人（请用私聊）</h4>
+          <h4 class="section-title">② 飞书机器人 · 共享备选</h4>
+          <p class="section-meta">👎 不推荐：所有用户共用一个应用，推送配额共享，人多可能被限频。仅作为没有个人机器人时的临时备选，建议优先用上方「⓪ 自建机器人」里的个人机器人。</p>
           ${bindGuideHtml(!!(state.user.feishu_open_id && state.user.feishu_chat_id), `
         <ol style="padding-left:20px;line-height:2">
           <li>打开飞书 App，点顶部「搜索」，搜索 ${fsTarget} 并进入。</li>
