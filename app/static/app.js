@@ -91,7 +91,12 @@ function lightboxKeyHandler(e) {
 
 function closeLightbox() {
   const overlay = document.querySelector(".lightbox");
-  if (overlay) overlay.remove();
+  if (!overlay) return;
+  overlay.classList.add("closing"); // 触发淡出+轻微缩小动画
+  // 动画结束后移除 DOM；reduced-motion 下 animation 被禁用（animationend 不触发），用超时兜底
+  const remove = () => overlay.remove();
+  overlay.addEventListener("animationend", remove, { once: true });
+  setTimeout(remove, 200);
   document.body.classList.remove("lightbox-open");
   document.removeEventListener("keydown", lightboxKeyHandler);
 }
