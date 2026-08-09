@@ -1888,11 +1888,10 @@ function pushChannelsHtml(user) {
   const selected = (user.push_channels || "").split(",").map((s) => s.trim()).filter(Boolean);
   const isChecked = (ch) => selected.length === 0 || selected.includes(ch);
   return opts.map(([ch, label]) => `
-    <label class="channel-pick ${isChecked(ch) ? "selected" : ""}" data-channel="${ch}">
+    <label class="channel-pick ${isChecked(ch) ? "selected" : ""}" data-channel="${ch}" title="${escapeHtml(label)}">
       <input type="checkbox" value="${ch}" ${isChecked(ch) ? "checked" : ""}
         onchange="this.closest('.channel-pick').classList.toggle('selected', this.checked)">
       <span class="ch-icon-wrap">${CHANNEL_ICONS[ch]}</span>
-      <span class="ch-label">${label}</span>
       <span class="ch-check">✓</span>
     </label>`).join("");
 }

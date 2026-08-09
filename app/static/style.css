@@ -575,10 +575,10 @@ textarea.form-control {
 .channel-picks { display: flex; gap: 10px; flex-wrap: wrap; }
 .channel-pick {
   position: relative;
-  display: inline-flex; align-items: center; gap: 9px;
+  display: inline-flex; align-items: center; gap: 7px;
   /* 紧凑胶囊：按内容宽度自适应，多行自动换行，不横贯整行 */
   width: auto; flex: none; min-width: 0;
-  padding: 8px 14px; border: var(--border-strong); border-radius: 999px;
+  padding: 7px 11px; border: var(--border-strong); border-radius: 999px;
   background: var(--color-surface); cursor: pointer; user-select: none;
   font-size: var(--text-sm); color: var(--color-text-strong);
   transition: all var(--ease-standard);
