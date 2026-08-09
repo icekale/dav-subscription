@@ -1444,22 +1444,6 @@ async function renderSettings(seq) {
       <section class="section-panel">
         <header class="section-head">
           <div>
-            <p class="section-eyebrow">Channels</p>
-            <h3 class="section-title">推送渠道</h3>
-            <p class="section-meta">绑定状态每 10 秒自动刷新；绑定了多个渠道时，可在下方勾选要接收推送的渠道（不选则全部推送）。</p>
-          </div>
-        </header>
-        <div id="push-status">${channelStatusHtml(state.user)}</div>
-        <div class="channel-picks" id="push-channels-box" style="margin-top:18px;padding-top:18px;border-top:var(--border-default)">${pushChannelsHtml(state.user)}</div>
-        ${(state.user.telegram_chat_id || state.user.feishu_open_id || state.user.feishu_chat_id || state.user.wecom_webhook || state.user.bark_key)
-          ? `<div class="toolbar" style="margin-top:14px">
-               <button class="btn-normal" onclick="savePushChannels()">保存推送通道</button>
-               <span id="push-channels-result" class="muted"></span>
-             </div>` : ""}
-      </section>
-      <section class="section-panel">
-        <header class="section-head">
-          <div>
             <p class="section-eyebrow">Keywords</p>
             <h3 class="section-title">关键词提醒</h3>
             <p class="section-meta">命中关键词的动态会加 🔑 标记、并在免打扰时段实时推送（穿透免打扰）；每行一个，最多 20 个，每个不超过 50 字。</p>
@@ -1478,6 +1462,22 @@ async function renderSettings(seq) {
       </section>
       </div>
       <div id="st-bind" class="settings-tab-panel">
+      <section class="section-panel">
+        <header class="section-head">
+          <div>
+            <p class="section-eyebrow">Channels</p>
+            <h3 class="section-title">推送渠道</h3>
+            <p class="section-meta">绑定状态每 10 秒自动刷新；绑定了多个渠道时，可在下方勾选要接收推送的渠道（不选则全部推送）。</p>
+          </div>
+        </header>
+        <div id="push-status">${channelStatusHtml(state.user)}</div>
+        <div class="channel-picks" id="push-channels-box" style="margin-top:18px;padding-top:18px;border-top:var(--border-default)">${pushChannelsHtml(state.user)}</div>
+        ${(state.user.telegram_chat_id || state.user.feishu_open_id || state.user.feishu_chat_id || state.user.wecom_webhook || state.user.bark_key)
+          ? `<div class="toolbar" style="margin-top:14px">
+               <button class="btn-normal" onclick="savePushChannels()">保存推送通道</button>
+               <span id="push-channels-result" class="muted"></span>
+             </div>` : ""}
+      </section>
       <section class="section-panel">
         <header class="section-head">
           <div>
