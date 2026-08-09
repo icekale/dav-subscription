@@ -3791,27 +3791,3 @@ if ("serviceWorker" in navigator) {
 
 applyTheme(); // 与 index.html 防闪脚本同一逻辑，兜底 + 同步 meta theme-color
 router();
-
-// ---------- 侧栏 logo 点击交互 ----------
-const { recordTap } = TapCounter;
-const LOGO_FLIP_MS = 2000; // 背面停留时长，随后翻回
-const LOGO_COOL_MS = LOGO_FLIP_MS + 400 + 3000; // 动画结束后 3 秒冷却，防连击刷屏
-const logoFlipState = { cooling: false, tap: null };
-
-$("#sidebar-brand").addEventListener("click", () => {
-  if (logoFlipState.cooling) return;
-  if (!window.matchMedia("(min-width: 901px)").matches) return; // 移动端不参与
-  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-  const r = recordTap(logoFlipState.tap, Date.now());
-  logoFlipState.tap = { count: r.triggered ? 0 : r.count, last: r.last };
-  if (r.triggered) triggerLogoFlip();
-});
-
-function triggerLogoFlip() {
-  logoFlipState.cooling = true;
-  const brand = document.querySelector(".brand-flip");
-  if (!brand) return; // 元素缺失静默
-  brand.classList.add("flipped");
-  setTimeout(() => brand.classList.remove("flipped"), LOGO_FLIP_MS);
-  setTimeout(() => { logoFlipState.cooling = false; }, LOGO_COOL_MS);
-}
