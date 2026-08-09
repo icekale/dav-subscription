@@ -381,6 +381,8 @@ textarea.form-control {
 }
 .topbar-title { display: flex; align-items: center; gap: 6px; }
 .topbar-title h2 { font-size: var(--text-lg); font-weight: var(--font-weight-bold); color: var(--color-text-strong); }
+/* 移动端左上角：用品牌 logo 代替文字标题（桌面端保持文字） */
+.topbar-logo { display: none; height: 26px; width: auto; flex-shrink: 0; }
 .icon-btn { width: 30px; height: 30px; border: none; background: none; font-size: 20px; color: var(--color-text); border-radius: var(--radius-2xs); }
 .icon-btn:hover { background: var(--color-surface-hover); }
 .topbar-user { display: flex; align-items: center; gap: 12px; }
@@ -1039,6 +1041,9 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
   .theme-toggle-btn { display: inline-flex; }
   .main-col { min-height: 100vh; }
   .topbar { padding: 0 12px; }
+  /* 移动端左上角显示 logo、隐藏文字标题 */
+  .topbar-logo { display: inline-block; }
+  .topbar-title h2 { display: none; }
   .page-main { padding: 16px 14px calc(74px + env(safe-area-inset-bottom)); }
   .platform-tabs { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 4px; }
   .platform-tab { flex-shrink: 0; width: auto; height: auto; min-height: 38px; padding: 0 14px; gap: 6px; border-radius: var(--radius-pill); }
