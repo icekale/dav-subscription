@@ -209,3 +209,18 @@ def test_extract_stock_marks_basic():
     assert ("长鑫", "SH688825") in marks
     # 组合/板块排除
     assert all(not c.startswith(("ZH", "BK")) for _, c in marks)
+
+
+def test_stock_mark_alias_uses_official_name():
+    """$标记$ 里的戏称（贵州茅坑）已注册别名时，打正式名而非戏称。"""
+    post = make_post(content="$贵州茅坑(SH600519)$ $洋河大蛆(SZ002304)$ 都不去了。")
+    result = stock_tag_posts(
+        [post],
+        ["贵州茅台", "洋河股份"],
+        aliases=[
+            {"alias": "贵州茅坑", "stock": "贵州茅台"},
+            {"alias": "洋河大蛆", "stock": "洋河股份"},
+        ],
+    )
+    assert result[0] == ["贵州茅台", "洋河股份"]
+    assert "贵州茅坑" not in result[0]

@@ -348,7 +348,8 @@ def suggest_stock_aliases(candidates, known_stocks, llm_config=None, client=None
                     },
                 ],
                 "temperature": 0,
-                "max_tokens": 2000,
+                # 推理模型思考预算大，2000 会被吃光致 JSON 截断
+                "max_tokens": 8000,
             },
         )
         resp.raise_for_status()
@@ -433,7 +434,8 @@ def resolve_stock_marks(marks, llm_config=None, client=None) -> list[dict]:
                     },
                 ],
                 "temperature": 0,
-                "max_tokens": 2000,
+                # 推理模型思考预算大（600+ tokens），2000 会被吃光致 JSON 截断
+                "max_tokens": 8000,
             },
         )
         resp.raise_for_status()

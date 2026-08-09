@@ -123,7 +123,8 @@ def stock_tag_posts(posts, stock_names, aliases=None) -> dict[int, list[str]]:
             result[idx] = []
             continue
         tags: list[str] = []
-        # 1) $标记$ 精确提取
+        # 1) $标记$ 精确提取（戏称如「贵州茅坑」已在别名表时，直接打正式名）
+        alias_by_name = {alias: stock for alias, stock in alias_map}
         for m in _STOCK_MARK_RE.finditer(text):
             name = m.group(1).strip()
             code = m.group(2)
@@ -131,6 +132,9 @@ def stock_tag_posts(posts, stock_names, aliases=None) -> dict[int, list[str]]:
                 continue  # ZH 组合 / BK 板块等非个股
             while name.startswith(_STOCK_NAME_PREFIXES) and len(name) > 1:
                 name = name[1:]
+            # 戏称标记 → 用正式名打标（如 贵州茅坑 → 贵州茅台），避免戏称当标签
+            if name in alias_by_name:
+                name = alias_by_name[name]
             if name and name not in tags:
                 tags.append(name)
             if len(tags) >= STOCK_PER_POST_MAX:
