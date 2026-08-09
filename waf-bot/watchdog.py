@@ -8,6 +8,11 @@ headless chromium 可自动执行挑战（实测 PoC），因此本进程周期�
 
 通用性：targets 是列表，未来其他站点（X 升级 CF managed challenge 等）加一项即可复用。
 cookie 有 TTL（实测 acw_tc Max-Age=30 分钟），按 WAF_REFRESH_INTERVAL 周期刷新。
+
+升级路径（ponytail: 当前裸 playwright 已够用，暂不引入）：若目标站点升级到检测
+headless/webdriver 特征（目前雪球 acw 不看、X 的 CF 也未到），替换成 Scrapling
+（github.com/d4vinci/Scrapling）StealthyFetcher——同为 Playwright Chromium + 指纹
+模拟并带 stealth 补丁，waf-bot 是独立容器，替换不影响主服务。
 """
 from __future__ import annotations
 
