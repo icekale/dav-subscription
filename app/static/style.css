@@ -875,10 +875,11 @@ td .btn-sm { margin-right: 6px; }
 .channel-card[data-channel="feishu"] .ch-icon { color: var(--color-brand-feishu); }
 .channel-card[data-channel="wecom"] .ch-icon { color: var(--color-brand-wecom); }
 .channel-desc { margin-top: 10px; line-height: 1.6; }
-.channel-actions { margin-top: auto; padding-top: 14px; display: flex; flex-direction: column; gap: 8px; }
+.channel-actions { margin-top: auto; padding-top: 14px; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
 .channel-btn {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 100%; height: var(--control-height-xl);
+  /* 自适应宽度，不横贯整卡（与页面其他 btn-normal 紧凑风格一致） */
+  width: auto; min-width: 88px; padding: 0 18px; height: var(--control-height-xl);
   border: none; border-radius: var(--radius-control);
   font-size: var(--text-sm); font-weight: var(--font-weight-semibold);
   cursor: pointer; transition: all var(--ease-standard);
