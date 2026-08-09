@@ -4,6 +4,15 @@
 GraphQL 接口：UserByScreenName（拿 userId/头像）+ UserTweets（拿时间线）。
 queryId 由 X 前端轮换，启动后每 6 小时自动从前端 main bundle 提取一次，
 提取失败时用内置默认值兜底；接口失效则整体回退 RSSHub。
+
+2026-08 起 X 把 api.twitter.com 升级成 Cloudflare managed challenge（裸客户端
+一律 403），但 x.com/i/api 的 GraphQL/typeahead 只是 passive TLS/HTTP2 指纹检测——
+用 curl_cffi 模拟 Chrome 指纹即可过（实测），且直抓并不需要 guest token
+（_graphql 不带 guest 头也 200）。因此：
+- HTTP 客户端从 httpx 换成 curl_cffi.Session(impersonate=chrome124)；
+- 删掉 guest token 获取逻辑（guest/activate 已被 CF 锁死，属于无效请求）。
+curl_cffi.Session 非线程安全：生产同平台 2 并发共享 fetcher，用 threading.local
+每线程懒建一个 session；外部注入的 client（测试 mock / 解析头像）直接复用。
 """
 
 from __future__ import annotations
@@ -17,6 +26,8 @@ import threading
 import time
 
 import httpx
+from curl_cffi import requests as cffi
+from curl_cffi.requests.errors import RequestsError
 
 from ..avatar_cache import cache_avatar
 from .base import Fetcher, Post, format_published_at
@@ -36,13 +47,6 @@ DEFAULT_QUERY_IDS = {
 QUERY_ID_TTL = 6 * 3600  # 每 6 小时重新从前端提取一次 queryId
 QUERY_ID_RETRY_COOLDOWN = 300  # 提取失败后 5 分钟重试，避免每次轮询都打前端
 FETCH_COUNT = 20
-
-# X 2026-08 起 GraphQL 要求带会话绑定的 guest token（guest/activate 需匹配的
-# ct0 cookie + x-csrf-token 头，否则 403 code 353）；token 有效期内复用。
-GUEST_TOKEN_TTL = 30 * 60
-_guest_token: str = ""
-_guest_token_at = 0.0
-_guest_token_lock = threading.Lock()
 
 # UserTweets 时间线所需的标准 feature switches（X 网页端常用集合）
 FEATURES = {
@@ -117,39 +121,7 @@ def _html_headers(cookie: str) -> dict[str, str]:
     }
 
 
-def _get_guest_token(client: httpx.Client, cookie: str) -> str:
-    """获取会话绑定的 guest token（guest/activate 需带匹配的 ct0 cookie + x-csrf-token）。
-
-    失败时返回空串：GraphQL 无 guest 会 401/403，调用方走降级逻辑。
-    """
-    global _guest_token, _guest_token_at
-    now = time.time()
-    if _guest_token and now - _guest_token_at < GUEST_TOKEN_TTL:
-        return _guest_token
-    with _guest_token_lock:
-        if _guest_token and now - _guest_token_at < GUEST_TOKEN_TTL:
-            return _guest_token
-        headers = _auth_headers(cookie)
-        headers.update({"Origin": "https://x.com", "Referer": "https://x.com/"})
-        try:
-            resp = client.post(
-                "https://api.twitter.com/1.1/guest/activate.json",
-                headers=headers,
-                timeout=15,
-            )
-            if resp.status_code != 200:
-                logger.warning("X guest token 激活失败: HTTP %s", resp.status_code)
-                return ""
-            token = (resp.json() or {}).get("guest_token") or ""
-            if token:
-                _guest_token, _guest_token_at = token, now
-            return token
-        except Exception as exc:  # noqa: BLE001 - 失败返回空，下次重试
-            logger.warning("X guest token 激活异常: %s", exc)
-            return ""
-
-
-def _refresh_query_ids(client: httpx.Client, cookie: str) -> None:
+def _refresh_query_ids(client, cookie: str) -> None:
     """从 X 前端 main bundle 提取最新的 UserTweets / UserByScreenName queryId。"""
     global _query_ids_loaded, _query_ids_error_until
     with _query_ids_lock:
@@ -225,7 +197,7 @@ def resolve_x_profile(external_id: str, cookie: str = "") -> dict:
     screen_name = extract_screen_name(external_id)
     if not screen_name or not cookie:
         return {}
-    client = httpx.Client(timeout=20)
+    client = cffi.Session(impersonate="chrome124", timeout=20)
     try:
         fetcher = TwitterFetcher(db=None, client=client)
         picked = fetcher._typeahead_pick(screen_name, cookie)
@@ -298,12 +270,23 @@ def _append_tweet(node, out: list[dict]) -> None:
 class TwitterFetcher(Fetcher):
     platform = "twitter"
 
-    def __init__(self, source_config=None, db=None, client: httpx.Client | None = None):
+    def __init__(self, source_config=None, db=None, client=None):
         super().__init__(source_config)
         self.db = db
-        self.client = client or httpx.Client(timeout=25)
+        self._client = client  # 外部注入（测试 mock / 头像解析）时复用；None 则按线程懒建
+        self._thread_local = threading.local()
         self._user_ids: dict[str, str] = {}
-        self._fallback = RssFetcher(source_config, db, client=self.client)
+        self._fallback = RssFetcher(source_config, db, client=client)
+
+    def _client_for(self):
+        """curl_cffi.Session 非线程安全：每线程懒建一个；外部注入的 client 直接复用。"""
+        if self._client is not None:
+            return self._client
+        sess = getattr(self._thread_local, "session", None)
+        if sess is None:
+            sess = cffi.Session(impersonate="chrome124", timeout=25)
+            self._thread_local.session = sess
+        return sess
 
     def fetch(self, kol: dict) -> list[Post]:
         """优先 X 直抓；失败时按错误类型分流。
@@ -318,7 +301,7 @@ class TwitterFetcher(Fetcher):
             if self.db is not None:
                 self.db.set_setting("x_direct_last_ok_at", str(int(time.time())))
             return posts
-        except httpx.TransportError as exc:
+        except (httpx.TransportError, RequestsError) as exc:
             if self.db is not None:
                 self.db.add_source_event(
                     "twitter",
@@ -349,14 +332,11 @@ class TwitterFetcher(Fetcher):
         variables: dict,
         cookie: str,
     ) -> dict:
-        _refresh_query_ids(self.client, cookie)
+        _refresh_query_ids(self._client_for(), cookie)
         query_id = _query_ids.get(operation) or DEFAULT_QUERY_IDS[operation]
         payload = {"variables": variables, "features": FEATURES}
         headers = _auth_headers(cookie)
-        guest = _get_guest_token(self.client, cookie)
-        if guest:
-            headers["x-guest-token"] = guest
-        resp = self.client.post(
+        resp = self._client_for().post(
             f"https://x.com/i/api/graphql/{query_id}/{operation}",
             params={
                 "variables": json.dumps(variables, separators=(",", ":")),
@@ -365,23 +345,6 @@ class TwitterFetcher(Fetcher):
             json=payload,
             headers=headers,
         )
-        # 401 = guest token 失效/被轮换：换新 token 重试一次
-        if resp.status_code == 401:
-            global _guest_token
-            with _guest_token_lock:
-                _guest_token = ""
-            guest = _get_guest_token(self.client, cookie)
-            if guest:
-                headers["x-guest-token"] = guest
-                resp = self.client.post(
-                    f"https://x.com/i/api/graphql/{query_id}/{operation}",
-                    params={
-                        "variables": json.dumps(variables, separators=(",", ":")),
-                        "features": json.dumps(FEATURES, separators=(",", ":")),
-                    },
-                    json=payload,
-                    headers=headers,
-                )
         if resp.status_code != 200:
             hint = ""
             detail = ""
@@ -413,10 +376,7 @@ class TwitterFetcher(Fetcher):
     def _typeahead_pick(self, screen_name: str, cookie: str) -> dict | None:
         """typeahead 解析：优先精确匹配 screen_name，否则取首个结果。"""
         headers = _auth_headers(cookie)
-        guest = _get_guest_token(self.client, cookie)
-        if guest:
-            headers["x-guest-token"] = guest
-        resp = self.client.get(
+        resp = self._client_for().get(
             "https://x.com/i/api/1.1/search/typeahead.json",
             params={"q": screen_name, "result_type": "users"},
             headers=headers,

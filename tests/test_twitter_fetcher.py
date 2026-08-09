@@ -337,7 +337,7 @@ def test_resolve_x_profile(monkeypatch):
                 )
             return FakeResp({"data": {}})
 
-    monkeypatch.setattr("httpx.Client", FakeClient)
+    monkeypatch.setattr("curl_cffi.requests.Session", FakeClient)
     profile = resolve_x_profile("https://x.com/SemiAnalysis_")
     assert profile["name"] == "SemiAnalysis"
     assert profile["avatar_url"] == "https://pbs.twimg.com/x_400x400.jpg"
@@ -434,44 +434,20 @@ def test_twitter_network_error_skips_rsshub_fallback(monkeypatch):
     assert any("网络抖动" in e["detail"] for e in events)
 
 
-def _reset_guest_token():
-    from app.fetchers import twitter as tw_mod
-
-    tw_mod._guest_token = ""
-    tw_mod._guest_token_at = 0.0
-
-
-def test_guest_token_activated_with_csrf_and_attached(monkeypatch):
-    """guest/activate 带匹配的 ct0 cookie + x-csrf-token；typeahead 带 x-guest-token。
-
-    X 2026-08 起：不带 guest token 的 GraphQL 直接 401/403（code 89），
-    guest 激活本身要求匹配的 csrf cookie 与头（否则 403 code 353）。
-    """
+def test_direct_fetch_never_calls_api_twitter(monkeypatch):
+    """直抓不再打 api.twitter.com：guest/activate 已被 Cloudflare managed challenge 锁死，
+    且 x.com GraphQL/typeahead 不带 guest token 也 200（curl_cffi 指纹即可过）。"""
     monkeypatch.setenv("TWITTER_COOKIE", "auth_token=a; ct0=b; lang=zh-CN")
-    _reset_guest_token()
-    captured: dict[str, str] = {}
+    api_twitter_calls = {"n": 0}
 
     def handler(request):
         if request.url.host == "api.twitter.com":
-            captured["activate_cookie"] = request.headers.get("cookie") or ""
-            captured["activate_csrf"] = request.headers.get("x-csrf-token") or ""
+            api_twitter_calls["n"] += 1
             return httpx.Response(200, json={"guest_token": "tok123"})
         if "typeahead" in str(request.url):
-            captured["typeahead_guest"] = request.headers.get("x-guest-token") or ""
             return httpx.Response(
                 200,
-                json={
-                    "users": [
-                        {
-                            "id_str": "1745106082790318080",
-                            "name": "SemiAnalysis",
-                            "screen_name": "SemiAnalysis_",
-                            "profile_image_url_https": (
-                                "https://pbs.twimg.com/profile_images/1_normal.jpg"
-                            ),
-                        }
-                    ]
-                },
+                json={"users": [{"id_str": "1745", "screen_name": "s"}]},
             )
         if "UserTweets" in str(request.url):
             return httpx.Response(200, json=_timeline_response())
@@ -482,10 +458,7 @@ def test_guest_token_activated_with_csrf_and_attached(monkeypatch):
     fetcher = _make_fetcher(handler, db)
     posts = fetcher.fetch(db.get_kol(kid))
     assert [p.external_id for p in posts] == ["111", "222", "333"]
-    assert "auth_token=a" in captured["activate_cookie"]
-    assert "ct0=b" in captured["activate_cookie"]
-    assert captured["activate_csrf"] == "b"
-    assert captured["typeahead_guest"] == "tok123"
+    assert api_twitter_calls["n"] == 0  # 一次都不该打 api.twitter.com
     assert db.get_setting("x_direct_last_ok_at")
 
 
@@ -493,12 +466,9 @@ def test_typeahead_resolves_when_userbyscreenname_empty(monkeypatch):
     """第三方账号：UserByScreenName 返回空壳（2026-08 起仅本账号可解析）时，
     经 typeahead 解析 uid 并正常直抓，不再全部回退 RSSHub。"""
     monkeypatch.setenv("TWITTER_COOKIE", "auth_token=a; ct0=b")
-    _reset_guest_token()
     userby_calls = {"n": 0}
 
     def handler(request):
-        if request.url.host == "api.twitter.com":
-            return httpx.Response(200, json={"guest_token": "tok123"})
         if "typeahead" in str(request.url):
             return httpx.Response(
                 200,
@@ -531,47 +501,40 @@ def test_typeahead_resolves_when_userbyscreenname_empty(monkeypatch):
     assert db.get_setting("x_direct_last_ok_at")
 
 
-def test_graphql_retries_once_with_fresh_guest_token_on_401(monkeypatch):
-    """GraphQL 401（guest token 失效/被轮换）时换新 token 重试一次。"""
+def test_graphql_401_fails_without_api_twitter_retry(monkeypatch):
+    """GraphQL 401 直接失败降级：不再换 guest token 重试（guest/activate 已被 CF 锁死）。"""
     monkeypatch.setenv("TWITTER_COOKIE", "auth_token=a; ct0=b")
-    _reset_guest_token()
-    calls = {"activate": 0, "tweets": 0}
+    api_twitter_calls = {"n": 0}
+    rss_calls = {"n": 0}
 
     def handler(request):
         if request.url.host == "api.twitter.com":
-            calls["activate"] += 1
-            return httpx.Response(200, json={"guest_token": f"tok{calls['activate']}"})
+            api_twitter_calls["n"] += 1
+            return httpx.Response(200, json={"guest_token": "tok1"})
         if "typeahead" in str(request.url):
             return httpx.Response(
                 200, json={"users": [{"id_str": "1745", "screen_name": "s"}]}
             )
         if "UserTweets" in str(request.url):
-            calls["tweets"] += 1
-            if calls["tweets"] == 1:
-                return httpx.Response(
-                    401,
-                    json={"errors": [{"message": "Invalid or expired token", "code": 89}]},
-                )
-            return httpx.Response(200, json=_timeline_response())
-        return httpx.Response(404)
+            return httpx.Response(401, json={"errors": [{"message": "Invalid or expired token", "code": 89}]})
+        rss_calls["n"] += 1
+        return httpx.Response(200, content=b"<rss/>")
 
     db = DB(":memory:")
     kid = db.add_kol("twitter", "SemiAnalysis", "https://x.com/SemiAnalysis")
     fetcher = _make_fetcher(handler, db)
     posts = fetcher.fetch(db.get_kol(kid))
-    assert [p.external_id for p in posts] == ["111", "222", "333"]
-    assert calls["tweets"] == 2  # 401 后重试成功
-    assert calls["activate"] >= 2  # 换过新 guest token
+    assert posts == []  # RSSHub 兜底返回空
+    assert api_twitter_calls["n"] == 0  # 不换 token 重试
+    assert rss_calls["n"] == 1  # 走了一次备用通道
+    assert db.get_setting("x_direct_last_fallback_at")
 
 
 def test_graphql_error_includes_body_code(monkeypatch):
     """非 200 响应把响应体里的 code 拼进错误信息，供降级告警精确分类。"""
     monkeypatch.setenv("TWITTER_COOKIE", "auth_token=a; ct0=b")
-    _reset_guest_token()
 
     def handler(request):
-        if request.url.host == "api.twitter.com":
-            return httpx.Response(200, json={"guest_token": "tok1"})
         return httpx.Response(
             403,
             json={"code": 353, "message": "This request requires a matching csrf cookie and header."},
