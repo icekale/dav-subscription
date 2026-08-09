@@ -2056,6 +2056,7 @@ function renderStatsData(s) {
         ${statCard("最近抓取", fmtTs(s.last_poll_at))}
         ${statCard("抓取耗时", s.last_poll_duration_ms ? `${(Number(s.last_poll_duration_ms) / 1000).toFixed(1)} 秒` : "-")}
         ${statCard("大V / 启用", `${s.kols} / ${s.enabled_kols}`)}
+        ${statCard("活跃抓取", s.active_kols ?? "-")}
         ${statCard("优先大V", s.priority_kols)}
         ${statCard("用户 / 帖子", `${s.users} / ${s.posts}`)}
       </div>`;

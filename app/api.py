@@ -1568,6 +1568,7 @@ def create_api_router(
             "last_poll_error": db.get_setting("stats_last_poll_error") or "",
             "kols": len(kols),
             "enabled_kols": sum(1 for k in kols if k["enabled"]),
+            "active_kols": len(db.kol_ids_with_subscribers()),  # 有订阅者、正在被抓取的大V数
             "priority_kols": sum(1 for k in kols if k.get("priority")),
             "users": db.count_users(),
             "posts": db.count_posts(),
