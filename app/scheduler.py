@@ -1865,7 +1865,6 @@ class Scheduler:
         from .tagging import (
             cleanup_stale_tags,
             extract_alias_candidates,
-            stock_tag_posts,
         )
 
         # 1) 误标清理：有效标签 = 话题词表 + 股票名表 + 别名正式名
