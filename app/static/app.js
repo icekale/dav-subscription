@@ -1079,6 +1079,8 @@ function postCard(post) {
   const body = post.content || "（无正文）";
   const expanded = _tlExpanded.has(post.id);
   const shown = expanded ? body : body.slice(0, 200);
+  // X 帖常 title==content（如纯链接帖），标题和正文都渲染会视觉重复，跳过标题
+  const titleDup = !!post.title && post.title.trim() === (post.content || "").trim();
   return `
     <div class="post-item">
       <div class="p-header">
@@ -1093,7 +1095,7 @@ function postCard(post) {
           <div class="p-time" title="${escapeHtml(post.published_at)}">${fmtPublished(post.published_at)}</div>
         </div>
       </div>
-      ${post.title ? `<div class="p-title">${escapeHtml(post.title)}</div>` : ""}
+      ${!titleDup && post.title ? `<div class="p-title">${escapeHtml(post.title)}</div>` : ""}
       <div class="p-content">${escapeHtml(shown)}${body.length > 200
         ? `<span class="post-expand-btn" onclick="tlTogglePost(${post.id})">${expanded ? "收起 ▲" : "展开全文 ▼"}</span>`
         : ""}</div>
