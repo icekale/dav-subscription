@@ -1732,13 +1732,14 @@ function fsPersonalStateHtml() {
   const secs = Math.max(0, Math.ceil((st.bindExpiresAt - Date.now()) / 1000));
   const uri = st.verificationUri || "";
   return `<div id="fs-personal-flow">
-    <p class="muted" style="margin-top:10px">
-      1️⃣ 用飞书扫码（或点开链接）：<br>
-      <a href="${escapeHtml(uri)}" target="_blank" rel="noopener">${escapeHtml(uri)}</a>
-      <br>2️⃣ 飞书会在你的租户创建「个人机器人」应用。
-    </p>
+    <div style="text-align:center;padding:8px 0 12px">
+      ${st.qrUri ? `<img src="${st.qrUri}" alt="扫码二维码" style="width:190px;height:190px;border-radius:10px;background:#fff;padding:8px;box-shadow:var(--shadow-card, 0 1px 3px rgba(0,0,0,.12))">` : ""}
+      <p class="muted" style="margin-top:8px">用飞书「扫一扫」扫码；或点链接打开：
+        <a href="${escapeHtml(uri)}" target="_blank" rel="noopener">${escapeHtml(uri)}</a>
+      </p>
+    </div>
     ${st.bindCommand ? `
-    <p style="margin-top:12px;line-height:1.9">3️⃣ 打开刚创建的个人机器人<b>私聊窗口</b>，发送：<br>
+    <p style="line-height:1.9">下一步：打开刚创建的个人机器人<b>私聊窗口</b>，发送：<br>
       <code style="font-size:1.1em">${escapeHtml(st.bindCommand)}</code>
       <span id="fs-bind-countdown" class="muted" style="margin-left:8px">${secs}s</span>
     </p>
@@ -1746,8 +1747,8 @@ function fsPersonalStateHtml() {
       <button class="btn-normal btn-sm" onclick="refreshFeishuBindCode()">重新生成绑定码</button>
       <button class="btn-ghost btn-sm" onclick="cancelFeishuPersonal()">取消</button>
     </div>` : `
-    <p class="muted" style="margin-top:10px">⏳ 等待扫码…</p>
-    <button class="btn-ghost btn-sm" style="margin-top:8px" onclick="cancelFeishuPersonal()">取消</button>`}
+    <p class="muted">⏳ 等待扫码…（扫完码会自动进入下一步）</p>
+    <button class="btn-ghost btn-sm" onclick="cancelFeishuPersonal()">取消</button>`}
     <p id="fs-personal-error" class="muted"></p>
   </div>`;
 }
@@ -1758,6 +1759,7 @@ async function startFeishuPersonal() {
     fsPersonalState.sessionId = data.session_id;
     fsPersonalState.bindCommand = "";
     fsPersonalState.verificationUri = data.verification_uri;
+    fsPersonalState.qrUri = data.qr_uri || "";
     fsPersonalRender();
     startFeishuPersonalPoll(data.session_id);
   } catch (err) {
@@ -1777,6 +1779,7 @@ function startFeishuPersonalPoll(sessionId) {
     try {
       const data = await api(`/api/me/feishu-personal/register/${sessionId}`);
       fsPersonalState.verificationUri = data.verification_uri;
+      fsPersonalState.qrUri = data.qr_uri || fsPersonalState.qrUri;
       // 同步个人机器人展示状态（轮询期间 /api/me 不会刷新）
       state.user.feishu_personal = state.user.feishu_personal || {};
       if (data.personal_bot_status) state.user.feishu_personal.status = data.personal_bot_status;

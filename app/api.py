@@ -782,13 +782,14 @@ def create_api_router(
 
     def _personal_session_payload(session: dict) -> dict:
         """注册会话状态接口：只暴露展示字段，不返回密钥/设备码/绑定码明文。"""
-        from .feishu_personal import mask_app_id
+        from .feishu_personal import mask_app_id, qr_data_uri
 
         personal_bot = db.get_feishu_personal_bot(session["user_id"])
         return {
             "session_id": session["session_id"],
             "status": session["status"],
             "verification_uri": session["verification_uri"],
+            "qr_uri": qr_data_uri(session["verification_uri"]),
             "session_expires_at": session["session_expires_at"],
             "bind_command": "",
             "bind_code_expires_at": session.get("bind_code_expires_at"),

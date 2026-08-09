@@ -62,6 +62,29 @@ def sanitize_error(text: str) -> str:
     return text
 
 
+def qr_data_uri(url: str) -> str:
+    """把链接渲染成二维码 PNG 的 data URI（前端 <img> 直接显示）。
+
+    纯 Python 实现（qrcode + pypng），无 Pillow 依赖；失败返回空串由前端降级为链接。
+    """
+    try:
+        import base64
+        import io
+
+        import qrcode
+        from qrcode.image.pure import PyPNGImage
+
+        img = qrcode.make(
+            url, image_factory=PyPNGImage, box_size=8, border=2, error_correction=qrcode.constants.ERROR_CORRECT_M
+        )
+        buf = io.BytesIO()
+        img.save(buf)
+        return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+    except Exception:  # noqa: BLE001 - 二维码生成失败降级为纯链接
+        logger.warning("二维码生成失败，降级为链接 url=%s", (url or "")[:60])
+        return ""
+
+
 def _post_form(url: str, data: dict, timeout: int = 15) -> dict:
     resp = httpx.post(url, data=data, timeout=timeout)
     if resp.status_code == 400:
