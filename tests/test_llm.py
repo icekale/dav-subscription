@@ -376,3 +376,45 @@ def test_suggest_aliases_empty_and_failure():
         return httpx.Response(500, json={})
     client2 = httpx.Client(transport=httpx.MockTransport(err))
     assert suggest_stock_aliases(["宁王"], ["宁德时代"], make_config(), client=client2) == []
+
+
+# ---- 股票标记解析（$标记$ → 官方名/戏称） ----
+
+from app.llm import resolve_stock_marks
+
+
+def _mark_handler(content):
+    def handler(request):
+        return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
+
+    return handler
+
+
+def test_resolve_stock_marks_official_and_alias():
+    client = httpx.Client(transport=httpx.MockTransport(_mark_handler(
+        '[{"name": "盐湖股份", "code": "SZ000792", "official": "盐湖股份", "is_alias": false},'
+        '{"name": "涂改液", "code": "SZ000858", "official": "五粮液", "is_alias": true},'
+        '{"name": "洋河大蛆", "code": "SZ002304", "official": "洋河股份", "is_alias": true}]'
+    )))
+    marks = [("盐湖股份", "SZ000792"), ("涂改液", "SZ000858"), ("洋河大蛆", "SZ002304")]
+    result = resolve_stock_marks(marks, make_config(), client=client)
+    assert len(result) == 3
+    official = [r for r in result if not r["is_alias"]]
+    alias = [r for r in result if r["is_alias"]]
+    assert official[0]["official"] == "盐湖股份"
+    assert {a["name"] for a in alias} == {"涂改液", "洋河大蛆"}
+    assert alias[0]["official"] == "五粮液"
+
+
+def test_resolve_stock_marks_failure_and_invalid():
+    # 非 SH/SZ/BJ 代码丢弃
+    client = httpx.Client(transport=httpx.MockTransport(_mark_handler(
+        '[{"name": "组合", "code": "ZH123", "official": "组合", "is_alias": false}]'
+    )))
+    assert resolve_stock_marks([("组合", "ZH123")], make_config(), client=client) == []
+    # 非 JSON → []
+    client2 = httpx.Client(transport=httpx.MockTransport(_mark_handler("无法解析")))
+    assert resolve_stock_marks([("涂改液", "SZ000858")], make_config(), client=client2) == []
+    # 未配置 / 空输入 → []
+    assert resolve_stock_marks([], make_config()) == []
+    assert resolve_stock_marks([("涂改液", "SZ000858")], None) == []

@@ -383,3 +383,94 @@ def suggest_stock_aliases(candidates, known_stocks, llm_config=None, client=None
     finally:
         if owns_client:
             client.close()
+
+
+# ---- 股票标记解析（$标记$ → 官方名/戏称） ----
+
+MARK_RESOLVE_SYSTEM_PROMPT = (
+    "你是 A 股股票名称解析器。用户给你一批雪球帖子里的股票标记，"
+    "格式为「名称(代码)」，例如 涂改液(SZ000858)。"
+    "请判断每个名称是该股票的正式名称还是网友戏称/简称："
+    "若名称是正式名（如 中际旭创、盐湖股份），输出 official 为该名称、is_alias 为 false；"
+    "若名称是戏称/简称（如 涂改液=五粮液、贵州茅坑=贵州茅台、兆易=兆易创新），"
+    "输出 official 为正式名、is_alias 为 true。"
+    "只输出 JSON 数组，每个元素："
+    '{"name": "标记里的名称", "code": "代码", "official": "正式名称", "is_alias": true|false}。'
+    "名称或代码无法对应任何已知股票时输出 is_alias 为 false、official 为该名称即可（视为正式名兜底）。"
+    "除 JSON 外不要输出任何内容。"
+)
+
+
+def resolve_stock_marks(marks, llm_config=None, client=None) -> list[dict]:
+    """让 LLM 解析一批 $股票名(代码)$ 标记，区分正式名与戏称/简称。
+
+    输入 marks: [(name, code), ...]（已去重）；输出：
+    [{"name", "code", "official", "is_alias": bool}, ...]
+    is_alias=false → 官方名进股票名表；is_alias=true → 戏称进别名表。
+    未配置 LLM 或任何失败返回 []（静默跳过本轮）。
+    """
+    api_key = getattr(llm_config, "api_key", "") if llm_config else ""
+    if not api_key or not marks:
+        return []
+    api_base = (getattr(llm_config, "api_base", "") or "https://api.openai.com/v1").rstrip("/")
+    model = getattr(llm_config, "model", "") or "gpt-4o-mini"
+    import httpx
+
+    owns_client = client is None
+    client = client or httpx.Client(timeout=60)
+    try:
+        resp = client.post(
+            f"{api_base}/chat/completions",
+            headers={"Authorization": f"Bearer {api_key}"},
+            json={
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": MARK_RESOLVE_SYSTEM_PROMPT},
+                    {
+                        "role": "user",
+                        "content": "股票标记列表：\n"
+                        + "\n".join(f"{name}({code})" for name, code in marks),
+                    },
+                ],
+                "temperature": 0,
+                "max_tokens": 2000,
+            },
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        text = (data.get("choices") or [{}])[0].get("message", {}).get("content", "").strip()
+        if not text:
+            logger.warning("LLM 标记解析返回空，跳过本轮")
+            return []
+        match = re.search(r"\[.*\]", text, re.DOTALL)
+        if not match:
+            logger.warning("LLM 标记解析无 JSON 数组: %.100s", text)
+            return []
+        try:
+            parsed = json.loads(match.group(0))
+        except ValueError:
+            return []
+        valid_prefixes = ("SH", "SZ", "BJ")
+        result = []
+        for item in parsed if isinstance(parsed, list) else []:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name") or "").strip()
+            code = str(item.get("code") or "").strip().upper()
+            official = str(item.get("official") or "").strip()
+            is_alias = bool(item.get("is_alias"))
+            if not name or not official:
+                continue
+            if code and not code.startswith(valid_prefixes):
+                continue
+            result.append(
+                {"name": name, "code": code, "official": official, "is_alias": is_alias}
+            )
+        logger.info("LLM 标记解析 marks=%d 解析=%d", len(marks), len(result))
+        return result
+    except Exception as exc:  # noqa: BLE001 - 解析失败跳过本轮
+        logger.warning("LLM 标记解析失败，跳过本轮: %s", exc)
+        return []
+    finally:
+        if owns_client:
+            client.close()

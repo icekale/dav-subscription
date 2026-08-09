@@ -1885,7 +1885,8 @@ class Scheduler:
         if llm_cfg is None or not getattr(llm_cfg, "api_key", ""):
             return
         try:
-            from .llm import suggest_stock_aliases
+            from .llm import resolve_stock_marks, suggest_stock_aliases
+            from .tagging import extract_stock_marks
 
             # 取最近 500 帖做候选词提取
             rows = self.db.list_posts(limit=500)
@@ -1907,24 +1908,68 @@ class Scheduler:
             candidates = extract_alias_candidates(posts, known)
             if not candidates:
                 logger.info("股票别名识别：本轮无候选词")
-                return
-            suggestions = suggest_stock_aliases(candidates, stock_names, llm_cfg)
-            # 只采纳 high 置信度（medium 留给人看/后续修正）
-            new_aliases = [s for s in suggestions if s.get("confidence") == "high"]
-            if not new_aliases:
-                logger.info("股票别名识别：本轮无高置信度别名")
-                return
-            # 去重合并写入（别名不重复、上限 200 条防膨胀）
-            existing = {a["alias"] for a in aliases}
-            merged = list(aliases)
-            for s in new_aliases:
-                if s["alias"] not in existing and len(merged) < 200:
-                    merged.append({"alias": s["alias"], "stock": s["stock"]})
-                    existing.add(s["alias"])
-            self.db.set_stock_aliases(merged)
-            logger.info(
-                "股票别名识别：新增 %d 个别名（共 %d）", len(new_aliases), len(merged)
-            )
+            else:
+                suggestions = suggest_stock_aliases(candidates, stock_names, llm_cfg)
+                # 只采纳 high 置信度（medium 留给人看/后续修正）
+                new_aliases = [s for s in suggestions if s.get("confidence") == "high"]
+                # 去重合并写入（别名不重复、上限 200 条防膨胀）
+                existing = {a["alias"] for a in aliases}
+                merged = list(aliases)
+                for s in new_aliases:
+                    if s["alias"] not in existing and len(merged) < 200:
+                        merged.append({"alias": s["alias"], "stock": s["stock"]})
+                        existing.add(s["alias"])
+                if new_aliases:
+                    self.db.set_stock_aliases(merged)
+                    logger.info(
+                        "股票别名识别：新增 %d 个别名（共 %d）", len(new_aliases), len(merged)
+                    )
+
+            # 3) $标记$ 自动扩充：新官方名进名表，戏称/简称进别名表（精确来源，带代码）
+            marks = extract_stock_marks(posts)
+            known_names = {n for n in stock_names}
+            known_names.update(a["alias"] for a in aliases)
+            known_names.update(a["stock"] for a in aliases)
+            known_names.update(r["tag"] for r in tag_rules)
+            new_marks = [(n, c) for n, c in marks if n not in known_names]
+            if new_marks:
+                resolved = resolve_stock_marks(new_marks, llm_cfg)
+                if resolved:
+                    new_stock_names = list(stock_names)
+                    new_aliases_list = list(aliases)
+                    existing_aliases = {a["alias"] for a in aliases}
+                    existing_stocks = set(new_stock_names)
+                    for item in resolved:
+                        if not item.get("is_alias"):
+                            # 官方名 → 股票名表
+                            official = item["official"]
+                            if official not in existing_stocks and len(new_stock_names) < 200:
+                                new_stock_names.append(official)
+                                existing_stocks.add(official)
+                        else:
+                            # 戏称 → 别名表；同时确保正式名在名表（否则别名无对照）
+                            official = item["official"]
+                            if official not in existing_stocks and len(new_stock_names) < 200:
+                                new_stock_names.append(official)
+                                existing_stocks.add(official)
+                            alias = item["name"]
+                            if alias not in existing_aliases and len(new_aliases_list) < 200:
+                                new_aliases_list.append({"alias": alias, "stock": official})
+                                existing_aliases.add(alias)
+                    if new_stock_names != stock_names:
+                        self.db.set_stock_names(new_stock_names)
+                        logger.info(
+                            "$标记$ 自动扩充：股票名表新增 %d 只（共 %d）",
+                            len(new_stock_names) - len(stock_names),
+                            len(new_stock_names),
+                        )
+                    if new_aliases_list != aliases:
+                        self.db.set_stock_aliases(new_aliases_list)
+                        logger.info(
+                            "$标记$ 自动扩充：别名表新增 %d 条（共 %d）",
+                            len(new_aliases_list) - len(aliases),
+                            len(new_aliases_list),
+                        )
         except Exception as exc:  # noqa: BLE001
             logger.warning("股票别名识别异常: %s", exc)
 

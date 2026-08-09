@@ -4,6 +4,7 @@ from app.tagging import (
     TAG_PER_POST_MAX,
     cleanup_stale_tags,
     extract_alias_candidates,
+    extract_stock_marks,
     rule_tag_posts,
     stock_tag_posts,
 )
@@ -194,3 +195,17 @@ def test_cleanup_stale_tags_keeps_valid():
     removed = cleanup_stale_tags(db, valid_tags=["宏观", "科技", "宁德时代"])
     assert removed == 0
     db.close()
+
+
+def test_extract_stock_marks_basic():
+    """$标记$ 提取：个股、去新股前缀、去重；排除组合/板块。"""
+    posts = [
+        make_post(content="$中船特气(SH688146)$ 涨价，$中船特气(SH688146)$ 再涨", external_id="a"),
+        make_post(content="$N长鑫(SH688825)$ 上市，$伯言-A股(ZH3623878)$ 组合", external_id="b"),
+        make_post(content="$半导体(BK1036)$ 板块走强", external_id="c"),
+    ]
+    marks = extract_stock_marks(posts)
+    assert ("中船特气", "SH688146") in marks
+    assert ("长鑫", "SH688825") in marks
+    # 组合/板块排除
+    assert all(not c.startswith(("ZH", "BK")) for _, c in marks)

@@ -196,6 +196,32 @@ def extract_alias_candidates(posts, known) -> list[str]:
     return candidates[:400]
 
 
+def extract_stock_marks(posts) -> list[tuple[str, str]]:
+    """从一批帖子提取 $股票名(代码)$ 标记，去新股前缀、去重，返回 [(name, code), ...]。
+
+    只保留 SH/SZ/BJ 个股（排除 ZH 组合/BK 板块）；供 LLM 解析为官方名/戏称，
+    用于扩充股票名表与别名表。
+    """
+    seen = set()
+    marks = []
+    for post in posts:
+        text = (
+            str(getattr(post, "title", "") or "") + " " + str(getattr(post, "content", "") or "")
+        )
+        for m in _STOCK_MARK_RE.finditer(text):
+            name = m.group(1).strip()
+            code = m.group(2)
+            if not code.startswith(_STOCK_EXCHANGE_PREFIXES):
+                continue  # ZH 组合 / BK 板块等非个股
+            while name.startswith(_STOCK_NAME_PREFIXES) and len(name) > 1:
+                name = name[1:]
+            key = (name, code)
+            if name and key not in seen:
+                seen.add(key)
+                marks.append(key)
+    return marks
+
+
 def cleanup_stale_tags(db, valid_tags) -> int:
     """清理贴文里的过期标签（旧词表残留等），返回清理条数。
 

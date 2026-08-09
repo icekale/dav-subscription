@@ -3167,3 +3167,40 @@ def test_stock_alias_due_once_per_day():
     assert scheduler._stock_alias_due() is True
     db.set_setting("stock_alias_last_date", datetime.datetime.now().strftime("%Y-%m-%d"))
     assert scheduler._stock_alias_due() is False
+
+
+def test_stock_alias_task_expands_names_from_marks(monkeypatch):
+    """每日任务：$标记$ 里的新官方名进名表、戏称进别名表。"""
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    db.insert_post(
+        "xueqiu", kid, "mk1",
+        "$盐湖股份(SZ000792)$ 反弹", "$涂改液(SZ000858)$ 是真五粮液", "u", "",
+    )
+    monkeypatch.setattr(
+        "app.llm.resolve_stock_marks",
+        lambda marks, cfg, client=None: [
+            {"name": "盐湖股份", "code": "SZ000792", "official": "盐湖股份", "is_alias": False},
+            {"name": "涂改液", "code": "SZ000858", "official": "五粮液", "is_alias": True},
+        ],
+    )
+    # 跳过正文候选识别（返回空即可），只测 $标记$ 扩充
+    monkeypatch.setattr("app.llm.suggest_stock_aliases", lambda c, s, cfg, client=None: [])
+    scheduler = Scheduler(
+        db, {}, [],
+        SimpleNamespace(),
+        notifiers_config=SimpleNamespace(
+            telegram=SimpleNamespace(bot_token="t", chat_id=""),
+            feishu=SimpleNamespace(app_id="", app_secret=""),
+        ),
+        xueqiu_config=SimpleNamespace(cookie=""),
+        weibo_config=SimpleNamespace(cookie="", username="", password=""),
+        llm_config=SimpleNamespace(api_key="sk-test", api_base="https://api.deepseek.com", model="deepseek-chat"),
+    )
+    scheduler._run_stock_alias_task()
+    # 官方名进名表
+    assert "盐湖股份" in db.get_stock_names()
+    # 戏称进别名表 + 正式名补进名表
+    aliases = db.get_stock_aliases()
+    assert any(a["alias"] == "涂改液" and a["stock"] == "五粮液" for a in aliases)
+    assert "五粮液" in db.get_stock_names()
