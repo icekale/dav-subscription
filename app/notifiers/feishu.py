@@ -102,7 +102,8 @@ def build_feishu_card(post: Post, favorite: bool = False, keyword: bool = False)
         meta_lines.append(f"🗂 {category}")
     tags = post.tags or []
     if tags:
-        meta_lines.append(" ".join(f"#{t}" for t in tags))
+        # 不用 #科技（lark_md 会把 # 开头解析成 Markdown 标题，渲染成大字号），用 🏷 分隔
+        meta_lines.append("🏷 " + " ".join(tags))
     meta_lines.append(f"🕐 {post.published_at}")
     return {
         "msg_type": "interactive",
