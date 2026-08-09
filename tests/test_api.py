@@ -1868,6 +1868,38 @@ def test_db_busy_timeout_set():
     assert value == 5000
 
 
+def test_img_proxy_fetches_image(monkeypatch):
+    """图片代理：合法图片 URL 经服务器转发并返回图片内容。"""
+    import httpx as _httpx
+
+    fake_resp = _httpx.Response(200, content=b"\xff\xd8\xfffakejpeg", headers={"content-type": "image/jpeg"})
+    monkeypatch.setattr("app.url_safety.safe_get", lambda client, url, timeout=15: fake_resp)
+    client = make_client()
+    resp = client.get("/api/img-proxy", params={"url": "https://pbs.twimg.com/media/x.jpg"})
+    assert resp.status_code == 200
+    assert resp.content == b"\xff\xd8\xfffakejpeg"
+    assert resp.headers["content-type"] == "image/jpeg"
+
+
+def test_img_proxy_rejects_non_image(monkeypatch):
+    """图片代理：非图片内容（如 HTML）拒绝返回。"""
+    import httpx as _httpx
+
+    fake_resp = _httpx.Response(200, content=b"<html>not an image</html>", headers={"content-type": "text/html"})
+    monkeypatch.setattr("app.url_safety.safe_get", lambda client, url, timeout=15: fake_resp)
+    client = make_client()
+    resp = client.get("/api/img-proxy", params={"url": "https://example.com/page"})
+    assert resp.status_code == 400
+
+
+def test_img_proxy_rejects_unsafe_url(monkeypatch):
+    """图片代理：内网地址（SSRF）拒绝转发。"""
+    client = make_client()
+    # 不 patch safe_get：真实 SSRF 校验应拒绝内网地址
+    resp = client.get("/api/img-proxy", params={"url": "http://192.168.1.1/x.jpg"})
+    assert resp.status_code == 400
+
+
 def test_me_subscription_count():
     client = make_client()
     admin_headers = auth_headers(client)

@@ -49,6 +49,20 @@ function escapeHtml(text) {
   }[c]));
 }
 
+function imgProxyUrl(url) {
+  return `/api/img-proxy?url=${encodeURIComponent(url)}`;
+}
+
+function imgOnError(img) {
+  // 第三方图床直连失败（大陆访问 X 图床被墙等）→ 经服务端代理转发
+  if (!img || img.dataset.proxied) return;
+  const src = img.getAttribute("src") || "";
+  if (src.startsWith("/api/img-proxy")) return;
+  img.dataset.proxied = "1";
+  img.src = imgProxyUrl(src);
+  img.onerror = null;
+}
+
 let _toastTimer = null;
 function flash(message, type = "success") {
   let el = $("#toast");
@@ -982,7 +996,7 @@ function postCard(post) {
       ${Array.isArray(post.images) && post.images.length ? `
         <div class="post-images">
           ${post.images.slice(0, 4).map((img) => `
-            <a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener"><img src="${escapeHtml(img)}" loading="lazy" alt=""></a>`).join("")}
+            <a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener"><img src="${escapeHtml(img)}" loading="lazy" alt="" onerror="imgOnError(this)"></a>`).join("")}
           ${post.images.length > 4 ? `<span class="post-images-more">+${post.images.length - 4}</span>` : ""}
         </div>` : ""}
       <div class="p-meta">

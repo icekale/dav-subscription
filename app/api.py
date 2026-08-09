@@ -1700,4 +1700,45 @@ def create_api_router(
             detail=f"微博登录异常: {result.get('detail') or status}",
         )
 
+    @router.get("/img-proxy")
+    def img_proxy(url: str, request: Request):
+        """第三方图床图片代理：X/雪球图床在部分网络（如大陆直连 X）不可达，经服务器转发。
+
+        复用 safe_get 的 SSRF 校验（仅 http/https、拒绝内网/保留网段、重定向逐跳校验），
+        限制图片类型与大小，防被滥用为任意内容代理。
+        """
+        from .url_safety import safe_get
+
+        url = (url or "").strip()
+        if not url:
+            raise HTTPException(status_code=400, detail="缺少 url 参数")
+        import httpx
+
+        client = httpx.Client(
+            timeout=15,
+            follow_redirects=False,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
+                "Referer": "https://weibo.com/",  # 部分图床防盗链；对 X/雪球无副作用
+            },
+        )
+        try:
+            try:
+                resp = safe_get(client, url)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from None
+            content_type = (resp.headers.get("content-type") or "").split(";")[0].strip().lower()
+            if content_type not in ("image/jpeg", "image/png", "image/webp", "image/gif"):
+                raise HTTPException(status_code=400, detail="非图片内容")
+            body = resp.content
+            if len(body) > 10 * 1024 * 1024:
+                raise HTTPException(status_code=400, detail="图片过大")
+            return Response(
+                content=body,
+                media_type=content_type,
+                headers={"Cache-Control": "public, max-age=86400"},
+            )
+        finally:
+            client.close()
+
     return router
