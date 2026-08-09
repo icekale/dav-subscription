@@ -98,6 +98,10 @@ DEFAULT_STOCK_NAMES = [
 ]
 STOCK_NAMES_KEY = "stock_names"
 
+# 黑话别名表：LLM 每日自动识别（settings 键 stock_aliases），结构为
+# [{"alias": "宁王", "stock": "宁德时代"}, ...]；打标时命中别名输出正式名。
+STOCK_ALIASES_KEY = "stock_aliases"
+
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS categories (
@@ -1530,6 +1534,35 @@ class DB:
     def set_stock_names(self, names: list[str]) -> None:
         """保存常用股票名表。"""
         self.set_setting(STOCK_NAMES_KEY, json.dumps(names, ensure_ascii=False))
+
+    def get_stock_aliases(self) -> list[dict]:
+        """读黑话别名表（settings 持久化），缺省空表。
+
+        兼容旧数据：元素若是纯字符串（早期格式），视为无对应正式名，跳过。
+        """
+        raw = self.get_setting(STOCK_ALIASES_KEY)
+        if raw:
+            try:
+                parsed = json.loads(raw)
+                if isinstance(parsed, list):
+                    aliases = []
+                    for a in parsed:
+                        if isinstance(a, dict):
+                            alias = str(a.get("alias") or "").strip()
+                            stock = str(a.get("stock") or "").strip()
+                            if alias and stock:
+                                aliases.append({"alias": alias, "stock": stock})
+                        elif isinstance(a, str) and a.strip():
+                            # 旧格式纯字符串：只有别名无正式名，无法打标，忽略
+                            continue
+                    return aliases
+            except (TypeError, ValueError):
+                pass
+        return []
+
+    def set_stock_aliases(self, aliases: list[dict]) -> None:
+        """保存黑话别名表。"""
+        self.set_setting(STOCK_ALIASES_KEY, json.dumps(aliases, ensure_ascii=False))
 
     def aggregate_post_tags(self, limit: int = 50) -> list[str]:
         """聚合贴文里出现过的全部标签（去重，按出现次数降序）。

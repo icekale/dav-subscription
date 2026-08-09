@@ -163,9 +163,15 @@ class TagRuleIn(BaseModel):
     keywords: list[str] = []
 
 
+class TagAliasIn(BaseModel):
+    alias: str
+    stock: str
+
+
 class TagVocabularyIn(BaseModel):
     tags: list[TagRuleIn]
     stock_names: list[str] = []
+    stock_aliases: list[TagAliasIn] = []
 
 
 class TagBackfillIn(BaseModel):
@@ -1521,10 +1527,12 @@ def create_api_router(
         stats 供管理端展示已打标/待打标贴文数量。
         stock_names 为常用股票名表（纯文字提及打标用）；dynamic_tags 为贴文里
         实际出现过的标签（含股票名，去重按频次），供时间线筛选下拉合并展示。
+        stock_aliases 为黑话别名表（LLM 每日自动识别 + 管理端可手动修正）。
         """
         return {
             "tags": db.get_tag_vocabulary(),
             "stock_names": db.get_stock_names(),
+            "stock_aliases": db.get_stock_aliases(),
             "dynamic_tags": db.aggregate_post_tags(),
             "stats": db.tag_stats(),
         }
@@ -1567,10 +1575,19 @@ def create_api_router(
                     seen_stocks.add(n)
                     deduped_stocks.append(n)
             db.set_stock_names(deduped_stocks)
+        if body.stock_aliases is not None:
+            cleaned_aliases = []
+            for a in body.stock_aliases:
+                alias = (a.alias or "").strip()
+                stock = (a.stock or "").strip()
+                if alias and stock:
+                    cleaned_aliases.append({"alias": alias, "stock": stock})
+            db.set_stock_aliases(cleaned_aliases)
         _audit(admin, "update_tag_vocabulary", detail=f"{len(deduped)} tags")
         return {
             "tags": db.get_tag_vocabulary(),
             "stock_names": db.get_stock_names(),
+            "stock_aliases": db.get_stock_aliases(),
             "dynamic_tags": db.aggregate_post_tags(),
         }
 
@@ -1585,6 +1602,7 @@ def create_api_router(
 
         tag_rules = db.get_tag_vocabulary()
         stock_names = db.get_stock_names()
+        stock_aliases = db.get_stock_aliases()
         processed = 0
         tagged_count = 0
         below_id: int | None = None  # None 表示从最新开始，之后按每批最小 id 推进
@@ -1611,7 +1629,7 @@ def create_api_router(
                 for p in batch
             ]
             tagged = rule_tag_posts(posts, tag_rules)
-            stock_tagged = stock_tag_posts(posts, stock_names)
+            stock_tagged = stock_tag_posts(posts, stock_names, aliases=stock_aliases)
             for i, post in enumerate(posts):
                 # 合并：话题（≤3）+ 股票（≤2）
                 merged = list((tagged.get(i) or [])[:3]) + list((stock_tagged.get(i) or [])[:2])

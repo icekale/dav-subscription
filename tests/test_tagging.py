@@ -1,6 +1,12 @@
 """纯代码关键词规则打标：零 token，子串匹配，词表顺序取前 3 个。"""
 from app.fetchers.base import Post
-from app.tagging import TAG_PER_POST_MAX, rule_tag_posts, stock_tag_posts
+from app.tagging import (
+    TAG_PER_POST_MAX,
+    cleanup_stale_tags,
+    extract_alias_candidates,
+    rule_tag_posts,
+    stock_tag_posts,
+)
 
 
 def make_post(content="正文内容", title="标题", external_id="p1") -> Post:
@@ -125,3 +131,66 @@ def test_stock_multiple_posts():
     result = stock_tag_posts(posts, ["长鑫"])
     assert result[0] == ["宁德时代"]
     assert result[1] == []
+
+
+def test_alias_hit_uses_official_name():
+    """别名命中时打正式名标签。"""
+    post = make_post(content="宁王今天又创新高了，市场沸腾。")
+    result = stock_tag_posts([post], ["宁德时代"], aliases=[{"alias": "宁王", "stock": "宁德时代"}])
+    assert result[0] == ["宁德时代"]
+
+
+def test_alias_merged_with_stock_names():
+    """别名与股票名表、$标记$ 结果去重合并，最多 2 个。"""
+    post = make_post(content="$宁德时代(SZ300750)$ 反弹，宁王终于不跌了，长鑫也涨。")
+    result = stock_tag_posts([post], ["长鑫"], aliases=[{"alias": "宁王", "stock": "宁德时代"}])
+    # $标记$ 宁德时代 与别名宁王→宁德时代 去重；长鑫补上
+    assert result[0] == ["宁德时代", "长鑫"]
+
+
+def test_extract_alias_candidates():
+    """候选词提取：高频词、过滤已知名/短词/纯数字/$标记$内正式名。"""
+    posts = [
+        make_post(content="宁王 宁王 宁王 说宁德好，$宁德时代(SZ300750)$ 值得关注", external_id="a"),
+        make_post(content="宁王 又涨了，今天 123 涨 2 个点", external_id="b"),
+        make_post(content="随手一写的一句话", external_id="c"),
+    ]
+    # known 含「宁德时代」（$标记$ 与名表都出现）
+    candidates = extract_alias_candidates(posts, known=["宁德时代"])
+    assert "宁王" in candidates          # 高频黑话候选
+    assert "宁德时代" not in candidates  # 已知名过滤
+    assert "涨" not in candidates        # 单字过滤（<2 字）
+    assert "123" not in candidates       # 纯数字过滤
+
+
+def test_cleanup_stale_tags_removes_old():
+    """清理过期标签：删除不在有效集合里的（观点/策略），保留有效标签。"""
+    import tempfile
+    from pathlib import Path
+
+    from app.db import DB
+
+    db = DB(Path(tempfile.mkdtemp()) / "t.db")
+    kid = db.add_kol("xueqiu", "A", "1")
+    pid = db.insert_post("xueqiu", kid, "c1", "t", "c", "u", "")
+    db.update_post_tags(pid, ["观点", "宏观", "科技"])
+    removed = cleanup_stale_tags(db, valid_tags=["宏观", "科技", "宁德时代"])
+    assert removed == 1
+    assert db.list_posts(limit=5)[0]["tags"] == ["宏观", "科技"]
+    db.close()
+
+
+def test_cleanup_stale_tags_keeps_valid():
+    """全部有效时不清（removed=0）。"""
+    import tempfile
+    from pathlib import Path
+
+    from app.db import DB
+
+    db = DB(Path(tempfile.mkdtemp()) / "t.db")
+    kid = db.add_kol("xueqiu", "A", "1")
+    pid = db.insert_post("xueqiu", kid, "c2", "t", "c", "u", "")
+    db.update_post_tags(pid, ["宏观", "宁德时代"])
+    removed = cleanup_stale_tags(db, valid_tags=["宏观", "科技", "宁德时代"])
+    assert removed == 0
+    db.close()

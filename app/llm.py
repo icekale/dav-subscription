@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import json
 import logging
 import re
 import time
@@ -297,6 +298,88 @@ def summarize_daily(posts, llm_config=None, client=None) -> DailySummary | None:
                 time.sleep(2)
         logger.warning("LLM 每日综述失败，降级为原始列表: %s", last_err)
         return None
+    finally:
+        if owns_client:
+            client.close()
+
+
+# ---- 股票黑话别名识别（每日一次低频任务） ----
+
+ALIAS_SYSTEM_PROMPT = (
+    "你是财经社区黑话翻译器。用户会给你一份帖子中高频出现的候选词列表，"
+    "以及一份已知股票名列表。请判断哪些候选词是某只已知股票的别名/昵称"
+    "（如「宁王」→「宁德时代」、「药茅」→「恒瑞医药」）。"
+    "只输出 JSON 数组，每个元素："
+    '{"alias": "候选词", "stock": "对应已知股票名", "confidence": "high|medium|none"}。'
+    "confidence 为 high（确定是别名）或 medium（很可能是，但需留意）；"
+    "不是股票别名的标 none 或直接省略。除 JSON 外不要输出任何内容。"
+)
+
+
+def suggest_stock_aliases(candidates, known_stocks, llm_config=None, client=None) -> list[dict]:
+    """让 LLM 判断候选词是否为已知股票别名，返回 [{"alias","stock","confidence"}]。
+
+    未配置 LLM 或任何失败返回 []（调用方跳过本次识别）；confidence 为
+    high/medium 的条目保留（调度层只采纳 high 自动写入），none 丢弃。
+    """
+    api_key = getattr(llm_config, "api_key", "") if llm_config else ""
+    if not api_key or not candidates:
+        return []
+    api_base = (getattr(llm_config, "api_base", "") or "https://api.openai.com/v1").rstrip("/")
+    model = getattr(llm_config, "model", "") or "gpt-4o-mini"
+    import httpx
+
+    owns_client = client is None
+    client = client or httpx.Client(timeout=60)
+    try:
+        resp = client.post(
+            f"{api_base}/chat/completions",
+            headers={"Authorization": f"Bearer {api_key}"},
+            json={
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": ALIAS_SYSTEM_PROMPT},
+                    {
+                        "role": "user",
+                        "content": (
+                            f"候选词（可能含股票别名）：{json.dumps(candidates[:100], ensure_ascii=False)}\n"
+                            f"已知股票名：{json.dumps(known_stocks, ensure_ascii=False)}"
+                        ),
+                    },
+                ],
+                "temperature": 0,
+                "max_tokens": 2000,
+            },
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        text = (data.get("choices") or [{}])[0].get("message", {}).get("content", "").strip()
+        if not text:
+            logger.warning("LLM 别名识别返回空，跳过本轮")
+            return []
+        match = re.search(r"\[.*\]", text, re.DOTALL)
+        if not match:
+            logger.warning("LLM 别名识别无 JSON 数组: %.100s", text)
+            return []
+        try:
+            parsed = json.loads(match.group(0))
+        except ValueError:
+            return []
+        result = []
+        known_lower = {str(s).lower() for s in known_stocks}
+        for item in parsed if isinstance(parsed, list) else []:
+            if not isinstance(item, dict):
+                continue
+            alias = str(item.get("alias") or "").strip()
+            stock = str(item.get("stock") or "").strip()
+            confidence = str(item.get("confidence") or "none").strip().lower()
+            if alias and stock and stock.lower() in known_lower and confidence in ("high", "medium"):
+                result.append({"alias": alias, "stock": stock, "confidence": confidence})
+        logger.info("LLM 别名识别候选=%d 采纳=%d", len(candidates), len(result))
+        return result
+    except Exception as exc:  # noqa: BLE001 - 识别失败跳过本轮，不影响其他
+        logger.warning("LLM 别名识别失败，跳过本轮: %s", exc)
+        return []
     finally:
         if owns_client:
             client.close()

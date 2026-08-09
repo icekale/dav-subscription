@@ -3091,3 +3091,79 @@ def test_daily_report_channel_idempotent_across_restart(monkeypatch):
     assert scheduler2._send_daily_report() is True
     assert tg.calls["daily"] == 1
     db2.close()
+
+
+def test_stock_alias_task_writes_aliases_and_cleans(monkeypatch):
+    """每日别名任务：LLM 返回 high 别名 → 写入别名表；同时清理过期标签。"""
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    pid = db.insert_post("xueqiu", kid, "al1", "宁王大涨", "宁王今天创新高，市场沸腾", "u", "")
+    db.update_post_tags(pid, ["观点", "宏观"])  # 观点是过期标签
+
+    monkeypatch.setattr(
+        "app.llm.suggest_stock_aliases",
+        lambda cands, stocks, cfg, client=None: [{"alias": "宁王", "stock": "宁德时代", "confidence": "high"}],
+    )
+    scheduler = Scheduler(
+        db, {}, [],
+        SimpleNamespace(),
+        notifiers_config=SimpleNamespace(
+            telegram=SimpleNamespace(bot_token="t", chat_id=""),
+            feishu=SimpleNamespace(app_id="", app_secret=""),
+        ),
+        xueqiu_config=SimpleNamespace(cookie=""),
+        weibo_config=SimpleNamespace(cookie="", username="", password=""),
+        llm_config=SimpleNamespace(api_key="sk-test", api_base="https://api.deepseek.com", model="deepseek-chat"),
+    )
+    scheduler._run_stock_alias_task()
+    # 别名写入
+    aliases = db.get_stock_aliases()
+    assert any(a["alias"] == "宁王" and a["stock"] == "宁德时代" for a in aliases)
+    # 过期标签「观点」被清理，保留「宏观」
+    tags = db.list_posts(limit=5)[0]["tags"]
+    assert "观点" not in tags and "宏观" in tags
+
+
+def test_stock_alias_task_without_llm_skips_but_cleans(monkeypatch):
+    """未配置 LLM：跳过识别，但误标清理照常执行。"""
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    pid = db.insert_post("xueqiu", kid, "al2", "t", "c", "u", "")
+    db.update_post_tags(pid, ["观点"])
+    calls = {"n": 0}
+
+    def boom(cands, stocks, cfg, client=None):
+        calls["n"] += 1
+        return []
+
+    monkeypatch.setattr("app.llm.suggest_stock_aliases", boom)
+    scheduler = Scheduler(
+        db, {}, [],
+        SimpleNamespace(),
+        notifiers_config=SimpleNamespace(
+            telegram=SimpleNamespace(bot_token="", chat_id=""),
+            feishu=SimpleNamespace(app_id="", app_secret=""),
+        ),
+        xueqiu_config=SimpleNamespace(cookie=""),
+        weibo_config=SimpleNamespace(cookie="", username="", password=""),
+        llm_config=None,  # 未配置 LLM
+    )
+    scheduler._run_stock_alias_task()
+    assert calls["n"] == 0
+    # 过期标签仍被清理
+    assert db.list_posts(limit=5)[0]["tags"] == []
+
+
+def test_stock_alias_due_once_per_day():
+    """日期键控制：今天跑过后不再触发。"""
+    db = make_db()
+    scheduler = Scheduler(
+        db, {}, [],
+        SimpleNamespace(),
+        notifiers_config=SimpleNamespace(),
+        xueqiu_config=SimpleNamespace(cookie=""),
+        weibo_config=SimpleNamespace(cookie="", username="", password=""),
+    )
+    assert scheduler._stock_alias_due() is True
+    db.set_setting("stock_alias_last_date", datetime.datetime.now().strftime("%Y-%m-%d"))
+    assert scheduler._stock_alias_due() is False

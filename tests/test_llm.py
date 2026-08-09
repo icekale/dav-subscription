@@ -337,3 +337,42 @@ def test_summarize_daily_enforces_max_three_points():
     assert len(summary.points) == 3
     assert [p.text for p in summary.points] == ["要点一", "要点二", "要点三"]
     assert [p.post_indexes for p in summary.points] == [[0], [1], [2]]
+
+
+# ---- 股票黑话别名识别 ----
+
+from app.llm import suggest_stock_aliases
+
+
+def _alias_handler(content):
+    def handler(request):
+        return httpx.Response(200, json={"choices": [{"message": {"content": content}}]})
+
+    return handler
+
+
+def test_suggest_aliases_parses_and_filters_confidence():
+    client = httpx.Client(transport=httpx.MockTransport(_alias_handler(
+        '[{"alias": "宁王", "stock": "宁德时代", "confidence": "high"},'
+        '{"alias": "药茅", "stock": "恒瑞医药", "confidence": "medium"},'
+        '{"alias": "废话", "stock": "宁德时代", "confidence": "none"},'
+        '{"alias": "乱写", "stock": "不存在的股票", "confidence": "high"}]'
+    )))
+    result = suggest_stock_aliases(["宁王", "药茅", "废话", "乱写"], ["宁德时代", "恒瑞医药"], make_config(), client=client)
+    # high/medium 保留；none 丢弃；stock 不在已知列表的丢弃
+    assert {r["alias"] for r in result} == {"宁王", "药茅"}
+    assert all(r["stock"] in ("宁德时代", "恒瑞医药") for r in result)
+
+
+def test_suggest_aliases_empty_and_failure():
+    # 无候选词 / 未配置 → []
+    assert suggest_stock_aliases([], ["宁德时代"], make_config()) == []
+    assert suggest_stock_aliases(["宁王"], ["宁德时代"], None) == []
+    # 非 JSON 响应 → []
+    client = httpx.Client(transport=httpx.MockTransport(_alias_handler("抱歉，我不知道")))
+    assert suggest_stock_aliases(["宁王"], ["宁德时代"], make_config(), client=client) == []
+    # 5xx → []
+    def err(request):
+        return httpx.Response(500, json={})
+    client2 = httpx.Client(transport=httpx.MockTransport(err))
+    assert suggest_stock_aliases(["宁王"], ["宁德时代"], make_config(), client=client2) == []

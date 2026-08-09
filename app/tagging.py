@@ -63,19 +63,30 @@ def rule_tag_posts(posts, tag_rules) -> dict[int, list[str]]:
     return result
 
 
-def stock_tag_posts(posts, stock_names) -> dict[int, list[str]]:
+def stock_tag_posts(posts, stock_names, aliases=None) -> dict[int, list[str]]:
     """给一批贴文打股票标签，返回「输入列表下标 → 股票标签列表」（≤2，按出现顺序）。
 
     识别来源：
     1. 雪球 $股票名(代码)$ 标记（代码为 SH/SZ/BJ 个股）——零歧义，名称去 N/C 等新股前缀；
-    2. 常用股票名表（settings 键 stock_names）子串匹配——纯文字提及也能命中。
-    两来源结果去重合并；无命中返回空列表（不误标）。
+    2. 常用股票名表（settings 键 stock_names）子串匹配——纯文字提及也能命中；
+    3. 黑话别名表（settings 键 stock_aliases，LLM 每日自动识别）——命中别名打对应正式名。
+    各来源结果去重合并；无命中返回空列表（不误标）。
     """
     names = []
     for n in stock_names or []:
         cleaned = str(n).strip()
         if cleaned and cleaned not in names:
             names.append(cleaned)
+    # 别名表：{"alias": "宁王", "stock": "宁德时代"}；打标时输出正式名
+    alias_map = []
+    for a in aliases or []:
+        if isinstance(a, dict):
+            alias = str(a.get("alias") or "").strip()
+            stock = str(a.get("stock") or "").strip()
+        else:
+            alias, stock = "", ""
+        if alias and stock and alias not in names:
+            alias_map.append((alias, stock))
 
     result: dict[int, list[str]] = {}
     for idx, post in enumerate(posts):
@@ -106,5 +117,77 @@ def stock_tag_posts(posts, stock_names) -> dict[int, list[str]]:
                     tags.append(name)
                     if len(tags) >= STOCK_PER_POST_MAX:
                         break
+        # 3) 黑话别名 → 正式名
+        if len(tags) < STOCK_PER_POST_MAX:
+            lowered = text.lower()
+            for alias, stock in alias_map:
+                if alias in lowered and stock not in tags:
+                    tags.append(stock)
+                    if len(tags) >= STOCK_PER_POST_MAX:
+                        break
         result[idx] = tags
     return result
+
+
+def extract_alias_candidates(posts, known) -> list[str]:
+    """从一批帖子正文提取可能的股票黑话别名候选词。
+
+    中文昵称（宁王/药茅等）多为 2~4 字，正文无天然词边界——用滑窗统计
+    高频子串；英文保持单词级提取。过滤纯数字、已在 known（股票名表/
+    别名表/话题词表）中的词、$标记$ 内的正式名。返回按频次降序的候选
+    列表（供 LLM 判断是否为股票别名）。
+    """
+    from collections import Counter
+
+    known_lower = {str(k).lower() for k in known if str(k).strip()}
+    counts: Counter = Counter()
+    for post in posts:
+        text = (
+            str(getattr(post, "title", "") or "") + " " + str(getattr(post, "content", "") or "")
+        )
+        # 去掉 $标记$ 内的正式名（已有精确识别，不重复当候选）
+        text = _STOCK_MARK_RE.sub("", text)
+        # 中文无词边界：按连续中文段枚举全部 2~4 字子串（黑话昵称多为 2~4 字），
+        # 高频出现的子串才是候选；英文保持单词级提取
+        for seg in re.findall(r"[\u4e00-\u9fff]+", text):
+            length = len(seg)
+            for start in range(length - 1):
+                for size in (2, 3, 4):
+                    if start + size <= length:
+                        counts[seg[start : start + size]] += 1
+        for m in re.finditer(r"[A-Za-z][A-Za-z0-9.-]{1,19}", text):
+            counts[m.group(0)] += 1
+    # 出现≥2次、非已知词，按频次降序
+    candidates = []
+    for word, n in counts.most_common():
+        if n < 2:
+            continue
+        if word.lower() in known_lower:
+            continue
+        candidates.append(word)
+    return candidates[:200]
+
+
+def cleanup_stale_tags(db, valid_tags) -> int:
+    """清理贴文里的过期标签（旧词表残留等），返回清理条数。
+
+    valid_tags: 当前有效标签集合（话题词表 + 股票名表 + 别名正式名）。
+    用 id 游标分页遍历全部有标签的帖子，删除不在集合内的标签；
+    无变化不写库（避免无谓 UPDATE）。纯本地规则，零成本。
+    """
+    valid = {str(t).strip() for t in valid_tags if str(t).strip()}
+    removed = 0
+    below_id: int | None = None
+    while True:
+        rows = db.list_posts(limit=500, below_id=below_id)
+        if not rows:
+            break
+        for row in rows:
+            tags = row.get("tags") or []
+            stale = [t for t in tags if t not in valid]
+            if stale:
+                kept = [t for t in tags if t in valid]
+                db.update_post_tags(row["id"], kept)
+                removed += 1
+        below_id = min(r["id"] for r in rows)
+    return removed

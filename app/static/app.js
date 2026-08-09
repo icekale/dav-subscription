@@ -3133,10 +3133,13 @@ async function loadAdminTags() {
   const data = await api("/api/tags");
   const tags = Array.isArray(data?.tags) ? data.tags : [];
   const stockNames = Array.isArray(data?.stock_names) ? data.stock_names : [];
+  const stockAliases = Array.isArray(data?.stock_aliases) ? data.stock_aliases : [];
   const stats = data?.stats || { total: 0, tagged: 0, pending: 0 };
   if (!routeStillActive(_adminRenderSeq)) return;
   // 词表编辑：每行一个标签，格式「标签名 | 关键词,关键词」；关键词为空则该标签不命中
   const vocabText = tags.map((r) => `${r.tag} | ${(r.keywords || []).join(", ")}`).join("\n");
+  // 别名表编辑：每行「别名=正式名」
+  const aliasText = stockAliases.map((a) => `${a.alias}=${a.stock}`).join("\n");
   $("#admin-body").innerHTML = `
     <section class="section-panel">
       <header class="section-head">
@@ -3155,6 +3158,13 @@ async function loadAdminTags() {
         <p class="section-meta">帖子纯文字提及这些股票名时会打上股票标签（每行一个；$股票名(代码)$ 标记自动识别、无需在此登记）。</p></div>
       </header>
       <textarea id="stock-names-input" class="form-control" rows="6" style="margin-top:12px;font-family:monospace;line-height:1.6" placeholder="贵州茅台&#10;宁德时代">${escapeHtml(stockNames.join("\n"))}</textarea>
+    </section>
+    <section class="section-panel">
+      <header class="section-head">
+        <div><p class="section-eyebrow">Aliases</p><h3 class="section-title">黑话别名（LLM 每日自动识别）</h3>
+        <p class="section-meta">LLM 每日扫描帖子自动识别股票昵称并写入（如 宁王→宁德时代）；此处可手动修正。每行「别名=正式名」，正式名需在常用股票名表中。</p></div>
+      </header>
+      <textarea id="stock-aliases-input" class="form-control" rows="5" style="margin-top:12px;font-family:monospace;line-height:1.6" placeholder="宁王=宁德时代">${escapeHtml(aliasText)}</textarea>
     </section>
     <section class="section-panel">
       <header class="section-head">
@@ -3183,9 +3193,13 @@ async function adminSaveTags() {
     return { tag, keywords };
   }).filter((r) => r.tag);
   const stockNames = $("#stock-names-input").value.split(/\n/).map((s) => s.trim()).filter(Boolean);
+  const stockAliases = $("#stock-aliases-input").value.split(/\n/).map((line) => line.trim()).filter(Boolean).map((line) => {
+    const [alias, stock] = line.split(/[=＝]/).map((s) => s.trim());
+    return { alias, stock };
+  }).filter((r) => r.alias && r.stock);
   try {
-    const data = await api("/api/tags", { method: "PUT", body: JSON.stringify({ tags, stock_names: stockNames }) });
-    flash(`已保存词表（${data.tags.length} 个标签，${data.stock_names.length} 只股票）`);
+    const data = await api("/api/tags", { method: "PUT", body: JSON.stringify({ tags, stock_names: stockNames, stock_aliases: stockAliases }) });
+    flash(`已保存词表（${data.tags.length} 个标签，${data.stock_names.length} 只股票，${data.stock_aliases.length} 个别名）`);
     loadAdminTags();
   } catch (err) {
     alert("保存失败: " + err.message);
