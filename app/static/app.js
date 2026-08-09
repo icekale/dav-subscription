@@ -1325,7 +1325,7 @@ function channelStatusHtml(user) {
             ? `<button class="channel-btn secondary" onclick="unbindChannel('feishu_personal')">解绑</button>`
             : fsOpen
               ? `<button class="channel-btn secondary" onclick="unbindChannel('feishu')">解绑</button>`
-              : `<button class="channel-btn primary" onclick="bindChannel('feishu')">绑定</button>`}
+              : `<button class="channel-btn primary" onclick="openBindGuide('feishu-bind')">去绑定</button>`}
         </div>
       </div>
       <div class="channel-card" data-channel="wecom">
