@@ -381,8 +381,8 @@ textarea.form-control {
 }
 .topbar-title { display: flex; align-items: center; gap: 6px; }
 .topbar-title h2 { font-size: var(--text-lg); font-weight: var(--font-weight-bold); color: var(--color-text-strong); }
-/* 移动端左上角：品牌融合符号（无背景色块，V 用文本同色系），桌面端保持文字标题 */
-.topbar-logo { display: none; height: 28px; width: auto; flex-shrink: 0; }
+/* topbar 左上角品牌符号：PC 端与页面文字标题并存（logo 品牌锚 + 文字定位），移动端单独显示 */
+.topbar-logo { display: inline-block; height: 28px; width: auto; flex-shrink: 0; }
 .icon-btn { width: 30px; height: 30px; border: none; background: none; font-size: 20px; color: var(--color-text); border-radius: var(--radius-2xs); }
 .icon-btn:hover { background: var(--color-surface-hover); }
 .topbar-user { display: flex; align-items: center; gap: 12px; }
@@ -1042,8 +1042,8 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
   .theme-toggle-btn { display: inline-flex; }
   .main-col { min-height: 100vh; }
   .topbar { padding: 0 14px; } /* 左右 14px 与内容区 page-main 对齐，logo 和下方胶囊同列 */
-  /* 移动端左上角显示 logo、隐藏文字标题 */
-  .topbar-logo { display: inline-block; }
+  /* 移动端左上角：logo 单独显示并放大，隐藏文字标题 */
+  .topbar-logo { height: 32px; }
   .topbar-title h2 { display: none; }
   .page-main { padding: 16px 14px calc(74px + env(safe-area-inset-bottom)); }
   .platform-tabs { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 4px; }
