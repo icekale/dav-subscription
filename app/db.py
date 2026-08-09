@@ -1435,6 +1435,21 @@ class DB:
             (f"-{since_hours} hours", limit),
         )
 
+    def get_failed_push_error(self, post_id: int, channel: str, user_id: int | None) -> str:
+        """最近一条失败推送的原始错误（重试成功前取用，写入日志便于追溯）。"""
+        if user_id is not None:
+            cond = "user_id = ?"
+            params = (post_id, channel, user_id)
+        else:
+            cond = "user_id IS NULL"
+            params = (post_id, channel)
+        rows = self._rows(
+            f"SELECT error FROM push_logs WHERE post_id = ? AND channel = ? AND {cond} "
+            "AND status = 'failed' ORDER BY id DESC LIMIT 1",
+            params,
+        )
+        return rows[0]["error"] if rows else ""
+
     def mark_failed_push_success(self, post_id: int, channel: str, user_id: int | None) -> None:
         """把最近一条失败推送标记为成功（重试成功后）。"""
         if user_id is not None:

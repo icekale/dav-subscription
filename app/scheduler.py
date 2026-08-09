@@ -1738,6 +1738,13 @@ class Scheduler:
                 notifier.client.close()
         post_id = self.db.get_post_id(post.platform, post.external_id)
         if post_id:
+            # 翻转前取原失败原因落日志：mark_failed_push_success 会清空 error，不记就追溯不到了
+            orig_error = self.db.get_failed_push_error(post_id, item["channel"], item["user_id"])
+            if orig_error:
+                logger.info(
+                    "推送重试成功 channel=%s user=%s post=%s（原失败原因: %s）",
+                    item["channel"], item["user_id"], post_id, orig_error,
+                )
             self.db.mark_failed_push_success(post_id, item["channel"], item["user_id"])
         self.retry_queue.drop(item)
 
