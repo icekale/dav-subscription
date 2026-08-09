@@ -299,6 +299,7 @@ def test_build_personal_feishu_kwargs_fallback():
     db.save_feishu_personal_bot(uid, "cli_p", encrypt_secret(KEY, "s"), "feishu", "active", chat_id="oc_p")
     kw = build_personal_feishu_kwargs(db, cfg, db.get_user(uid))
     assert kw["chat_id"] == "oc_p" and kw["app_id"] == "cli_p"  # 个人优先
+    assert kw["open_id"] is None  # 个人路由只走 chat_id（open_id 直发被 230101 拦截）
 
 
 def test_is_definitive_feishu_error():

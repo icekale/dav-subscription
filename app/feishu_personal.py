@@ -500,13 +500,16 @@ def build_personal_feishu_kwargs(db, config, user: dict) -> dict:
     """构造 FeishuNotifier 需要的身份 kwargs：个人 active 优先，否则共享。
 
     供 channels/scheduler 各构造点统一使用：个人应用域身份 vs 共享应用域身份。
+    注意：个人路由只下发 chat_id（open_id 置 None）——FeishuNotifier 优先按 open_id
+    发送，而个人应用的 open_id 直发会被 230101 拦截，chat_id 是稳定路径
+    （绑定测试消息即只传 chat_id 成功）。
     """
     target = resolve_personal_target(db, config, user)
     if target:
         return {
             "app_id": target["app_id"],
             "app_secret": target["app_secret"],
-            "open_id": target["open_id"] or None,
+            "open_id": None,
             "chat_id": target["chat_id"],
         }
     return {
