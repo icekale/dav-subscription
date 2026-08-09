@@ -344,13 +344,14 @@ textarea.form-control {
 .theme-mode {
   width: 30px; height: 30px; border-radius: var(--radius-2xs);
   border: var(--border-strong); background: var(--color-surface);
-  font-size: 14px; line-height: 1;
   display: inline-flex; align-items: center; justify-content: center;
   color: var(--color-text-muted);
   transition: all var(--ease-standard);
 }
+.theme-mode .theme-ic { width: 15px; height: 15px; }
 .theme-mode:hover { border-color: var(--color-accent); color: var(--color-accent); }
 .theme-mode.selected { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-white); }
+.theme-mode.selected .theme-ic { stroke-width: 2.4; }
 
 .main-col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .topbar {
@@ -362,7 +363,7 @@ textarea.form-control {
   align-items: center;
   justify-content: space-between;
   padding: 0 24px;
-  background: rgba(247, 249, 252, 0.84);
+  background: var(--color-surface-nav);
   backdrop-filter: blur(18px) saturate(180%);
   border-bottom: var(--border-default);
 }
