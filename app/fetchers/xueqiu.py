@@ -14,45 +14,40 @@ XUEQIU_COOKIE_KEY = "xueqiu_cookie"
 XUEQIU_COOKIE_TIME_KEY = "xueqiu_cookie_updated_at"
 XUEQIU_TIMELINE_URL = "https://xueqiu.com/statuses/user_timeline.json"
 
-# waf-bot 无头浏览器维护的通关 cookie 文件（含 HttpOnly 挑战值），
-# 由独立容器周期刷新，主容器抓取时读取合并。未配置时不启用。
+# waf-bot 无头浏览器维护的通关 cookie 文件（含 HttpOnly 挑战值，整套会话自洽），
+# 由独立容器周期刷新，主容器抓取时整体读取使用。未配置时不启用。
 WAF_COOKIE_FILE = os.environ.get("WAF_COOKIE_FILE", "/data/waf_cookies.json")
 
 
-def _load_waf_cookies() -> dict[str, str]:
-    """读 waf-bot 写的通关 cookie（挑战值有时效，waf-bot 会周期刷新文件）。
+def _load_waf_cookies() -> list[dict[str, str]]:
+    """读 waf-bot 写的整套通关 cookie（挑战值有时效，waf-bot 会周期刷新文件）。
 
-    文件缺失/损坏返回空 dict，调用方退回原配置 cookie（可能被 WAF 拦）。
+    文件缺失/损坏返回空列表，调用方退回原配置 cookie（可能被 WAF 拦）。
     """
     try:
         with open(WAF_COOKIE_FILE, encoding="utf-8") as f:
             data = json.load(f)
     except (OSError, ValueError):
-        return {}
-    cookies = data.get("cookies") or []
-    return {
-        c["name"]: c["value"]
-        for c in cookies
+        return []
+    return [
+        c
+        for c in (data.get("cookies") or [])
         if c.get("name") and c.get("value") is not None
-    }
+    ]
 
 
 def merge_waf_cookie(cookie: str) -> str:
-    """把 waf-bot 的通关 cookie 合并进登录态串（同名以 waf 值为准）。
+    """返回整套 waf 通关 cookie；文件缺失时退回原登录串。
 
-    挑战值（acw_tc 等）时效短需每轮覆盖；登录 token（xq_a_token/xqat 等）
-    保留原值。文件缺失返回原串，不报错。
+    WAF 的 acw_tc 与整套会话强绑定：只 merge 部分 cookie（如 acw_tc + 旧登录态）
+    必被 WAF 拦（实测 400）。因此 waf-bot 每次带登录态（若配置）访问导出整套
+    自洽 cookie，这里整体使用；登录态过期时退化为游客会话（公开时间线可用，
+    组合等需登录的接口报 10022，需更新登录 cookie 后由 waf-bot 重新导出）。
     """
     waf = _load_waf_cookies()
     if not waf:
         return cookie or ""
-    items: dict[str, str] = {}
-    for part in (cookie or "").split(";"):
-        if "=" in part:
-            key, value = part.strip().split("=", 1)
-            items[key] = value
-    items.update(waf)
-    return "; ".join(f"{k}={v}" for k, v in items.items())
+    return "; ".join(f"{c['name']}={c['value']}" for c in waf)
 
 
 def normalize_xueqiu_id(external_id: str) -> str:

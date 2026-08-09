@@ -87,6 +87,8 @@ services:
       - TZ=Asia/Shanghai
       - WAF_COOKIE_FILE=/data/waf_cookies.json
       - WAF_REFRESH_INTERVAL=600
+      # 雪球登录 cookie（可选）：注入后导出的是登录会话整套，组合等需登录接口可用
+      - WAF_SEED_COOKIE=${XUEQIU_COOKIE}
     volumes:
       - ./data:/data
     networks: [dav]

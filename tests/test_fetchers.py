@@ -39,7 +39,7 @@ def test_xueqiu_parse_fixture():
 
 
 def test_xueqiu_waf_cookie_merged_into_request(monkeypatch, tmp_path):
-    """waf-bot 写的通关 cookie 与登录态合并：acw_tc 等挑战值覆盖为最新，登录 token 保留。"""
+    """waf-bot 写的整套通关 cookie 整体使用：请求 cookie 与文件一致（含 acw_tc）。"""
     waf_file = tmp_path / "waf_cookies.json"
     waf_file.write_text(
         json.dumps(
@@ -65,15 +65,15 @@ def test_xueqiu_waf_cookie_merged_into_request(monkeypatch, tmp_path):
     fetcher = XueqiuFetcher(XueqiuConfig(cookie="xq_a_token=abc; u=123"), db=DB(":memory:"), client=client)
     fetcher.fetch({"id": 1, "name": "大V", "external_id": "123"})
     cookie = seen["cookie"]
-    assert "acw_tc=NEW_ACW" in cookie  # WAF 挑战值已注入
-    assert "u=999" in cookie  # WAF cookie 覆盖同名 u
-    assert "xq_a_token=abc" in cookie  # 登录态保留
+    assert "acw_tc=NEW_ACW" in cookie
+    assert "u=999" in cookie
+    assert "xq_a_token=abc" not in cookie  # 整套覆盖，不再 merge 旧登录态
 
 
 def test_xueqiu_waf_cookie_missing_falls_back(monkeypatch, tmp_path):
     """waf-bot 文件缺失时退回原配置 cookie，不报错。"""
     monkeypatch.setattr("app.fetchers.xueqiu.WAF_COOKIE_FILE", str(tmp_path / "nope.json"))
-    assert _load_waf_cookies() == {}
+    assert _load_waf_cookies() == []
 
     seen: dict[str, str] = {}
 

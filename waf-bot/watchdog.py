@@ -24,21 +24,48 @@ UA = (
 
 OUTPUT = os.environ.get("WAF_COOKIE_FILE", "/data/waf_cookies.json")
 INTERVAL = int(os.environ.get("WAF_REFRESH_INTERVAL", "600"))  # 10 分钟，acw_tc TTL 30 分钟
+# 可选：目标站点的登录 cookie（雪球组合等需登录态的接口要用）。
+# 注入后浏览器导出的是「登录会话 + 配套 acw_tc」的整套自洽 cookie；
+# 不配置则导出游客会话（公开时间线可用）。
+SEED_COOKIE = os.environ.get("WAF_SEED_COOKIE", "")
 TARGETS = [
     {
         "url": "https://xueqiu.com/",
         "ok_marker": "雪球",  # 页面出现该文本即视为挑战已过
         "out": "xueqiu",
+        "seed_cookie": SEED_COOKIE,
     },
 ]
 
 
+def _inject_seed_cookie(ctx, cookie: str) -> None:
+    """把登录 cookie 逐条注入浏览器 context（域名统一 .xueqiu.com）。"""
+    for part in (cookie or "").split(";"):
+        if "=" not in part:
+            continue
+        key, _, value = part.strip().partition("=")
+        key = key.strip()
+        if not key:
+            continue
+        ctx.add_cookies(
+            [
+                {
+                    "name": key,
+                    "value": value.strip(),
+                    "domain": ".xueqiu.com",
+                    "path": "/",
+                }
+            ]
+        )
+
+
 def refresh(target: dict) -> bool:
-    """无头浏览器访问目标站点，等挑战自动执行完，把 cookie 写入共享文件。"""
+    """无头浏览器访问目标站点，等挑战自动执行完，把整套 cookie 写入共享文件。"""
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         try:
             ctx = browser.new_context(user_agent=UA, locale="zh-CN")
+            _inject_seed_cookie(ctx, target.get("seed_cookie") or "")
             page = ctx.new_page()
             page.goto(target["url"], timeout=30000)
             page.wait_for_load_state("domcontentloaded")
