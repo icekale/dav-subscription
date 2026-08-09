@@ -639,7 +639,10 @@ textarea.form-control {
   animation: lightbox-in 0.18s ease-out;
 }
 .lightbox-img {
-  max-width: 100%; max-height: 100%;
+  /* 按原始尺寸显示：小图不放大；仅当超过视口（减去 padding 与留白）时才缩放 */
+  width: auto; height: auto;
+  max-width: calc(100vw - 56px);
+  max-height: calc(100vh - 56px);
   border-radius: var(--radius-sm);
   box-shadow: var(--shadow-lg);
   object-fit: contain;
