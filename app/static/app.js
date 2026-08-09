@@ -1282,25 +1282,11 @@ function channelStatusHtml(user) {
           ${statusPill(tg ? "status-ok" : "status-fail", tg ? "已绑定" : "未绑定")}
         </div>
         <p class="muted channel-desc">${tg ? (tgCustom ? "使用你自己的机器人推送" : "官方机器人推送已启用") : "按下方步骤操作"}</p>
-        ${tg ? "" : `
-               <details style="margin-top:10px">
-                 <summary class="muted" style="cursor:pointer">或使用自己的机器人（推荐）</summary>
-                 <ol style="padding-left:18px;line-height:1.8;margin-top:8px">
-                   <li>打开 Telegram 搜索 <b>@BotFather</b>，发 <code>/newbot</code> 创建机器人，拿到 token</li>
-                   <li>给你的新机器人发任意消息（如 <code>/start</code>）</li>
-                   <li>把 token 粘贴到下方点「保存」，系统自动识别你的会话，无需手动填 ID</li>
-                 </ol>
-                 <div class="row" style="gap:8px;margin-top:10px">
-                   <input id="set-custom-tg" class="form-control" style="flex:1;min-width:220px" type="password" placeholder="123456:ABC-DEF...">
-                   <button class="btn-normal" onclick="saveCustomTgBot()">保存</button>
-                 </div>
-                 <p id="custom-tg-result" class="muted"></p>
-               </details>`}
         <div class="channel-actions">
           ${tg ? "" : `<div id="bind-result-telegram"></div>`}
           ${tg
             ? `<button class="channel-btn secondary" onclick="unbindChannel('${tgCustom ? "telegram_bot_token" : "telegram_chat_id"}')">解绑</button>`
-            : `<button class="channel-btn primary" onclick="bindChannel('telegram')">一键绑定官方机器人</button>`}
+            : `<button class="channel-btn primary" onclick="openBindGuide('custom-bots-bind')">去绑定</button>`}
         </div>
       </div>
       <div class="channel-card" data-channel="feishu">
@@ -1325,7 +1311,7 @@ function channelStatusHtml(user) {
             ? `<button class="channel-btn secondary" onclick="unbindChannel('feishu_personal')">解绑</button>`
             : fsOpen
               ? `<button class="channel-btn secondary" onclick="unbindChannel('feishu')">解绑</button>`
-              : `<button class="channel-btn primary" onclick="openBindGuide('feishu-bind')">去绑定</button>`}
+              : `<button class="channel-btn primary" onclick="openBindGuide('custom-bots-bind')">去绑定</button>`}
         </div>
       </div>
       <div class="channel-card" data-channel="wecom">
@@ -1500,6 +1486,27 @@ async function renderSettings(seq) {
             <p class="section-meta">按序绑定想用的推送渠道，每个渠道的步骤可展开；绑定状态在「推送渠道状态」卡片查看。</p>
           </div>
         </header>
+        <div class="channel-bind-block" id="custom-bots-bind">
+          <h4 class="section-title">⓪ 自建机器人（推荐，免共享限频）</h4>
+          <p class="section-meta">共享机器人所有用户共用一个应用配额；自建/个人机器人是<b>属于你自己的机器人应用</b>，推送配额独立、不受共享应用限制。Telegram 自建约 1 分钟，飞书个人扫码自动创建。</p>
+          <div class="channel-bind-block" style="padding-top:8px">
+            <h4 class="section-title">Telegram 自建机器人</h4>
+            <ol style="padding-left:20px;line-height:2">
+              <li>打开 Telegram 搜索 <b>@BotFather</b>，发 <code>/newbot</code> 创建机器人，拿到 token</li>
+              <li>给你的新机器人发任意消息（如 <code>/start</code>）</li>
+              <li>把 token 粘贴到下方点「保存」，系统自动识别你的会话，无需手动填 ID</li>
+            </ol>
+            <div class="row" style="gap:8px;margin-top:10px">
+              <input id="set-custom-tg" class="form-control" style="flex:1;min-width:220px" type="password" placeholder="123456:ABC-DEF...">
+              <button class="btn-normal" onclick="saveCustomTgBot()">保存</button>
+            </div>
+            <p id="custom-tg-result" class="muted"></p>
+          </div>
+          <div class="channel-bind-block" style="padding-top:8px">
+            <h4 class="section-title">飞书个人机器人（扫码自动创建）</h4>
+            <div id="fs-personal-block">${feishuPersonalHtml(state.user.feishu_personal)}</div>
+          </div>
+        </div>
         <div class="channel-bind-block" id="telegram-bind">
           <h4 class="section-title">① Telegram 机器人</h4>
           ${bindGuideHtml(!!state.user.telegram_chat_id, `
@@ -1520,11 +1527,6 @@ async function renderSettings(seq) {
           <li>发送后本页状态会变成「已绑定 ✅」，网页订阅与飞书推送自动同步。</li>
           <li>发 <code>/list</code> 可查看大V目录，点卡片上的按钮即可订阅。</li>
         </ol>`)}
-          <div class="form-row" style="margin-top:16px;padding-top:16px;border-top:var(--border-default)">
-            <label>⭐ 个人机器人（扫码自动创建，免共享限频）</label>
-            <p class="section-meta">共享机器人所有用户共用一个应用配额；个人机器人是<b>属于你自己的飞书应用</b>，推送配额独立、不受共享应用限制。扫码自动创建，无需填任何凭据。</p>
-            <div id="fs-personal-block">${feishuPersonalHtml(state.user.feishu_personal)}</div>
-          </div>
         </div>
         <div class="channel-bind-block" id="wecom-bind">
           <h4 class="section-title">③ 企业微信群机器人</h4>
