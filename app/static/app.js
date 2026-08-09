@@ -223,6 +223,7 @@ async function checkUpdate() {
 
 function renderTopbar(user) {
   $("#topbar-user").innerHTML = `
+    <button class="theme-toggle-btn" id="theme-toggle-btn" onclick="cycleTheme()" aria-label="切换主题" title="切换主题"></button>
     <div class="user-chip">
       <div class="user-avatar">${escapeHtml(avatarText(user.username))}</div>
       <div class="user-meta">
@@ -231,6 +232,7 @@ function renderTopbar(user) {
       </div>
     </div>
     <button class="topbar-logout" onclick="logout()">退出</button>`;
+  updateThemeToggleIcon();
 }
 
 function setPageTitle(title, back = false) {
@@ -3294,14 +3296,33 @@ function setTheme(mode) {
   renderThemeSwitcher();
 }
 
+function themeIconFor(mode) {
+  return { light: THEME_SUN_ICON, dark: THEME_MOON_ICON, auto: THEME_AUTO_ICON }[mode] || THEME_AUTO_ICON;
+}
+
+function themeLabelFor(mode) {
+  return { light: "浅色", dark: "深色", auto: "跟随系统" }[mode] || "跟随系统";
+}
+
 function renderThemeSwitcher() {
   const el = $("#theme-switcher");
   if (!el) return;
   const mode = themeMode();
-  const icons = { light: THEME_SUN_ICON, dark: THEME_MOON_ICON, auto: THEME_AUTO_ICON };
-  const labels = { light: "浅色", dark: "深色", auto: "跟随系统" };
   el.innerHTML = ["light", "dark", "auto"].map((m) => `
-    <button class="theme-mode ${mode === m ? "selected" : ""}" data-mode="${m}" title="${labels[m]}" aria-label="${labels[m]}" aria-pressed="${mode === m}" onclick="setTheme('${m}')">${icons[m]}</button>`).join("");
+    <button class="theme-mode ${mode === m ? "selected" : ""}" data-mode="${m}" title="${themeLabelFor(m)}" aria-label="${themeLabelFor(m)}" aria-pressed="${mode === m}" onclick="setTheme('${m}')">${themeIconFor(m)}</button>`).join("");
+}
+
+function updateThemeToggleIcon() {
+  const btn = $("#theme-toggle-btn");
+  if (btn) btn.innerHTML = themeIconFor(themeMode());
+}
+
+function cycleTheme() {
+  // 移动端顶部按钮：light → dark → auto 循环切换
+  const order = ["light", "dark", "auto"];
+  const next = order[(order.indexOf(themeMode()) + 1) % order.length];
+  setTheme(next);
+  updateThemeToggleIcon();
 }
 
 // 系统主题变化时，auto 模式跟随；手动模式不打扰
@@ -3310,6 +3331,7 @@ if (window.matchMedia) {
     if (themeMode() === "auto") {
       applyTheme();
       renderThemeSwitcher();
+      updateThemeToggleIcon();
     }
   });
 }
