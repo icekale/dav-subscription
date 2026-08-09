@@ -10,7 +10,7 @@ from app.config import XueqiuConfig
 from app.db import DB
 from app.fetchers.combination import CombinationFetcher, extract_cube_symbol
 from app.fetchers.rss import RssFetcher
-from app.fetchers.xueqiu import XueqiuFetcher, classify_status
+from app.fetchers.xueqiu import XueqiuFetcher, _load_waf_cookies, classify_status
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -36,6 +36,55 @@ def test_xueqiu_parse_fixture():
     assert "大涨" in posts[0].content
     assert "<strong>" not in posts[0].content
     assert posts[0].kol_name == "大V"
+
+
+def test_xueqiu_waf_cookie_merged_into_request(monkeypatch, tmp_path):
+    """waf-bot 写的通关 cookie 与登录态合并：acw_tc 等挑战值覆盖为最新，登录 token 保留。"""
+    waf_file = tmp_path / "waf_cookies.json"
+    waf_file.write_text(
+        json.dumps(
+            {
+                "fetched_at": 1786289000,
+                "cookies": [
+                    {"name": "acw_tc", "value": "NEW_ACW"},
+                    {"name": "u", "value": "999"},
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("app.fetchers.xueqiu.WAF_COOKIE_FILE", str(waf_file))
+
+    seen: dict[str, str] = {}
+
+    def handler(request):
+        seen["cookie"] = request.headers.get("Cookie", "")
+        return httpx.Response(200, json={"statuses": []})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    fetcher = XueqiuFetcher(XueqiuConfig(cookie="xq_a_token=abc; u=123"), db=DB(":memory:"), client=client)
+    fetcher.fetch({"id": 1, "name": "大V", "external_id": "123"})
+    cookie = seen["cookie"]
+    assert "acw_tc=NEW_ACW" in cookie  # WAF 挑战值已注入
+    assert "u=999" in cookie  # WAF cookie 覆盖同名 u
+    assert "xq_a_token=abc" in cookie  # 登录态保留
+
+
+def test_xueqiu_waf_cookie_missing_falls_back(monkeypatch, tmp_path):
+    """waf-bot 文件缺失时退回原配置 cookie，不报错。"""
+    monkeypatch.setattr("app.fetchers.xueqiu.WAF_COOKIE_FILE", str(tmp_path / "nope.json"))
+    assert _load_waf_cookies() == {}
+
+    seen: dict[str, str] = {}
+
+    def handler(request):
+        seen["cookie"] = request.headers.get("Cookie", "")
+        return httpx.Response(200, json={"statuses": []})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    fetcher = XueqiuFetcher(XueqiuConfig(cookie="xq_a_token=abc"), db=DB(":memory:"), client=client)
+    fetcher.fetch({"id": 1, "name": "大V", "external_id": "123"})
+    assert seen["cookie"] == "xq_a_token=abc"
 
 
 def test_xueqiu_skips_reposts():

@@ -12,6 +12,7 @@ from .xueqiu import (
     XUEQIU_COOKIE_TIME_KEY,
     _is_waf_html,
     merge_cookie_strings,
+    merge_waf_cookie,
 )
 
 REBALANCING_URL = "https://xueqiu.com/cubes/rebalancing/history.json"
@@ -95,8 +96,7 @@ class CombinationFetcher(Fetcher):
 
     def _apply_cookie(self) -> None:
         cookie = self.db.get_setting(XUEQIU_COOKIE_KEY) or self.source_config.cookie
-        if cookie:
-            self.client.headers["Cookie"] = cookie
+        self.client.headers["Cookie"] = merge_waf_cookie(cookie)
 
     def _refresh_cookie(self) -> None:
         """访问雪球首页刷新会话，持久化最新 cookie（与雪球帖抓取共用）。"""

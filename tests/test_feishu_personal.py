@@ -4,8 +4,8 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
 import httpx
+import pytest
 from cryptography.fernet import Fernet
 
 from app.config import Config, FeishuConfig
@@ -122,7 +122,7 @@ def test_poll_waiting_400_is_pending(monkeypatch):
 def test_poll_success_issues_bind_code(monkeypatch):
     db = make_db()
     manager = make_manager(db)
-    uid = create_session(db, manager)
+    create_session(db, manager)
     monkeypatch.setattr(manager, "_ensure_listener", lambda session_id: None)
     manager._handle_poll_success("sess1", poll_success_payload(), "https://accounts.feishu.cn")
     session = db.get_feishu_registration_session("sess1")

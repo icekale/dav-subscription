@@ -40,6 +40,7 @@ services:
       - POLLING_DAILY_REPORT_HOUR=${POLLING_DAILY_REPORT_HOUR:-20}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - LOG_FILE=${LOG_FILE:-/data/logs/app.log}
+      - WAF_COOKIE_FILE=/data/waf_cookies.json
     volumes:
       - ./data:/data
     expose:
@@ -74,6 +75,20 @@ services:
       - TWITTER_COOKIE=${TWITTER_COOKIE}
       # 新版 RSSHub 的 X 路由要求 auth_token（登录态 cookie 中的 auth_token= 值）
       - TWITTER_AUTH_TOKEN=${TWITTER_AUTH_TOKEN}
+    networks: [dav]
+
+  # 无头浏览器定期过目标站点的 JS 执行型 WAF（雪球 acw 挑战等），
+  # 把通关 cookie 写到共享数据卷，主容器抓取时读取复用。
+  waf-bot:
+    build: ./waf-bot
+    container_name: dav-waf-bot
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Shanghai
+      - WAF_COOKIE_FILE=/data/waf_cookies.json
+      - WAF_REFRESH_INTERVAL=600
+    volumes:
+      - ./data:/data
     networks: [dav]
 
 volumes:

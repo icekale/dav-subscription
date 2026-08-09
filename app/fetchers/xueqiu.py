@@ -1,6 +1,8 @@
 """雪球用户原创动态抓取。"""
 from __future__ import annotations
 
+import json
+import os
 import re
 
 import httpx
@@ -11,6 +13,46 @@ from .base import Fetcher, Post, format_published_at, strip_html
 XUEQIU_COOKIE_KEY = "xueqiu_cookie"
 XUEQIU_COOKIE_TIME_KEY = "xueqiu_cookie_updated_at"
 XUEQIU_TIMELINE_URL = "https://xueqiu.com/statuses/user_timeline.json"
+
+# waf-bot 无头浏览器维护的通关 cookie 文件（含 HttpOnly 挑战值），
+# 由独立容器周期刷新，主容器抓取时读取合并。未配置时不启用。
+WAF_COOKIE_FILE = os.environ.get("WAF_COOKIE_FILE", "/data/waf_cookies.json")
+
+
+def _load_waf_cookies() -> dict[str, str]:
+    """读 waf-bot 写的通关 cookie（挑战值有时效，waf-bot 会周期刷新文件）。
+
+    文件缺失/损坏返回空 dict，调用方退回原配置 cookie（可能被 WAF 拦）。
+    """
+    try:
+        with open(WAF_COOKIE_FILE, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    cookies = data.get("cookies") or []
+    return {
+        c["name"]: c["value"]
+        for c in cookies
+        if c.get("name") and c.get("value") is not None
+    }
+
+
+def merge_waf_cookie(cookie: str) -> str:
+    """把 waf-bot 的通关 cookie 合并进登录态串（同名以 waf 值为准）。
+
+    挑战值（acw_tc 等）时效短需每轮覆盖；登录 token（xq_a_token/xqat 等）
+    保留原值。文件缺失返回原串，不报错。
+    """
+    waf = _load_waf_cookies()
+    if not waf:
+        return cookie or ""
+    items: dict[str, str] = {}
+    for part in (cookie or "").split(";"):
+        if "=" in part:
+            key, value = part.strip().split("=", 1)
+            items[key] = value
+    items.update(waf)
+    return "; ".join(f"{k}={v}" for k, v in items.items())
 
 
 def normalize_xueqiu_id(external_id: str) -> str:
@@ -163,10 +205,9 @@ class XueqiuFetcher(Fetcher):
             self.client.headers["Cookie"] = self.source_config.cookie
 
     def _apply_cookie(self) -> None:
-        """优先使用数据库里续期后的 cookie，否则用配置里的初始值。"""
+        """合并 cookie：登录态（DB/配置）打底，叠加 waf-bot 的通关 cookie（同名覆盖）。"""
         cookie = self.db.get_setting(XUEQIU_COOKIE_KEY) or self.source_config.cookie
-        if cookie:
-            self.client.headers["Cookie"] = cookie
+        self.client.headers["Cookie"] = merge_waf_cookie(cookie)
 
     def _refresh_cookie(self) -> None:
         """雪球 cookie 失效时尝试续期（已不可用，直接抛错进入退避告警链路）。
