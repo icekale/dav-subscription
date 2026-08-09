@@ -171,7 +171,7 @@ const NAV = [
   ]},
   { group: "", admin: true, subs: [
     { label: "内容管理", items: [
-      { route: "admin/dashboard", icon: "▦", label: "看板" },
+      { route: "admin/dashboard", icon: "▦", label: "全景概览" },
       { route: "admin/kols", icon: V_ICON, label: "大V管理" },
       { route: "admin/categories", icon: "▣", label: "分类管理" },
       { route: "admin/tags", icon: "⌗", label: "标签管理" },
@@ -3408,7 +3408,7 @@ async function router() {
   // 先去掉 query（#/search?q=xxx），再按路径分段
   const path = hash.split("?")[0];
   const [page, rawParam] = path.split("/");
-  // 管理后台默认看板：/admin 与 /admin/dashboard 等价，侧边栏高亮才能对上
+  // 管理后台默认全景概览：/admin 与 /admin/dashboard 等价，侧边栏高亮才能对上
   const param = page === "admin" && !rawParam ? "dashboard" : rawParam;
   if (!state.token) {
     $("#app-view").classList.add("hidden");

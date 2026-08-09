@@ -1041,7 +1041,7 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
   .form-control { min-height: 44px; }
 }
 
-/* ---------- 数据看板 ---------- */
+/* ---------- 全景概览 ---------- */
 .dash-trend { display: flex; gap: 6px; align-items: flex-end; height: 180px; padding: 10px 4px 0; }
 .dash-trend-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; }
 .dash-trend-bar { display: flex; flex-direction: column; justify-content: flex-end; width: 100%; max-width: 42px; height: 150px; border-radius: 6px; background: var(--color-bg-muted); overflow: hidden; }
