@@ -763,13 +763,17 @@ def create_api_router(
         return {"code": code, "expires_in_seconds": BIND_CODE_TTL}
 
     # ---- 飞书个人机器人（扫码注册） ----
+    _fs_personal_mgr = {}
 
     def _feishu_personal_manager():
-        from .feishu_personal import FeishuPersonalManager
+        # 单例：轮询线程/临时监听器/绑定码明文都挂在这个实例上，不能每次 new
+        if "mgr" not in _fs_personal_mgr:
+            from .feishu_personal import FeishuPersonalManager
 
-        return FeishuPersonalManager(
-            db, notifiers_config.feishu if notifiers_config is not None else None
-        )
+            _fs_personal_mgr["mgr"] = FeishuPersonalManager(
+                db, notifiers_config.feishu if notifiers_config is not None else None
+            )
+        return _fs_personal_mgr["mgr"]
 
     def _require_feishu_personal():
         manager = _feishu_personal_manager()
@@ -781,18 +785,30 @@ def create_api_router(
         return manager
 
     def _personal_session_payload(session: dict) -> dict:
-        """注册会话状态接口：只暴露展示字段，不返回密钥/设备码/绑定码明文。"""
+        """注册会话状态接口：只暴露展示字段，不返回密钥/设备码。
+
+        绑定码明文只在本进程内存（DB 只存哈希），仅当前用户能通过本人 session 查询；
+        过期/重启后为空，前端可点「重新生成绑定码」。
+        """
         from .feishu_personal import mask_app_id, qr_data_uri
 
         personal_bot = db.get_feishu_personal_bot(session["user_id"])
+        bind_command = ""
+        bind_code_expires_at = session.get("bind_code_expires_at")
+        if session["status"] == "awaiting_bind":
+            entry = _feishu_personal_manager().get_bind_command(session["session_id"])
+            if entry:
+                code, expires_at = entry
+                bind_command = f"/bind {code}"
+                bind_code_expires_at = expires_at
         return {
             "session_id": session["session_id"],
             "status": session["status"],
             "verification_uri": session["verification_uri"],
             "qr_uri": qr_data_uri(session["verification_uri"]),
             "session_expires_at": session["session_expires_at"],
-            "bind_command": "",
-            "bind_code_expires_at": session.get("bind_code_expires_at"),
+            "bind_command": bind_command,
+            "bind_code_expires_at": bind_code_expires_at,
             "last_error": session.get("last_error") or "",
             "candidate_app_id_masked": mask_app_id(session["candidate_app_id"])
             if session.get("candidate_app_id") else "",

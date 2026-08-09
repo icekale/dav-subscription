@@ -224,6 +224,9 @@ class FeishuPersonalManager:
         self._pollers: dict[str, threading.Thread] = {}
         self._listeners: dict[str, FeishuBindListener] = {}
         self._stopping = threading.Event()
+        # 绑定码明文只存进程内存（DB 只存哈希）；状态接口/刷新码从内存读。
+        # 进程重启即失效——用户点「重新生成绑定码」即可（设计：明文不落库）。
+        self._bind_commands: dict[str, tuple[str, int]] = {}
 
     # ---- 可用性 ----
     def available(self) -> bool:
@@ -260,6 +263,7 @@ class FeishuPersonalManager:
             return
         self.db.update_feishu_registration_session(session_id, status="cancelled")
         self._stop_listener(session_id)
+        self._drop_bind_command(session_id)
 
     def disable(self, user_id: int) -> None:
         """解绑个人机器人：擦除凭据与绑定状态；共享飞书字段保持原值。"""
@@ -370,8 +374,26 @@ class FeishuPersonalManager:
             bind_code_hash=hash_bind_code(code),
             bind_code_expires_at=expires_at,
         )
+        with self._lock:
+            self._bind_commands[session_id] = (code, expires_at)
         self._ensure_listener(session_id)
         return {"bind_command": f"/bind {code}", "bind_code_expires_at": expires_at}
+
+    def get_bind_command(self, session_id: str) -> tuple[str, int] | None:
+        """返回 (绑定码, 过期时间戳)；过期或无则 None（调用方决定是否提示刷新）。"""
+        with self._lock:
+            entry = self._bind_commands.get(session_id)
+        if not entry:
+            return None
+        code, expires_at = entry
+        if expires_at < int(time.time()):
+            self._drop_bind_command(session_id)
+            return None
+        return code, expires_at
+
+    def _drop_bind_command(self, session_id: str) -> None:
+        with self._lock:
+            self._bind_commands.pop(session_id, None)
 
     # ---- 临时监听器 ----
     def _ensure_listener(self, session_id: str) -> None:
@@ -417,6 +439,7 @@ class FeishuPersonalManager:
         self.db.update_feishu_registration_session(
             session_id, bind_code_hash="", bind_code_expires_at=None, status="testing"
         )
+        self._drop_bind_command(session_id)
         app_id = session["candidate_app_id"]
         try:
             app_secret = decrypt_secret(self._key(), session["candidate_app_secret_ciphertext"])

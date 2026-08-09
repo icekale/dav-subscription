@@ -163,6 +163,22 @@ def test_poll_lark_switches_base_url(monkeypatch):
 
 # ---- 绑定消费 ----
 
+def test_bind_command_plaintext_in_memory(monkeypatch):
+    """绑定码明文只存进程内存：issue 后 get_bind_command 可读，消费后清除。"""
+    db = make_db()
+    manager = make_manager(db)
+    create_session(db, manager)
+    monkeypatch.setattr(manager, "_ensure_listener", lambda session_id: None)
+    manager._handle_poll_success("sess1", poll_success_payload(), "https://accounts.feishu.cn")
+    issued = manager.issue_bind_code("sess1")
+    code = issued["bind_command"].split()[1]
+    entry = manager.get_bind_command("sess1")
+    assert entry and entry[0] == code
+    # 消费后明文清除
+    manager._drop_bind_command("sess1")
+    assert manager.get_bind_command("sess1") is None
+
+
 def test_handle_bind_message_full_flow(monkeypatch):
     db = make_db()
     manager = make_manager(db)
@@ -386,6 +402,7 @@ def test_api_register_and_session(monkeypatch):
     from fastapi.testclient import TestClient
 
     from app import feishu_personal as fp
+    from app.feishu_personal import FeishuPersonalManager
     from app.main import create_app
 
     app = create_app(config=_api_config(KEY), db_path=Path(tempfile.mkdtemp()) / "b.db")
@@ -396,6 +413,7 @@ def test_api_register_and_session(monkeypatch):
     h = {"Authorization": f"Bearer {token}"}
 
     monkeypatch.setattr(fp, "begin_registration", lambda base_url="https://accounts.feishu.cn": (begin_payload(), base_url))
+    monkeypatch.setattr(FeishuPersonalManager, "_start_poller", lambda self, sid: None)
     resp = client.post("/api/me/feishu-personal/register", headers=h)
     assert resp.status_code == 200
     data = resp.json()
@@ -413,6 +431,16 @@ def test_api_register_and_session(monkeypatch):
 
     # 当前用户可查询
     assert client.get(f"/api/me/feishu-personal/register/{sid}", headers=h).status_code == 200
+
+    # awaiting_bind 时状态接口返回内存中的绑定码明文（本人可读）
+    db.update_feishu_registration_session(sid, status="awaiting_bind")
+    monkeypatch.setattr(
+        FeishuPersonalManager, "get_bind_command",
+        lambda self, sid_: ("abc123", int(time.time()) + 60),
+    )
+    payload = client.get(f"/api/me/feishu-personal/register/{sid}", headers=h).json()
+    assert payload["bind_command"] == "/bind abc123"
+    assert payload["bind_code_expires_at"] > int(time.time())
 
     # 解绑个人机器人：无记录时幂等返回 ok，共享字段不受影响
     assert client.put("/api/me", headers=h, json={"feishu_open_id": "ou_s", "feishu_chat_id": "oc_s"}).status_code == 200
