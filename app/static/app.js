@@ -3591,9 +3591,13 @@ function applyTheme() {
   // 同步顶部浏览器 UI（桌面无意义，PWA/移动端状态栏）
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) meta.setAttribute("content", dark ? "#0d1014" : "#0d5cff");
-  // 移动端 topbar logo 用融合符号版（无背景色块，V 用文本同色系），深浅各一
+  // 品牌符号（登录页 + topbar + 侧边栏）用融合版，深浅各一
   const logo = document.querySelector(".topbar-logo");
   if (logo) logo.src = dark ? "/logo-mark-dark.svg" : "/logo-mark.svg";
+  const sidebarLogo = document.querySelector("#sidebar-logo");
+  if (sidebarLogo) sidebarLogo.src = dark ? "/logo-mark-dark.svg" : "/logo-mark.svg";
+  const loginLogo = document.querySelector("#login-logo");
+  if (loginLogo) loginLogo.src = dark ? "/logo-mark-dark.svg" : "/logo-mark.svg";
   return dark;
 }
 

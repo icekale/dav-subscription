@@ -24,14 +24,14 @@
     })();
   </script>
   <link rel="stylesheet" href="/vendor/design-tokens.css?v=13">
-  <link rel="stylesheet" href="/style.css?v=70">
+  <link rel="stylesheet" href="/style.css?v=71">
 </head>
 <body>
   <!-- 登录 / 注册 -->
   <div id="auth-view" class="auth-view hidden">
     <main class="login-shell">
       <div class="login-brand">
-        <img class="brand-mark brand-logo" src="/logo.svg" alt="大V订阅">
+        <img id="login-logo" class="login-logo" src="/logo-mark.svg" alt="大V订阅">
         <p class="login-eyebrow">DaV Subscription</p>
         <h1 class="login-brand-title">大V订阅</h1>
         <ul class="login-features">
@@ -98,7 +98,7 @@
   <div id="app-view" class="app-view hidden">
     <aside class="sidebar">
       <div class="sidebar-brand">
-        <img class="brand-mark small brand-logo" src="/logo.svg" alt="大V订阅">
+        <img class="sidebar-logo" id="sidebar-logo" src="/logo-mark.svg" alt="大V订阅">
         <div class="sidebar-brand-text">
           <span class="sidebar-brand-name">大V订阅</span>
           <span class="sidebar-brand-meta">DaV Subscription</span>
@@ -122,6 +122,6 @@
     </div>
     <nav id="bottom-nav" class="bottom-nav"></nav>
   </div>
-  <script src="/app.js?v=94"></script>
+  <script src="/app.js?v=95"></script>
 </body>
 </html>
