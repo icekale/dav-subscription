@@ -63,6 +63,39 @@ function imgOnError(img) {
   img.onerror = null;
 }
 
+// ---------- 图片灯箱（点击放大原图，背景变暗） ----------
+function openLightbox(img) {
+  if (!img) return;
+  const src = img.currentSrc || img.src || "";
+  if (!src) return;
+  closeLightbox(); // 防重复打开
+  const overlay = document.createElement("div");
+  overlay.className = "lightbox";
+  overlay.setAttribute("role", "dialog");
+  overlay.setAttribute("aria-modal", "true");
+  overlay.setAttribute("aria-label", "查看大图");
+  overlay.innerHTML = `
+    <button class="lightbox-close" aria-label="关闭" onclick="event.stopPropagation();closeLightbox()">✕</button>
+    <img class="lightbox-img" src="${escapeHtml(src)}" alt="" onerror="imgOnError(this)">`;
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) closeLightbox();
+  });
+  document.body.appendChild(overlay);
+  document.body.classList.add("lightbox-open");
+  document.addEventListener("keydown", lightboxKeyHandler);
+}
+
+function lightboxKeyHandler(e) {
+  if (e.key === "Escape") closeLightbox();
+}
+
+function closeLightbox() {
+  const overlay = document.querySelector(".lightbox");
+  if (overlay) overlay.remove();
+  document.body.classList.remove("lightbox-open");
+  document.removeEventListener("keydown", lightboxKeyHandler);
+}
+
 let _toastTimer = null;
 function flash(message, type = "success") {
   let el = $("#toast");
@@ -996,7 +1029,7 @@ function postCard(post) {
       ${Array.isArray(post.images) && post.images.length ? `
         <div class="post-images">
           ${post.images.slice(0, 4).map((img) => `
-            <a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener"><img src="${escapeHtml(img)}" loading="lazy" alt="" onerror="imgOnError(this)"></a>`).join("")}
+            <a class="post-img-link" href="#" onclick="event.preventDefault();openLightbox(this.querySelector('img'))" aria-label="查看大图"><img src="${escapeHtml(img)}" loading="lazy" alt="" onerror="imgOnError(this)"></a>`).join("")}
           ${post.images.length > 4 ? `<span class="post-images-more">+${post.images.length - 4}</span>` : ""}
         </div>` : ""}
       <div class="p-meta">
