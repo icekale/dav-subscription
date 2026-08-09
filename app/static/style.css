@@ -405,7 +405,8 @@ textarea.form-control {
 .topbar-logout { border: none; background: none; color: var(--color-text-muted); font-size: var(--text-sm); padding: 6px 10px; border-radius: var(--radius-2xs); }
 .topbar-logout:hover { background: var(--color-surface-hover); color: var(--color-danger); }
 
-.page-main { padding: 24px; max-width: 1180px; width: 100%; margin: 0 auto; }
+/* 内容区铺满可用宽度（宽屏不再留白）；正文可读性由 .p-content 行宽上限保障 */
+.page-main { padding: 24px; width: 100%; }
 
 /* ---------- 面板 ---------- */
 .section-panel {
@@ -621,7 +622,8 @@ textarea.form-control {
 .post-item .p-name:hover { color: var(--color-accent); text-decoration: underline; }
 .post-item .p-time { font-size: var(--text-xs); color: var(--color-text-muted); margin-top: 2px; }
 .post-item .p-title { font-size: var(--text-body); font-weight: var(--font-weight-bold); margin-top: 12px; color: var(--color-text); }
-.post-item .p-content { color: var(--color-text); margin-top: 8px; line-height: 1.7; word-break: break-all; font-size: var(--text-md); }
+/* 正文限行宽：外壳铺满后保持舒适阅读行长（65-75ch），超宽屏不整行读不动 */
+.post-item .p-content { color: var(--color-text); margin-top: 8px; line-height: 1.7; word-break: break-all; font-size: var(--text-md); max-width: 75ch; }
 .post-images { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 .post-images img {
   width: 120px; height: 120px; object-fit: cover;
