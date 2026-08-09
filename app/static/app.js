@@ -119,7 +119,7 @@ const NAV = [
       { route: "admin/kols", icon: V_ICON, label: "大V管理" },
       { route: "admin/categories", icon: "▣", label: "分类管理" },
       { route: "admin/tags", icon: "⌗", label: "标签管理" },
-      { route: "admin/requests", icon: "✚", label: "求添加" },
+      { route: "admin/requests", icon: "✚", label: "添加审批" },
     ]},
     { label: "数据与日志", items: [
       { route: "admin/stats", icon: BOOK_ICON, label: "数据源" },
@@ -2630,7 +2630,7 @@ async function loadAdminRequests() {
   if (!routeStillActive(_adminRenderSeq)) return;
   $("#admin-body").innerHTML = `
     <section class="section-panel">
-      <header class="section-head"><div><p class="section-eyebrow">Requests</p><h3 class="section-title">用户求添加</h3>
+      <header class="section-head"><div><p class="section-eyebrow">Requests</p><h3 class="section-title">添加审批</h3>
       <p class="section-meta">用户申请添加的大V，审批通过后进入订阅广场。</p></div></header>
       <div class="table-wrap">
         <table>
