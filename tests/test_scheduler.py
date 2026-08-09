@@ -1328,6 +1328,107 @@ def test_startup_message_only_to_admins(monkeypatch):
     assert sent == [("111", "✅ 大V订阅服务已启动")]
 
 
+def test_startup_message_respects_push_channels(monkeypatch):
+    """管理员只勾选 telegram 时，启动提示不应发到已绑定的飞书渠道。"""
+    import asyncio
+
+    db = make_db()
+    uid = db.add_user("kale", "h", telegram_chat_id="111", feishu_chat_id="fc1", is_admin=True)
+    db.update_user(uid, push_channels="telegram")
+    sent = {"tg": [], "fs": []}
+
+    class FakeTG:
+        def __init__(self, config, chat_id=None, client=None, **kwargs):
+            self.client = SimpleNamespace(close=lambda: None)
+            self.chat_id = chat_id
+
+        def send_text(self, text):
+            sent["tg"].append((self.chat_id, text))
+
+    class FakeFS:
+        def __init__(self, config, client=None, **kwargs):
+            self.client = SimpleNamespace(close=lambda: None)
+
+        def send_text(self, text):
+            sent["fs"].append(text)
+
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FakeTG)
+    monkeypatch.setattr("app.notifiers.feishu.FeishuNotifier", FakeFS)
+    monkeypatch.setattr(
+        "app.feishu_personal.build_personal_feishu_kwargs",
+        lambda db, cfg, user: {"open_id": "o1", "chat_id": "fc1", "app_id": "a", "app_secret": "s"},
+    )
+    ncfg = SimpleNamespace(
+        telegram=SimpleNamespace(bot_token="t", chat_id=""),
+        feishu=SimpleNamespace(),
+        wecom=SimpleNamespace(),
+    )
+    scheduler = Scheduler(
+        db,
+        {},
+        [],
+        SimpleNamespace(),
+        notifiers_config=ncfg,
+        xueqiu_config=SimpleNamespace(cookie=""),
+        weibo_config=SimpleNamespace(cookie="", username="", password=""),
+    )
+
+    asyncio.run(scheduler._send_startup_message())
+
+    assert sent["tg"] == [("111", "✅ 大V订阅服务已启动")]
+    assert sent["fs"] == []  # 未勾选飞书 → 不发
+
+
+def test_startup_message_defaults_to_all_bound_channels(monkeypatch):
+    """push_channels 未设置时，已绑定渠道都应收到启动提示（默认行为）。"""
+    import asyncio
+
+    db = make_db()
+    db.add_user("kale", "h", telegram_chat_id="111", feishu_chat_id="fc1", is_admin=True)
+    sent = {"tg": [], "fs": []}
+
+    class FakeTG:
+        def __init__(self, config, chat_id=None, client=None, **kwargs):
+            self.client = SimpleNamespace(close=lambda: None)
+            self.chat_id = chat_id
+
+        def send_text(self, text):
+            sent["tg"].append((self.chat_id, text))
+
+    class FakeFS:
+        def __init__(self, config, client=None, **kwargs):
+            self.client = SimpleNamespace(close=lambda: None)
+
+        def send_text(self, text):
+            sent["fs"].append(text)
+
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FakeTG)
+    monkeypatch.setattr("app.notifiers.feishu.FeishuNotifier", FakeFS)
+    monkeypatch.setattr(
+        "app.feishu_personal.build_personal_feishu_kwargs",
+        lambda db, cfg, user: {"open_id": "o1", "chat_id": "fc1", "app_id": "a", "app_secret": "s"},
+    )
+    ncfg = SimpleNamespace(
+        telegram=SimpleNamespace(bot_token="t", chat_id=""),
+        feishu=SimpleNamespace(),
+        wecom=SimpleNamespace(),
+    )
+    scheduler = Scheduler(
+        db,
+        {},
+        [],
+        SimpleNamespace(),
+        notifiers_config=ncfg,
+        xueqiu_config=SimpleNamespace(cookie=""),
+        weibo_config=SimpleNamespace(cookie="", username="", password=""),
+    )
+
+    asyncio.run(scheduler._send_startup_message())
+
+    assert len(sent["tg"]) == 1
+    assert len(sent["fs"]) == 1  # 未设置 push_channels → 默认全推
+
+
 def test_dnd_window_math():
     from datetime import UTC, datetime
 

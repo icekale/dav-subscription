@@ -1428,8 +1428,10 @@ class Scheduler:
         try:
             admins = [u for u in self.db.list_users() if u.get("is_admin")]
             for user in admins:
-                if user["telegram_chat_id"] and (
-                    self.notifiers_config.telegram.bot_token or user.get("telegram_bot_token")
+                if (
+                    user["telegram_chat_id"]
+                    and _channel_enabled(user, "telegram")
+                    and (self.notifiers_config.telegram.bot_token or user.get("telegram_bot_token"))
                 ):
                     notifier = TelegramNotifier(
                         self.notifiers_config.telegram,
@@ -1442,7 +1444,9 @@ class Scheduler:
                         sent_any = True
                     except Exception as exc:  # noqa: BLE001
                         logger.warning("启动提示 TG 发送失败 user=%s err=%s", user["username"], exc)
-                if user.get("feishu_open_id") or user.get("feishu_chat_id"):
+                if (user.get("feishu_open_id") or user.get("feishu_chat_id")) and _channel_enabled(
+                    user, "feishu"
+                ):
                     from .feishu_personal import build_personal_feishu_kwargs
 
                     fs_kwargs = build_personal_feishu_kwargs(self.db, self.notifiers_config.feishu, user)
@@ -1459,7 +1463,7 @@ class Scheduler:
                         sent_any = True
                     except Exception as exc:  # noqa: BLE001
                         logger.warning("启动提示飞书发送失败 user=%s err=%s", user["username"], exc)
-                if user.get("wecom_webhook"):
+                if user.get("wecom_webhook") and _channel_enabled(user, "wecom"):
                     notifier = WeComNotifier(
                         self.notifiers_config.wecom,
                         client=client,
