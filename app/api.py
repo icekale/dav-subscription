@@ -1556,15 +1556,21 @@ def create_api_router(
 
     @router.post("/tags/backfill", dependencies=[Depends(require_admin)])
     def backfill_post_tags(body: TagBackfillIn, admin: dict = Depends(require_admin)):
-        """给全部未打标贴文补标签（关键词规则，零成本；分页处理避免大表一次拉爆）。"""
+        """给全部未打标贴文补标签（关键词规则，零成本）。
+
+        用 id 游标分页：未命中关键词的帖子保持未打标（tags 为空），若按
+        untagged_only 循环拉取会永远捞起同一批帖而死循环——游标只扫一遍。
+        """
         from .tagging import rule_tag_posts
 
         tag_rules = db.get_tag_vocabulary()
         processed = 0
         tagged_count = 0
-        # 循环分页拉全部未打标帖（tags 为空串），规则打标写库
+        below_id: int | None = None  # None 表示从最新开始，之后按每批最小 id 推进
         while True:
-            batch = db.list_posts(limit=500, untagged_only=True)
+            batch = db.list_posts(
+                limit=500, untagged_only=True, below_id=below_id
+            )
             if not batch:
                 break
             posts = [
@@ -1589,6 +1595,8 @@ def create_api_router(
                     db.update_post_tags(batch[i]["id"], tagged[i])
                     tagged_count += 1
             processed += len(batch)
+            # 游标推进到本批最小 id（ORDER BY id DESC），下一批只扫更早的帖
+            below_id = min(p["id"] for p in batch)
         _audit(
             admin, "backfill_post_tags", detail=f"processed={processed} tagged={tagged_count}"
         )

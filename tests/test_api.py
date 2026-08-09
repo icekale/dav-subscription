@@ -2573,3 +2573,32 @@ def test_tag_filter_exact_element_match():
 
     filtered = client.get("/api/my/feed?tag=宏观", headers=user_headers_h).json()
     assert [p["external_id"] for p in filtered] == ["f1"]
+
+
+def test_backfill_terminates_with_unmatched_posts():
+    """未命中关键词的帖子保持未打标，回填用 id 游标必须能终止（曾死循环）。"""
+    client = make_client()
+    admin = auth_headers(client, "tagadmin")
+    db = client.app.state.db
+    kid = db.add_kol("xueqiu", "标签大V", "tagloop1")
+    # 3 帖：1 个命中「宏观」（央行），2 个不含任何关键词
+    db.insert_post("xueqiu", kid, "lp1", "央行降息", "央行宣布降息", "u", "")
+    db.insert_post("xueqiu", kid, "lp2", "无关内容", "今天天气不错", "u", "")
+    db.insert_post("xueqiu", kid, "lp3", "更早的无关", "随便聊聊", "u", "")
+
+    # 第一次回填：游标扫一遍全部未打标帖（3 条），命中 1 条
+    resp = client.post("/api/tags/backfill", headers=admin, json={})
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["processed"] == 3
+    assert data["tagged"] == 1
+
+    # 第二次回填：未命中帖仍 untagged，游标重新扫到 2 条，但能正常终止（不死循环）
+    resp2 = client.post("/api/tags/backfill", headers=admin, json={})
+    assert resp2.status_code == 200, resp2.text
+    assert resp2.json()["tagged"] == 0
+    assert resp2.json()["processed"] == 2
+
+    # 命中的帖子确实写库了
+    pid = db.get_post_id("xueqiu", "lp1")
+    assert db.get_post(pid)["tags"] == '["宏观"]'

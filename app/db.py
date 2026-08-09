@@ -1226,6 +1226,7 @@ class DB:
         q: str | None = None,
         offset: int = 0,
         untagged_only: bool = False,
+        below_id: int | None = None,
     ) -> list[dict]:
         sql = (
             "SELECT p.*, k.name AS kol_name, k.category_id AS category_id, "
@@ -1249,6 +1250,10 @@ class DB:
             # 直接过滤未打标帖（tags 为空串），避免先取全量再在 Python 里过滤导致
             # 「最新 N 条都已打标」时回填数量恒为 0
             conds.append("(p.tags IS NULL OR p.tags = '')")
+        if below_id is not None:
+            # id 游标：只取该 id 之下的帖（配合 ORDER BY id DESC 实现一次扫描的分页回填）
+            conds.append("p.id < ?")
+            params.append(below_id)
         if conds:
             sql += " WHERE " + " AND ".join(conds)
         sql += " ORDER BY p.id DESC LIMIT ? OFFSET ?"
