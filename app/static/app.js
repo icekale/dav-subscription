@@ -96,9 +96,38 @@ function openLightbox(img) {
   overlay.addEventListener("click", (e) => {
     if (e.target === overlay) closeLightbox();
   });
+  // 移动端滑动手势：左右滑动切换图片（与「点击遮罩关闭」的 tap 区分）
+  overlay.addEventListener("touchstart", lightboxTouchStart, { passive: true });
+  overlay.addEventListener("touchmove", lightboxTouchMove, { passive: false });
+  overlay.addEventListener("touchend", lightboxTouchEnd, { passive: true });
   document.body.appendChild(overlay);
   document.body.classList.add("lightbox-open");
   document.addEventListener("keydown", lightboxKeyHandler);
+}
+
+let _lbTouchStart = null;
+
+function lightboxTouchStart(e) {
+  // 从箭头/关闭按钮上开始的滑动不拦截（按钮有自己的事件）
+  if (e.target.closest(".lightbox-nav, .lightbox-close")) return;
+  _lbTouchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+}
+
+function lightboxTouchMove(e) {
+  if (!_lbTouchStart) return;
+  const dx = e.touches[0].clientX - _lbTouchStart.x;
+  const dy = e.touches[0].clientY - _lbTouchStart.y;
+  // 水平滑动占优时拦截：阻止页面滚动，也阻止松手后合成 click（避免误关灯箱）
+  if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy)) e.preventDefault();
+}
+
+function lightboxTouchEnd(e) {
+  if (!_lbTouchStart) return;
+  const dx = e.changedTouches[0].clientX - _lbTouchStart.x;
+  const dy = e.changedTouches[0].clientY - _lbTouchStart.y;
+  _lbTouchStart = null;
+  if (Math.abs(dx) < 40 || Math.abs(dx) < Math.abs(dy) * 1.5) return; // 阈值：水平 40px 且明显占优
+  lightboxStep(dx < 0 ? 1 : -1);
 }
 
 function lightboxStep(dir) {

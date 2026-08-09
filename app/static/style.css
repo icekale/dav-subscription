@@ -647,6 +647,7 @@ textarea.form-control {
   box-shadow: var(--shadow-lg);
   object-fit: contain;
   cursor: default;
+  touch-action: pan-y; /* 水平滑动交给 JS 切换图片，垂直保留原生 */
   animation: lightbox-img-in 0.28s ease-out;
 }
 .lightbox-close {
