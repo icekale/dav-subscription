@@ -270,11 +270,11 @@ function renderSidebar(user) {
     `).join("");
   $("#sidebar-nav").innerHTML = html;
   $("#sidebar-user").innerHTML = `
+    <div class="theme-switcher" id="theme-switcher"></div>
     <div class="sidebar-foot-links">
       <a id="sidebar-gh-link" class="sidebar-gh-link" href="https://github.com/icekale/dav-subscription" target="_blank" rel="noopener" title="GitHub 项目">${GITHUB_ICON}</a>
       <span class="sidebar-user-meta" id="sidebar-version">v${APP_VERSION}</span>
     </div>
-    <div class="theme-switcher" id="theme-switcher"></div>
   `;
   renderThemeSwitcher();
   checkUpdate();

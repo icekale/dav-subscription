@@ -319,7 +319,8 @@ textarea.form-control {
 .nav-sub .nav-item { padding-left: 22px; width: 100%; }
 .sidebar-foot { padding: 24px 12px 14px; }
 .sidebar-user { font-size: var(--text-xs); color: var(--color-text-muted); display: block; }
-.sidebar-foot-links { display: flex; flex-direction: column; align-items: center; gap: 5px; }
+/* 底部：主题切换器在上，GitHub+版本号并排在下 */
+.sidebar-foot-links { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 12px; }
 .sidebar-gh-link {
   width: 26px; height: 26px; border-radius: 50%;
   border: var(--border-strong); background: var(--color-surface);
@@ -342,8 +343,7 @@ textarea.form-control {
 /* 主题切换（侧边栏底部三态）：与 GitHub 圆钮同语言——无边框小图标，选中用蓝色+淡蓝底 */
 .theme-switcher {
   display: flex; gap: 6px;
-  justify-content: center; margin-top: 12px;
-  padding-top: 12px; border-top: var(--border-soft);
+  justify-content: center;
 }
 .theme-mode {
   width: 32px; height: 32px; border-radius: var(--radius-xs);
