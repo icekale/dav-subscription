@@ -335,6 +335,23 @@ textarea.form-control {
 .sidebar-update { color: var(--color-accent); font-weight: 600; text-decoration: none; margin-left: 2px; }
 .sidebar-update:hover { text-decoration: underline; }
 
+/* 主题切换（侧边栏底部三态） */
+.theme-switcher {
+  display: flex; gap: 4px;
+  justify-content: center; margin-top: 12px;
+  padding-top: 12px; border-top: var(--border-soft);
+}
+.theme-mode {
+  width: 30px; height: 30px; border-radius: var(--radius-2xs);
+  border: var(--border-strong); background: var(--color-surface);
+  font-size: 14px; line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--color-text-muted);
+  transition: all var(--ease-standard);
+}
+.theme-mode:hover { border-color: var(--color-accent); color: var(--color-accent); }
+.theme-mode.selected { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-white); }
+
 .main-col { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .topbar {
   height: 56px;
@@ -352,7 +369,7 @@ textarea.form-control {
 .topbar-title { display: flex; align-items: center; gap: 6px; }
 .topbar-title h2 { font-size: var(--text-lg); font-weight: var(--font-weight-bold); color: var(--color-text-strong); }
 .icon-btn { width: 30px; height: 30px; border: none; background: none; font-size: 20px; color: var(--color-text); border-radius: var(--radius-2xs); }
-.icon-btn:hover { background: rgba(12, 18, 34, 0.05); }
+.icon-btn:hover { background: var(--color-surface-hover); }
 .topbar-user { display: flex; align-items: center; gap: 12px; }
 .user-chip { display: flex; align-items: center; gap: 10px; }
 .user-avatar {
@@ -367,7 +384,7 @@ textarea.form-control {
 .user-name { font-size: var(--text-sm); font-weight: var(--font-weight-semibold); color: var(--color-text-strong); }
 .user-role { font-size: 11px; color: var(--color-accent); }
 .topbar-logout { border: none; background: none; color: var(--color-text-muted); font-size: var(--text-sm); padding: 6px 10px; border-radius: var(--radius-2xs); }
-.topbar-logout:hover { background: rgba(12, 18, 34, 0.05); color: var(--color-danger); }
+.topbar-logout:hover { background: var(--color-surface-hover); color: var(--color-danger); }
 
 .page-main { padding: 24px; max-width: 1180px; width: 100%; margin: 0 auto; }
 
@@ -409,10 +426,10 @@ textarea.form-control {
 .platform-tab.selected .pt-icon { filter: brightness(0) invert(1); }
 .pt-label { display: none; }
 .pt-icon { width: 18px; height: 18px; }
-.platform-tab[data-platform="xueqiu"]:not(.selected) .pt-icon { color: #287dff; }
+.platform-tab[data-platform="xueqiu"]:not(.selected) .pt-icon { color: var(--color-brand-xueqiu); }
 .platform-tab[data-platform="combination"]:not(.selected) .pt-icon { color: var(--color-accent); }
-.platform-tab[data-platform="weibo"]:not(.selected) .pt-icon { color: #e6162d; }
-.platform-tab[data-platform="twitter"]:not(.selected) .pt-icon { color: #000; }
+.platform-tab[data-platform="weibo"]:not(.selected) .pt-icon { color: var(--color-brand-weibo); }
+.platform-tab[data-platform="twitter"]:not(.selected) .pt-icon { color: var(--color-brand-twitter); }
 
 /* 搜索 */
 .search-bar {
@@ -537,7 +554,7 @@ textarea.form-control {
   display: inline-flex; align-items: center; gap: 5px;
   font-size: 12px; color: var(--color-text-muted); cursor: pointer; user-select: none;
 }
-.sub-type-switch input { accent-color: #16a34a; cursor: pointer; }
+.sub-type-switch input { accent-color: var(--color-success); cursor: pointer; }
 
 /* 推送通道选择 */
 .channel-picks { display: flex; gap: 10px; flex-wrap: wrap; }
@@ -568,9 +585,9 @@ textarea.form-control {
 .channel-pick.selected .ch-check {
   background: var(--color-accent); border-color: var(--color-accent); color: var(--color-white);
 }
-.channel-pick[data-channel="telegram"] .ch-icon { color: #26a5e4; }
-.channel-pick[data-channel="feishu"] .ch-icon { color: #3370ff; }
-.channel-pick[data-channel="wecom"] .ch-icon { color: #07c160; }
+.channel-pick[data-channel="telegram"] .ch-icon { color: var(--color-brand-telegram); }
+.channel-pick[data-channel="feishu"] .ch-icon { color: var(--color-brand-feishu); }
+.channel-pick[data-channel="wecom"] .ch-icon { color: var(--color-brand-wecom); }
 
 /* 帖子 */
 .post-item { padding: 16px 4px; border-bottom: var(--border-soft); }
@@ -659,10 +676,10 @@ textarea.form-control {
 .tl-pill.selected { background: var(--color-accent); border-color: var(--color-accent); color: var(--color-white); font-weight: var(--font-weight-semibold); }
 .tl-pill.selected .pt-icon { filter: brightness(0) invert(1); }
 .tl-pill .pt-icon { width: 14px; height: 14px; }
-.tl-pill[data-platform="xueqiu"]:not(.selected) .pt-icon { color: #287dff; }
+.tl-pill[data-platform="xueqiu"]:not(.selected) .pt-icon { color: var(--color-brand-xueqiu); }
 .tl-pill[data-platform="combination"]:not(.selected) .pt-icon { color: var(--color-accent); }
-.tl-pill[data-platform="weibo"]:not(.selected) .pt-icon { color: #e6162d; }
-.tl-pill[data-platform="twitter"]:not(.selected) .pt-icon { color: #000; }
+.tl-pill[data-platform="weibo"]:not(.selected) .pt-icon { color: var(--color-brand-weibo); }
+.tl-pill[data-platform="twitter"]:not(.selected) .pt-icon { color: var(--color-brand-twitter); }
 .tl-actions { display: flex; gap: 10px; flex-shrink: 0; }
 .tl-actions .btn-ghost.has-filter { border-color: var(--color-accent); color: var(--color-accent); }
 .tl-filter-panel { display: none; margin-top: 12px; padding-top: 12px; border-top: var(--border-default); flex-direction: column; gap: 10px; }
@@ -679,15 +696,15 @@ textarea.form-control {
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  background: #f1f2f4;
+  background: var(--color-bg-muted);
   flex-shrink: 0;
 }
 .post-item .p-name-line .p-platform .pt-icon { width: 13px; height: 13px; }
 .post-item .p-name-line .p-platform[data-platform="twitter"] .pt-icon { width: 11px; height: 11px; }
-.post-item .p-name-line .p-platform[data-platform="xueqiu"] .pt-icon { color: #287dff; }
+.post-item .p-name-line .p-platform[data-platform="xueqiu"] .pt-icon { color: var(--color-brand-xueqiu); }
 .post-item .p-name-line .p-platform[data-platform="combination"] .pt-icon { color: var(--color-accent); }
-.post-item .p-name-line .p-platform[data-platform="weibo"] .pt-icon { color: #e6162d; }
-.post-item .p-name-line .p-platform[data-platform="twitter"] .pt-icon { color: #000; }
+.post-item .p-name-line .p-platform[data-platform="weibo"] .pt-icon { color: var(--color-brand-weibo); }
+.post-item .p-name-line .p-platform[data-platform="twitter"] .pt-icon { color: var(--color-brand-twitter); }
 
 /* 表格 */
 .table-wrap { overflow-x: auto; }
@@ -767,9 +784,9 @@ td .btn-sm { margin-right: 6px; }
 .channel-head b { color: var(--color-text-strong); }
 .channel-title { display: inline-flex; align-items: center; gap: 8px; }
 .channel-title .ch-icon { width: 22px; height: 22px; }
-.channel-card[data-channel="telegram"] .ch-icon { color: #26a5e4; }
-.channel-card[data-channel="feishu"] .ch-icon { color: #3370ff; }
-.channel-card[data-channel="wecom"] .ch-icon { color: #07c160; }
+.channel-card[data-channel="telegram"] .ch-icon { color: var(--color-brand-telegram); }
+.channel-card[data-channel="feishu"] .ch-icon { color: var(--color-brand-feishu); }
+.channel-card[data-channel="wecom"] .ch-icon { color: var(--color-brand-wecom); }
 .channel-desc { margin-top: 10px; line-height: 1.6; }
 .channel-actions { margin-top: auto; padding-top: 14px; display: flex; flex-direction: column; gap: 8px; }
 .channel-btn {
@@ -1044,7 +1061,7 @@ details.bind-steps[open] > summary::before { content: "▾ "; }
 .settings-tab {
   padding: 7px 16px;
   border-radius: 999px;
-  border: 1px solid rgba(128, 128, 128, 0.3);
+  border: 1px solid var(--color-line-strong);
   background: transparent;
   color: var(--color-text-muted);
   font-size: 13px;

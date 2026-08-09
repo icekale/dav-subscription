@@ -13,8 +13,18 @@
   <link rel="apple-touch-icon" href="/icon-192.png">
   <link rel="apple-touch-startup-image" href="/splash-ios.png">
   <link rel="icon" type="image/svg+xml" href="/logo.svg">
-  <link rel="stylesheet" href="/vendor/design-tokens.css?v=12">
-  <link rel="stylesheet" href="/style.css?v=49">
+  <script>
+    // 主题防闪：首帧前按 localStorage 或系统偏好设置 html.theme-dark（app.js 里 setTheme 管理同一逻辑）
+    (function () {
+      try {
+        var m = localStorage.getItem("theme") || "auto";
+        var dark = m === "dark" || (m === "auto" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        if (dark) document.documentElement.classList.add("theme-dark");
+      } catch (e) { /* localStorage 不可用时静默 */ }
+    })();
+  </script>
+  <link rel="stylesheet" href="/vendor/design-tokens.css?v=13">
+  <link rel="stylesheet" href="/style.css?v=50">
 </head>
 <body>
   <!-- 登录 / 注册 -->
@@ -111,6 +121,6 @@
     </div>
     <nav id="bottom-nav" class="bottom-nav"></nav>
   </div>
-  <script src="/app.js?v=73"></script>
+  <script src="/app.js?v=74"></script>
 </body>
 </html>

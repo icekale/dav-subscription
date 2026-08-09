@@ -156,7 +156,9 @@ function renderSidebar(user) {
       <a id="sidebar-gh-link" class="sidebar-gh-link" href="https://github.com/icekale/dav-subscription" target="_blank" rel="noopener" title="GitHub 项目">${GITHUB_ICON}</a>
       <span class="sidebar-user-meta" id="sidebar-version">v${APP_VERSION}</span>
     </div>
+    <div class="theme-switcher" id="theme-switcher"></div>
   `;
+  renderThemeSwitcher();
   checkUpdate();
 }
 
@@ -2456,7 +2458,7 @@ async function adminBatchAddKols() {
       resultEl.textContent = data.failed.length
         ? `成功 ${data.ok}/${data.total}，失败 ${data.failed.length} 条`
         : `成功 ${data.ok}/${data.total}`;
-      resultEl.style.color = data.failed.length ? "#c0392b" : "#2e7d32";
+      resultEl.style.color = data.failed.length ? "var(--color-danger)" : "var(--color-success)";
       resultEl.style.fontWeight = "bold";
     }
     flash(data.failed.length
@@ -3254,6 +3256,58 @@ async function adminToggleAdmin(userId, makeAdmin) {
   }
 }
 
+// ---------- 主题（深色模式）----------
+const THEME_KEY = "theme"; // 值：light | dark | auto
+
+function themeMode() {
+  try {
+    return localStorage.getItem(THEME_KEY) || "auto";
+  } catch {
+    return "auto";
+  }
+}
+
+function systemPrefersDark() {
+  return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+}
+
+function applyTheme() {
+  const mode = themeMode();
+  const dark = mode === "dark" || (mode === "auto" && systemPrefersDark());
+  document.documentElement.classList.toggle("theme-dark", dark);
+  // 同步顶部浏览器 UI（桌面无意义，PWA/移动端状态栏）
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute("content", dark ? "#0d1014" : "#0d5cff");
+  return dark;
+}
+
+function setTheme(mode) {
+  if (!["light", "dark", "auto"].includes(mode)) mode = "auto";
+  try {
+    localStorage.setItem(THEME_KEY, mode);
+  } catch { /* localStorage 不可用则只影响当前页 */ }
+  applyTheme();
+  renderThemeSwitcher();
+}
+
+function renderThemeSwitcher() {
+  const el = $("#theme-switcher");
+  if (!el) return;
+  const mode = themeMode();
+  el.innerHTML = ["light", "dark", "auto"].map((m) => `
+    <button class="theme-mode ${mode === m ? "selected" : ""}" data-mode="${m}" title="${m === "light" ? "浅色" : m === "dark" ? "深色" : "跟随系统"}" onclick="setTheme('${m}')">${m === "light" ? "☀️" : m === "dark" ? "🌙" : "🖥"}</button>`).join("");
+}
+
+// 系统主题变化时，auto 模式跟随；手动模式不打扰
+if (window.matchMedia) {
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+    if (themeMode() === "auto") {
+      applyTheme();
+      renderThemeSwitcher();
+    }
+  });
+}
+
 // ---------- 路由 ----------
 let routeRenderSeq = 0; // 每次路由切换递增；异步渲染完成后凭此丢弃过期响应
 
@@ -3405,4 +3459,5 @@ if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("/sw.js").catch(() => {});
 }
 
+applyTheme(); // 与 index.html 防闪脚本同一逻辑，兜底 + 同步 meta theme-color
 router();
