@@ -113,7 +113,7 @@
   --color-text-label: #4f535d;
   --color-text-chip: #454a53;
   --color-text-disabled: #646972;
-  --color-link: #0f8fdd;
+  --color-link: #0b6fbd;
 
   --color-line: rgba(12, 18, 34, 0.1);
   --color-line-strong: rgba(12, 18, 34, 0.16);
@@ -132,6 +132,8 @@
   --color-accent: #1668e0;
   --color-accent-strong: #155eef;
   --color-accent-soft: rgba(22, 119, 255, 0.12);
+  /* 强调色文字：浅色同 accent（浅底对比 5.1:1 达标）；深色主题覆盖为亮蓝 */
+  --color-accent-text: #1668e0;
 
   /* 平台品牌色（图标用；深色模式在 .theme-dark 中覆盖） */
   --color-brand-xueqiu: #287dff;
@@ -389,6 +391,8 @@
 
   /* accent soft（主色值保持，soft 背景深色化） */
   --color-accent-soft: rgba(64, 145, 255, 0.16);
+  /* 强调色文字：深底上 #1668e0 对比不足（3.4:1），提亮到 #5a9bf5（6.2:1） */
+  --color-accent-text: #5a9bf5;
   --color-success-soft: rgba(52, 199, 123, 0.16);
   --color-danger-soft: rgba(240, 94, 110, 0.16);
   --color-warning-soft: rgba(241, 165, 60, 0.16);

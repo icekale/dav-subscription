@@ -563,8 +563,8 @@ function kolCard(kol) {
         <button class="btn-sub ${kol.subscribed ? "subscribed" : ""}" onclick="toggleSubscribe(${kol.id}, this)">
           ${kol.subscribed ? "✓ 已订阅" : "订阅"}
         </button>
-        ${kol.subscribed ? `<button class="fav-btn ${kol.favorite ? "fav-on" : ""}" onclick="toggleFavorite(${kol.id}, this)" title="特别关注：优先推送 ⭐">${STAR_SVG}</button>` : ""}
-        ${kol.subscribed ? `<button class="fav-btn ${kol.secondary ? "sec-on" : "sec-off"}" onclick="toggleSecondary(${kol.id}, this)" title="次要：新帖合并进摘要推送（降频）🔕">${kol.secondary ? BELL_OFF_ICON : BELL_ICON}</button>` : ""}
+        ${kol.subscribed ? `<button class="fav-btn ${kol.favorite ? "fav-on" : ""}" onclick="toggleFavorite(${kol.id}, this)" title="特别关注：优先推送" aria-label="${kol.favorite ? "取消特别关注" : "设为特别关注"}">${STAR_SVG}</button>` : ""}
+        ${kol.subscribed ? `<button class="fav-btn ${kol.secondary ? "sec-on" : "sec-off"}" onclick="toggleSecondary(${kol.id}, this)" title="次要：新帖合并进摘要推送（降频）" aria-label="${kol.secondary ? "取消次要" : "设为次要"}">${kol.secondary ? BELL_OFF_ICON : BELL_ICON}</button>` : ""}
         ${state.user?.is_admin ? `<button class="btn-sm danger kol-del" onclick="adminDeleteKolFromHome(${kol.id})" title="删除该大V" aria-label="删除该大V">${TRASH_ICON}</button>` : ""}
       </div>
     </div>`;
@@ -1387,7 +1387,9 @@ function navChartSvg(series) {
   const Y = (v) => padT + (1 - (v - min) / (max - min)) * (H - padT - padB);
   const pts = series.map((p, i) => `${X(i).toFixed(1)},${Y(p.value).toFixed(1)}`).join(" ");
   const up = series[series.length - 1].value >= series[0].value;
-  const color = up ? "#e64340" : "#07c160";
+  // 数据色走 token（CSS 变量，深色主题自动切换亮色变体）
+  const cssVar = up ? "--color-data-positive" : "--color-data-negative";
+  const color = getComputedStyle(document.documentElement).getPropertyValue(cssVar).trim() || (up ? "#b05b63" : "#23714a");
   const base = (H - padB).toFixed(1);
   const area = `M${X(0).toFixed(1)},${base} L${pts.replace(/ /g, " L")} L${X(series.length - 1).toFixed(1)},${base} Z`;
   const grid = [0, 1, 2, 3].map((i) => {
