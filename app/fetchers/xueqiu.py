@@ -14,8 +14,8 @@ XUEQIU_COOKIE_KEY = "xueqiu_cookie"
 XUEQIU_COOKIE_TIME_KEY = "xueqiu_cookie_updated_at"
 XUEQIU_TIMELINE_URL = "https://xueqiu.com/statuses/user_timeline.json"
 
-# waf-bot 无头浏览器维护的通关 cookie 文件（含 HttpOnly 挑战值，整套会话自洽），
-# 由独立容器周期刷新，主容器抓取时整体读取使用。未配置时不启用。
+# waf-bot 轻量 JS solver 维护的通关 cookie 文件（整套会话自洽），
+# 由独立容器验证时间线 API 后周期刷新，主容器抓取时整体读取使用。未配置时不启用。
 WAF_COOKIE_FILE = os.environ.get("WAF_COOKIE_FILE", "/data/waf_cookies.json")
 
 

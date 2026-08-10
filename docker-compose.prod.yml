@@ -77,12 +77,20 @@ services:
       - TWITTER_AUTH_TOKEN=${TWITTER_AUTH_TOKEN}
     networks: [dav]
 
-  # 无头浏览器定期过目标站点的 JS 执行型 WAF（雪球 acw 挑战等），
-  # 把通关 cookie 写到共享数据卷，主容器抓取时读取复用。
+  # 轻量 JS solver 定期通过目标站点的 WAF 挑战（雪球 acw 挑战等），
+  # 把验证通过的 cookie 写到共享数据卷，主容器抓取时读取复用。
+  # 回退方案：若挑战升级导致 jsdom 失效，把 build 改为
+  #   build: { context: ./waf-bot, dockerfile: Dockerfile.chromium }
   waf-bot:
     build: ./waf-bot
     container_name: dav-waf-bot
     restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [DAC_OVERRIDE]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /tmp:size=16m,mode=1777
     environment:
       - TZ=Asia/Shanghai
       - WAF_COOKIE_FILE=/data/waf_cookies.json
