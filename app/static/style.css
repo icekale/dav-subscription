@@ -263,6 +263,7 @@ textarea.form-control {
   justify-content: center;
   box-shadow: var(--shadow-xs);
 }
+.request-banner-icon svg { width: 20px; height: 20px; }
 .request-banner-copy { flex: 1 1 auto; min-width: 0; }
 .request-banner-copy .title {
   font-size: var(--text-body);
@@ -1067,6 +1068,7 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
   border-radius: var(--radius-control);
 }
 .bnav-item .bnav-icon { font-size: 18px; line-height: 1; }
+.bnav-item .bnav-icon svg { width: 18px; height: 18px; }
 .bnav-item.active { color: var(--color-accent-strong); font-weight: var(--font-weight-semibold); }
 
 /* 「更多」页网格 */
