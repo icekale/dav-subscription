@@ -2716,3 +2716,29 @@ def test_add_kol_with_secondary():
     })
     assert r.status_code == 200
     assert r.json()["secondary"] == 1
+
+
+def test_partial_update_preserves_priority_and_secondary():
+    """部分更新（只传 enabled）不得清除 priority/secondary 标记。"""
+    client = make_client()
+    headers = auth_headers(client)
+    r = client.post(
+        "/api/kols", headers=headers,
+        json={"platform": "xueqiu", "name": "测试V", "external_id": "777777", "priority": True},
+    )
+    assert r.status_code == 200
+    kid = r.json()["id"]
+    # 先设 secondary（互斥会清 priority），再造一个 priority 场景
+    r = client.put(f"/api/kols/{kid}", headers=headers, json={"secondary": True})
+    assert r.json()["secondary"] == 1
+    # 只传 enabled 的部分更新
+    r = client.put(f"/api/kols/{kid}", headers=headers, json={"enabled": False})
+    assert r.status_code == 200
+    kol = r.json()
+    assert kol["secondary"] == 1, f"secondary 被部分更新清除: {kol}"
+    # priority 方向同样验证
+    r = client.put(f"/api/kols/{kid}", headers=headers, json={"priority": True})
+    assert r.json()["priority"] == 1
+    r = client.put(f"/api/kols/{kid}", headers=headers, json={"enabled": True})
+    assert r.status_code == 200
+    assert r.json()["priority"] == 1, "priority 被部分更新清除"

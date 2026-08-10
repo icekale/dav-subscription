@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from . import auth, wechat
 from .avatar_cache import cache_avatar
 from .bot_core import BIND_CODE_TTL
-from .db import ALLOWED_PLATFORMS, DB
+from .db import _UNSET, ALLOWED_PLATFORMS, DB
 from .feed import build_rss_xml
 from .fetchers.base import Post
 from .fetchers.combination import extract_cube_symbol, resolve_combination_profile
@@ -1532,9 +1532,9 @@ def create_api_router(
             name=name,
             external_id=external_id,
             enabled=body.enabled,
-            category_id=body.category_id if "category_id" in body.model_fields_set else None,
-            priority=body.priority if "priority" in body.model_fields_set else None,
-            secondary=body.secondary if "secondary" in body.model_fields_set else None,
+            category_id=body.category_id if "category_id" in body.model_fields_set else _UNSET,
+            priority=body.priority if "priority" in body.model_fields_set else _UNSET,
+            secondary=body.secondary if "secondary" in body.model_fields_set else _UNSET,
         )
         if "is_private" in body.model_fields_set and body.is_private is not None:
             db.update_kol(kol_id, is_private=body.is_private)
