@@ -199,6 +199,38 @@ def test_telegram_unconfigured_raises():
         notifier.notify(make_post())
 
 
+def test_telegram_notify_retries_once_on_transient_error():
+    # 瞬时网络故障（如 TLS 握手超时）应换新请求立即重试一次，而不是直接失败
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        if len(calls) == 1:
+            raise httpx.ConnectError("_ssl.c:993: The handshake operation timed out")
+        return httpx.Response(200, json={"ok": True})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    notifier = TelegramNotifier(
+        TelegramConfig(bot_token="123:abc", chat_id="456"),
+        client=client,
+    )
+    notifier.notify(make_post())  # 不抛异常即重试成功
+    assert len(calls) == 2
+
+
+def test_telegram_notify_raises_after_retry_still_fails():
+    def handler(request):
+        raise httpx.ConnectError("still down")
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    notifier = TelegramNotifier(
+        TelegramConfig(bot_token="123:abc", chat_id="456"),
+        client=client,
+    )
+    with pytest.raises(httpx.ConnectError):
+        notifier.notify(make_post())
+
+
 def test_telegram_unsub_button():
     sent = {}
 
@@ -252,8 +284,8 @@ def test_telegram_image_album_fails_falls_back_to_photo():
         def _send_media_group(self, post):
             raise RuntimeError("album fail")
 
-        def _send_photo_url(self, url, caption=""):
-            calls.append(("photo", url))
+        def _send_photo_url(self, photo_url, caption=""):
+            calls.append(("photo", photo_url))
 
     tg = FakeTelegram(
         TelegramConfig(bot_token="t", chat_id="1"),

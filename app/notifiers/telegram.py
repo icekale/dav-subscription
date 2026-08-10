@@ -181,12 +181,24 @@ class TelegramNotifier(Notifier):
         self.favorite = favorite
         self.keyword = keyword
 
+    def _post(self, url: str, **kw) -> httpx.Response:
+        """POST 并容忍瞬时网络故障：TLS 握手超时等 TransportError 立即重试一次。
+
+        新请求会重新解析 DNS 并建立新连接，大概率避开被黑洞的 IP；
+        仍失败则抛给外层（deliver_post 会记录失败并入重试队列兜底）。
+        """
+        try:
+            return self.client.post(url, **kw)
+        except httpx.TransportError:
+            logger.warning("Telegram 网络瞬时故障，立即重试 url=%s", url)
+            return self.client.post(url, **kw)
+
     def _send(self, data: dict) -> None:
         if not self.bot_token or not self.chat_id:
             raise RuntimeError("未配置 telegram bot_token/chat_id")
         _tg_rate_limiter.wait()
         url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
-        resp = self.client.post(url, data={"chat_id": self.chat_id, **data})
+        resp = self._post(url, data={"chat_id": self.chat_id, **data})
         resp.raise_for_status()
         result = resp.json()
         # 429 限流：按 Telegram 给出的 retry_after 等待后重试一次
@@ -196,7 +208,7 @@ class TelegramNotifier(Notifier):
             )
             time.sleep(retry_after)
             _tg_rate_limiter.wait()
-            resp = self.client.post(url, data={"chat_id": self.chat_id, **data})
+            resp = self._post(url, data={"chat_id": self.chat_id, **data})
             resp.raise_for_status()
             result = resp.json()
         if not result.get("ok"):
@@ -244,7 +256,7 @@ class TelegramNotifier(Notifier):
             raise RuntimeError("未配置 telegram bot_token/chat_id")
         media = [{"type": "photo", "media": url} for url in post.images[:4]]
         _tg_rate_limiter.wait()
-        resp = self.client.post(
+        resp = self._post(
             f"https://api.telegram.org/bot{self.bot_token}/sendMediaGroup",
             data={"chat_id": self.chat_id, "media": json.dumps(media, ensure_ascii=False)},
         )
@@ -260,7 +272,7 @@ class TelegramNotifier(Notifier):
         data = {"chat_id": self.chat_id, "photo": photo_url}
         if caption:
             data["caption"] = caption
-        resp = self.client.post(
+        resp = self._post(
             f"https://api.telegram.org/bot{self.bot_token}/sendPhoto",
             data=data,
         )
@@ -324,7 +336,7 @@ class TelegramNotifier(Notifier):
             raise RuntimeError("未配置 telegram bot_token/chat_id")
         _tg_rate_limiter.wait()
         url = f"https://api.telegram.org/bot{self.bot_token}/sendPhoto"
-        resp = self.client.post(
+        resp = self._post(
             url,
             data={"chat_id": self.chat_id, "caption": caption},
             files={"photo": ("qr.png", photo, "image/png")},
