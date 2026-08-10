@@ -1115,7 +1115,7 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
   .tl-filterbar-top { flex-direction: column; align-items: stretch; }
   .tl-pills { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 4px; }
   .tl-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; width: 100%; }
-  .tl-actions button { width: 100%; justify-content: center; }
+  .tl-actions button { width: 100%; justify-content: center; white-space: nowrap; }
   .btn-normal, .btn-ghost, .channel-btn { min-height: 44px; }
   .btn-add { min-height: 44px; }
   .form-control { min-height: 44px; }
