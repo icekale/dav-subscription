@@ -1,7 +1,7 @@
 services:
-  dav-subscription:
+  vpush:
     build: .
-    container_name: dav-subscription
+    container_name: vpush
     restart: unless-stopped
     environment:
       - TZ=Asia/Shanghai
@@ -62,7 +62,7 @@ services:
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
-      - dav-subscription
+      - vpush
     networks: [dav]
 
   # X 直抓失败时的备用通道
@@ -84,7 +84,7 @@ services:
   #   build: { context: ./waf-bot, dockerfile: Dockerfile.chromium }
   waf-bot:
     build: ./waf-bot
-    container_name: dav-waf-bot
+    container_name: vpush-waf-bot
     restart: unless-stopped
     read_only: true
     cap_drop: [ALL]

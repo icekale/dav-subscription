@@ -89,7 +89,7 @@ def build_rss_xml(posts: list[dict], username: str, site_url: str) -> str:
         f"{username} 在自托管大V订阅上关注的大V动态（雪球/微博/X）。"
     )
     ElementTree.SubElement(channel, "language").text = "zh-cn"
-    ElementTree.SubElement(channel, "generator").text = "dav-subscription"
+    ElementTree.SubElement(channel, "generator").text = "vpush"
     for post in posts:
         item = ElementTree.SubElement(channel, "item")
         ElementTree.SubElement(item, "title").text = _item_title(post)

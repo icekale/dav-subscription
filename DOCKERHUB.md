@@ -1,4 +1,4 @@
-# 大V订阅 DaV Subscription
+# 大V订阅 V Push
 
 **自托管的社交大V动态聚合订阅系统**：抓取 **雪球 / 微博 / X (Twitter)** 大V的公开动态（含雪球组合调仓），新帖按订阅关系**实时推送到 Telegram / 飞书 / 企业微信**。多用户自助订阅，每个用户自选关注的大V与接收渠道；管理员在网页后台统一管理大V目录、数据源与用户。
 
@@ -7,7 +7,7 @@
 | | |
 | --- | --- |
 | 平台 | linux/amd64 · linux/arm64（Docker Hub / GHCR 双端发布） |
-| 镜像 | `icekale/dav-subscription:latest` |
+| 镜像 | `icekale/vpush:latest` |
 | 许可 | MIT |
 
 ## ✨ 功能特性
@@ -31,13 +31,13 @@
 ### 方式一：docker run（最快体验）
 
 ```bash
-docker run -d --name dav-subscription --restart unless-stopped \
+docker run -d --name vpush --restart unless-stopped \
   -p 8000:8000 \
   -v "$PWD/data:/data" \
   -e WEB_ADMIN_PASSWORD=你的管理员密码 \
   -e TELEGRAM_BOT_TOKEN=你的Telegram机器人token \
   -e TELEGRAM_CHAT_ID=你的会话ID \
-  icekale/dav-subscription:latest
+  icekale/vpush:latest
 ```
 
 ### 方式二：Docker Compose（推荐）
@@ -46,9 +46,9 @@ docker run -d --name dav-subscription --restart unless-stopped \
 
 ```yaml
 services:
-  dav-subscription:
-    image: icekale/dav-subscription:latest
-    container_name: dav-subscription
+  vpush:
+    image: icekale/vpush:latest
+    container_name: vpush
     restart: unless-stopped
     ports:
       - "8000:8000"
@@ -81,9 +81,9 @@ TWITTER_COOKIE=...
 docker compose up -d
 ```
 
-打开浏览器访问 **http://localhost:8000**，用 `admin` + `WEB_ADMIN_PASSWORD` 登录后台。
+打开浏览器访问 **<http://localhost:8000**，用> `admin` + `WEB_ADMIN_PASSWORD` 登录后台。
 
-> 国内网络拉取慢，可改用 GHCR 镜像：`ghcr.io/icekale/dav-subscription:latest`
+> 国内网络拉取慢，可改用 GHCR 镜像：`ghcr.io/icekale/vpush:latest`
 
 ## 📱 如何使用
 
@@ -126,15 +126,15 @@ docker compose up -d
 | `POLLING_POSTS_RETENTION_DAYS` | 否 | 帖子/推送记录保留天数（默认 30，0 永久） |
 | `TZ` | 否 | 时区，默认 Asia/Shanghai |
 
-完整变量清单见仓库 [.env.example](https://github.com/icekale/dav-subscription/blob/main/.env.example)。
+完整变量清单见仓库 [.env.example](https://github.com/icekale/vpush/blob/main/.env.example)。
 
 ## 🔒 生产部署（HTTPS）
 
 仓库提供带 Caddy 自动 HTTPS 的完整编排：
 
 ```bash
-git clone https://github.com/icekale/dav-subscription.git
-cd dav-subscription
+git clone https://github.com/icekale/vpush.git
+cd vpush
 cp .env.example .env    # 设置 DOMAIN、WEB_ADMIN_PASSWORD、推送凭据
 docker compose -f docker-compose.prod.yml up -d --build
 ```
@@ -156,5 +156,5 @@ Caddy 自动申请/续期 Let's Encrypt 证书，把域名 A 记录指向服务�
 
 ## 🔗 相关链接
 
-- GitHub 仓库与完整文档：<https://github.com/icekale/dav-subscription>
+- GitHub 仓库与完整文档：<https://github.com/icekale/vpush>
 - 微信小程序客户端与更多配置见仓库 README

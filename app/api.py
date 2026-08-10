@@ -580,7 +580,7 @@ def create_api_router(
             "current": APP_VERSION,
             "latest": latest,
             "update_available": bool(has and is_newer(latest, APP_VERSION)),
-            "url": "https://github.com/icekale/dav-subscription/releases",
+            "url": "https://github.com/icekale/vpush/releases",
         }
 
     @router.post("/auth/register")

@@ -1,13 +1,13 @@
 <div align="center">
 
-# 大V订阅 DaV Subscription
+# 大V订阅 V Push
 
 自托管的社交大V动态聚合订阅系统：抓取 **雪球 / 微博 / X(Twitter)** 大V公开动态（含雪球组合调仓），新帖实时推送到 **Telegram / 飞书 / 企业微信**。支持多用户注册，每个用户自选订阅的大V与推送渠道，管理员在网页后台统一管理。
 
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Docker](https://img.shields.io/badge/Docker-ready-2496ed.svg?logo=docker&logoColor=white)](Dockerfile)
-[![Docker Hub](https://img.shields.io/docker/v/icekale/dav-subscription?logo=docker&label=Docker%20Hub)](https://hub.docker.com/r/icekale/dav-subscription)
-[![GHCR](https://img.shields.io/badge/GHCR-镜像-2496ed.svg?logo=github&logoColor=white)](https://github.com/icekale/dav-subscription/pkgs/container/dav-subscription)
+[![Docker Hub](https://img.shields.io/docker/v/icekale/vpush?logo=docker&label=Docker%20Hub)](https://hub.docker.com/r/icekale/vpush)
+[![GHCR](https://img.shields.io/badge/GHCR-镜像-2496ed.svg?logo=github&logoColor=white)](https://github.com/icekale/vpush/pkgs/container/vpush)
 [![Platform](https://img.shields.io/badge/Platform-amd64%20%7C%20arm64-blue.svg)]()
 
 </div>
@@ -51,13 +51,13 @@
 本项目从部署、配置到日常运维都可以交给 AI Agent（如 Codex、Claude Code、Cursor 等）直接完成。克隆仓库后，把目标交给 AI Agent，它会自行阅读本 README 与部署文档、准备配置、执行命令并做健康检查：
 
 ```bash
-git clone https://github.com/icekale/dav-subscription.git
+git clone https://github.com/icekale/vpush.git
 ```
 
 > 示例指令（按你的环境替换部署目标与推送渠道）：
 >
 > ```
-> 阅读这个仓库的 README 和部署文档，用 Docker Compose 帮我部署 dav-subscription：
+> 阅读这个仓库的 README 和部署文档，用 Docker Compose 帮我部署 vpush：
 > 1. 配置 Telegram / 飞书 / 企业微信推送渠道，并创建 admin 管理员账号
 > 2. 构建并启动容器，部署完成后检查健康接口和 Web 后台可访问
 > 3. 告诉我登录地址、管理员账号，以及查看日志排障的方法
@@ -81,8 +81,8 @@ AI Agent 可以完成的典型工作：
 ### 2. 获取代码并准备配置
 
 ```bash
-git clone https://github.com/icekale/dav-subscription.git
-cd dav-subscription
+git clone https://github.com/icekale/vpush.git
+cd vpush
 cp .env.example .env
 ```
 
@@ -127,21 +127,21 @@ docker compose up -d --build
 不想本地构建？直接用现成镜像（Docker Hub / GHCR 均发布，amd64 + arm64）：
 
 ```bash
-docker run -d --name dav-subscription --restart unless-stopped \
+docker run -d --name vpush --restart unless-stopped \
   -p 8000:8000 -v "$PWD/data:/data" \
   -e WEB_ADMIN_PASSWORD=你的管理员密码 \
   -e TELEGRAM_BOT_TOKEN=你的token \
-  icekale/dav-subscription:latest
+  icekale/vpush:latest
 ```
 
-或在 compose 里用 `image: icekale/dav-subscription:latest` 替代 `build: .`。不想 git clone，直接新建一个 `docker-compose.yml` 用现成镜像部署：
+或在 compose 里用 `image: icekale/vpush:latest` 替代 `build: .`。不想 git clone，直接新建一个 `docker-compose.yml` 用现成镜像部署：
 
 ```yaml
 services:
-  dav-subscription:
-    # Docker Hub 与 GHCR 双端发布，amd64 + arm64；国内网络可换 ghcr.io/icekale/dav-subscription:latest
-    image: icekale/dav-subscription:latest
-    container_name: dav-subscription
+  vpush:
+    # Docker Hub 与 GHCR 双端发布，amd64 + arm64；国内网络可换 ghcr.io/icekale/vpush:latest
+    image: icekale/vpush:latest
+    container_name: vpush
     restart: unless-stopped
     ports:
       - "8000:8000"
@@ -183,8 +183,8 @@ Caddy 会自动申请并续期 Let's Encrypt 证书，无需额外配置。需�
 在 Unraid 的「Apps」里添加自定义 Compose 栈，或直接使用 `docker-compose.unraid.yml`：
 
 ```bash
-cp docker-compose.unraid.yml /mnt/user/appdata/dav-subscription/docker-compose.yml
-cd /mnt/user/appdata/dav-subscription
+cp docker-compose.unraid.yml /mnt/user/appdata/vpush/docker-compose.yml
+cd /mnt/user/appdata/vpush
 # 在同目录创建 .env（内容同 .env.example）并填写凭据
 docker compose up -d --build
 ```

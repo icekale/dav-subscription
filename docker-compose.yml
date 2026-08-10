@@ -1,7 +1,7 @@
 services:
-  dav-subscription:
+  vpush:
     build: .
-    container_name: dav-subscription
+    container_name: vpush
     restart: unless-stopped
     ports:
       - "8000:8000"

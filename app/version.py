@@ -6,7 +6,7 @@ import time
 
 APP_VERSION = "1.8.2"
 VERSION_CHECK_TTL = 6 * 3600  # 6 小时
-GITHUB_REPO = "icekale/dav-subscription"
+GITHUB_REPO = "icekale/vpush"
 
 
 def _version_key(version: str) -> list[int]:
@@ -36,7 +36,7 @@ def latest_github_version(db) -> tuple[str, bool]:
         resp = httpx.get(
             f"https://api.github.com/repos/{GITHUB_REPO}/tags",
             timeout=10,
-            headers={"User-Agent": "dav-subscription", "Accept": "application/vnd.github+json"},
+            headers={"User-Agent": "vpush", "Accept": "application/vnd.github+json"},
         )
         if resp.status_code == 200:
             versions = []
