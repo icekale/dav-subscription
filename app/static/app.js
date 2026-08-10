@@ -828,7 +828,7 @@ async function renderTimeline(seq) {
       <div class="tl-filterbar-top">
         <div class="tl-pills" id="tl-pills">${tlPillsHtml()}</div>
         <div class="tl-actions">
-          <button id="tl-filter-toggle" class="btn-ghost ${state.timelineQ || state.timelineCategory ? "has-filter" : ""}" aria-expanded="false" aria-controls="tl-filter-panel" onclick="tlFilterPanel()">筛选</button>
+          <button id="tl-filter-toggle" class="fav-toggle ${state.timelineQ || state.timelineCategory ? "has-filter" : ""}" aria-expanded="false" aria-controls="tl-filter-panel" onclick="tlFilterPanel()">筛选</button>
           <button id="timeline-fav-toggle" class="fav-toggle ${state.timelineFavorite ? "fav-on" : ""}" aria-pressed="${state.timelineFavorite}" onclick="toggleTimelineFav()">${STAR_SVG} 特别关注</button>
           <button id="timeline-secondary-toggle" class="fav-toggle ${state.timelineSecondary ? "fav-on" : ""}" aria-pressed="${state.timelineSecondary}" onclick="toggleTimelineSecondary()" title="显示/隐藏次要大V动态（默认隐藏）">${state.timelineSecondary ? EYE_ICON : EYE_OFF_ICON} 次要大V</button>
         </div>

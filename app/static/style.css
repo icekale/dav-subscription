@@ -816,7 +816,7 @@ body.lightbox-open { overflow: hidden; }
 .tl-pill[data-platform="weibo"]:not(.selected) .pt-icon { color: var(--color-brand-weibo); }
 .tl-pill[data-platform="twitter"]:not(.selected) .pt-icon { color: var(--color-brand-twitter); }
 .tl-actions { display: flex; gap: 10px; flex-shrink: 0; }
-.tl-actions .btn-ghost.has-filter { border-color: var(--color-accent); color: var(--color-accent); }
+.tl-actions .fav-toggle.has-filter { border-color: var(--color-accent); color: var(--color-accent); background: var(--color-accent-soft); font-weight: var(--font-weight-semibold); }
 .tl-filter-panel { display: none; margin-top: 12px; padding-top: 12px; border-top: var(--border-default); flex-direction: column; gap: 10px; }
 .tl-filterbar.open .tl-filter-panel { display: flex; }
 .tl-filter-panel .form-control { margin: 0; width: 100%; }
