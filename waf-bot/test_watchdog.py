@@ -172,7 +172,17 @@ def test_solver_rejects_whitespace_signed_url(monkeypatch):
     with pytest.raises(RuntimeError, match="signed URL"):
         watchdog._solve_challenge(html, url)
 
-    assert calls["command"] == ["node", str(watchdog.SOLVER)]
+    assert calls["command"] == [
+        "node",
+        "--permission",
+        f"--allow-fs-read={watchdog.SOLVER.parent.resolve()}",
+        str(watchdog.SOLVER),
+    ]
+    assert not any(
+        flag in " ".join(calls["command"])
+        for flag in ("--allow-fs-write", "--allow-child-process", "--allow-worker")
+    )
+    assert calls["kwargs"].get("shell", False) is False
     assert json.loads(calls["kwargs"]["input"]) == {
         "html": html,
         "url": url,

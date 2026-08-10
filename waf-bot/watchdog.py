@@ -52,7 +52,12 @@ def _is_challenge(response) -> bool:
 
 def _solve_challenge(html: str, url: str) -> str:
     result = subprocess.run(
-        ["node", str(SOLVER)],
+        [
+            "node",
+            "--permission",
+            f"--allow-fs-read={SOLVER.parent.resolve()}",
+            str(SOLVER),
+        ],
         input=json.dumps({"html": html, "url": url, "user_agent": UA}),
         text=True,
         capture_output=True,

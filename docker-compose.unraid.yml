@@ -84,6 +84,11 @@ services:
         PIP_INDEX_URL: https://pypi.tuna.tsinghua.edu.cn/simple
     container_name: dav-waf-bot
     restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /tmp:size=16m,mode=1777
     networks: [dav-net]
     environment:
       TZ: Asia/Shanghai

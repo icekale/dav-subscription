@@ -83,6 +83,11 @@ services:
     build: ./waf-bot
     container_name: dav-waf-bot
     restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /tmp:size=16m,mode=1777
     environment:
       - TZ=Asia/Shanghai
       - WAF_COOKIE_FILE=/data/waf_cookies.json
