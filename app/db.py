@@ -330,6 +330,8 @@ class DB:
         cols = {row["name"] for row in self._rows("PRAGMA table_info(kols)")}
         if "category_id" not in cols:
             self._conn.execute("ALTER TABLE kols ADD COLUMN category_id INTEGER")
+        if "secondary" not in cols:
+            self._conn.execute("ALTER TABLE kols ADD COLUMN secondary INTEGER NOT NULL DEFAULT 0")
         push_cols = {row["name"] for row in self._rows("PRAGMA table_info(push_logs)")}
         if "user_id" not in push_cols:
             self._conn.execute("ALTER TABLE push_logs ADD COLUMN user_id INTEGER")
@@ -448,6 +450,7 @@ class DB:
         external_id: str,
         category_id: int | None = None,
         priority: bool = False,
+        secondary: bool = False,
         original_only: bool = False,
     ) -> int:
         if platform not in ALLOWED_PLATFORMS:
@@ -458,9 +461,17 @@ class DB:
         ):
             raise ValueError("该大V已存在")
         return self._execute(
-            "INSERT INTO kols (platform, name, external_id, category_id, priority, original_only) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (platform, name, external_id, category_id, 1 if priority else 0, 1 if original_only else 0),
+            "INSERT INTO kols (platform, name, external_id, category_id, priority, secondary, original_only) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                platform,
+                name,
+                external_id,
+                category_id,
+                1 if priority else 0,
+                1 if secondary else 0,
+                1 if original_only else 0,
+            ),
         )
 
     def get_kol(self, kol_id: int) -> dict | None:
@@ -534,6 +545,7 @@ class DB:
         original_only=_UNSET,
         category_id=_UNSET,
         priority=_UNSET,
+        secondary=_UNSET,
         is_private=_UNSET,
     ):
         sets, params = [], []
@@ -555,6 +567,13 @@ class DB:
         if priority is not _UNSET:
             sets.append("priority = ?")
             params.append(1 if priority else 0)
+            if priority:
+                sets.append("secondary = 0")  # 互斥：优先大V不能同时是次要
+        if secondary is not _UNSET:
+            sets.append("secondary = ?")
+            params.append(1 if secondary else 0)
+            if secondary:
+                sets.append("priority = 0")  # 互斥：次要大V不能同时是优先
         if is_private is not _UNSET:
             sets.append("is_private = ?")
             params.append(1 if is_private else 0)
