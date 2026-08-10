@@ -3502,3 +3502,38 @@ def test_secondary_kol_goes_to_secondary_digest(monkeypatch):
     flush_digest(db, secondary_digest, [], ncfg)
     assert sent == [(1, "S")]
     assert secondary_digest == {}
+
+
+def test_secondary_kol_realtime_when_long_digest_disabled(monkeypatch):
+    """secondary_digest_interval=0（长摘要禁用）时次要大V应实时推送而非进普通 digest。"""
+    db = make_db()
+    kid = db.add_kol("xueqiu", "S", "1", secondary=True)
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.add_subscription(uid, kid)
+    digest: dict[int, list] = {}
+    calls = []
+
+    class FakeTG:
+        def __init__(self, config, chat_id=None, client=None, **kwargs):
+            self.client = SimpleNamespace(close=lambda: None)
+
+        def notify(self, post):
+            calls.append(post.external_id)
+
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FakeTG)
+    ncfg = SimpleNamespace(
+        telegram=SimpleNamespace(bot_token="t", chat_id=""),
+        feishu=SimpleNamespace(),
+        wecom=SimpleNamespace(),
+    )
+    poll_once(
+        db,
+        {"xueqiu": FakeFetcher([make_post(kid)])},
+        [],
+        interval_seconds=0,
+        digest=digest,
+        secondary_digest=None,  # 长摘要禁用
+        notifiers_config=ncfg,
+    )
+    assert calls == ["p1"]
+    assert digest == {}

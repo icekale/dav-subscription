@@ -978,14 +978,25 @@ def _fetch_kol_once(
         if post_id is None:
             continue
         logger.info("新帖 platform=%s kol=%s id=%s", post.platform, post.kol_name, post.external_id)
-        if digest is not None and not kol.get("priority") and kol["platform"] != "combination":
-            if kol.get("secondary") and secondary_digest is not None:
-                # 次要大V进入长周期合并摘要缓冲，按 secondary_digest_interval 统一推送
-                secondary_digest.setdefault(kol["id"], []).append(post)
-            else:
-                # 普通大V进入合并摘要缓冲，按 digest_interval 周期统一推送；
-                # 雪球组合高频抓取 + 实时推送（调仓通知不被合并周期拖延）
+        if not kol.get("priority") and kol["platform"] != "combination":
+            if kol.get("secondary"):
+                if secondary_digest is not None:
+                    # 次要大V进入长周期合并摘要缓冲，按 secondary_digest_interval 统一推送
+                    secondary_digest.setdefault(kol["id"], []).append(post)
+                else:
+                    # 长摘要禁用（secondary_digest_interval=0）时实时推送
+                    notify_subscribers(
+                        db, post_id, post, notifiers_config, notifiers, retry_queue,
+                        client=client, dnd_buffer=dnd_buffer,
+                    )
+            elif digest is not None:
+                # 普通大V进入合并摘要缓冲，按 digest_interval 周期统一推送
                 digest.setdefault(kol["id"], []).append(post)
+            else:
+                notify_subscribers(
+                    db, post_id, post, notifiers_config, notifiers, retry_queue,
+                    client=client, dnd_buffer=dnd_buffer,
+                )
         else:
             notify_subscribers(
                 db, post_id, post, notifiers_config, notifiers, retry_queue,
