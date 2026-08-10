@@ -231,7 +231,7 @@ docker compose up -d --build
 
 - **雪球**：后台「数据源」页可直接粘贴 Cookie；配置 `WEIBO_USERNAME/PASSWORD` 可自动登录续期微博 Cookie，微博也支持网页扫码登录
 - **X**：配置 `TWITTER_COOKIE` 后直抓 X 官方接口并把内容翻译成中文；直抓失败会自动降级自建 RSSHub 备用通道（compose 已内置，默认指向 `http://rsshub:1200`，不依赖外部公共实例）
-- **反爬绕过**：X 与雪球均对裸 HTTP 客户端设了反爬（Cloudflare / 阿里云 WAF JS 挑战），本仓库已内置对应绕过——X 直抓用 curl_cffi 模拟 Chrome 指纹（`impersonate=chrome124`）；雪球 `waf-bot` sidecar 使用 curl_cffi + jsdom，不包含浏览器运行时，并在发布 cookie 前校验真实用户时间线 API。挑战脚本受 Node 文件系统与进程权限限制，容器同时启用只读根文件系统、能力清零和禁止提权。详见下方「常见问题」
+- **反爬绕过**：X 与雪球均对裸 HTTP 客户端设了反爬（Cloudflare / 阿里云 WAF JS 挑战），本仓库已内置对应绕过——X 直抓用 curl_cffi 模拟 Chrome 指纹（`impersonate=chrome124`）；雪球 `waf-bot` sidecar 使用 curl_cffi + jsdom，不包含浏览器运行时，并在发布 cookie 前校验真实用户时间线 API。挑战脚本受 Node 文件系统与进程权限限制，容器同时启用只读根文件系统、仅保留数据写入所需的 `DAC_OVERRIDE` 能力和禁止提权。详见下方「常见问题」
 - **抓取频率**：后台「数据源」页可实时调整轮询间隔、优先大V间隔、合并推送周期等，即时生效
 
 ## 微信小程序（可选）
