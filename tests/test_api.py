@@ -2698,6 +2698,10 @@ def test_admin_toggle_secondary():
     r = client.put(f"/api/kols/{kid}", headers=headers, json={"priority": True})
     kol = r.json()
     assert kol["priority"] == 1 and kol["secondary"] == 0
+    # 反向互斥：设 secondary 清 priority
+    r = client.put(f"/api/kols/{kid}", headers=headers, json={"secondary": True})
+    kol = r.json()
+    assert kol["secondary"] == 1 and kol["priority"] == 0
 
 
 def test_add_kol_with_secondary():
