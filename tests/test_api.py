@@ -1183,6 +1183,10 @@ def test_polling_config_frequency_tiers():
     assert cfg["normal_idle_cap_seconds"] == 900
     assert cfg["priority_idle_cap_seconds"] == 180
     assert cfg["x_fallback_cap_seconds"] == 1800
+    # 次要大V档位
+    assert cfg["secondary_interval_seconds"] == 900
+    assert cfg["secondary_idle_cap_seconds"] == 3600
+    assert cfg["secondary_digest_interval_seconds"] == 3600
 
     resp = client.put(
         "/api/admin/polling-config",
@@ -1193,6 +1197,9 @@ def test_polling_config_frequency_tiers():
             "normal_idle_cap_seconds": 600,
             "priority_idle_cap_seconds": 300,
             "x_fallback_cap_seconds": 900,
+            "secondary_interval_seconds": 1800,
+            "secondary_idle_cap_seconds": 5400,
+            "secondary_digest_interval_seconds": 7200,
         },
     )
     assert resp.status_code == 200
@@ -1202,6 +1209,9 @@ def test_polling_config_frequency_tiers():
     assert got["normal_idle_cap_seconds"] == 600
     assert got["priority_idle_cap_seconds"] == 300
     assert got["x_fallback_cap_seconds"] == 900
+    assert got["secondary_interval_seconds"] == 1800
+    assert got["secondary_idle_cap_seconds"] == 5400
+    assert got["secondary_digest_interval_seconds"] == 7200
 
     # 超范围被拒
     resp = client.put(

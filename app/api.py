@@ -204,6 +204,10 @@ class PollingConfigIn(BaseModel):
     normal_idle_cap_seconds: int | None = None
     priority_idle_cap_seconds: int | None = None
     x_fallback_cap_seconds: int | None = None
+    # 次要大V档位：降频采集 + 长周期合并推送
+    secondary_interval_seconds: int | None = None
+    secondary_idle_cap_seconds: int | None = None
+    secondary_digest_interval_seconds: int | None = None
 
 
 class CookieIn(BaseModel):
@@ -503,6 +507,27 @@ def create_api_router(
             "config_x_fallback_cap_seconds",
             "config_x_fallback_cap_seconds",
             5,
+            86400,
+        ),
+        (
+            "secondary_interval_seconds",
+            "config_secondary_base_seconds",
+            "config_secondary_base_seconds",
+            60,
+            86400,
+        ),
+        (
+            "secondary_idle_cap_seconds",
+            "config_secondary_idle_cap_seconds",
+            "config_secondary_idle_cap_seconds",
+            60,
+            86400,
+        ),
+        (
+            "secondary_digest_interval_seconds",
+            "config_secondary_digest_interval_seconds",
+            "config_secondary_digest_interval_seconds",
+            0,
             86400,
         ),
     ]

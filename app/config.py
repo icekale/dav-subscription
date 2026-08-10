@@ -99,6 +99,9 @@ class PollingConfig:
     posts_retention_days: int = 30
     push_logs_retention_days: int = 90
     digest_interval_seconds: int = 600
+    secondary_interval_seconds: int = 900
+    secondary_idle_cap_seconds: int = 3600
+    secondary_digest_interval_seconds: int = 3600
     source_probe_interval_seconds: int = 600
     cookie_keepalive_interval_seconds: int = 21600
     daily_report_hour: int = 20
@@ -161,6 +164,9 @@ _ENV_MAP = {
     "POLLING_POSTS_RETENTION_DAYS": ("polling", "posts_retention_days"),
     "POLLING_PUSH_LOGS_RETENTION_DAYS": ("polling", "push_logs_retention_days"),
     "POLLING_DIGEST_INTERVAL_SECONDS": ("polling", "digest_interval_seconds"),
+    "POLLING_SECONDARY_INTERVAL_SECONDS": ("polling", "secondary_interval_seconds"),
+    "POLLING_SECONDARY_IDLE_CAP_SECONDS": ("polling", "secondary_idle_cap_seconds"),
+    "POLLING_SECONDARY_DIGEST_INTERVAL_SECONDS": ("polling", "secondary_digest_interval_seconds"),
     "POLLING_SOURCE_PROBE_INTERVAL_SECONDS": ("polling", "source_probe_interval_seconds"),
     "POLLING_COOKIE_KEEPALIVE_INTERVAL_SECONDS": ("polling", "cookie_keepalive_interval_seconds"),
     "POLLING_DAILY_REPORT_HOUR": ("polling", "daily_report_hour"),

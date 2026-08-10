@@ -94,12 +94,16 @@ def _polling_bool(db: DB, key: str, default: bool = False) -> bool:
 # 以下为默认值，均可在后台「数据源」页抓取设置区调参（config_* 即时生效）：
 #   普通大V空轮封顶 900s（合并推送周期 600s，低活跃大V晚几分钟看到可接受）；
 #   优先大V温和拉伸封顶 180s（实时性最坏 +2min）；X 降级 RSSHub 期间再 ×4（封顶 1800s）；
-#   雪球组合独立高频档：基础 30s、空轮封顶 120s，调仓最坏 ~2min 内发现并实时推送。
+#   雪球组合独立高频档：基础 30s、空轮封顶 120s，调仓最坏 ~2min 内发现并实时推送；
+#   次要大V低频档：基础 900s（15min）、空轮封顶 3600s（1h）、长摘要 3600s（1h）。
 NORMAL_IDLE_CAP_SECONDS = 900
 PRIORITY_IDLE_CAP_SECONDS = 180
 X_FALLBACK_CAP_SECONDS = 1800
 COMBINATION_BASE_SECONDS = 30
 COMBINATION_IDLE_CAP_SECONDS = 120
+SECONDARY_BASE_SECONDS = 900
+SECONDARY_IDLE_CAP_SECONDS = 3600
+SECONDARY_DIGEST_INTERVAL_SECONDS = 3600
 
 
 def _frequency_setting(db: DB, key: str, default: int) -> int:

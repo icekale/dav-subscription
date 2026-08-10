@@ -78,6 +78,9 @@ def create_app(config=None, db_path: str | Path | None = None) -> FastAPI:
         COMBINATION_IDLE_CAP_SECONDS,
         NORMAL_IDLE_CAP_SECONDS,
         PRIORITY_IDLE_CAP_SECONDS,
+        SECONDARY_BASE_SECONDS,
+        SECONDARY_DIGEST_INTERVAL_SECONDS,
+        SECONDARY_IDLE_CAP_SECONDS,
         X_FALLBACK_CAP_SECONDS,
     )
 
@@ -87,6 +90,9 @@ def create_app(config=None, db_path: str | Path | None = None) -> FastAPI:
         ("config_normal_idle_cap_seconds", NORMAL_IDLE_CAP_SECONDS),
         ("config_priority_idle_cap_seconds", PRIORITY_IDLE_CAP_SECONDS),
         ("config_x_fallback_cap_seconds", X_FALLBACK_CAP_SECONDS),
+        ("config_secondary_base_seconds", SECONDARY_BASE_SECONDS),
+        ("config_secondary_idle_cap_seconds", SECONDARY_IDLE_CAP_SECONDS),
+        ("config_secondary_digest_interval_seconds", SECONDARY_DIGEST_INTERVAL_SECONDS),
     ):
         db.set_setting(key, str(value))
     secret = auth.get_or_create_secret(db, config.web.token_secret)
