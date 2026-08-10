@@ -479,6 +479,21 @@ def test_combination_snapshots_stored_and_ttl_skips_refetch():
     assert counts == {"quote": 1, "current": 1, "nav": 1}
 
 
+def test_cube_snapshot_fresh_uses_real_timestamps():
+    """回归：strftime 返回文本，与整数比较恒真导致快照永不刷新（见 2026-08 生产事故）。"""
+    db = DB(":memory:")
+    db.set_cube_snapshot(1, "quote", {"net_value": 1.0})
+    assert db.cube_snapshot_fresh(1, "quote", 60)  # 刚写入：fresh
+    # 把 fetched_at 改成 10 分钟前（模拟 TTL 过期）
+    db._execute(
+        "UPDATE cube_snapshots SET fetched_at = datetime('now', '-10 minutes') "
+        "WHERE kol_id = 1 AND kind = 'quote'"
+    )
+    assert not db.cube_snapshot_fresh(1, "quote", 60)  # 过期：不 fresh
+    assert db.cube_snapshot_fresh(1, "quote", 3600)  # 但 1 小时 TTL 内仍 fresh
+    assert not db.cube_snapshot_fresh(2, "quote", 60)  # 无行：不 fresh
+
+
 def test_combination_snapshot_failure_does_not_break_rebalancing():
     """快照接口失败（WAF/超时）只记日志，调仓推送照常。"""
     payload = {
@@ -518,18 +533,29 @@ def test_combination_snapshot_failure_does_not_break_rebalancing():
 def test_combination_parse_helpers_accept_known_shapes():
     from app.fetchers.combination import parse_holdings, parse_nav, parse_quote
 
-    # quote：直接对象 / data 包装 / percent 兜底
+    # quote：直接对象 / data 包装 / percent 兜底 / 实测顶层 {symbol: {...}} + 字符串值
     assert parse_quote({"net_value": 1.2, "day_percent_gain": 0.5}) == {
         "net_value": 1.2,
         "day_percent_gain": 0.5,
     }
     assert parse_quote({"data": {"net_value": 1.2, "percent": 0.5}})["day_percent_gain"] == 0.5
+    real = parse_quote(
+        {"ZH3623878": {"symbol": "ZH3623878", "net_value": "1.4207", "daily_gain": "2.35"}}
+    )
+    assert real == {"net_value": 1.4207, "day_percent_gain": 2.35}
+    assert parse_quote({"ZH3623878": {"net_value": "abc", "daily_gain": "x"}}) == {
+        "net_value": None,
+        "day_percent_gain": None,
+    }
     assert parse_quote({}).get("day_percent_gain") is None
 
-    # holdings：顶层数组 / data 数组 / data.holdings / 缺 weight 行跳过
+    # holdings：顶层数组 / data 数组 / data.holdings / last_rb.holdings（真实结构）/ 缺 weight 行跳过
     assert parse_holdings([{"stock_name": "A", "weight": 3.5}]) == [{"name": "A", "symbol": "", "weight": 3.5}]
     assert parse_holdings({"data": {"holdings": [{"stock_name": "B", "stock_symbol": "SH600000", "weight": 1.0}]}})[0]["symbol"] == "SH600000"
     assert parse_holdings({"data": [{"stock_name": "C", "target_weight": 2.0}]})[0]["weight"] == 2.0
+    # 实测结构：{"last_rb": {"holdings": [...]}}
+    real = parse_holdings({"last_rb": {"holdings": [{"stock_name": "康龙化成", "stock_symbol": "SZ300759", "weight": 16.07}]}})
+    assert real == [{"name": "康龙化成", "symbol": "SZ300759", "weight": 16.07}]
     assert parse_holdings([{"stock_name": "无权重"}]) == []
     assert parse_holdings(None) == []
 

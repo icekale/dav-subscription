@@ -1218,7 +1218,7 @@ class DB:
         """快照是否在 TTL 内（fetcher 据此决定要不要重新请求雪球）。"""
         rows = self._rows(
             "SELECT 1 FROM cube_snapshots WHERE kol_id = ? AND kind = ? "
-            "AND strftime('%s', fetched_at) >= strftime('%s', 'now') - ?",
+            "AND CAST(strftime('%s', fetched_at) AS INTEGER) >= strftime('%s', 'now') - ?",
             (kol_id, kind, ttl_seconds),
         )
         return bool(rows)

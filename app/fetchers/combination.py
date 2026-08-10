@@ -99,13 +99,37 @@ def resolve_combination_profile(
 
 
 def parse_quote(data) -> dict:
-    """解析 cubes/quote.json 响应：兼容 {"data": {...}} 与直接对象两种形状。"""
+    """解析 cubes/quote.json 响应。
+
+    真实结构（实测 2026-08）：顶层 {symbol: {net_value, daily_gain}}，值为字符串；
+    兼容 {"data": {...}} 与 day_percent_gain/percent 旧猜测。
+    """
     if isinstance(data, dict) and isinstance(data.get("data"), dict):
         data = data["data"]
-    day = data.get("day_percent_gain")
-    if not isinstance(day, (int, float)):
-        day = data.get("percent")
+    # 顶层 {symbol: {...}} 字典：取第一个非空元素
+    if isinstance(data, dict) and "net_value" not in data and "daily_gain" not in data:
+        for v in data.values():
+            if isinstance(v, dict):
+                data = v
+                break
+    day = None
+    for key in ("daily_gain", "day_percent_gain", "percent"):
+        v = data.get(key)
+        if isinstance(v, (int, float)):
+            day = v
+            break
+        if isinstance(v, str):
+            try:
+                day = float(v)
+                break
+            except ValueError:
+                continue
     net = data.get("net_value")
+    if isinstance(net, str):
+        try:
+            net = float(net)
+        except ValueError:
+            net = None
     return {
         "net_value": net if isinstance(net, (int, float)) else None,
         "day_percent_gain": day if isinstance(day, (int, float)) else None,
@@ -115,8 +139,10 @@ def parse_quote(data) -> dict:
 def parse_holdings(data) -> list[dict]:
     """解析 rebalancing/current.json 响应为 [{name, symbol, weight}]。
 
-    兼容多种形状：顶层数组 / {"data": [...]} / {"data": {"holdings": [...]}}。
+    真实结构（实测 2026-08）：{"last_rb": {"holdings": [...]}}；
+    兼容顶层数组 / {"data": [...]} / {"data": {"holdings": [...]}}。
     """
+    rows = []
     if isinstance(data, list):
         rows = data
     elif isinstance(data, dict):
@@ -127,8 +153,8 @@ def parse_holdings(data) -> list[dict]:
             rows = inner["holdings"]
         elif isinstance(data.get("holdings"), list):
             rows = data["holdings"]
-        else:
-            rows = []
+        elif isinstance(data.get("last_rb"), dict):
+            rows = data["last_rb"].get("holdings") or []
     else:
         rows = []
     holdings = []
