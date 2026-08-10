@@ -84,14 +84,14 @@ for f in "${FILES[@]}"; do
 done
 
 echo "== 重建镜像 =="
-ssh "$HOST" "cd '$REMOTE_DIR' && docker compose -f $COMPOSE_FILE build dav-subscription" | tail -2
+ssh "$HOST" "cd '$REMOTE_DIR' && docker compose -f $COMPOSE_FILE build vpush" | tail -2
 
-echo "== 重启容器 =="
-ssh "$HOST" "cd '$REMOTE_DIR' && docker compose -f $COMPOSE_FILE up -d --no-deps dav-subscription" | tail -1
+echo "== 重启容器（--remove-orphans 清掉已删除的旧服务容器） =="
+ssh "$HOST" "cd '$REMOTE_DIR' && docker compose -f $COMPOSE_FILE up -d --no-deps --remove-orphans" | tail -1
 
 echo "== 健康检查 =="
 sleep 8
-ssh "$HOST" "docker ps --format '{{.Names}} {{.Status}}' | grep dav-subscription"
+ssh "$HOST" "docker ps --format '{{.Names}} {{.Status}}' | grep -E 'vpush|rsshub'"
 curl -s -m 8 "http://192.168.5.28:$PORT/api/version"
 echo
 echo "✅ 部署完成"
