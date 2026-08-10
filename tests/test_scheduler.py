@@ -2845,6 +2845,59 @@ def test_dnd_summary_writes_push_logs(monkeypatch):
     assert logs[0]["status"] == "success"
 
 
+def test_secondary_summary_skips_llm(monkeypatch):
+    """次要大V合并摘要不调 LLM（use_llm=False）：纯汇总推送，省 token。
+
+    对照：_send_dnd_summary 默认 use_llm=True，配了 LLM 会生成摘要。
+    """
+    db = make_db()
+    kid = db.add_kol("xueqiu", "S", "1", secondary=True)
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.add_subscription(uid, kid)
+    sent = []
+    llm_calls = []
+
+    class FakeTG:
+        def __init__(self, config, chat_id=None, client=None, **kwargs):
+            self.client = SimpleNamespace(close=lambda: None)
+
+        def send_text(self, text):
+            pass
+
+        def send_dnd_summary(self, posts, title=None):
+            sent.append((len(posts), title))
+
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FakeTG)
+
+    def fake_summarize(posts, cfg, **kw):
+        llm_calls.append(posts)
+        return "AI 摘要"
+
+    monkeypatch.setattr("app.llm.summarize_posts", fake_summarize)
+
+    ncfg = SimpleNamespace(
+        telegram=SimpleNamespace(bot_token="t", chat_id=""),
+        feishu=SimpleNamespace(),
+        wecom=SimpleNamespace(),
+    )
+    scheduler = Scheduler(
+        db, {}, [], SimpleNamespace(),
+        notifiers_config=ncfg,
+        xueqiu_config=SimpleNamespace(cookie=""),
+        weibo_config=SimpleNamespace(cookie="", username="", password=""),
+        llm_config=SimpleNamespace(model="x", api_key="k"),  # 有 LLM 配置也应跳过
+    )
+    scheduler._secondary_buffer[uid] = [make_post(kid)]
+    monkeypatch.setattr("app.scheduler._in_dnd_window", lambda user, now=None: False)
+    scheduler._flush_secondary_buffers()
+    assert llm_calls == []  # 次要合并不调 LLM
+    assert sent == [(1, "🔕 次要大V合并摘要")]
+
+    # 对照：_send_dnd_summary 默认 use_llm=True，配了 LLM 时生成摘要
+    scheduler._send_dnd_summary(db.get_user(uid), [make_post(kid)])
+    assert len(llm_calls) == 1
+
+
 _retry_tg_instances: list = []
 
 

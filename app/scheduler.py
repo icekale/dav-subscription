@@ -2032,17 +2032,21 @@ class Scheduler:
                 continue  # 已进入免打扰时段，留给 dnd 机制处理，下轮再试
             self._secondary_buffer.pop(user_id, None)
             try:
-                self._send_dnd_summary(user, posts, title="🔕 次要大V合并摘要")
+                # 次要大V合并：纯汇总即可，不消耗 LLM token（use_llm=False）
+                self._send_dnd_summary(user, posts, title="🔕 次要大V合并摘要", use_llm=False)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("次要大V汇总推送失败 user=%s err=%s", user["username"], exc)
                 # 发送失败：帖子写失败日志并入重试队列（_send_dnd_summary 内部处理），
                 # 缓冲已弹出，不重复推送
 
-    def _send_dnd_summary(self, user: dict, posts: list[Post], title: str | None = None) -> None:
+    def _send_dnd_summary(
+        self, user: dict, posts: list[Post], title: str | None = None, use_llm: bool = True
+    ) -> None:
         """把缓冲的动态汇总成一条推送给用户（按所选通道），并补写推送日志。
 
-        默认标题为「免打扰时段汇总」；次要大V合并摘要传 title="🔕 次要大V合并摘要"。
-        配置了 LLM 时先尝试生成 AI 要点（失败自动降级为普通汇总，不影响推送）。
+        默认标题为「免打扰时段汇总」；次要大V合并摘要传 title="🔕 次要大V合并摘要"
+        且 use_llm=False（纯汇总，不调 LLM 不耗 token）。use_llm=True 时先尝试
+        生成 AI 要点（失败自动降级为普通汇总，不影响推送）。
         """
         if self.notifiers_config is None or not posts:
             return
@@ -2054,15 +2058,17 @@ class Scheduler:
             channel_bound,
             channel_enabled,
         )
-        from .llm import summarize_posts
 
         summary = None
-        llm_cfg = _user_llm_config(user, getattr(self, "llm_config", None))
-        if llm_cfg is not None:
-            try:
-                summary = summarize_posts(posts, llm_cfg)
-            except Exception as exc:  # noqa: BLE001 - 摘要失败降级，不影响汇总
-                logger.warning("LLM 摘要异常 user=%s err=%s", user["username"], exc)
+        if use_llm:
+            from .llm import summarize_posts
+
+            llm_cfg = _user_llm_config(user, getattr(self, "llm_config", None))
+            if llm_cfg is not None:
+                try:
+                    summary = summarize_posts(posts, llm_cfg)
+                except Exception as exc:  # noqa: BLE001 - 摘要失败降级，不影响汇总
+                    logger.warning("LLM 摘要异常 user=%s err=%s", user["username"], exc)
 
         client = httpx.Client(timeout=15)
         try:
