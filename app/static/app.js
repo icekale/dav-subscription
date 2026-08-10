@@ -827,7 +827,7 @@ async function renderTimeline(seq) {
         <div class="tl-actions">
           <button id="tl-filter-toggle" class="btn-ghost ${state.timelineQ || state.timelineCategory ? "has-filter" : ""}" aria-expanded="false" aria-controls="tl-filter-panel" onclick="tlFilterPanel()">筛选</button>
           <button id="timeline-fav-toggle" class="fav-toggle ${state.timelineFavorite ? "fav-on" : ""}" aria-pressed="${state.timelineFavorite}" onclick="toggleTimelineFav()">${STAR_SVG} 特别关注</button>
-          <button id="timeline-secondary-toggle" class="fav-toggle ${state.timelineSecondary ? "fav-on" : ""}" aria-pressed="${state.timelineSecondary}" onclick="toggleTimelineSecondary()">${BELL_OFF_ICON} 次要大V</button>
+          <button id="timeline-secondary-toggle" class="fav-toggle ${state.timelineSecondary ? "fav-on" : ""}" aria-pressed="${state.timelineSecondary}" onclick="toggleTimelineSecondary()" title="次要大V动态默认隐藏，点击显示/隐藏">${state.timelineSecondary ? BELL_ICON : BELL_OFF_ICON} 次要大V</button>
         </div>
       </div>
       <div class="tl-filter-panel" id="tl-filter-panel">
@@ -1063,12 +1063,14 @@ function toggleTimelineFav() {
 }
 
 function toggleTimelineSecondary() {
-  // 次要大V开关：默认关闭（动态页隐藏次要大V），开启后显示其动态
+  // 次要大V开关：默认关闭（动态页隐藏次要大V），开启后显示其动态。
+  // 图标随状态切换：隐藏 = 静音铃铛，显示 = 响铃，状态一目了然。
   state.timelineSecondary = !state.timelineSecondary;
   const btn = $("#timeline-secondary-toggle");
   if (btn) {
     btn.classList.toggle("fav-on", state.timelineSecondary);
     btn.setAttribute("aria-pressed", String(state.timelineSecondary));
+    btn.innerHTML = `${state.timelineSecondary ? BELL_ICON : BELL_OFF_ICON} 次要大V`;
   }
   loadTimeline(true, routeRenderSeq);
 }
