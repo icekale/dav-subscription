@@ -78,6 +78,12 @@
   border-color: rgba(202, 138, 4, 0.4);
   color: #b45309;
 }
+/* 次要铃铛：默认 🔔 黄色（正常推送），已设次要 🔕 灰色（降频） */
+.fav-btn.sec-btn {
+  color: #b45309;
+  border-color: rgba(202, 138, 4, 0.4);
+  background: rgba(250, 204, 21, 0.12);
+}
 .fav-btn.sec-on {
   background: rgba(100, 116, 139, 0.16);
   border-color: rgba(100, 116, 139, 0.45);

@@ -37,7 +37,7 @@
           </view>
         </view>
         <view class="item-actions">
-          <view class="fav-btn {{item.secondary ? 'sec-on' : ''}}" data-id="{{item.id}}" catchtap="toggleSecondary">{{item.secondary ? '🔕' : '🔔'}}</view>
+          <view class="fav-btn sec-btn {{item.secondary ? 'sec-on' : ''}}" data-id="{{item.id}}" catchtap="toggleSecondary">{{item.secondary ? '🔕' : '🔔'}}</view>
           <view class="fav-btn {{item.favorite ? 'fav-on' : ''}}" data-id="{{item.id}}" catchtap="toggleFavorite">{{item.favorite ? '★' : '☆'}}</view>
           <button class="btn-sub subscribed" data-id="{{item.id}}" bindtap="unsubscribe">退订</button>
         </view>

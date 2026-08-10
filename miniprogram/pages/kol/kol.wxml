@@ -33,7 +33,7 @@
       </view>
     </view>
     <view wx:if="{{kol.subscribed}}" class="fav-row">
-      <view class="fav-btn {{kol.secondary ? 'sec-on' : ''}}" bindtap="toggleSecondary">
+      <view class="fav-btn sec-btn {{kol.secondary ? 'sec-on' : ''}}" bindtap="toggleSecondary">
         {{kol.secondary ? '🔕 已设为次要（降频推送）' : '🔔 设为次要（合并摘要推送）'}}
       </view>
     </view>

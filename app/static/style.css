@@ -206,6 +206,12 @@ textarea.form-control {
   border-color: var(--color-accent);
   background: var(--color-accent-soft);
 }
+/* 次要铃铛：默认 🔔 黄色（正常推送），已设次要 🔕 灰色（降频） */
+.fav-btn.sec-off {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+}
 .fav-btn.sec-on {
   color: var(--color-text-muted);
   border-color: var(--color-text-muted);
