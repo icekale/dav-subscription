@@ -148,10 +148,14 @@ def _effective_interval(
             db, "config_combination_idle_cap_seconds", COMBINATION_IDLE_CAP_SECONDS
         )
     else:
-        base = priority_interval_seconds if kol.get("priority") else interval_seconds
         if kol.get("priority"):
+            base = priority_interval_seconds
             cap = _frequency_setting(db, "config_priority_idle_cap_seconds", PRIORITY_IDLE_CAP_SECONDS)
+        elif kol.get("secondary"):
+            base = _frequency_setting(db, "config_secondary_base_seconds", SECONDARY_BASE_SECONDS)
+            cap = _frequency_setting(db, "config_secondary_idle_cap_seconds", SECONDARY_IDLE_CAP_SECONDS)
         else:
+            base = interval_seconds
             cap = _frequency_setting(db, "config_normal_idle_cap_seconds", NORMAL_IDLE_CAP_SECONDS)
     empty = min(state.empty_rounds.get(kol["id"], 0), 6)
     effective = min(base * (2**empty), cap)
@@ -729,6 +733,7 @@ def poll_once(
     interval_seconds: int = 180,
     priority_interval_seconds: int = 60,
     digest: dict[int, list[Post]] | None = None,
+    secondary_digest: dict[int, list[Post]] | None = None,
     retry_queue: PushRetryQueue | None = None,
     dnd_buffer: dict[int, list[Post]] | None = None,
     llm_config=None,
@@ -790,6 +795,7 @@ def poll_once(
                     priority_interval_seconds,
                     notifiers_config,
                     digest,
+                    secondary_digest,
                     retry_queue,
                     platform_lock[kol["platform"]],
                     client,
@@ -848,6 +854,7 @@ def _fetch_kol_once(
     priority_interval_seconds: int,
     notifiers_config,
     digest: dict[int, list[Post]] | None,
+    secondary_digest: dict[int, list[Post]] | None,
     retry_queue: PushRetryQueue | None,
     state_lock: threading.Lock,
     client=None,
@@ -972,9 +979,13 @@ def _fetch_kol_once(
             continue
         logger.info("新帖 platform=%s kol=%s id=%s", post.platform, post.kol_name, post.external_id)
         if digest is not None and not kol.get("priority") and kol["platform"] != "combination":
-            # 普通大V进入合并摘要缓冲，按 digest_interval 周期统一推送；
-            # 雪球组合高频抓取 + 实时推送（调仓通知不被合并周期拖延）
-            digest.setdefault(kol["id"], []).append(post)
+            if kol.get("secondary") and secondary_digest is not None:
+                # 次要大V进入长周期合并摘要缓冲，按 secondary_digest_interval 统一推送
+                secondary_digest.setdefault(kol["id"], []).append(post)
+            else:
+                # 普通大V进入合并摘要缓冲，按 digest_interval 周期统一推送；
+                # 雪球组合高频抓取 + 实时推送（调仓通知不被合并周期拖延）
+                digest.setdefault(kol["id"], []).append(post)
         else:
             notify_subscribers(
                 db, post_id, post, notifiers_config, notifiers, retry_queue,
@@ -1537,6 +1548,8 @@ class Scheduler:
         self.llm_config = llm_config
         self.states: dict[str, PlatformState] = {}
         self._digest: dict[int, list[Post]] = {}
+        self._secondary_digest: dict[int, list[Post]] = {}
+        self._last_secondary_digest_flush = time.monotonic()
         self._dnd_buffer: dict[int, list[Post]] = {}
         self.retry_queue = PushRetryQueue()
         self._stop = asyncio.Event()
@@ -1648,6 +1661,11 @@ class Scheduler:
             digest_interval = _polling_setting(
                 self.db, "config_digest_interval_seconds", self.polling_config.digest_interval_seconds
             )
+            secondary_digest_interval = _polling_setting(
+                self.db,
+                "config_secondary_digest_interval_seconds",
+                self.polling_config.secondary_digest_interval_seconds,
+            )
             try:
                 await asyncio.to_thread(
                     poll_once,
@@ -1659,6 +1677,7 @@ class Scheduler:
                     interval_seconds,
                     priority_interval,
                     self._digest if digest_interval > 0 else None,
+                    self._secondary_digest if secondary_digest_interval > 0 else None,
                     self.retry_queue,
                     self._dnd_buffer,
                     self.llm_config,
@@ -1704,6 +1723,26 @@ class Scheduler:
                     )
                 except Exception:  # noqa: BLE001
                     logger.exception("摘要推送失败")
+            # 次要大V长周期摘要到点统一推送（与普通摘要独立计时）
+            if (
+                secondary_digest_interval > 0
+                and self._secondary_digest
+                and now_mono - self._last_secondary_digest_flush >= secondary_digest_interval
+            ):
+                self._last_secondary_digest_flush = now_mono
+                try:
+                    await asyncio.to_thread(
+                        flush_digest,
+                        self.db,
+                        self._secondary_digest,
+                        self.notifiers,
+                        self.notifiers_config,
+                        self.retry_queue,
+                        self._dnd_buffer,
+                        self.llm_config,
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.exception("次要大V摘要推送失败")
             # 免打扰时段结束：补推汇总
             try:
                 self._flush_dnd_buffers()

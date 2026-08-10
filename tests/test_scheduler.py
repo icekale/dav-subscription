@@ -2666,6 +2666,7 @@ def test_scheduler_run_loop_sleeps_priority_interval(monkeypatch):
         interval_seconds=180,
         priority_interval_seconds=60,
         digest_interval_seconds=0,
+        secondary_digest_interval_seconds=0,
         source_probe_interval_seconds=0,
         cookie_keepalive_interval_seconds=0,
         daily_report_hour=23,
@@ -3441,3 +3442,63 @@ def test_stock_alias_task_expands_names_from_marks(monkeypatch):
     aliases = db.get_stock_aliases()
     assert any(a["alias"] == "涂改液" and a["stock"] == "五粮液" for a in aliases)
     assert "五粮液" in db.get_stock_names()
+
+
+def test_effective_interval_secondary_tier():
+    from app.scheduler import (
+        SECONDARY_BASE_SECONDS,
+        SECONDARY_IDLE_CAP_SECONDS,
+        _effective_interval,
+    )
+
+    state = SimpleNamespace(empty_rounds={})
+    kol = {"id": 1, "priority": 0, "secondary": 1, "platform": "xueqiu"}
+    iv = _effective_interval(None, kol, state, 180, 60)
+    assert iv == SECONDARY_BASE_SECONDS
+    state.empty_rounds[1] = 6
+    iv = _effective_interval(None, kol, state, 180, 60)
+    assert iv == SECONDARY_IDLE_CAP_SECONDS
+    # priority 优先于 secondary
+    kol2 = {"id": 2, "priority": 1, "secondary": 1, "platform": "xueqiu"}
+    iv = _effective_interval(None, kol2, state, 180, 60)
+    assert iv == 60
+
+
+def test_secondary_kol_goes_to_secondary_digest(monkeypatch):
+    db = make_db()
+    kid = db.add_kol("xueqiu", "S", "1", secondary=True)
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.add_subscription(uid, kid)
+    digest: dict[int, list] = {}
+    secondary_digest: dict[int, list] = {}
+    posts = [make_post(kid)]
+    sent = []
+
+    class FakeTG:
+        def __init__(self, config, chat_id=None, client=None, **kwargs):
+            self.client = SimpleNamespace(close=lambda: None)
+
+        def send_digest(self, posts, kol_name, platform):
+            sent.append((len(posts), kol_name))
+
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FakeTG)
+    ncfg = SimpleNamespace(
+        telegram=SimpleNamespace(bot_token="t", chat_id=""),
+        feishu=SimpleNamespace(),
+        wecom=SimpleNamespace(),
+    )
+    poll_once(
+        db,
+        {"xueqiu": FakeFetcher(posts)},
+        [],
+        interval_seconds=0,
+        digest=digest,
+        secondary_digest=secondary_digest,
+        notifiers_config=ncfg,
+    )
+    assert sent == []
+    assert digest == {}
+    assert len(secondary_digest.get(kid, [])) == 1
+    flush_digest(db, secondary_digest, [], ncfg)
+    assert sent == [(1, "S")]
+    assert secondary_digest == {}
