@@ -729,8 +729,10 @@ function renderMySubsList() {
   } else {
     kols = [...kols].sort((a, b) => (b.favorite ? 1 : 0) - (a.favorite ? 1 : 0));
   }
+  // 同类别排在一起（组内保持星标优先/订阅顺序），未分类排最后
+  kols = [...kols].sort((a, b) => (a.category_name ? 0 : 1) - (b.category_name ? 0 : 1));
   $("#mysubs-list").innerHTML = kols.length
-    ? kols.map(kolCard).join("")
+    ? groupedKolCards(kols)
     : emptyState("这里还没有订阅", `<div><button class="btn-normal btn-add" onclick="location.hash='#/home'">去订阅广场看看</button></div>`);
 }
 
