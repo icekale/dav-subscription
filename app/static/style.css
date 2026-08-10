@@ -236,6 +236,7 @@ textarea.form-control {
 }
 .fav-toggle .star-icon { width: 16px; height: 16px; }
 .fav-toggle .bell-icon { width: 16px; height: 16px; }
+.fav-toggle .eye-icon { width: 16px; height: 16px; }
 
 /* ---------- 申请添加大V 邀请横幅 ---------- */
 .request-banner {
