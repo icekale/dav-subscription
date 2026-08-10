@@ -2680,3 +2680,31 @@ def test_backfill_merges_stock_tags(monkeypatch):
     # 话题「宏观」（央行/降息）+ 股票「中船特气」（$标记$）
     assert "宏观" in tags and "中船特气" in tags
     assert tags == ["宏观", "中船特气"]
+
+
+def test_admin_toggle_secondary():
+    client = make_client()
+    headers = auth_headers(client)
+    r = client.post(
+        "/api/kols", headers=headers,
+        json={"platform": "xueqiu", "name": "次要大V", "external_id": "999999"},
+    )
+    kid = r.json()["id"]
+    r = client.put(f"/api/kols/{kid}", headers=headers, json={"secondary": True})
+    assert r.status_code == 200
+    kol = r.json()
+    assert kol["secondary"] == 1 and kol["priority"] == 0
+    # 互斥：设 priority 清 secondary
+    r = client.put(f"/api/kols/{kid}", headers=headers, json={"priority": True})
+    kol = r.json()
+    assert kol["priority"] == 1 and kol["secondary"] == 0
+
+
+def test_add_kol_with_secondary():
+    client = make_client()
+    headers = auth_headers(client)
+    r = client.post("/api/kols", headers=headers, json={
+        "platform": "xueqiu", "name": "次要", "external_id": "888888", "secondary": True,
+    })
+    assert r.status_code == 200
+    assert r.json()["secondary"] == 1

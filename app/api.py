@@ -133,6 +133,7 @@ class KolIn(BaseModel):
     external_id: str
     category_id: int | None = None
     priority: bool = False
+    secondary: bool = False
     original_only: bool = False
 
 
@@ -141,6 +142,7 @@ class KolBatchIn(BaseModel):
     lines: str
     category_id: int | None = None
     priority: bool = False
+    secondary: bool = False
     original_only: bool = False
 
 
@@ -150,6 +152,7 @@ class KolUpdate(BaseModel):
     enabled: bool | None = None
     category_id: int | None = None
     priority: bool | None = None
+    secondary: bool | None = None
     is_private: bool | None = None
     visible_users: list[str] | None = None
     original_only: bool | None = None
@@ -1389,6 +1392,7 @@ def create_api_router(
             external_id,
             category_id=body.category_id,
             priority=body.priority,
+            secondary=body.secondary,
             original_only=body.original_only,
         )
         _audit(admin, "add_kol", str(kid), f"{body.platform} {name} {external_id}")
@@ -1490,6 +1494,7 @@ def create_api_router(
                     external_id,
                     category_id=body.category_id,
                     priority=body.priority,
+                    secondary=body.secondary,
                     original_only=body.original_only,
                 )
                 if avatar_url:
@@ -1529,6 +1534,7 @@ def create_api_router(
             enabled=body.enabled,
             category_id=body.category_id if "category_id" in body.model_fields_set else None,
             priority=body.priority if "priority" in body.model_fields_set else None,
+            secondary=body.secondary if "secondary" in body.model_fields_set else None,
         )
         if "is_private" in body.model_fields_set and body.is_private is not None:
             db.update_kol(kol_id, is_private=body.is_private)
