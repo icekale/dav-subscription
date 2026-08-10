@@ -35,3 +35,30 @@ def test_add_kol_priority_wins_over_secondary(tmp_path):
     kol = db.get_kol(kid)
     assert kol["priority"] == 1
     assert kol["secondary"] == 0
+
+
+def test_db_migrates_subscription_secondary_column(tmp_path):
+    db = DB(str(tmp_path / "t.db"))
+    cols = {r["name"] for r in db._rows("PRAGMA table_info(subscriptions)")}
+    assert "secondary" in cols
+
+
+def test_set_subscription_secondary(tmp_path):
+    db = DB(str(tmp_path / "t.db"))
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    kid = db.add_kol("xueqiu", "A", "1")
+    db.add_subscription(uid, kid)
+    assert db.set_subscription_secondary(uid, kid, True)
+    assert kid in db.subscribed_secondary_ids(uid)
+    db.set_subscription_secondary(uid, kid, False)
+    assert kid not in db.subscribed_secondary_ids(uid)
+
+
+def test_subscribers_of_kol_includes_secondary(tmp_path):
+    db = DB(str(tmp_path / "t.db"))
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    kid = db.add_kol("xueqiu", "A", "1")
+    db.add_subscription(uid, kid)
+    db.set_subscription_secondary(uid, kid, True)
+    subs = db.subscribers_of_kol(kid)
+    assert subs and subs[0]["secondary"] == 1

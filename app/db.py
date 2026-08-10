@@ -327,6 +327,10 @@ class DB:
             self._conn.execute(
                 "ALTER TABLE subscriptions ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0"
             )
+        if "secondary" not in sub_cols:
+            self._conn.execute(
+                "ALTER TABLE subscriptions ADD COLUMN secondary INTEGER NOT NULL DEFAULT 0"
+            )
         cols = {row["name"] for row in self._rows("PRAGMA table_info(kols)")}
         if "category_id" not in cols:
             self._conn.execute("ALTER TABLE kols ADD COLUMN category_id INTEGER")
@@ -1044,7 +1048,8 @@ class DB:
     def subscribers_of_kol(self, kol_id: int) -> list[dict]:
         """该大V的订阅者（启用通知且绑定了渠道的用户）。"""
         return self._rows(
-            "SELECT u.*, s.type AS subscribe_type, s.favorite AS favorite FROM subscriptions s "
+            "SELECT u.*, s.type AS subscribe_type, s.favorite AS favorite, "
+            "s.secondary AS secondary FROM subscriptions s "
             "JOIN users u ON u.id = s.user_id "
             "JOIN kols k ON k.id = s.kol_id "
             "WHERE s.kol_id = ? AND u.notify_enabled = 1 "
@@ -1067,6 +1072,22 @@ class DB:
     def subscribed_favorite_ids(self, user_id: int) -> set[int]:
         rows = self._rows(
             "SELECT kol_id FROM subscriptions WHERE user_id = ? AND favorite = 1",
+            (user_id,),
+        )
+        return {row["kol_id"] for row in rows}
+
+    def set_subscription_secondary(self, user_id: int, kol_id: int, secondary: bool) -> bool:
+        with self._lock:
+            cur = self._conn.execute(
+                "UPDATE subscriptions SET secondary = ? WHERE user_id = ? AND kol_id = ?",
+                (1 if secondary else 0, user_id, kol_id),
+            )
+            self._conn.commit()
+            return cur.rowcount > 0
+
+    def subscribed_secondary_ids(self, user_id: int) -> set[int]:
+        rows = self._rows(
+            "SELECT kol_id FROM subscriptions WHERE user_id = ? AND secondary = 1",
             (user_id,),
         )
         return {row["kol_id"] for row in rows}
