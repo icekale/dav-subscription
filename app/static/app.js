@@ -1256,6 +1256,10 @@ async function renderKolPage(kolId, seq) {
     const kol = await api(`/api/kols/${kolId}`);
     const posts = await api(`/api/kols/${kolId}/posts?limit=50`);
     if (!routeStillActive(seq)) return; // 已切走：不写旧页面
+    const extra = kol.platform === "combination"
+      ? await renderCombinationSnapshots(kol)
+      : "";
+    if (!routeStillActive(seq)) return;
     $("#main").innerHTML = `
       <section class="section-panel">
         <header class="section-head">
@@ -1271,6 +1275,7 @@ async function renderKolPage(kolId, seq) {
             </button>
           </div>
         </header>
+        ${extra}
         <div id="kol-posts">${posts.length ? posts.map(postCard).join("") : emptyState("暂无动态")}</div>
       </section>`;
   } catch (err) {
@@ -1278,6 +1283,88 @@ async function renderKolPage(kolId, seq) {
     $("#main").innerHTML = emptyState("加载失败: " + err.message);
   }
 }
+
+async function renderCombinationSnapshots(kol) {
+  try {
+    const [holdings, nav] = await Promise.all([
+      api(`/api/kols/${kol.id}/holdings`),
+      api(`/api/kols/${kol.id}/nav`),
+    ]);
+    const q = kol.quote || {};
+    const quoteHtml = q.day_percent_gain != null || q.net_value != null ? `
+      <div class="cube-quote">
+        <div class="cube-quote-item"><span class="cube-quote-label">净值</span><span class="cube-quote-value">${q.net_value != null ? q.net_value.toFixed(3) : "—"}</span></div>
+        <div class="cube-quote-item"><span class="cube-quote-label">今日涨跌</span><span class="cube-quote-value ${q.day_percent_gain != null ? (q.day_percent_gain >= 0 ? "up" : "down") : ""}">${q.day_percent_gain != null ? (q.day_percent_gain >= 0 ? "+" : "") + q.day_percent_gain.toFixed(2) + "%" : "—"}</span></div>
+        ${kol.quote_at ? `<div class="cube-quote-item"><span class="cube-quote-label">快照</span><span class="cube-quote-value small">${escapeHtml(formatSnapshotTs(kol.quote_at))}</span></div>` : ""}
+      </div>` : "";
+    const holdingsHtml = (holdings.holdings || []).length ? `
+      <div class="cube-holdings">
+        ${(holdings.holdings || []).map((h) => `
+          <div class="cube-holding">
+            <div class="cube-holding-head">
+              <span class="cube-holding-name" title="${escapeHtml(h.symbol)}">${escapeHtml(h.name)}</span>
+              <span class="cube-holding-weight">${h.weight}%</span>
+            </div>
+            <div class="cube-weight-bar"><div class="cube-weight-fill" style="width:${Math.max(h.weight, 1)}%"></div></div>
+          </div>`).join("")}
+        ${holdings.updated_at ? `<p class="section-meta" style="margin-top:10px">持仓更新于 ${escapeHtml(formatSnapshotTs(holdings.updated_at))}</p>` : ""}
+      </div>` : `<p class="section-meta">暂无持仓数据（订阅后自动抓取）</p>`;
+    const navHtml = (nav.series || []).length >= 2 ? `
+      <div class="cube-nav-head">
+        <b>最新 ${nav.series[nav.series.length - 1].value}</b>
+        <span class="section-meta">${escapeHtml(nav.series[nav.series.length - 1].date)}</span>
+      </div>
+      ${navChartSvg(nav.series)}` : `<p class="section-meta">暂无净值数据（订阅后自动抓取）</p>`;
+    return `
+      ${quoteHtml ? `<section class="section-panel"><h3 class="section-title">组合状态</h3>${quoteHtml}</section>` : ""}
+      <section class="section-panel"><h3 class="section-title">当前持仓</h3>${holdingsHtml}</section>
+      <section class="section-panel"><h3 class="section-title">净值走势</h3>${navHtml}</section>`;
+  } catch (err) {
+    return `<section class="section-panel"><p class="section-meta">组合数据加载失败：${escapeHtml(err.message)}</p></section>`;
+  }
+}
+
+// 后端快照时间（UTC "YYYY-MM-DD HH:MM:SS"）转本地 "MM-DD HH:MM"
+function formatSnapshotTs(ts) {
+  const d = new Date(String(ts).replace(" ", "T") + "Z");
+  if (isNaN(d.getTime())) return ts;
+  const p = (n) => String(n).padStart(2, "0");
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+// 净值曲线：手绘 SVG 折线（含渐变面积、网格、首/中/尾日期），A股红涨绿跌
+function navChartSvg(series) {
+  const W = 640, H = 200, padL = 44, padR = 10, padT = 10, padB = 24;
+  let min = Math.min(...series.map((p) => p.value));
+  let max = Math.max(...series.map((p) => p.value));
+  if (max - min < 1e-9) { max += 0.005; min -= 0.005; }
+  const span = max - min;
+  min -= span * 0.05;
+  max += span * 0.05;
+  const X = (i) => padL + (i / (series.length - 1)) * (W - padL - padR);
+  const Y = (v) => padT + (1 - (v - min) / (max - min)) * (H - padT - padB);
+  const pts = series.map((p, i) => `${X(i).toFixed(1)},${Y(p.value).toFixed(1)}`).join(" ");
+  const up = series[series.length - 1].value >= series[0].value;
+  const color = up ? "#e64340" : "#07c160";
+  const base = (H - padB).toFixed(1);
+  const area = `M${X(0).toFixed(1)},${base} L${pts.replace(/ /g, " L")} L${X(series.length - 1).toFixed(1)},${base} Z`;
+  const grid = [0, 1, 2, 3].map((i) => {
+    const v = min + ((max - min) * i) / 3;
+    return `<line x1="${padL}" y1="${Y(v).toFixed(1)}" x2="${W - padR}" y2="${Y(v).toFixed(1)}" class="cube-nav-grid"/>`
+      + `<text x="4" y="${(Y(v) + 3).toFixed(1)}" class="cube-nav-tick">${v.toFixed(3)}</text>`;
+  }).join("");
+  const first = series[0], mid = series[Math.floor(series.length / 2)], last = series[series.length - 1];
+  return `<svg viewBox="0 0 ${W} ${H}" class="cube-nav-svg" role="img" aria-label="净值曲线">
+    ${grid}
+    <path d="${area}" fill="${up ? "rgba(230,67,64,0.12)" : "rgba(7,193,96,0.12)"}"/>
+    <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    <text x="${padL}" y="${H - 6}" class="cube-nav-date">${escapeHtml(first.date)}</text>
+    <text x="${(padL + W - padR) / 2}" y="${H - 6}" text-anchor="middle" class="cube-nav-date">${escapeHtml(mid.date)}</text>
+    <text x="${W - padR}" y="${H - 6}" text-anchor="end" class="cube-nav-date">${escapeHtml(last.date)}</text>
+    <text x="${W - padR}" y="${(Y(last.value) - 5).toFixed(1)}" text-anchor="end" class="cube-nav-last" fill="${color}">${last.value}</text>
+  </svg>`;
+}
+
 
 async function toggleKolPageSubscribe(kolId) {
   await toggleSubscribe(kolId, $("#kol-sub-btn"));

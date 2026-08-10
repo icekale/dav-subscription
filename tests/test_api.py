@@ -85,6 +85,52 @@ def test_kol_add_with_xueqiu_homepage_link():
     assert resp.json()["external_id"] == "8790885129"
 
 
+def test_combination_holdings_and_nav_endpoints():
+    """组合持仓/净值端点读 cube_snapshots；无快照返回空；详情页附带 quote。"""
+    client = make_client()
+    headers = auth_headers(client)
+    resp = client.post(
+        "/api/kols",
+        headers=headers,
+        json={"platform": "combination", "name": "伯言-A股", "external_id": "ZH3623878"},
+    )
+    kid = resp.json()["id"]
+
+    # 无快照：空数据 + 空时间
+    assert client.get(f"/api/kols/{kid}/holdings", headers=headers).json() == {"holdings": [], "updated_at": ""}
+    assert client.get(f"/api/kols/{kid}/nav", headers=headers).json() == {"series": [], "updated_at": ""}
+
+    db = client.app.state.db
+    db.set_cube_snapshot(kid, "holdings", [{"name": "贵州茅台", "symbol": "SH600519", "weight": 5.2}])
+    db.set_cube_snapshot(kid, "nav", [{"date": "2026-07-01", "value": 1.0}, {"date": "2026-07-02", "value": 1.05}])
+    db.set_cube_snapshot(kid, "quote", {"net_value": 1.8472, "day_percent_gain": 0.55})
+
+    h = client.get(f"/api/kols/{kid}/holdings", headers=headers).json()
+    assert h["holdings"][0]["name"] == "贵州茅台" and h["updated_at"]
+    n = client.get(f"/api/kols/{kid}/nav", headers=headers).json()
+    assert len(n["series"]) == 2 and n["updated_at"]
+
+    kol = client.get(f"/api/kols/{kid}", headers=headers).json()
+    assert kol["quote"] == {"net_value": 1.8472, "day_percent_gain": 0.55}
+    assert kol["quote_at"]
+
+
+def test_combination_endpoints_require_visibility():
+    """持仓/净值端点与帖子端点同权限：不可见大V 404。"""
+    client = make_client()
+    admin_headers = auth_headers(client)
+    kid = client.post(
+        "/api/kols",
+        headers=admin_headers,
+        json={"platform": "combination", "name": "私有组合", "external_id": "ZH000001"},
+    ).json()["id"]
+    client.app.state.db.update_kol(kid, is_private=True)
+    other = user_headers(client, "otheruser")
+    assert client.get(f"/api/kols/{kid}/holdings", headers=other).status_code == 404
+    assert client.get(f"/api/kols/{kid}/nav", headers=other).status_code == 404
+    assert client.get(f"/api/kols/{kid}", headers=other).status_code == 404
+
+
 def test_add_x_kol_auto_resolves_name_and_avatar(monkeypatch):
     from app import api as api_mod
 

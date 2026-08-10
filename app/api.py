@@ -1096,6 +1096,11 @@ def create_api_router(
         if user["is_admin"]:
             acl_ids = set(db.acl_user_ids(kol_id))
             kol["visible_users"] = [u["username"] for u in db.list_users() if u["id"] in acl_ids]
+        # 组合详情附带实时净值/涨跌快照（抓取端定时写入，无则前端隐藏）
+        if kol["platform"] == "combination":
+            snap = db.get_cube_snapshot(kol_id, "quote")
+            kol["quote"] = snap["payload"] if snap else None
+            kol["quote_at"] = snap["fetched_at"] if snap else ""
         return kol
 
     @router.get("/kols/{kol_id}/posts")
@@ -1106,6 +1111,28 @@ def create_api_router(
         ):
             raise HTTPException(status_code=404, detail="大V不存在")
         return db.list_posts(limit=bounded_limit(limit), kol_id=kol_id)
+
+    @router.get("/kols/{kol_id}/holdings")
+    def kol_holdings(kol_id: int, user: dict = Depends(get_current_user)):
+        """组合当前持仓快照（抓取端定时写入 cube_snapshots，页面不依赖雪球在线）。"""
+        kol = db.get_kol(kol_id)
+        if kol is None or (
+            not user["is_admin"] and kol["id"] not in db.visible_kol_ids(user["id"])
+        ):
+            raise HTTPException(status_code=404, detail="大V不存在")
+        snap = db.get_cube_snapshot(kol_id, "holdings")
+        return {"holdings": snap["payload"] if snap else [], "updated_at": snap["fetched_at"] if snap else ""}
+
+    @router.get("/kols/{kol_id}/nav")
+    def kol_nav(kol_id: int, user: dict = Depends(get_current_user)):
+        """组合净值序列 [{date, value}]（抓取端定时写入，页面画曲线用）。"""
+        kol = db.get_kol(kol_id)
+        if kol is None or (
+            not user["is_admin"] and kol["id"] not in db.visible_kol_ids(user["id"])
+        ):
+            raise HTTPException(status_code=404, detail="大V不存在")
+        snap = db.get_cube_snapshot(kol_id, "nav")
+        return {"series": snap["payload"] if snap else [], "updated_at": snap["fetched_at"] if snap else ""}
 
     @router.post("/kol-requests")
     def create_kol_request(body: KolRequestIn, user: dict = Depends(get_current_user)):

@@ -38,6 +38,50 @@
       </view>
     </view>
   </view>
+  <view wx:if="{{kol.platform === 'combination'}}">
+    <view class="card" wx:if="{{quoteDisplay}}">
+      <view class="card-title">组合状态</view>
+      <view class="quote-grid">
+        <view class="quote-item">
+          <view class="quote-label">净值</view>
+          <view class="quote-value">{{quoteDisplay.net}}</view>
+        </view>
+        <view class="quote-item">
+          <view class="quote-label">今日涨跌</view>
+          <view class="quote-value {{quoteDisplay.dayClass}}">{{quoteDisplay.day}}</view>
+        </view>
+        <view class="quote-item">
+          <view class="quote-label">快照</view>
+          <view class="quote-value small">{{quoteDisplay.time || '—'}}</view>
+        </view>
+      </view>
+    </view>
+    <view class="card">
+      <view class="card-title">当前持仓</view>
+      <view wx:if="{{holdings.length === 0}}" class="empty">暂无持仓数据（订阅后自动抓取）</view>
+      <view wx:else>
+        <view class="holding-row" wx:for="{{holdings}}" wx:key="symbol">
+          <view class="row" style="justify-content:space-between">
+            <text class="holding-name">{{item.name}}</text>
+            <text class="holding-weight">{{item.weight}}%</text>
+          </view>
+          <view class="weight-bar"><view class="weight-fill" style="width:{{item.weight}}%"></view></view>
+        </view>
+        <view class="snapshot-time" wx:if="{{holdingsUpdatedAt}}">更新于 {{holdingsUpdatedAt}}</view>
+      </view>
+    </view>
+    <view class="card">
+      <view class="card-title">净值走势</view>
+      <view wx:if="{{navSeries.length < 2}}" class="empty">暂无净值数据（订阅后自动抓取）</view>
+      <view wx:else>
+        <view class="row" style="justify-content:space-between;align-items:baseline">
+          <text class="nav-latest">最新 {{navSeries[navSeries.length - 1].value}}</text>
+          <text class="nav-date">{{navSeries[navSeries.length - 1].date}}</text>
+        </view>
+        <canvas type="2d" id="navChart" class="nav-chart"></canvas>
+      </view>
+    </view>
+  </view>
   <view class="card">
     <view class="card-title">最近动态</view>
     <view wx:if="{{loading}}" class="empty">加载中…</view>

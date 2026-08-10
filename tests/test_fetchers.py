@@ -375,10 +375,37 @@ def test_combination_fetch_parses_rebalancing():
         ]
     }
 
+    quote_payload = {"data": {"net_value": 1.8472, "day_percent_gain": 0.55}}
+    holdings_payload = {
+        "data": {
+            "holdings": [
+                {"stock_name": "贵州茅台", "stock_symbol": "SH600519", "weight": 5.2},
+                {"stock_name": "中国平安", "stock_symbol": "SH601318", "weight": 30.0},
+            ]
+        }
+    }
+    nav_payload = [
+        {
+            "symbol": "ZH3623878",
+            "name": "伯言-A股",
+            "list": [
+                {"time": 1785000000000, "date": "2026-07-01", "value": 1.8000, "percent": 80.0},
+                {"time": 1785086400000, "date": "2026-07-02", "value": 1.8472, "percent": 84.7},
+            ],
+        },
+        {"symbol": "SH000300", "name": "沪深300", "list": [{"date": "2026-07-02", "value": 4000.0}]},
+    ]
+
     def handler(request):
         if request.url.path == "/cubes/rebalancing/history.json":
             assert request.url.params.get("cube_symbol") == "ZH3623878"
             return httpx.Response(200, json=payload)
+        if request.url.path == "/cubes/quote.json":
+            return httpx.Response(200, json=quote_payload)
+        if request.url.path == "/cubes/rebalancing/current.json":
+            return httpx.Response(200, json=holdings_payload)
+        if request.url.path == "/cubes/nav_daily/all.json":
+            return httpx.Response(200, json=nav_payload)
         assert request.url.path == "/query/v1/cube/search.json"
         return httpx.Response(200, json=search_payload)
 
@@ -395,6 +422,9 @@ def test_combination_fetch_parses_rebalancing():
     assert p.platform == "combination"
     assert p.url == "https://xueqiu.com/P/ZH3623878"
     assert "年化 27.1%" in p.content and "净值 1.847" in p.content
+    # 调仓卡附当日涨跌（quote 快照，取 fetch 前刷新到的最新值）
+    assert "今日 +0.55%" in p.content
+    assert p.detail["stats"][0] == ("今日", "+0.55%")
     assert "🗑 永杉锂业 清仓 21.1%" in p.content
     assert "➕ 贵州茅台 0.0% → 5.2%" in p.content
     # 现金取 cash_value/净值（真实现金 0.0%），不显示接口伪值 80.0%
@@ -409,6 +439,110 @@ def test_combination_fetch_parses_rebalancing():
     # 第二笔：真实现金非零（清仓 25% 后现金 25.0%），不显示伪值 100.0%
     assert "现金 25.0%" in posts[1].content and "现金 100.0%" not in posts[1].content
     assert posts[1].detail["cash"] == "25.0%"
+
+
+def test_combination_snapshots_stored_and_ttl_skips_refetch():
+    """快照写入 cube_snapshots；TTL 内第二轮 fetch 不再请求雪球快照接口。"""
+    counts = {"quote": 0, "current": 0, "nav": 0}
+    rebalancing_payload = {"list": []}  # 无新调仓，仍应刷新快照
+
+    def handler(request):
+        path = request.url.path
+        if path == "/cubes/rebalancing/history.json":
+            return httpx.Response(200, json=rebalancing_payload)
+        if path == "/cubes/quote.json":
+            counts["quote"] += 1
+            return httpx.Response(200, json={"data": {"net_value": 1.5, "day_percent_gain": -0.32}})
+        if path == "/cubes/rebalancing/current.json":
+            counts["current"] += 1
+            return httpx.Response(200, json={"data": [{"stock_name": "贵州茅台", "stock_symbol": "SH600519", "weight": 10.0}]})
+        if path == "/cubes/nav_daily/all.json":
+            counts["nav"] += 1
+            return httpx.Response(200, json=[{"symbol": "ZH1", "name": "n", "list": [{"date": "2026-07-01", "value": 1.0}]}])
+        return httpx.Response(404)
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    db = DB(":memory:")
+    fetcher = CombinationFetcher(XueqiuConfig(cookie="xq_a_token=abc"), db=db, client=client)
+    kol = {"id": 7, "name": "测试组合", "external_id": "ZH000007"}
+
+    fetcher.fetch(kol)
+    assert counts == {"quote": 1, "current": 1, "nav": 1}
+    snap = db.get_cube_snapshot(7, "holdings")
+    assert snap and snap["payload"] == [{"name": "贵州茅台", "symbol": "SH600519", "weight": 10.0}]
+    snap = db.get_cube_snapshot(7, "nav")
+    assert snap and snap["payload"] == [{"date": "2026-07-01", "value": 1.0}]
+    snap = db.get_cube_snapshot(7, "quote")
+    assert snap and snap["payload"]["day_percent_gain"] == -0.32
+
+    fetcher.fetch(kol)  # TTL 内：快照接口不再请求，只请求调仓历史
+    assert counts == {"quote": 1, "current": 1, "nav": 1}
+
+
+def test_combination_snapshot_failure_does_not_break_rebalancing():
+    """快照接口失败（WAF/超时）只记日志，调仓推送照常。"""
+    payload = {
+        "list": [
+            {
+                "id": 1,
+                "status": "success",
+                "cash": 0.0,
+                "cash_value": 0.0,
+                "updated_at": 1785822205799,
+                "rebalancing_histories": [
+                    {"stock_name": "贵州茅台", "stock_symbol": "SH600519", "prev_weight": None, "target_weight": 5.2}
+                ],
+            }
+        ]
+    }
+
+    def handler(request):
+        path = request.url.path
+        if path == "/cubes/rebalancing/history.json":
+            return httpx.Response(200, json=payload)
+        if path == "/query/v1/cube/search.json":
+            return httpx.Response(200, json={"list": []})
+        raise AssertionError(f"快照接口不应被重试：{path}")  # 作为异常抛出，验证被吞
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    db = DB(":memory:")
+    fetcher = CombinationFetcher(XueqiuConfig(cookie="xq_a_token=abc"), db=db, client=client)
+    posts = fetcher.fetch({"id": 1, "name": "伯言-A股", "external_id": "ZH3623878"})
+    assert len(posts) == 1
+    assert "🆕 贵州茅台 新建 5.2%" in posts[0].content
+    # 无 quote 快照：不显示今日涨跌，调仓卡其余信息完整
+    assert "今日" not in posts[0].content
+    assert db.get_cube_snapshot(1, "quote") is None
+
+
+def test_combination_parse_helpers_accept_known_shapes():
+    from app.fetchers.combination import parse_holdings, parse_nav, parse_quote
+
+    # quote：直接对象 / data 包装 / percent 兜底
+    assert parse_quote({"net_value": 1.2, "day_percent_gain": 0.5}) == {
+        "net_value": 1.2,
+        "day_percent_gain": 0.5,
+    }
+    assert parse_quote({"data": {"net_value": 1.2, "percent": 0.5}})["day_percent_gain"] == 0.5
+    assert parse_quote({}).get("day_percent_gain") is None
+
+    # holdings：顶层数组 / data 数组 / data.holdings / 缺 weight 行跳过
+    assert parse_holdings([{"stock_name": "A", "weight": 3.5}]) == [{"name": "A", "symbol": "", "weight": 3.5}]
+    assert parse_holdings({"data": {"holdings": [{"stock_name": "B", "stock_symbol": "SH600000", "weight": 1.0}]}})[0]["symbol"] == "SH600000"
+    assert parse_holdings({"data": [{"stock_name": "C", "target_weight": 2.0}]})[0]["weight"] == 2.0
+    assert parse_holdings([{"stock_name": "无权重"}]) == []
+    assert parse_holdings(None) == []
+
+    # nav：取第一个元素（组合自身）的 list，跳过基准与异常行
+    series = parse_nav(
+        [
+            {"symbol": "ZH1", "name": "n", "list": [{"date": "2026-07-01", "value": 1.0}, {"date": "bad", "value": "x"}]},
+            {"symbol": "SH000300", "name": "基准", "list": [{"date": "2026-07-01", "value": 4000.0}]},
+        ]
+    )
+    assert series == [{"date": "2026-07-01", "value": 1.0}]
+    assert parse_nav({}) == []
+    assert parse_nav([]) == []
 
 
 def test_xueqiu_cookie_expired_403_raises_clear_error():

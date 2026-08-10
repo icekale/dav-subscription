@@ -7,8 +7,26 @@ const SUB_TYPES = [
   { value: "both", label: "帖子+回复" },
 ];
 
+// 组合快照时间（后端 UTC "YYYY-MM-DD HH:MM:SS"）转本地 "MM-DD HH:MM"
+function formatSnapshotTime(ts) {
+  if (!ts) return "";
+  const d = new Date(String(ts).replace(" ", "T") + "Z");
+  if (isNaN(d.getTime())) return "";
+  const p = (n) => String(n).padStart(2, "0");
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
 Page({
-  data: { kol: null, posts: [], loading: true, subTypes: SUB_TYPES },
+  data: {
+    kol: null,
+    posts: [],
+    loading: true,
+    subTypes: SUB_TYPES,
+    holdings: [],
+    holdingsUpdatedAt: "",
+    navSeries: [],
+    quoteDisplay: null,
+  },
 
   onLoad(options) {
     this.kolId = Number(options.id);
@@ -31,11 +49,120 @@ Page({
         p.platform_label = platformLabel(p.platform || kol.platform);
         p.avatar_url = resolveAvatar(p.avatar_url || kol.avatar_url);
       });
-      this.setData({ kol, posts, loading: false });
+      const extra = { holdings: [], holdingsUpdatedAt: "", navSeries: [], quoteDisplay: null };
+      if (kol.platform === "combination") {
+        const [holdings, nav] = await Promise.all([
+          request(`/api/kols/${this.kolId}/holdings`),
+          request(`/api/kols/${this.kolId}/nav`),
+        ]);
+        extra.holdings = holdings.holdings || [];
+        extra.holdingsUpdatedAt = formatSnapshotTime(holdings.updated_at);
+        extra.navSeries = nav.series || [];
+        const q = kol.quote || {};
+        if (q.day_percent_gain != null || q.net_value != null) {
+          const d = q.day_percent_gain;
+          extra.quoteDisplay = {
+            net: q.net_value != null ? q.net_value.toFixed(3) : "—",
+            day: d != null ? `${d >= 0 ? "+" : ""}${d.toFixed(2)}%` : "—",
+            dayClass: d != null ? (d >= 0 ? "up" : "down") : "",
+            time: formatSnapshotTime(kol.quote_at),
+          };
+        }
+      }
+      this.setData({ kol, posts, loading: false, ...extra }, () => this.drawNavChart());
     } catch (err) {
       this.setData({ loading: false });
       wx.showToast({ title: err.message, icon: "none" });
     }
+  },
+
+  drawNavChart() {
+    const series = this.data.navSeries;
+    if (!series || series.length < 2) return;
+    wx.createSelectorQuery()
+      .in(this)
+      .select("#navChart")
+      .fields({ node: true, size: true })
+      .exec((res) => {
+        if (!res || !res[0] || !res[0].node) return;
+        const canvas = res[0].node;
+        const ctx = canvas.getContext("2d");
+        const dpr = wx.getSystemInfoSync().pixelRatio || 2;
+        const w = res[0].width;
+        const h = res[0].height;
+        canvas.width = w * dpr;
+        canvas.height = h * dpr;
+        ctx.scale(dpr, dpr);
+
+        const padL = 4;
+        const padR = 4;
+        const padT = 16;
+        const padB = 20;
+        const pw = w - padL - padR;
+        const ph = h - padT - padB;
+        let min = Math.min(...series.map((p) => p.value));
+        let max = Math.max(...series.map((p) => p.value));
+        if (max - min < 1e-9) {
+          max += 0.005;
+          min -= 0.005;
+        }
+        const span = max - min;
+        min -= span * 0.05;
+        max += span * 0.05;
+        const X = (i) => padL + (i / (series.length - 1)) * pw;
+        const Y = (v) => padT + (1 - (v - min) / (max - min)) * ph;
+
+        // 网格 + Y 轴刻度
+        ctx.font = "10px sans-serif";
+        ctx.fillStyle = "rgba(0,0,0,0.45)";
+        ctx.strokeStyle = "rgba(0,0,0,0.08)";
+        ctx.lineWidth = 1;
+        for (let i = 0; i <= 3; i++) {
+          const v = min + ((max - min) * i) / 3;
+          const y = Y(v);
+          ctx.beginPath();
+          ctx.moveTo(padL, y);
+          ctx.lineTo(w - padR, y);
+          ctx.stroke();
+          ctx.fillText(v.toFixed(3), 2, y + 3);
+        }
+
+        const up = series[series.length - 1].value >= series[0].value;
+        const color = up ? "#e64340" : "#07c160";
+
+        // 渐变面积
+        const grad = ctx.createLinearGradient(0, padT, 0, padT + ph);
+        grad.addColorStop(0, up ? "rgba(230,67,64,0.14)" : "rgba(7,193,96,0.14)");
+        grad.addColorStop(1, "rgba(0,0,0,0)");
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.moveTo(X(0), padT + ph);
+        series.forEach((p, i) => ctx.lineTo(X(i), Y(p.value)));
+        ctx.lineTo(X(series.length - 1), padT + ph);
+        ctx.closePath();
+        ctx.fill();
+
+        // 折线
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        series.forEach((p, i) => (i === 0 ? ctx.moveTo(X(i), Y(p.value)) : ctx.lineTo(X(i), Y(p.value))));
+        ctx.stroke();
+
+        // 日期标签（首/中/尾）与最新值
+        const first = series[0].date;
+        const mid = series[Math.floor(series.length / 2)].date;
+        const last = series[series.length - 1];
+        ctx.fillStyle = "rgba(0,0,0,0.45)";
+        ctx.textAlign = "left";
+        ctx.fillText(first, padL, h - 6);
+        ctx.textAlign = "center";
+        ctx.fillText(mid, padL + pw / 2, h - 6);
+        ctx.textAlign = "right";
+        ctx.fillText(last.date, w - padR, h - 6);
+        ctx.fillStyle = color;
+        ctx.fillText(last.value.toFixed(3), w - padR, Y(last.value) - 4);
+      });
   },
 
   async toggleSubscribe() {

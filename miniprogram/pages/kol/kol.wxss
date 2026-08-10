@@ -55,3 +55,35 @@
   border-color: rgba(100, 116, 139, 0.45);
   color: #475569;
 }
+
+/* ---- 组合：状态 / 持仓 / 净值曲线 ---- */
+.quote-grid { display: flex; gap: 24rpx; margin-top: 16rpx; }
+.quote-item { flex: 1; }
+.quote-label { font-size: 22rpx; color: var(--text-muted); }
+.quote-value { font-size: 32rpx; font-weight: 600; color: var(--text-strong); margin-top: 4rpx; }
+.quote-value.small { font-size: 22rpx; font-weight: 400; color: var(--text-muted); }
+/* A股惯例：红涨绿跌 */
+.quote-value.up { color: #e64340; }
+.quote-value.down { color: #07c160; }
+
+.holding-row { padding: 14rpx 0; }
+.holding-name { font-size: 26rpx; color: var(--text-strong); }
+.holding-weight { font-size: 26rpx; font-weight: 600; color: var(--text-muted); }
+.weight-bar {
+  margin-top: 8rpx;
+  height: 8rpx;
+  border-radius: 4rpx;
+  background: var(--line);
+  overflow: hidden;
+}
+.weight-fill {
+  height: 100%;
+  border-radius: 4rpx;
+  background: var(--accent);
+  opacity: 0.85;
+}
+.snapshot-time { margin-top: 12rpx; font-size: 22rpx; color: var(--text-muted); }
+
+.nav-latest { font-size: 30rpx; font-weight: 600; color: var(--text-strong); }
+.nav-date { font-size: 22rpx; color: var(--text-muted); }
+.nav-chart { width: 100%; height: 360rpx; margin-top: 12rpx; }

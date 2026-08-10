@@ -1,6 +1,11 @@
-"""雪球组合调仓抓取：订阅组合后推送每次调仓（持仓比例变化）。"""
+"""雪球组合调仓抓取：订阅组合后推送每次调仓（持仓比例变化）。
+
+同时抓取组合快照（quote 实时净值/今日涨跌、current 当前持仓、nav 净值序列）
+写入 cube_snapshots 表，供详情页展示；快照失败不阻断调仓推送。
+"""
 from __future__ import annotations
 
+import logging
 import re
 import time
 
@@ -15,9 +20,16 @@ from .xueqiu import (
     merge_waf_cookie,
 )
 
+logger = logging.getLogger(__name__)
+
 REBALANCING_URL = "https://xueqiu.com/cubes/rebalancing/history.json"
+CUBE_QUOTE_URL = "https://xueqiu.com/cubes/quote.json"
+CUBE_CURRENT_URL = "https://xueqiu.com/cubes/rebalancing/current.json"
+CUBE_NAV_URL = "https://xueqiu.com/cubes/nav_daily/all.json"
 CUBE_SEARCH_URL = "https://xueqiu.com/query/v1/cube/search.json"
 PROFILE_CACHE_TTL = 300
+# 快照 TTL：quote 随轮次刷新（30s 级），持仓 5 分钟，净值序列 1 小时
+SNAPSHOT_TTL = {"quote": 60, "holdings": 300, "nav": 3600}
 _profile_cache: dict[str, tuple[float, dict]] = {}
 
 
@@ -86,6 +98,76 @@ def resolve_combination_profile(
     return {}
 
 
+def parse_quote(data) -> dict:
+    """解析 cubes/quote.json 响应：兼容 {"data": {...}} 与直接对象两种形状。"""
+    if isinstance(data, dict) and isinstance(data.get("data"), dict):
+        data = data["data"]
+    day = data.get("day_percent_gain")
+    if not isinstance(day, (int, float)):
+        day = data.get("percent")
+    net = data.get("net_value")
+    return {
+        "net_value": net if isinstance(net, (int, float)) else None,
+        "day_percent_gain": day if isinstance(day, (int, float)) else None,
+    }
+
+
+def parse_holdings(data) -> list[dict]:
+    """解析 rebalancing/current.json 响应为 [{name, symbol, weight}]。
+
+    兼容多种形状：顶层数组 / {"data": [...]} / {"data": {"holdings": [...]}}。
+    """
+    if isinstance(data, list):
+        rows = data
+    elif isinstance(data, dict):
+        inner = data.get("data")
+        if isinstance(inner, list):
+            rows = inner
+        elif isinstance(inner, dict) and isinstance(inner.get("holdings"), list):
+            rows = inner["holdings"]
+        elif isinstance(data.get("holdings"), list):
+            rows = data["holdings"]
+        else:
+            rows = []
+    else:
+        rows = []
+    holdings = []
+    for h in rows:
+        if not isinstance(h, dict):
+            continue
+        w = h.get("weight")
+        if not isinstance(w, (int, float)):
+            w = h.get("target_weight")
+        if not isinstance(w, (int, float)):
+            continue
+        holdings.append(
+            {
+                "name": h.get("stock_name") or "",
+                "symbol": h.get("stock_symbol") or "",
+                "weight": round(w, 2),
+            }
+        )
+    return holdings
+
+
+def parse_nav(data) -> list[dict]:
+    """解析 nav_daily/all.json 响应为 [{date, value}]（取组合自身，跳过沪深300基准）。"""
+    if not isinstance(data, list) or not data or not isinstance(data[0], dict):
+        return []
+    items = data[0].get("list")
+    if not isinstance(items, list):
+        return []
+    series = []
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        v = it.get("value")
+        if not isinstance(v, (int, float)):
+            continue
+        series.append({"date": str(it.get("date") or ""), "value": round(v, 4)})
+    return series
+
+
 class CombinationFetcher(Fetcher):
     platform = "combination"
 
@@ -110,6 +192,38 @@ class CombinationFetcher(Fetcher):
             self.db.set_setting(XUEQIU_COOKIE_KEY, cookie)
             self.db.set_setting(XUEQIU_COOKIE_TIME_KEY, str(int(time.time())))
 
+    def _snapshot(self, kol_id: int, cube_symbol: str, kind: str, url: str, params: dict) -> None:
+        """抓取并写入一种组合快照；TTL 内跳过，失败仅记日志（不阻断调仓推送）。"""
+        ttl = SNAPSHOT_TTL.get(kind, 300)
+        if self.db.cube_snapshot_fresh(kol_id, kind, ttl):
+            return
+        self._apply_cookie()
+        try:
+            resp = self.client.get(url, params=params)
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as exc:  # noqa: BLE001 - 快照失败不影响主流程
+            logger.warning("组合 %s %s 快照抓取失败: %s", cube_symbol, kind, exc)
+            return
+        try:
+            if kind == "quote":
+                payload = parse_quote(data)
+            elif kind == "holdings":
+                payload = parse_holdings(data)
+            else:
+                payload = parse_nav(data)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("组合 %s %s 快照解析失败: %s", cube_symbol, kind, exc)
+            return
+        if payload:
+            self.db.set_cube_snapshot(kol_id, kind, payload)
+
+    def _refresh_snapshots(self, kol_id: int, cube_symbol: str) -> None:
+        """刷新三种组合快照（各带 TTL，独立失败互不影响）。"""
+        self._snapshot(kol_id, cube_symbol, "quote", CUBE_QUOTE_URL, {"code": cube_symbol, "cube_symbol": cube_symbol})
+        self._snapshot(kol_id, cube_symbol, "holdings", CUBE_CURRENT_URL, {"cube_symbol": cube_symbol})
+        self._snapshot(kol_id, cube_symbol, "nav", CUBE_NAV_URL, {"cube_symbol": cube_symbol})
+
     def fetch(self, kol: dict) -> list[Post]:
         cube_symbol = extract_cube_symbol(kol["external_id"])
         if not cube_symbol:
@@ -131,11 +245,20 @@ class CombinationFetcher(Fetcher):
             data = resp.json()
         except ValueError:
             raise RuntimeError("雪球组合接口返回异常（可能被反爬拦截）") from None
+        # 先刷新快照（TTL 内跳过），调仓卡与详情页引用本次的 quote/持仓/净值数据
+        self._refresh_snapshots(kol["id"], cube_symbol)
         name = kol["name"]
         posts = []
         profile = resolve_combination_profile(cube_symbol, client=self.client)
+        quote = parse_quote(
+            (self.db.get_cube_snapshot(kol["id"], "quote") or {}).get("payload") or {}
+        )
         stats_line = ""
         parts = []
+        if quote.get("day_percent_gain") is not None:
+            d = quote["day_percent_gain"]
+            sign = "+" if d >= 0 else ""
+            parts.append(f"今日 {sign}{d:.2f}%")
         if profile.get("annualized_gain"):
             parts.append(f"年化 {profile['annualized_gain']:.1f}%")
         if profile.get("net_value"):
@@ -210,6 +333,7 @@ class CombinationFetcher(Fetcher):
                         "stats": [
                             (k, v)
                             for k, v in (
+                                ("今日", f"{quote['day_percent_gain']:+.2f}%" if quote.get("day_percent_gain") is not None else ""),
                                 ("年化", f"{profile['annualized_gain']:.1f}%" if profile.get("annualized_gain") else ""),
                                 ("净值", f"{profile['net_value']:.3f}" if profile.get("net_value") else ""),
                             )

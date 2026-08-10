@@ -232,6 +232,16 @@ CREATE TABLE IF NOT EXISTS source_events (
     fail_count INTEGER NOT NULL DEFAULT 0
 );
 
+-- 雪球组合快照：quote（实时净值/涨跌）、holdings（当前持仓）、nav（净值序列）
+-- 抓取端定时写入（TTL 内不重复请求），API 端只读，页面展示不依赖雪球在线
+CREATE TABLE IF NOT EXISTS cube_snapshots (
+    kol_id INTEGER NOT NULL,
+    kind TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    fetched_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (kol_id, kind)
+);
+
 -- 飞书个人机器人（扫码自动创建的应用，纯推送、共享回退）
 CREATE TABLE IF NOT EXISTS feishu_personal_bots (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1179,6 +1189,39 @@ class DB:
         self._execute("DELETE FROM push_logs WHERE user_id = ?", (user_id,))
         self._execute("DELETE FROM kol_acl WHERE user_id = ?", (user_id,))
         self._execute("DELETE FROM users WHERE id = ?", (user_id,))
+
+    # ---- 雪球组合快照 ----
+    def set_cube_snapshot(self, kol_id: int, kind: str, payload) -> None:
+        """写入/覆盖组合快照（quote/holdings/nav），刷新 fetched_at。"""
+        self._execute(
+            "INSERT INTO cube_snapshots (kol_id, kind, payload) VALUES (?, ?, ?) "
+            "ON CONFLICT(kol_id, kind) DO UPDATE SET "
+            "payload = excluded.payload, fetched_at = datetime('now')",
+            (kol_id, kind, json.dumps(payload, ensure_ascii=False)),
+        )
+
+    def get_cube_snapshot(self, kol_id: int, kind: str) -> dict | None:
+        """读组合快照：{"payload": 已解析 JSON, "fetched_at": "YYYY-MM-DD HH:MM:SS"}。"""
+        rows = self._rows(
+            "SELECT payload, fetched_at FROM cube_snapshots WHERE kol_id = ? AND kind = ?",
+            (kol_id, kind),
+        )
+        if not rows:
+            return None
+        try:
+            payload = json.loads(rows[0]["payload"])
+        except (TypeError, ValueError):
+            return None
+        return {"payload": payload, "fetched_at": rows[0]["fetched_at"]}
+
+    def cube_snapshot_fresh(self, kol_id: int, kind: str, ttl_seconds: int) -> bool:
+        """快照是否在 TTL 内（fetcher 据此决定要不要重新请求雪球）。"""
+        rows = self._rows(
+            "SELECT 1 FROM cube_snapshots WHERE kol_id = ? AND kind = ? "
+            "AND strftime('%s', fetched_at) >= strftime('%s', 'now') - ?",
+            (kol_id, kind, ttl_seconds),
+        )
+        return bool(rows)
 
     # ---- Post ----
     def post_exists(self, platform: str, external_id: str) -> bool:
