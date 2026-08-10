@@ -45,17 +45,22 @@ for f in "${FILES[@]}"; do
     echo "  新增文件（Unraid 无此文件）：$f"
     continue
   fi
-  # Unraid 版本允许为「本地 HEAD」或「本地 HEAD~1」两种状态：
+  # Unraid 版本允许为「本地任一祖先提交」状态：
   #   HEAD   = 已是最新，重复部署（重跑幂等）
-  #   HEAD~1 = 落后一个提交，正常同步目标
+  #   祖先   = 落后 N 个提交（多提交部署），正常同步目标
   # 两者都不是才判定为 Unraid 上的第三方/并发改动，中止保护
   head_md5=$(git show HEAD:"$f" | md5 -q)
-  prev_md5=$(git show HEAD~1:"$f" 2>/dev/null | md5 -q || true)
-  if [ "$remote" != "$head_md5" ] && [ "$remote" != "$prev_md5" ]; then
-    echo "✋ 中止：$f 在 Unraid 上有本地 HEAD/HEAD~1 之外的改动（可能被并发修改）"
+  baseline_ok=false
+  for c in $(git rev-list HEAD); do
+    if [ "$(git show "$c:$f" 2>/dev/null | md5 -q)" = "$remote" ]; then
+      baseline_ok=true
+      break
+    fi
+  done
+  if [ "$baseline_ok" != true ]; then
+    echo "✋ 中止：$f 在 Unraid 上有本地提交历史之外的改动（可能被并发修改）"
     echo "  Unraid: $remote"
     echo "  HEAD:   $head_md5"
-    echo "  HEAD~1: $prev_md5"
     echo "  请先人工确认 Unraid 上的改动是否需要保留，再重试"
     exit 1
   fi
