@@ -1878,6 +1878,17 @@ function switchSettingsTab(name) {
   });
 }
 
+function switchStatsTab(name) {
+  // 数据源页分段导航：监控总览 / 大V健康 / 抓取设置 / Cookie 管理
+  document.querySelectorAll(".settings-tab").forEach((b) =>
+    b.classList.toggle("active", b.dataset.tab === name)
+  );
+  ["overview", "health", "config", "cookies"].forEach((t) => {
+    const el = document.getElementById("st-" + t);
+    if (el) el.style.display = t === name ? "" : "none";
+  });
+}
+
 function bindGuideHtml(bound, stepsHtml) {
   // 渠道绑定步骤折叠：未绑定时默认展开引导，已绑定时收起来（页面不再一屏放不下）
   return `<details class="bind-steps" ${bound ? "" : "open"}>
@@ -2427,142 +2438,156 @@ async function loadAdminStats() {
   const [s, xq] = await Promise.all([api("/api/stats"), api("/api/admin/xueqiu-cookie")]);
   if (!routeStillActive(_adminRenderSeq)) return;
   $("#admin-body").innerHTML = `
-    <section class="section-panel">
-      <header class="section-head">
-        <div><h3 class="section-title">抓取设置</h3>
-        <p class="section-meta">保存后即时生效，无需重启。</p></div>
-      </header>
-      <div class="cfg-grid">
-        <div class="cfg-group">
-          <p class="cfg-group-title">基础节拍</p>
-          <div class="row" style="gap:12px;flex-wrap:wrap">
-            <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)">轮询间隔(秒)
-              <input id="pc-interval" type="number" class="form-control" style="margin:0;width:110px" min="1" max="3600" value="${s.polling_config.interval_seconds}">
-            </label>
-            <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)">优先大V间隔(秒)
-              <input id="pc-priority" type="number" class="form-control" style="margin:0;width:110px" min="1" max="600" value="${s.polling_config.priority_interval_seconds}">
-            </label>
-            <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)">合并推送周期(秒)
-              <input id="pc-digest" type="number" class="form-control" style="margin:0;width:110px" min="0" max="86400" value="${s.polling_config.digest_interval_seconds}">
+    <div class="settings-tabs" role="tablist" aria-label="数据源管理">
+      <button class="settings-tab active" data-tab="overview" onclick="switchStatsTab('overview')">监控总览</button>
+      <button class="settings-tab" data-tab="health" onclick="switchStatsTab('health')">大V健康</button>
+      <button class="settings-tab" data-tab="config" onclick="switchStatsTab('config')">抓取设置</button>
+      <button class="settings-tab" data-tab="cookies" onclick="switchStatsTab('cookies')">Cookie 管理</button>
+    </div>
+    <div id="st-overview" class="settings-tab-panel">
+      <section class="section-panel">
+        <header class="section-head">
+          <div><h3 class="section-title">数据源稳定性</h3>
+          <p class="section-meta">抓取健康、24h 成功率与事件流；页面每 30 秒自动刷新。</p></div>
+          <div class="toolbar" style="margin-top:12px">
+            <span id="stats-refresh-at" class="muted"></span>
+            <button class="btn-ghost" onclick="loadAdminStats()">立即刷新</button>
+          </div>
+        </header>
+        <div id="stats-cards"></div>
+        <div id="stats-poll-error"></div>
+        <div id="stats-ops" style="margin-top:16px"></div>
+        <div class="table-wrap" style="margin-top:16px">
+          <table>
+            <thead><tr><th scope="col">平台</th><th scope="col">状态</th><th scope="col">通道</th><th scope="col">24h 成功率</th><th scope="col">成功 / 失败</th><th scope="col">连续失败</th><th scope="col">最近成功</th><th scope="col">下次重试</th><th scope="col">最近错误</th></tr></thead>
+            <tbody id="sources-table"></tbody>
+          </table>
+        </div>
+      </section>
+      <section class="section-panel">
+        <header class="section-head"><div><h3 class="section-title">数据源事件</h3>
+        <p class="section-meta">最近 30 条抓取成功 / 失败 / 降级记录（保留 7 天）。</p></div></header>
+        <div id="source-events"></div>
+      </section>
+    </div>
+    <div id="st-health" class="settings-tab-panel" style="display:none">
+      <section class="section-panel">
+        <header class="section-head"><div><h3 class="section-title">大V抓取健康</h3>
+        <p class="section-meta">按「最近抓到新帖时间」从旧到新排列，顶部即长期无更新的候选排查对象。</p></div></header>
+        <div id="kol-health"></div>
+      </section>
+    </div>
+    <div id="st-config" class="settings-tab-panel" style="display:none">
+      <section class="section-panel">
+        <header class="section-head">
+          <div><h3 class="section-title">抓取设置</h3>
+          <p class="section-meta">保存后即时生效，无需重启。</p></div>
+        </header>
+        <div class="cfg-grid">
+          <div class="cfg-group">
+            <p class="cfg-group-title">基础节拍</p>
+            <div class="row" style="gap:12px;flex-wrap:wrap">
+              <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)">轮询间隔(秒)
+                <input id="pc-interval" type="number" class="form-control" style="margin:0;width:110px" min="1" max="3600" value="${s.polling_config.interval_seconds}">
+              </label>
+              <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)">优先大V间隔(秒)
+                <input id="pc-priority" type="number" class="form-control" style="margin:0;width:110px" min="1" max="600" value="${s.polling_config.priority_interval_seconds}">
+              </label>
+              <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)">合并推送周期(秒)
+                <input id="pc-digest" type="number" class="form-control" style="margin:0;width:110px" min="0" max="86400" value="${s.polling_config.digest_interval_seconds}">
+              </label>
+            </div>
+          </div>
+          <div class="cfg-group">
+            <p class="cfg-group-title">组合高频 <span class="hint">调仓实时推送</span></p>
+            <div class="row" style="gap:12px;flex-wrap:wrap">
+              <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)" title="组合抓取频率；无新帖时自动拉长，2 倍步进，调仓出现即恢复">组合基础间隔(秒)
+                <input id="pc-cb" type="number" class="form-control" style="margin:0;width:110px" min="5" max="3600" value="${s.polling_config.combination_base_seconds}">
+              </label>
+              <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)" title="组合长期无调仓时封顶的空轮间隔">组合空轮封顶(秒)
+                <input id="pc-cc" type="number" class="form-control" style="margin:0;width:110px" min="5" max="86400" value="${s.polling_config.combination_idle_cap_seconds}">
+              </label>
+            </div>
+          </div>
+          <div class="cfg-group">
+            <p class="cfg-group-title">自适应降频 <span class="hint">无新帖自动拉长</span></p>
+            <div class="row" style="gap:12px;flex-wrap:wrap">
+              <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)" title="普通大V长期无新帖时封顶的空轮间隔">普通大V空轮封顶(秒)
+                <input id="pc-nc" type="number" class="form-control" style="margin:0;width:110px" min="5" max="86400" value="${s.polling_config.normal_idle_cap_seconds}">
+              </label>
+              <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)" title="优先大V长期无新帖时封顶的空轮间隔">优先大V空轮封顶(秒)
+                <input id="pc-pc" type="number" class="form-control" style="margin:0;width:110px" min="5" max="86400" value="${s.polling_config.priority_idle_cap_seconds}">
+              </label>
+              <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)" title="X 降级到 RSSHub 备用通道期间封顶的抓取间隔">X降级封顶(秒)
+                <input id="pc-xc" type="number" class="form-control" style="margin:0;width:110px" min="5" max="86400" value="${s.polling_config.x_fallback_cap_seconds}">
+              </label>
+              <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)" title="次要大V基础抓取间隔">次要大V间隔(秒)
+                <input id="pc-si" type="number" class="form-control" style="margin:0;width:110px" min="60" max="86400" value="${s.polling_config.secondary_interval_seconds}">
+              </label>
+              <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)" title="次要大V长期无新帖时封顶的空轮间隔">次要大V空轮封顶(秒)
+                <input id="pc-sc" type="number" class="form-control" style="margin:0;width:110px" min="60" max="86400" value="${s.polling_config.secondary_idle_cap_seconds}">
+              </label>
+              <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)" title="次要大V合并推送周期，0 = 实时推送">次要大V推送周期(秒)
+                <input id="pc-sd" type="number" class="form-control" style="margin:0;width:110px" min="0" max="86400" value="${s.polling_config.secondary_digest_interval_seconds}">
+              </label>
+            </div>
+          </div>
+          <div class="cfg-group">
+            <p class="cfg-group-title">X 通道</p>
+            <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--color-text-muted);height:36px">
+              <input id="pc-translate" type="checkbox" ${s.polling_config.translate_twitter_content ? "checked" : ""}> X 内容自动翻译成中文
+              <span class="muted">（配置 TWITTER_COOKIE 后走 X 官方翻译，质量同网页版）</span>
             </label>
           </div>
-        </div>
-        <div class="cfg-group">
-          <p class="cfg-group-title">组合高频 <span class="hint">调仓实时推送</span></p>
-          <div class="row" style="gap:12px;flex-wrap:wrap">
-            <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)" title="组合抓取频率；无新帖时自动拉长，2 倍步进，调仓出现即恢复">组合基础间隔(秒)
-              <input id="pc-cb" type="number" class="form-control" style="margin:0;width:110px" min="5" max="3600" value="${s.polling_config.combination_base_seconds}">
-            </label>
-            <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)" title="组合长期无调仓时封顶的空轮间隔">组合空轮封顶(秒)
-              <input id="pc-cc" type="number" class="form-control" style="margin:0;width:110px" min="5" max="86400" value="${s.polling_config.combination_idle_cap_seconds}">
-            </label>
+          <div class="cfg-group">
+            <p class="cfg-group-title">保活与定时</p>
+            <div class="row" style="gap:12px;flex-wrap:wrap">
+              <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)">雪球探测(秒)
+                <input id="pc-probe" type="number" class="form-control" style="margin:0;width:110px" min="0" max="86400" value="${s.polling_config.source_probe_interval_seconds}">
+              </label>
+              <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)">cookie保活(秒)
+                <input id="pc-keepalive" type="number" class="form-control" style="margin:0;width:110px" min="0" max="86400" value="${s.polling_config.cookie_keepalive_interval_seconds}">
+              </label>
+              <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)">每日精选小时
+                <input id="pc-daily" type="number" class="form-control" style="margin:0;width:110px" min="0" max="23" value="${s.polling_config.daily_report_hour}">
+              </label>
+            </div>
           </div>
         </div>
-        <div class="cfg-group">
-          <p class="cfg-group-title">自适应降频 <span class="hint">无新帖自动拉长</span></p>
-          <div class="row" style="gap:12px;flex-wrap:wrap">
-            <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)" title="普通大V长期无新帖时封顶的空轮间隔">普通大V空轮封顶(秒)
-              <input id="pc-nc" type="number" class="form-control" style="margin:0;width:110px" min="5" max="86400" value="${s.polling_config.normal_idle_cap_seconds}">
-            </label>
-            <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)" title="优先大V长期无新帖时封顶的空轮间隔">优先大V空轮封顶(秒)
-              <input id="pc-pc" type="number" class="form-control" style="margin:0;width:110px" min="5" max="86400" value="${s.polling_config.priority_idle_cap_seconds}">
-            </label>
-            <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)" title="X 降级到 RSSHub 备用通道期间封顶的抓取间隔">X降级封顶(秒)
-              <input id="pc-xc" type="number" class="form-control" style="margin:0;width:110px" min="5" max="86400" value="${s.polling_config.x_fallback_cap_seconds}">
-            </label>
-            <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)" title="次要大V基础抓取间隔">次要大V间隔(秒)
-              <input id="pc-si" type="number" class="form-control" style="margin:0;width:110px" min="60" max="86400" value="${s.polling_config.secondary_interval_seconds}">
-            </label>
-            <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)" title="次要大V长期无新帖时封顶的空轮间隔">次要大V空轮封顶(秒)
-              <input id="pc-sc" type="number" class="form-control" style="margin:0;width:110px" min="60" max="86400" value="${s.polling_config.secondary_idle_cap_seconds}">
-            </label>
-            <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)" title="次要大V合并推送周期，0 = 实时推送">次要大V推送周期(秒)
-              <input id="pc-sd" type="number" class="form-control" style="margin:0;width:110px" min="0" max="86400" value="${s.polling_config.secondary_digest_interval_seconds}">
-            </label>
-          </div>
+        <div class="cfg-save-row">
+          <button class="btn-normal" onclick="savePollingConfig()">保存抓取设置</button>
+          <span id="pc-result" class="muted"></span>
         </div>
-        <div class="cfg-group">
-          <p class="cfg-group-title">X 通道</p>
-          <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--color-text-muted);height:36px">
-            <input id="pc-translate" type="checkbox" ${s.polling_config.translate_twitter_content ? "checked" : ""}> X 内容自动翻译成中文
-            <span class="muted">（配置 TWITTER_COOKIE 后走 X 官方翻译，质量同网页版）</span>
-          </label>
+      </section>
+    </div>
+    <div id="st-cookies" class="settings-tab-panel" style="display:none">
+      <section class="section-panel">
+        <header class="section-head"><div><h3 class="section-title">微博 Cookie</h3>
+        <p class="section-meta">扫码登录后自动保存 Cookie，或配置账号密码自动续期。</p></div></header>
+        <div>
+          <button class="btn-normal" onclick="startWeiboQr()">微博扫码登录</button>
+          <span class="muted" style="margin-left:10px">用微博 App 扫码后自动保存 Cookie，无需手动复制</span>
+          <p class="muted" style="margin-top:10px">
+            微博 Cookie：${s.weibo_cookie && s.weibo_cookie.set
+              ? `已写入（${escapeHtml(s.weibo_cookie.updated_at || "")}）`
+              : "未写入"}
+            ${s.keepalive_interval_seconds > 0 ? `· 每 ${Math.round(s.keepalive_interval_seconds / 3600)} 小时自动保活` : ""}
+          </p>
         </div>
-        <div class="cfg-group">
-          <p class="cfg-group-title">保活与定时</p>
-          <div class="row" style="gap:12px;flex-wrap:wrap">
-            <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)">雪球探测(秒)
-              <input id="pc-probe" type="number" class="form-control" style="margin:0;width:110px" min="0" max="86400" value="${s.polling_config.source_probe_interval_seconds}">
-            </label>
-            <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)">cookie保活(秒)
-              <input id="pc-keepalive" type="number" class="form-control" style="margin:0;width:110px" min="0" max="86400" value="${s.polling_config.cookie_keepalive_interval_seconds}">
-            </label>
-            <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)">每日精选小时
-              <input id="pc-daily" type="number" class="form-control" style="margin:0;width:110px" min="0" max="23" value="${s.polling_config.daily_report_hour}">
-            </label>
-          </div>
-        </div>
-      </div>
-      <div class="cfg-save-row">
-        <button class="btn-normal" onclick="savePollingConfig()">保存抓取设置</button>
-        <span id="pc-result" class="muted"></span>
-      </div>
-    </section>
-    <section class="section-panel">
-      <header class="section-head">
-        <div><h3 class="section-title">数据源稳定性</h3>
-        <p class="section-meta">抓取健康、24h 成功率与事件流；页面每 30 秒自动刷新，可随时手动刷新。</p></div>
+        <div id="wb-qr-box" style="margin-top:16px"></div>
+      </section>
+      <section class="section-panel">
+        <header class="section-head">
+          <div><h3 class="section-title">雪球 Cookie</h3>
+          <p class="section-meta">${xq.set ? `已写入（${escapeHtml(xq.updated_at || "")}），预览：${escapeHtml(xq.preview)}` : "未写入，抓取可能受限或被反爬拦截"}${s.keepalive_interval_seconds > 0 ? ` · 每 ${Math.round(s.keepalive_interval_seconds / 3600)} 小时自动保活` : ""}</p></div>
+        </header>
+        <textarea id="xq-cookie" class="form-control" rows="4" style="font-family:monospace" placeholder="登录 xueqiu.com 后，浏览器 F12 → Application → Cookies 复制整串（形如 xq_a_token=...; u=...）"></textarea>
         <div class="toolbar" style="margin-top:12px">
-          <span id="stats-refresh-at" class="muted"></span>
-          <button class="btn-ghost" onclick="loadAdminStats()">立即刷新</button>
+          <button class="btn-normal" onclick="saveXueqiuCookie()">保存雪球 Cookie</button>
+          <span id="xq-result" class="muted"></span>
         </div>
-      </header>
-      <div id="stats-cards"></div>
-      <div id="stats-poll-error"></div>
-      <div id="stats-ops" style="margin-top:16px"></div>
-      <div class="table-wrap" style="margin-top:16px">
-        <table>
-          <thead><tr><th scope="col">平台</th><th scope="col">状态</th><th scope="col">通道</th><th scope="col">24h 成功率</th><th scope="col">成功 / 失败</th><th scope="col">连续失败</th><th scope="col">最近成功</th><th scope="col">下次重试</th><th scope="col">最近错误</th></tr></thead>
-          <tbody id="sources-table"></tbody>
-        </table>
-      </div>
-    </section>
-    <section class="section-panel">
-      <header class="section-head"><div><h3 class="section-title">数据源事件</h3>
-      <p class="section-meta">最近 30 条抓取成功 / 失败 / 降级记录（保留 7 天）。</p></div></header>
-      <div id="source-events"></div>
-    </section>
-    <section class="section-panel">
-      <header class="section-head"><div><h3 class="section-title">大V抓取健康</h3>
-      <p class="section-meta">按「最近抓到新帖时间」从旧到新排列，顶部即长期无更新的候选排查对象。</p></div></header>
-      <div id="kol-health"></div>
-    </section>
-    <section class="section-panel">
-      <header class="section-head"><div><h3 class="section-title">微博 Cookie</h3>
-      <p class="section-meta">扫码登录后自动保存 Cookie，或配置账号密码自动续期。</p></div></header>
-      <div>
-        <button class="btn-normal" onclick="startWeiboQr()">微博扫码登录</button>
-        <span class="muted" style="margin-left:10px">用微博 App 扫码后自动保存 Cookie，无需手动复制</span>
-        <p class="muted" style="margin-top:10px">
-          微博 Cookie：${s.weibo_cookie && s.weibo_cookie.set
-            ? `已写入（${escapeHtml(s.weibo_cookie.updated_at || "")}）`
-            : "未写入"}
-          ${s.keepalive_interval_seconds > 0 ? `· 每 ${Math.round(s.keepalive_interval_seconds / 3600)} 小时自动保活` : ""}
-        </p>
-      </div>
-      <div id="wb-qr-box" style="margin-top:16px"></div>
-    </section>
-    <section class="section-panel">
-      <header class="section-head">
-        <div><h3 class="section-title">雪球 Cookie</h3>
-        <p class="section-meta">${xq.set ? `已写入（${escapeHtml(xq.updated_at || "")}），预览：${escapeHtml(xq.preview)}` : "未写入，抓取可能受限或被反爬拦截"}${s.keepalive_interval_seconds > 0 ? ` · 每 ${Math.round(s.keepalive_interval_seconds / 3600)} 小时自动保活` : ""}</p></div>
-      </header>
-      <textarea id="xq-cookie" class="form-control" rows="4" style="font-family:monospace" placeholder="登录 xueqiu.com 后，浏览器 F12 → Application → Cookies 复制整串（形如 xq_a_token=...; u=...）"></textarea>
-      <div class="toolbar" style="margin-top:12px">
-        <button class="btn-normal" onclick="saveXueqiuCookie()">保存雪球 Cookie</button>
-        <span id="xq-result" class="muted"></span>
-      </div>
-    </section>`;
+      </section>
+    </div>`;
   renderStatsData(s);
   statsTimer = setInterval(async () => {
     try {
