@@ -206,7 +206,13 @@ textarea.form-control {
   border-color: var(--color-accent);
   background: var(--color-accent-soft);
 }
+.fav-btn.sec-on {
+  color: var(--color-text-muted);
+  border-color: var(--color-text-muted);
+  background: var(--color-muted-soft, rgba(100, 116, 139, 0.14));
+}
 .star-icon { width: 18px; height: 18px; fill: currentColor; display: block; }
+.bell-icon { width: 18px; height: 18px; display: block; }
 .fav-toggle {
   display: inline-flex; align-items: center; gap: 6px;
   height: 36px; padding: 0 14px;

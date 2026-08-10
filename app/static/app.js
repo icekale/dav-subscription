@@ -17,6 +17,8 @@ const CHANNEL_ICONS = {
 const APP_VERSION = "1.8.1";
 const PLATFORM_TABS = ["", "xueqiu", "combination", "weibo", "twitter"];
 const STAR_SVG = `<svg class="star-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5l2.95 5.98 6.6.96-4.78 4.66 1.13 6.58L12 17.6l-5.9 3.1 1.13-6.58L2.45 9.44l6.6-.96L12 2.5z"/></svg>`;
+// 次要（降频）铃铛图标：线性风格，与 TRASH_ICON 一致（stroke=currentColor）
+const BELL_ICON = `<svg class="bell-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>`;
 const TRASH_ICON = `<svg class="trash-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>`;
 const V_ICON = `<svg class="nav-v-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 4.5L12 19.5L19.5 4.5"/></svg>`;
 const BOOK_ICON = `<svg class="nav-book-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>`;
@@ -541,6 +543,7 @@ function kolCard(kol) {
           ${kol.subscribed ? "✓ 已订阅" : "订阅"}
         </button>
         ${kol.subscribed ? `<button class="fav-btn ${kol.favorite ? "fav-on" : ""}" onclick="toggleFavorite(${kol.id}, this)" title="特别关注：优先推送 ⭐">${STAR_SVG}</button>` : ""}
+        ${kol.subscribed ? `<button class="fav-btn ${kol.secondary ? "sec-on" : ""}" onclick="toggleSecondary(${kol.id}, this)" title="次要：新帖合并进摘要推送（降频）🔕">${BELL_ICON}</button>` : ""}
         ${state.user?.is_admin ? `<button class="btn-sm danger kol-del" onclick="adminDeleteKolFromHome(${kol.id})" title="删除该大V" aria-label="删除该大V">${TRASH_ICON}</button>` : ""}
       </div>
     </div>`;
@@ -587,6 +590,24 @@ async function toggleFavorite(kolId, btn) {
     if (kol) kol.favorite = next;
     if (btn) btn.classList.toggle("fav-on", next);
     flash(next ? "已加星标" : "已取消星标");
+    if (location.hash.startsWith("#/home")) renderHomeList();
+    else if (location.hash.startsWith("#/mysubs")) renderMySubsList();
+  } catch (err) {
+    alert("操作失败: " + err.message);
+  }
+}
+
+async function toggleSecondary(kolId, btn) {
+  const kol = state.catalog.find((k) => k.id === kolId);
+  const next = !(kol ? kol.secondary : false);
+  try {
+    await api(`/api/subscriptions/${kolId}/secondary`, {
+      method: "PUT",
+      body: JSON.stringify({ secondary: next }),
+    });
+    if (kol) kol.secondary = next;
+    if (btn) btn.classList.toggle("sec-on", next);
+    flash(next ? "已设为次要（降频推送）" : "已取消次要");
     if (location.hash.startsWith("#/home")) renderHomeList();
     else if (location.hash.startsWith("#/mysubs")) renderMySubsList();
   } catch (err) {
