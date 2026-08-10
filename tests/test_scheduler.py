@@ -766,6 +766,105 @@ def test_priority_kol_bypasses_digest(monkeypatch):
     assert digest == {}
 
 
+def test_personal_secondary_user_buffered_not_realtime(monkeypatch):
+    """个人次要：用户新帖不实时推、不进普通摘要，进个人延迟缓冲。"""
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.add_subscription(uid, kid)
+    db.set_subscription_secondary(uid, kid, True)
+    sent = []
+
+    class FakeTG:
+        def __init__(self, config, chat_id=None, client=None, **kwargs):
+            self.client = SimpleNamespace(close=lambda: None)
+
+        def notify(self, post):
+            sent.append(post.external_id)
+
+        def send_dnd_summary(self, posts):
+            sent.append(("summary", len(posts)))
+
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FakeTG)
+    ncfg = SimpleNamespace(
+        telegram=SimpleNamespace(bot_token="t", chat_id=""),
+        feishu=SimpleNamespace(),
+        wecom=SimpleNamespace(),
+    )
+    digest: dict[int, list] = {}
+    secondary_buffer: dict[int, list] = {}
+    poll_once(
+        db,
+        {"xueqiu": FakeFetcher([make_post(kid)])},
+        [],
+        interval_seconds=0,
+        digest=digest,
+        secondary_buffer=secondary_buffer,
+        notifiers_config=ncfg,
+    )
+    # 不实时推送：进 KOL 摘要缓冲（供其他非次要用户），同时进个人次要缓冲
+    assert sent == []
+    assert len(digest.get(kid, [])) == 1
+    assert len(secondary_buffer.get(uid, [])) == 1
+
+    # KOL 摘要 flush：个人次要用户被跳过，不重复接收
+    flush_digest(db, digest, [], ncfg)
+    assert sent == []
+    assert digest == {}
+
+    # 用户级缓冲到点：以摘要样式推给该用户
+    scheduler = Scheduler(
+        db,
+        {},
+        [],
+        SimpleNamespace(),
+        notifiers_config=ncfg,
+        xueqiu_config=SimpleNamespace(cookie=""),
+        weibo_config=SimpleNamespace(cookie="", username="", password=""),
+    )
+    scheduler._secondary_buffer[uid] = secondary_buffer[uid]
+    monkeypatch.setattr("app.scheduler._in_dnd_window", lambda user, now=None: False)
+    scheduler._flush_secondary_buffers()
+    assert sent == [("summary", 1)]
+    assert scheduler._secondary_buffer == {}
+
+
+def test_personal_secondary_favorite_bypasses_buffer(monkeypatch):
+    """个人次要 + 特别关注：favorite 优先，仍实时推送。"""
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.add_subscription(uid, kid)
+    db.set_subscription_secondary(uid, kid, True)
+    db.set_subscription_favorite(uid, kid, True)
+    sent = []
+
+    class FakeTG:
+        def __init__(self, config, chat_id=None, client=None, **kwargs):
+            self.client = SimpleNamespace(close=lambda: None)
+
+        def notify(self, post):
+            sent.append(post.external_id)
+
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FakeTG)
+    ncfg = SimpleNamespace(
+        telegram=SimpleNamespace(bot_token="t", chat_id=""),
+        feishu=SimpleNamespace(),
+        wecom=SimpleNamespace(),
+    )
+    secondary_buffer: dict[int, list] = {}
+    poll_once(
+        db,
+        {"xueqiu": FakeFetcher([make_post(kid)])},
+        [],
+        interval_seconds=0,
+        secondary_buffer=secondary_buffer,
+        notifiers_config=ncfg,
+    )
+    assert sent == ["p1"]
+    assert secondary_buffer == {}
+
+
 def test_combination_kol_bypasses_digest_and_pushes_realtime(monkeypatch):
     """雪球组合非优先但也实时推送（调仓通知不被合并摘要拖延）。"""
     db = make_db()

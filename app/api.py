@@ -230,6 +230,10 @@ class SubscriptionFavoriteIn(BaseModel):
     favorite: bool
 
 
+class SubscriptionSecondaryIn(BaseModel):
+    secondary: bool
+
+
 class UserUpdate(BaseModel):
     is_admin: bool | None = None
     password: str | None = None
@@ -978,12 +982,14 @@ def create_api_router(
             reverse=True,
         )
         favorite_ids = db.subscribed_favorite_ids(user["id"])
+        secondary_ids = db.subscribed_secondary_ids(user["id"])
         return [
             {
                 **kol,
                 "subscribed": kol["id"] in subscribed_types,
                 "subscribe_type": subscribed_types.get(kol["id"], "post"),
                 "favorite": kol["id"] in favorite_ids,
+                "secondary": kol["id"] in secondary_ids,
             }
             for kol in kols
         ]
@@ -1035,6 +1041,14 @@ def create_api_router(
             raise HTTPException(status_code=404, detail="尚未订阅该大V")
         return {"ok": True}
 
+    @router.put("/subscriptions/{kol_id}/secondary")
+    def set_subscription_secondary(kol_id: int, body: SubscriptionSecondaryIn, user: dict = Depends(get_current_user)):
+        if db.get_kol(kol_id) is None:
+            raise HTTPException(status_code=404, detail="大V不存在")
+        if not db.set_subscription_secondary(user["id"], kol_id, body.secondary):
+            raise HTTPException(status_code=404, detail="尚未订阅该大V")
+        return {"ok": True}
+
     @router.delete("/subscriptions/{kol_id}")
     def unsubscribe(kol_id: int, user: dict = Depends(get_current_user)):
         db.remove_subscription(user["id"], kol_id)
@@ -1078,6 +1092,7 @@ def create_api_router(
         kol["subscribed"] = kol_id in db.subscribed_kol_ids(user["id"])
         kol["subscribe_type"] = db.subscribed_kol_types(user["id"]).get(kol_id, "post")
         kol["favorite"] = kol_id in db.subscribed_favorite_ids(user["id"])
+        kol["secondary"] = kol_id in db.subscribed_secondary_ids(user["id"])
         if user["is_admin"]:
             acl_ids = set(db.acl_user_ids(kol_id))
             kol["visible_users"] = [u["username"] for u in db.list_users() if u["id"] in acl_ids]

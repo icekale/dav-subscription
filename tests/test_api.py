@@ -398,6 +398,34 @@ def test_favorite_api():
     assert resp.json()["dnd_allow_favorite"] is True
 
 
+def test_secondary_api():
+    client = make_client()
+    admin = auth_headers(client)
+    headers = user_headers(client, "secuser")
+    kid = client.post(
+        "/api/kols", headers=admin, json={"platform": "xueqiu", "name": "A", "external_id": "sec1"}
+    ).json()["id"]
+    kid2 = client.post(
+        "/api/kols", headers=admin, json={"platform": "xueqiu", "name": "B", "external_id": "sec2"}
+    ).json()["id"]
+    client.post("/api/subscriptions", headers=headers, json={"kol_id": kid})
+
+    resp = client.put(f"/api/subscriptions/{kid}/secondary", headers=headers, json={"secondary": True})
+    assert resp.status_code == 200
+    cat = client.get("/api/catalog", headers=headers).json()
+    assert next(k for k in cat if k["id"] == kid)["secondary"] is True
+    assert next(k for k in cat if k["id"] == kid2)["secondary"] is False
+    # 未订阅的大V不能设次要
+    assert (
+        client.put(f"/api/subscriptions/{kid2}/secondary", headers=headers, json={"secondary": True}).status_code
+        == 404
+    )
+    # 取消次要
+    client.put(f"/api/subscriptions/{kid}/secondary", headers=headers, json={"secondary": False})
+    cat = client.get("/api/catalog", headers=headers).json()
+    assert next(k for k in cat if k["id"] == kid)["secondary"] is False
+
+
 def test_change_password_api():
     client = make_client()
     headers = user_headers(client, "pwuser")

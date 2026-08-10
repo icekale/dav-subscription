@@ -912,7 +912,8 @@ class DB:
 
     def list_subscriptions(self, user_id: int) -> list[dict]:
         return self._rows(
-            "SELECT k.*, s.type AS subscribe_type, s.favorite AS favorite, c.name AS category_name, "
+            "SELECT k.*, s.type AS subscribe_type, s.favorite AS favorite, s.secondary AS secondary, "
+            "c.name AS category_name, "
             "s.created_at AS subscribed_at "
             "FROM subscriptions s JOIN kols k ON k.id = s.kol_id "
             "LEFT JOIN categories c ON c.id = k.category_id "

@@ -675,6 +675,7 @@ def notify_subscribers(
     retry_queue: PushRetryQueue | None = None,
     client=None,
     dnd_buffer: dict[int, list[Post]] | None = None,
+    secondary_buffer: dict[int, list[Post]] | None = None,
 ) -> None:
     """把新帖推送给订阅了该大V的用户（各自绑定的渠道）。"""
     if notifiers_config is None:
@@ -701,6 +702,10 @@ def notify_subscribers(
             ):
                 # 免打扰时段：缓冲，结束时统一补一条汇总（关键词命中实时穿透）
                 dnd_buffer.setdefault(user["id"], []).append(post)
+                continue
+            # 个人次要：非 favorite 用户进延迟缓冲，按 digest 周期统一推摘要
+            if bool(user.get("secondary")) and not favorite and secondary_buffer is not None:
+                secondary_buffer.setdefault(user["id"], []).append(post)
                 continue
             for channel in CHANNELS:
                 if not channel_enabled(user, channel) or not channel_bound(user, channel, notifiers_config):
@@ -736,6 +741,7 @@ def poll_once(
     secondary_digest: dict[int, list[Post]] | None = None,
     retry_queue: PushRetryQueue | None = None,
     dnd_buffer: dict[int, list[Post]] | None = None,
+    secondary_buffer: dict[int, list[Post]] | None = None,
     llm_config=None,
 ) -> None:
     """执行一轮：并发抓取启用 KOL → 去重 → 推送。"""
@@ -800,6 +806,7 @@ def poll_once(
                     platform_lock[kol["platform"]],
                     client,
                     dnd_buffer,
+                    secondary_buffer,
                     round_stats,
                     llm_config,
                 )
@@ -859,6 +866,7 @@ def _fetch_kol_once(
     state_lock: threading.Lock,
     client=None,
     dnd_buffer: dict[int, list[Post]] | None = None,
+    secondary_buffer: dict[int, list[Post]] | None = None,
     round_stats: dict[str, dict] | None = None,
     llm_config=None,
 ) -> None:
@@ -983,25 +991,40 @@ def _fetch_kol_once(
                 if secondary_digest is not None:
                     # 次要大V进入长周期合并摘要缓冲，按 secondary_digest_interval 统一推送
                     secondary_digest.setdefault(kol["id"], []).append(post)
+                    _buffer_personal_secondary(db, kol["id"], post, secondary_buffer)
                 else:
                     # 长摘要禁用（secondary_digest_interval=0）时实时推送
                     notify_subscribers(
                         db, post_id, post, notifiers_config, notifiers, retry_queue,
-                        client=client, dnd_buffer=dnd_buffer,
+                        client=client, dnd_buffer=dnd_buffer, secondary_buffer=secondary_buffer,
                     )
             elif digest is not None:
                 # 普通大V进入合并摘要缓冲，按 digest_interval 周期统一推送
                 digest.setdefault(kol["id"], []).append(post)
+                _buffer_personal_secondary(db, kol["id"], post, secondary_buffer)
             else:
                 notify_subscribers(
                     db, post_id, post, notifiers_config, notifiers, retry_queue,
-                    client=client, dnd_buffer=dnd_buffer,
+                    client=client, dnd_buffer=dnd_buffer, secondary_buffer=secondary_buffer,
                 )
         else:
             notify_subscribers(
                 db, post_id, post, notifiers_config, notifiers, retry_queue,
-                client=client, dnd_buffer=dnd_buffer,
+                client=client, dnd_buffer=dnd_buffer, secondary_buffer=secondary_buffer,
             )
+
+
+def _buffer_personal_secondary(db, kol_id: int, post: Post, secondary_buffer) -> None:
+    """KOL 级摘要缓冲时，把个人次要用户（非特别关注）的帖子同时进用户级延迟缓冲。
+
+    这些用户不参与 KOL 摘要（notify_digest_subscribers 会跳过），改由用户级
+    延迟缓冲按 digest 周期合并推送，避免同一帖双重到达。
+    """
+    if secondary_buffer is None:
+        return
+    for user in db.subscribers_of_kol(kol_id):
+        if bool(user.get("secondary")) and not bool(user.get("favorite")):
+            secondary_buffer.setdefault(user["id"], []).append(post)
 
 
 def _user_llm_config(user: dict, fallback=None):
@@ -1051,6 +1074,9 @@ def notify_digest_subscribers(
             if not matched:
                 continue
             favorite = bool(user.get("favorite"))
+            if bool(user.get("secondary")) and not favorite:
+                # 个人次要用户不参与 KOL 摘要：帖子已进用户级延迟缓冲，避免重复推送
+                continue
             if (
                 dnd_buffer is not None
                 and _in_dnd_window(user)
@@ -1562,6 +1588,8 @@ class Scheduler:
         self._secondary_digest: dict[int, list[Post]] = {}
         self._last_secondary_digest_flush = time.monotonic()
         self._dnd_buffer: dict[int, list[Post]] = {}
+        self._secondary_buffer: dict[int, list[Post]] = {}
+        self._last_secondary_buffer_flush = time.monotonic()
         self.retry_queue = PushRetryQueue()
         self._stop = asyncio.Event()
         self._last_cleanup = 0.0
@@ -1587,6 +1615,11 @@ class Scheduler:
             self._flush_dnd_buffers(force=True)
         except Exception:  # noqa: BLE001
             logger.exception("关闭时免打扰汇总推送失败")
+        # 个人次要缓冲同样补推，避免重启丢消息
+        try:
+            self._flush_secondary_buffers()
+        except Exception:  # noqa: BLE001
+            logger.exception("关闭时个人次要缓冲推送失败")
 
     async def _send_startup_message(self):
         """启动提示只推送给管理员（走管理员各自绑定的渠道），普通用户不推送。"""
@@ -1691,7 +1724,8 @@ class Scheduler:
                     self._secondary_digest if secondary_digest_interval > 0 else None,
                     self.retry_queue,
                     self._dnd_buffer,
-                    self.llm_config,
+                    secondary_buffer=self._secondary_buffer if digest_interval > 0 else None,
+                    llm_config=self.llm_config,
                 )
                 self.db.set_setting("stats_last_poll_at", str(int(time.time())))
                 self.db.set_setting(
@@ -1759,6 +1793,17 @@ class Scheduler:
                 self._flush_dnd_buffers()
             except Exception:  # noqa: BLE001
                 logger.exception("免打扰汇总推送失败")
+            # 个人次要缓冲到点：以摘要样式推给各用户（周期 = 合并推送周期）
+            if (
+                digest_interval > 0
+                and self._secondary_buffer
+                and now_mono - self._last_secondary_buffer_flush >= digest_interval
+            ):
+                self._last_secondary_buffer_flush = now_mono
+                try:
+                    self._flush_secondary_buffers()
+                except Exception:  # noqa: BLE001
+                    logger.exception("个人次要缓冲推送失败")
             # 雪球 cookie 主动探测
             probe_interval = _polling_setting(
                 self.db,
@@ -1979,6 +2024,29 @@ class Scheduler:
                 self._send_dnd_summary(user, posts)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("免打扰汇总推送失败 user=%s err=%s", user["username"], exc)
+
+    def _flush_secondary_buffers(self) -> None:
+        """个人次要缓冲到点：把每位用户积压的新帖以摘要样式推送（复用免打扰汇总发送）。"""
+        if not self._secondary_buffer:
+            return
+        now = datetime.now()
+        for user_id in list(self._secondary_buffer):
+            posts = self._secondary_buffer.get(user_id) or []
+            if not posts:
+                continue
+            user = self.db.get_user(user_id)
+            if user is None:
+                self._secondary_buffer.pop(user_id, None)
+                continue
+            if _in_dnd_window(user, now):
+                continue  # 已进入免打扰时段，留给 dnd 机制处理，下轮再试
+            self._secondary_buffer.pop(user_id, None)
+            try:
+                self._send_dnd_summary(user, posts)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("个人次要汇总推送失败 user=%s err=%s", user["username"], exc)
+                # 发送失败：帖子写失败日志并入重试队列（_send_dnd_summary 内部处理），
+                # 缓冲已弹出，不重复推送
 
     def _send_dnd_summary(self, user: dict, posts: list[Post]) -> None:
         """把免打扰时段缓冲的动态汇总成一条推送给用户（按所选通道），并补写推送日志。
