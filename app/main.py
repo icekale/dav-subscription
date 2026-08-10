@@ -51,6 +51,14 @@ def create_app(config=None, db_path: str | Path | None = None) -> FastAPI:
     if db_path is not None:
         config.db_path = str(db_path)
     db = DB(config.db_path)
+    existing_xueqiu_cookie = db.get_setting("xueqiu_cookie")
+    if existing_xueqiu_cookie:
+        try:
+            from .fetchers.xueqiu import write_xueqiu_seed_cookie
+
+            write_xueqiu_seed_cookie(existing_xueqiu_cookie)
+        except OSError:
+            logger.warning("雪球 sidecar seed cookie 启动同步失败")
     db.set_setting("stats_polling_interval", str(config.polling.interval_seconds))
     db.set_setting("stats_posts_retention_days", str(config.polling.posts_retention_days))
     db.set_setting(

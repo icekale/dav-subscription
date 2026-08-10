@@ -16,11 +16,19 @@ headless/webdriver 特征（目前雪球 acw 不看、X 的 CF 也未到），�
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
+import tempfile
 import time
+from pathlib import Path
 
-from playwright.sync_api import sync_playwright
+
+def _sync_playwright():
+    """Load Playwright only in the optional Chromium image."""
+    from importlib import import_module
+
+    return import_module("playwright.sync_api").sync_playwright
 
 UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
@@ -28,7 +36,15 @@ UA = (
 )
 
 OUTPUT = os.environ.get("WAF_COOKIE_FILE", "/data/waf_cookies.json")
-INTERVAL = int(os.environ.get("WAF_REFRESH_INTERVAL", "600"))  # 10 分钟，acw_tc TTL 30 分钟
+try:
+    INTERVAL = max(1, int(os.environ.get("WAF_REFRESH_INTERVAL", "600")))
+except ValueError:
+    INTERVAL = 600
+SEED_COOKIE_FILE = Path(
+    os.environ.get("XUEQIU_SEED_COOKIE_FILE", "/data/xueqiu_seed_cookie.txt")
+)
+AUTH_PROBE_URL = "https://xueqiu.com/cubes/rebalancing/history.json"
+AUTH_PROBE_PARAMS = {"cube_symbol": "ZH000001", "page": 1, "count": 1}
 # 可选：目标站点的登录 cookie（雪球组合等需登录态的接口要用）。
 # 注入后浏览器导出的是「登录会话 + 配套 acw_tc」的整套自洽 cookie；
 # 不配置则导出游客会话（公开时间线可用）。
@@ -41,6 +57,18 @@ TARGETS = [
         "seed_cookie": SEED_COOKIE,
     },
 ]
+
+
+def _load_seed_cookie(target: dict) -> str:
+    try:
+        cookie = SEED_COOKIE_FILE.read_text(encoding="utf-8").strip()
+    except OSError:
+        cookie = ""
+    return cookie or (target.get("seed_cookie") or "")
+
+
+def _cookie_sha256(cookie: str) -> str:
+    return hashlib.sha256((cookie or "").strip().encode()).hexdigest()
 
 
 def _inject_seed_cookie(ctx, cookie: str) -> None:
@@ -66,11 +94,12 @@ def _inject_seed_cookie(ctx, cookie: str) -> None:
 
 def refresh(target: dict) -> bool:
     """无头浏览器访问目标站点，等挑战自动执行完，把整套 cookie 写入共享文件。"""
-    with sync_playwright() as p:
+    with _sync_playwright()() as p:
         browser = p.chromium.launch(headless=True)
         try:
             ctx = browser.new_context(user_agent=UA, locale="zh-CN")
-            _inject_seed_cookie(ctx, target.get("seed_cookie") or "")
+            seed_cookie = _load_seed_cookie(target)
+            _inject_seed_cookie(ctx, seed_cookie)
             page = ctx.new_page()
             page.goto(target["url"], timeout=30000)
             page.wait_for_load_state("domcontentloaded")
@@ -84,14 +113,55 @@ def refresh(target: dict) -> bool:
             ]
             if not cookies:
                 return False
-            path = f"{OUTPUT}.{target['out']}.tmp"
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(
-                    {"fetched_at": int(time.time()), "cookies": cookies},
-                    f,
-                    ensure_ascii=False,
-                )
-            os.replace(path, OUTPUT)
+            probe_url = (
+                AUTH_PROBE_URL
+                if seed_cookie
+                else "https://xueqiu.com/statuses/user_timeline.json"
+            )
+            probe_params = (
+                AUTH_PROBE_PARAMS
+                if seed_cookie
+                else {"user_id": "1247347556", "page": 1, "count": 1}
+            )
+            probe = ctx.request.get(
+                probe_url,
+                params=probe_params,
+                headers={
+                    "Accept": "application/json, text/plain, */*",
+                    "X-Requested-With": "XMLHttpRequest",
+                },
+            )
+            if probe.status != 200:
+                return False
+            payload = probe.json()
+            if seed_cookie:
+                if not isinstance(payload, dict) or payload.get("error_code") == "10022":
+                    return False
+            elif not isinstance(payload, dict) or not isinstance(payload.get("statuses"), list):
+                return False
+            destination = os.path.abspath(OUTPUT)
+            parent = os.path.dirname(destination) or "."
+            fd, path = tempfile.mkstemp(
+                prefix=f".{target['out']}.", suffix=".tmp", dir=parent, text=True
+            )
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    json.dump(
+                        {
+                            "fetched_at": int(time.time()),
+                            "seed_sha256": _cookie_sha256(seed_cookie),
+                            "cookies": cookies,
+                        },
+                        f,
+                        ensure_ascii=False,
+                    )
+                os.replace(path, destination)
+            except Exception:
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
+                raise
             return True
         finally:
             browser.close()

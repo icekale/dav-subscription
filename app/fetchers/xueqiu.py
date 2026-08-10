@@ -1,9 +1,11 @@
 """雪球用户原创动态抓取。"""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
+import tempfile
 
 import httpx
 
@@ -17,6 +19,32 @@ XUEQIU_TIMELINE_URL = "https://xueqiu.com/statuses/user_timeline.json"
 # waf-bot 轻量 JS solver 维护的通关 cookie 文件（整套会话自洽），
 # 由独立容器验证时间线 API 后周期刷新，主容器抓取时整体读取使用。未配置时不启用。
 WAF_COOKIE_FILE = os.environ.get("WAF_COOKIE_FILE", "/data/waf_cookies.json")
+XUEQIU_SEED_COOKIE_FILE = os.environ.get(
+    "XUEQIU_SEED_COOKIE_FILE", "/data/xueqiu_seed_cookie.txt"
+)
+
+
+def _cookie_sha256(cookie: str) -> str:
+    return hashlib.sha256((cookie or "").strip().encode()).hexdigest()
+
+
+def write_xueqiu_seed_cookie(cookie: str) -> None:
+    """Publish the latest admin cookie for the sidecar without exposing it in logs."""
+    destination = XUEQIU_SEED_COOKIE_FILE
+    parent = os.path.dirname(destination) or "."
+    fd, temp_path = tempfile.mkstemp(
+        prefix=".xueqiu_seed_cookie.", dir=parent, text=True
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as file:
+            file.write((cookie or "").strip())
+        os.replace(temp_path, destination)
+    except Exception:
+        try:
+            os.unlink(temp_path)
+        except OSError:
+            pass
+        raise
 
 
 def _load_waf_cookies() -> list[dict[str, str]]:
@@ -46,6 +74,15 @@ def merge_waf_cookie(cookie: str) -> str:
     """
     waf = _load_waf_cookies()
     if not waf:
+        return cookie or ""
+    try:
+        with open(WAF_COOKIE_FILE, encoding="utf-8") as file:
+            metadata = json.load(file)
+    except Exception as exc:
+        if isinstance(exc, (OSError, ValueError)):
+            return cookie or ""
+        raise
+    if metadata.get("seed_sha256") != _cookie_sha256(cookie):
         return cookie or ""
     return "; ".join(f"{c['name']}={c['value']}" for c in waf)
 

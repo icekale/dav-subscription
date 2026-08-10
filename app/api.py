@@ -25,6 +25,7 @@ from .fetchers.xueqiu import (
     XUEQIU_COOKIE_KEY,
     XUEQIU_COOKIE_TIME_KEY,
     resolve_profile,
+    write_xueqiu_seed_cookie,
 )
 from .weibo_qr import create_qr, poll_qr
 
@@ -1266,6 +1267,10 @@ def create_api_router(
             raise HTTPException(status_code=400, detail="cookie 不能为空")
         db.set_setting(XUEQIU_COOKIE_KEY, cookie)
         db.set_setting(XUEQIU_COOKIE_TIME_KEY, str(int(time.time())))
+        try:
+            write_xueqiu_seed_cookie(cookie)
+        except Exception:  # noqa: BLE001 - sidecar sync must not fail the admin request
+            logger.warning("雪球 sidecar seed cookie 写入失败")
         _audit(admin, "set_xueqiu_cookie", "", f"len={len(cookie)}")
         return {"ok": True}
 

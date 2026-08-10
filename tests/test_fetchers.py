@@ -11,7 +11,12 @@ from app.config import XueqiuConfig
 from app.db import DB
 from app.fetchers.combination import CombinationFetcher, extract_cube_symbol
 from app.fetchers.rss import RssFetcher
-from app.fetchers.xueqiu import XueqiuFetcher, _load_waf_cookies, classify_status
+from app.fetchers.xueqiu import (
+    XueqiuFetcher,
+    _load_waf_cookies,
+    classify_status,
+    merge_waf_cookie,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -46,6 +51,9 @@ def test_xueqiu_waf_cookie_merged_into_request(monkeypatch, tmp_path):
         json.dumps(
             {
                 "fetched_at": 1786289000,
+                "seed_sha256": __import__("hashlib").sha256(
+                    b"xq_a_token=abc; u=123"
+                ).hexdigest(),
                 "cookies": [
                     {"name": "acw_tc", "value": "NEW_ACW"},
                     {"name": "u", "value": "999"},
@@ -75,6 +83,23 @@ def test_xueqiu_waf_cookie_missing_falls_back(monkeypatch, tmp_path):
     """waf-bot 文件缺失时退回原配置 cookie，不报错。"""
     monkeypatch.setattr("app.fetchers.xueqiu.WAF_COOKIE_FILE", str(tmp_path / "nope.json"))
     assert _load_waf_cookies() == []
+
+
+def test_xueqiu_waf_cookie_from_old_seed_does_not_override_new_login_cookie(monkeypatch, tmp_path):
+    import hashlib
+
+    old_cookie = "xq_a_token=old"
+    new_cookie = "xq_a_token=new"
+    waf_file = tmp_path / "waf_cookies.json"
+    waf_file.write_text(
+        json.dumps({
+            "seed_sha256": hashlib.sha256(old_cookie.encode()).hexdigest(),
+            "cookies": [{"name": "acw_tc", "value": "challenge"}],
+        }),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("app.fetchers.xueqiu.WAF_COOKIE_FILE", str(waf_file))
+    assert merge_waf_cookie(new_cookie) == new_cookie
 
     seen: dict[str, str] = {}
 

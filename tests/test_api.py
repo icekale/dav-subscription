@@ -833,7 +833,9 @@ def test_weibo_kol_link_normalized():
     assert resp.json()["failed"] == []
 
 
-def test_xueqiu_cookie_write_and_batch_rss_url():
+def test_xueqiu_cookie_write_and_batch_rss_url(monkeypatch, tmp_path):
+    seed = {}
+    monkeypatch.setattr("app.api.write_xueqiu_seed_cookie", lambda cookie: seed.update(cookie=cookie))
     client = make_client()
     headers = auth_headers(client)
 
@@ -846,6 +848,7 @@ def test_xueqiu_cookie_write_and_batch_rss_url():
         json={"cookie": "xq_a_token=abc; u=123"},
     )
     assert resp.status_code == 200
+    assert seed == {"cookie": "xq_a_token=abc; u=123"}
     status = client.get("/api/admin/xueqiu-cookie", headers=headers).json()
     assert status["set"] is True and status["preview"].startswith("xq_a_token=abc")
 

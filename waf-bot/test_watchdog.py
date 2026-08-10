@@ -325,6 +325,21 @@ def test_seed_cookie_auth_probe_success_publishes(tmp_path):
     assert (tmp_path / "out.json").exists()
 
 
+def test_refresh_reads_latest_seed_cookie_file(tmp_path, monkeypatch):
+    seed_file = tmp_path / "seed.cookie"
+    seed_file.write_text("xq_a_token=latest", encoding="utf-8")
+    monkeypatch.setattr(watchdog, "SEED_COOKIE_FILE", seed_file)
+    session = FakeSession([
+        FakeResponse("homepage", content_type="text/html"),
+        FakeResponse("{}", content_type="application/json", json_value={"statuses": []}),
+    ], {"xq_a_token": "latest"})
+
+    assert watchdog.refresh(target(), session=session, output=tmp_path / "out.json")
+    assert session.cookies.set_calls[0][0:2] == ("xq_a_token", "latest")
+    saved = json.loads((tmp_path / "out.json").read_text(encoding="utf-8"))
+    assert saved["seed_sha256"]
+
+
 def test_seed_cookie_injects_values_into_session(tmp_path):
     session = FakeSession(
         [

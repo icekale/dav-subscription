@@ -260,7 +260,7 @@ uvicorn app.main:app --reload
 - **登录被锁定 / 提示尝试次数过多？** 同一 IP 连续失败 8 次会临时限流（5 分钟）；账号连续失败（管理员 3 次、普通用户 10 次，1 小时内）会触发账号级临时锁定（15–30 分钟自动解锁），锁定期内即使密码正确也拒绝。锁定事件会在管理后台「操作日志」中留痕，方便排查是否被爆破。
 - **收不到推送？** 先到网页「推送设置」确认状态为已绑定；飞书必须是私聊会话；Telegram 先给机器人发 `/start`
 - **绑定了多个渠道只收到一部分？** 在「推送设置 → 推送通道选择」勾选想接收的渠道
-- **雪球抓取失败？** 后台「数据源」更新雪球 Cookie。若接口直接返回 400（`error_code 400016`），是雪球升级了阿里云 WAF JS 挑战——先确认 `waf-bot` 容器在运行（`docker ps | grep waf-bot`）且 `data/waf_cookies.json` 文件在持续刷新（改时间戳为最近几分钟）；若接口校验失败（游客：公开时间线；登录：组合调仓接口报 `10022` 表示登录失效），`waf-bot` 不会覆盖旧 cookie 文件，主容器会继续使用上次验证成功的版本。jsdom 求解器失效（连续多轮刷新失败）时可切换回 `waf-bot/Dockerfile.chromium` 的 Chromium 回退镜像。若「组合」大V报 `10022`，说明雪球登录 Cookie 已失效，需重新登录并同步更新三处：`.env` 的 `XUEQIU_COOKIE`、`config.yaml`、数据库 `xueqiu_cookie`（fetch 优先级最高），然后 `docker compose up -d --build waf-bot` 重建
+- **雪球抓取失败？** 后台「数据源」更新雪球 Cookie。若接口直接返回 400（`error_code 400016`），是雪球升级了阿里云 WAF JS 挑战——先确认 `waf-bot` 容器在运行（`docker ps | grep waf-bot`）且 `data/waf_cookies.json` 文件在持续刷新（改时间戳为最近几分钟）；若接口校验失败（游客：公开时间线；登录：组合调仓接口报 `10022` 表示登录失效），`waf-bot` 不会覆盖旧 cookie 文件，主容器会继续使用上次验证成功的版本。jsdom 求解器失效（连续多轮刷新失败）时可切换回 `waf-bot/Dockerfile.chromium` 的 Chromium 回退镜像。若「组合」大V报 `10022`，说明雪球登录 Cookie 已失效，需重新登录；后台「数据源」更新 Cookie 会自动同步给 waf-bot，无需重建 sidecar。只有通过 `.env` 或 `config.yaml` 变更 Cookie 时才需要重启主服务使配置生效
 - **X 抓不到？** 后台开启「X 内容自动翻译」并配置 `TWITTER_COOKIE`。若报 `X GraphQL ... 403` 且响应体含 `Just a moment`，是 X 的 Cloudflare 挑战——直抓已内置 curl_cffi 指纹绕过（无需换 Cookie，通常是临时风控，等数小时自动解除）；若 403 是 code 89/353 则是 Cookie 失效或 X 接口规则变更
 
 ## License

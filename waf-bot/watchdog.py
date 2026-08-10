@@ -2,6 +2,7 @@
 """Refresh Xueqiu WAF cookies with curl_cffi and the sibling jsdom solver."""
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
@@ -18,8 +19,14 @@ UA = (
 )
 
 OUTPUT = os.environ.get("WAF_COOKIE_FILE", "/data/waf_cookies.json")
-INTERVAL = int(os.environ.get("WAF_REFRESH_INTERVAL", "600"))
+try:
+    INTERVAL = max(1, int(os.environ.get("WAF_REFRESH_INTERVAL", "600")))
+except ValueError:
+    INTERVAL = 600
 SEED_COOKIE = os.environ.get("WAF_SEED_COOKIE", "")
+SEED_COOKIE_FILE = Path(
+    os.environ.get("XUEQIU_SEED_COOKIE_FILE", "/data/xueqiu_seed_cookie.txt")
+)
 SOLVER = Path(__file__).with_name("solver.js")
 PROBE_URL = "https://xueqiu.com/statuses/user_timeline.json"
 PROBE_PARAMS = {"user_id": "1247347556", "page": 1, "count": 1}
@@ -72,7 +79,10 @@ def _solve_challenge(html: str, url: str) -> str:
         timeout=10,
         check=True,
     )
-    payload = json.loads(result.stdout)
+    try:
+        payload = json.loads(result.stdout)
+    except ValueError as exc:
+        raise RuntimeError("solver returned invalid JSON") from exc
     signed_url = payload.get("signed_url") if isinstance(payload, dict) else None
     if not isinstance(signed_url, str):
         raise RuntimeError("solver returned no signed URL")
@@ -80,6 +90,18 @@ def _solve_challenge(html: str, url: str) -> str:
     if not signed_url:
         raise RuntimeError("solver returned no signed URL")
     return signed_url
+
+
+def _load_seed_cookie(target: dict) -> str:
+    try:
+        cookie = SEED_COOKIE_FILE.read_text(encoding="utf-8").strip()
+    except OSError:
+        cookie = ""
+    return cookie or (target.get("seed_cookie") or "")
+
+
+def _cookie_sha256(cookie: str) -> str:
+    return hashlib.sha256((cookie or "").strip().encode()).hexdigest()
 
 
 def _inject_seed_cookie(session, cookie: str) -> None:
@@ -118,7 +140,8 @@ def refresh(
     try:
         target_url = target["url"]
         stage = "seed"
-        _inject_seed_cookie(session, target.get("seed_cookie") or "")
+        seed_cookie = _load_seed_cookie(target)
+        _inject_seed_cookie(session, seed_cookie)
 
         stage = "homepage"
         response = session.get(target_url, headers=_NAVIGATION_HEADERS, timeout=30)
@@ -138,7 +161,7 @@ def refresh(
                 return False
 
         stage = "probe"
-        seed = target.get("seed_cookie") or ""
+        seed = seed_cookie
         if seed:
             # 登录态会话：必须通过需要登录的组合调仓接口验证，
             # 登录失效（10022）时保留旧 Cookie，不覆盖成游客会话。
@@ -176,7 +199,11 @@ def refresh(
         ) as file:
             temp_path = Path(file.name)
             json.dump(
-                {"fetched_at": int(time.time()), "cookies": cookie_list},
+                {
+                    "fetched_at": int(time.time()),
+                    "seed_sha256": _cookie_sha256(seed),
+                    "cookies": cookie_list,
+                },
                 file,
                 ensure_ascii=False,
             )
