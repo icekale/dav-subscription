@@ -55,9 +55,11 @@ def _solve_challenge(html: str, url: str) -> str:
         [
             "node",
             "--permission",
-            f"--allow-fs-read={SOLVER.parent.resolve()}",
-            str(SOLVER),
+            "--allow-fs-read=.",
+            "--allow-fs-read=./node_modules",
+            "./solver.js",
         ],
+        cwd=str(SOLVER.parent),
         input=json.dumps({"html": html, "url": url, "user_agent": UA}),
         text=True,
         capture_output=True,

@@ -175,9 +175,11 @@ def test_solver_rejects_whitespace_signed_url(monkeypatch):
     assert calls["command"] == [
         "node",
         "--permission",
-        f"--allow-fs-read={watchdog.SOLVER.parent.resolve()}",
-        str(watchdog.SOLVER),
+        "--allow-fs-read=.",
+        "--allow-fs-read=./node_modules",
+        "./solver.js",
     ]
+    assert calls["kwargs"]["cwd"] == str(watchdog.SOLVER.parent)
     assert not any(
         flag in " ".join(calls["command"])
         for flag in ("--allow-fs-write", "--allow-child-process", "--allow-worker")
