@@ -815,14 +815,15 @@ function tlFilterKey() {
 }
 
 // 生效筛选条件 → 可见 chip 列表：用户随时能看到自己被什么过滤着，逐个可移除
+// label 直接存已转义文本（escapeHtml 在构造行完成，渲染处不再重复转义）
 function tlActiveChips() {
   const chips = [];
-  if (state.timelineQ) chips.push({ key: "q", label: `关键词：${state.timelineQ}` });
+  if (state.timelineQ) chips.push({ key: "q", label: `关键词：${escapeHtml(state.timelineQ)}` });
   if (state.timelineCategory) {
     const c = (_tlCategories || []).find((x) => String(x.id) === String(state.timelineCategory));
-    if (c) chips.push({ key: "category", label: `分类：${c.name}` });
+    if (c) chips.push({ key: "category", label: `分类：${escapeHtml(c.name)}` });
   }
-  if (state.timelineTag) chips.push({ key: "tag", label: `标签：${state.timelineTag}` });
+  if (state.timelineTag) chips.push({ key: "tag", label: `标签：${escapeHtml(state.timelineTag)}` });
   if (state.timelinePlatform) {
     const p = TL_PLATFORMS.find(([v]) => v === state.timelinePlatform);
     if (p) chips.push({ key: "platform", label: `平台：${p[1]}` });
@@ -834,7 +835,7 @@ function tlActiveChipsHtml() {
   const chips = tlActiveChips();
   if (!chips.length) return "";
   return `<div class="tl-active-chips">${chips.map((c) => `
-    <span class="tl-active-chip">${escapeHtml(c.label)}<button class="tl-chip-x" onclick="tlRemoveFilter('${c.key}')" aria-label="移除${escapeHtml(c.label)}" title="移除该筛选">${X_ICON}</button></span>`).join("")}</div>`;
+    <span class="tl-active-chip">${c.label}<button class="tl-chip-x" onclick="tlRemoveFilter('${c.key}')" aria-label="移除${c.label}" title="移除该筛选">${X_ICON}</button></span>`).join("")}</div>`;
 }
 
 function tlRemoveFilter(key) {
