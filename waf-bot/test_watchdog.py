@@ -340,6 +340,26 @@ def test_refresh_reads_latest_seed_cookie_file(tmp_path, monkeypatch):
     assert saved["seed_sha256"]
 
 
+def test_seed_cookie_auth_probe_business_error_still_publishes(tmp_path):
+    # 组合不存在（20809）等业务错误同样证明登录会话有效，应通过并发布。
+    config = target()
+    config["seed_cookie"] = "xq_a_token=token"
+    session = FakeSession(
+        [
+            FakeResponse("home", content_type="text/html"),
+            FakeResponse(
+                "{}",
+                content_type="application/json",
+                status_code=400,
+                json_value={"error_code": "20809", "error_description": "该组合不存在"},
+            ),
+        ],
+        {"xq_a_token": "token"},
+    )
+
+    assert watchdog.refresh(config, session=session, output=tmp_path / "out.json")
+
+
 def test_seed_cookie_injects_values_into_session(tmp_path):
     session = FakeSession(
         [

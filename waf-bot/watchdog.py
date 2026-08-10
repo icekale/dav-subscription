@@ -174,14 +174,20 @@ def refresh(
             params=probe_params,
             timeout=30,
         )
-        if probe.status_code != 200:
+        try:
+            payload = probe.json()
+        except ValueError:
             return False
-        payload = probe.json()
         if seed:
+            # 登录态验证：组合调仓接口对登录有效但组合不存在返回 400+20809，
+            # 同样证明登录会话有效；仅 10022（登录失效）拒绝覆盖。
             if not isinstance(payload, dict) or payload.get("error_code") == AUTH_ERROR_CODE:
                 return False
-        elif not isinstance(payload, dict) or not isinstance(payload.get("statuses"), list):
-            return False
+        else:
+            if probe.status_code != 200:
+                return False
+            if not isinstance(payload, dict) or not isinstance(payload.get("statuses"), list):
+                return False
 
         cookies = list(session.cookies.jar)
         if not cookies:
