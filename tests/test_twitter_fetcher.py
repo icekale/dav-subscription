@@ -447,7 +447,7 @@ def test_direct_fetch_never_calls_api_twitter(monkeypatch):
         if "typeahead" in str(request.url):
             return httpx.Response(
                 200,
-                json={"users": [{"id_str": "1745", "screen_name": "s"}]},
+                json={"users": [{"id_str": "1745", "screen_name": "SemiAnalysis"}]},
             )
         if "UserTweets" in str(request.url):
             return httpx.Response(200, json=_timeline_response())
@@ -493,12 +493,64 @@ def test_typeahead_resolves_when_userbyscreenname_empty(monkeypatch):
         return httpx.Response(404)
 
     db = DB(":memory:")
-    kid = db.add_kol("twitter", "SemiAnalysis", "https://x.com/SemiAnalysis")
+    kid = db.add_kol("twitter", "SemiAnalysis", "https://x.com/SemiAnalysis_")
     fetcher = _make_fetcher(handler, db)
     posts = fetcher.fetch(db.get_kol(kid))
     assert [p.external_id for p in posts] == ["111", "222", "333"]
     assert userby_calls["n"] == 0  # typeahead 命中，无需回退 UserByScreenName
     assert db.get_setting("x_direct_last_ok_at")
+
+
+def test_typeahead_no_exact_match_falls_back_to_userbyscreenname(monkeypatch):
+    """typeahead 只有显示名相同的镜像号（无精确 handle 匹配）时，不能取首个——
+    必须回退 UserByScreenName，否则会静默解析到停更账号（qinbafrank 实测教训）。"""
+    monkeypatch.setenv("TWITTER_COOKIE", "auth_token=a; ct0=b")
+    calls = {"typeahead": 0, "userby": 0, "tweets": 0}
+
+    def handler(request):
+        if "typeahead" in str(request.url):
+            calls["typeahead"] += 1
+            # 搜索 qinbafrank 只返回镜像号 qinbafrank9（显示名也叫 qinbafrank）
+            return httpx.Response(
+                200,
+                json={
+                    "users": [
+                        {
+                            "id_str": "586198034",
+                            "name": "qinbafrank",
+                            "screen_name": "qinbafrank9",
+                        }
+                    ]
+                },
+            )
+        if "UserByScreenName" in str(request.url):
+            calls["userby"] += 1
+            return httpx.Response(
+                200,
+                json={
+                    "data": {
+                        "user": {
+                            "result": {
+                                "rest_id": "1338075202798809089",
+                                "avatar": {"image_url": "https://pbs.twimg.com/a_normal.jpg"},
+                            }
+                        }
+                    }
+                },
+            )
+        if "UserTweets" in str(request.url):
+            calls["tweets"] += 1
+            return httpx.Response(200, json=_timeline_response())
+        return httpx.Response(404)
+
+    db = DB(":memory:")
+    kid = db.add_kol("twitter", "qinbafrank", "https://x.com/qinbafrank")
+    fetcher = _make_fetcher(handler, db)
+    posts = fetcher.fetch(db.get_kol(kid))
+    assert [p.external_id for p in posts] == ["111", "222", "333"]
+    assert calls["typeahead"] == 1
+    assert calls["userby"] == 1  # 无精确匹配时回退 UserByScreenName
+    assert calls["tweets"] == 1
 
 
 def test_graphql_401_fails_without_api_twitter_retry(monkeypatch):
@@ -513,7 +565,7 @@ def test_graphql_401_fails_without_api_twitter_retry(monkeypatch):
             return httpx.Response(200, json={"guest_token": "tok1"})
         if "typeahead" in str(request.url):
             return httpx.Response(
-                200, json={"users": [{"id_str": "1745", "screen_name": "s"}]}
+                200, json={"users": [{"id_str": "1745", "screen_name": "SemiAnalysis"}]}
             )
         if "UserTweets" in str(request.url):
             return httpx.Response(401, json={"errors": [{"message": "Invalid or expired token", "code": 89}]})

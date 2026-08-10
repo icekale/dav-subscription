@@ -374,7 +374,13 @@ class TwitterFetcher(Fetcher):
         return data
 
     def _typeahead_pick(self, screen_name: str, cookie: str) -> dict | None:
-        """typeahead 解析：优先精确匹配 screen_name，否则取首个结果。"""
+        """typeahead 解析：只认精确匹配 screen_name 的结果。
+
+        不能取 users[0] 兜底——typeahead 搜索结果可能把显示名相同但 handle
+        不同的账号排前面（实测搜 qinbafrank 只返回停更镜像号 qinbafrank9），
+        取首个会静默解析到错误账号，永远抓不到新帖。无精确匹配返回 None，
+        由调用方回退 UserByScreenName。
+        """
         headers = _auth_headers(cookie)
         resp = self._client_for().get(
             "https://x.com/i/api/1.1/search/typeahead.json",
@@ -387,7 +393,7 @@ class TwitterFetcher(Fetcher):
         target = screen_name.lower()
         return next(
             (u for u in users if (u.get("screen_name") or "").lower() == target),
-            users[0] if users else None,
+            None,
         )
 
     def _typeahead_users(
