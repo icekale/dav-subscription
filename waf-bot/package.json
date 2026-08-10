@@ -1,0 +1,12 @@
+{
+  "name": "dav-waf-bot",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "test": "node --test test_solver.js"
+  },
+  "dependencies": {
+    "jsdom": "29.1.1",
+    "whatwg-url": "16.0.1"
+  }
+}
