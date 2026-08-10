@@ -460,6 +460,8 @@ class DB:
             (platform, external_id),
         ):
             raise ValueError("该大V已存在")
+        if priority and secondary:
+            secondary = False  # 互斥：priority 优先（与 update_kol 行为一致）
         return self._execute(
             "INSERT INTO kols (platform, name, external_id, category_id, priority, secondary, original_only) "
             "VALUES (?, ?, ?, ?, ?, ?, ?)",

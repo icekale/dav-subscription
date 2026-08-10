@@ -27,3 +27,11 @@ def test_update_kol_secondary_and_mutex(tmp_path):
     db.update_kol(kid, priority=True)
     kol = db.get_kol(kid)
     assert kol["priority"] == 1 and kol["secondary"] == 0
+
+
+def test_add_kol_priority_wins_over_secondary(tmp_path):
+    db = DB(str(tmp_path / "t.db"))
+    kid = db.add_kol("xueqiu", "测试", "999", priority=True, secondary=True)
+    kol = db.get_kol(kid)
+    assert kol["priority"] == 1
+    assert kol["secondary"] == 0
