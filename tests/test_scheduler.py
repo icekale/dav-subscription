@@ -762,6 +762,44 @@ def test_combination_interval_highest_frequency():
     assert COMBINATION_IDLE_CAP_SECONDS == 120
 
 
+def test_frequency_settings_override_effective_interval():
+    """后台 config_* 参数覆盖各档位：组合基础/封顶、普通/优先封顶、X 降级封顶。"""
+    from app.scheduler import COMBINATION_BASE_SECONDS
+
+    db = make_db()
+    state = PlatformState()
+    kol_c = {"id": 1, "priority": 0, "platform": "combination"}
+    kol_normal = {"id": 2, "priority": 0, "platform": "xueqiu"}
+    kol_priority = {"id": 3, "priority": 1, "platform": "xueqiu"}
+    kol_x = {"id": 4, "priority": 0, "platform": "twitter"}
+    # 组合基础/封顶覆盖
+    db.set_setting("config_combination_base_seconds", "45")
+    db.set_setting("config_combination_idle_cap_seconds", "200")
+    assert _effective_interval(db, kol_c, state, 180, 60) == 45
+    state.empty_rounds[1] = 3  # 45*8=360 → 封顶 200
+    assert _effective_interval(db, kol_c, state, 180, 60) == 200
+    # 普通/优先空轮封顶覆盖
+    db.set_setting("config_normal_idle_cap_seconds", "600")
+    db.set_setting("config_priority_idle_cap_seconds", "300")
+    state.empty_rounds[2] = 3  # 180*8=1440 → 封顶 600
+    assert _effective_interval(db, kol_normal, state, 180, 60) == 600
+    state.empty_rounds[3] = 2  # 60*4=240 → 封顶 300 未到，取 240
+    assert _effective_interval(db, kol_priority, state, 180, 60) == 240
+    state.empty_rounds[3] = 3  # 60*8=480 → 封顶 300
+    assert _effective_interval(db, kol_priority, state, 180, 60) == 300
+    # X 降级封顶覆盖
+    db.set_setting("x_direct_last_fallback_at", str(int(time.time())))
+    db.set_setting("x_direct_last_ok_at", str(int(time.time()) - 600))
+    db.set_setting("config_x_fallback_cap_seconds", "900")
+    assert _effective_interval(db, kol_x, state, 180, 60) == 720  # 180*4=720 < 900 未到封顶
+    state.empty_rounds[4] = 2  # 180*4*4=2880 → 封顶 900
+    assert _effective_interval(db, kol_x, state, 180, 60) == 900
+    # 非法值回退默认
+    db.set_setting("config_combination_base_seconds", "abc")
+    state.empty_rounds[1] = 0  # 清空空轮，聚焦基础间隔回退
+    assert _effective_interval(db, kol_c, state, 180, 60) == COMBINATION_BASE_SECONDS
+
+
 def test_source_health_recorded():
     db = make_db()
     add_kol_subscribed(db, "xueqiu", "A", "1")

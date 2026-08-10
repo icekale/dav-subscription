@@ -64,6 +64,23 @@ def create_app(config=None, db_path: str | Path | None = None) -> FastAPI:
         str(config.polling.source_probe_interval_seconds),
     )
     db.set_setting("stats_daily_report_hour", str(config.polling.daily_report_hour))
+    # 采集频率档位默认值（无新帖自适应降频参数）：首次启动写入，后台可覆盖
+    from .scheduler import (
+        COMBINATION_BASE_SECONDS,
+        COMBINATION_IDLE_CAP_SECONDS,
+        NORMAL_IDLE_CAP_SECONDS,
+        PRIORITY_IDLE_CAP_SECONDS,
+        X_FALLBACK_CAP_SECONDS,
+    )
+
+    for key, value in (
+        ("config_combination_base_seconds", COMBINATION_BASE_SECONDS),
+        ("config_combination_idle_cap_seconds", COMBINATION_IDLE_CAP_SECONDS),
+        ("config_normal_idle_cap_seconds", NORMAL_IDLE_CAP_SECONDS),
+        ("config_priority_idle_cap_seconds", PRIORITY_IDLE_CAP_SECONDS),
+        ("config_x_fallback_cap_seconds", X_FALLBACK_CAP_SECONDS),
+    ):
+        db.set_setting(key, str(value))
     secret = auth.get_or_create_secret(db, config.web.token_secret)
 
     if config.web.admin_password:

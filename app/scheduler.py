@@ -84,16 +84,29 @@ def _polling_bool(db: DB, key: str, default: bool = False) -> bool:
 
 
 # 无新帖自适应降频：空轮越多间隔越长（2 倍步进），有新帖立即恢复基础间隔。
-# 普通大V封顶 900s（合并推送周期 600s，低活跃大V晚几分钟看到可接受）；
-# 优先大V温和拉伸封顶 180s（实时性最坏 +2min）。X 降级 RSSHub 期间再 ×4。
-# 雪球组合独立高频档：调仓低频但用户关注度高，基础 30s、空轮封顶 120s，
-# 调仓出现后最坏 ~2min 内发现并实时推送（不走合并摘要）。
-# ponytail: 固定步进/封顶常量，够用即可；需要调参时再挪到 polling-config。
+# 以下为默认值，均可在后台「数据源」页抓取设置区调参（config_* 即时生效）：
+#   普通大V空轮封顶 900s（合并推送周期 600s，低活跃大V晚几分钟看到可接受）；
+#   优先大V温和拉伸封顶 180s（实时性最坏 +2min）；X 降级 RSSHub 期间再 ×4（封顶 1800s）；
+#   雪球组合独立高频档：基础 30s、空轮封顶 120s，调仓最坏 ~2min 内发现并实时推送。
 NORMAL_IDLE_CAP_SECONDS = 900
 PRIORITY_IDLE_CAP_SECONDS = 180
 X_FALLBACK_CAP_SECONDS = 1800
 COMBINATION_BASE_SECONDS = 30
 COMBINATION_IDLE_CAP_SECONDS = 120
+
+
+def _frequency_setting(db: DB, key: str, default: int) -> int:
+    """读取后台可覆盖的采集频率参数（config_*），未设置/非法时用默认常量。"""
+    if db is None:
+        return default
+    value = db.get_setting(key)
+    if value is None:
+        return default
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed > 0 else default
 
 
 def _in_x_fallback(db: DB) -> bool:
@@ -114,20 +127,26 @@ def _effective_interval(
 ) -> int:
     """单个大V本轮的有效抓取间隔。
 
-    基础间隔（雪球组合 30s 最高频 > 优先大V > 普通大V）× 空轮拉伸（2 倍步进，
-    封顶）→ 有效间隔；平台为 X 且处于 RSSHub 降级时再 ×4（封顶 1800s），
-    避免打爆备用通道。
+    基础间隔（雪球组合高频档 > 优先大V > 普通大V）× 空轮拉伸（2 倍步进，
+    封顶）→ 有效间隔；平台为 X 且处于 RSSHub 降级时再 ×4（封顶），
+    避免打爆备用通道。各档位数值可在后台「数据源」页调参。
     """
     if kol["platform"] == "combination":
-        base = COMBINATION_BASE_SECONDS
-        cap = COMBINATION_IDLE_CAP_SECONDS
+        base = _frequency_setting(db, "config_combination_base_seconds", COMBINATION_BASE_SECONDS)
+        cap = _frequency_setting(
+            db, "config_combination_idle_cap_seconds", COMBINATION_IDLE_CAP_SECONDS
+        )
     else:
         base = priority_interval_seconds if kol.get("priority") else interval_seconds
-        cap = PRIORITY_IDLE_CAP_SECONDS if kol.get("priority") else NORMAL_IDLE_CAP_SECONDS
+        if kol.get("priority"):
+            cap = _frequency_setting(db, "config_priority_idle_cap_seconds", PRIORITY_IDLE_CAP_SECONDS)
+        else:
+            cap = _frequency_setting(db, "config_normal_idle_cap_seconds", NORMAL_IDLE_CAP_SECONDS)
     empty = min(state.empty_rounds.get(kol["id"], 0), 6)
     effective = min(base * (2**empty), cap)
     if kol["platform"] == "twitter" and db is not None and _in_x_fallback(db):
-        effective = min(effective * 4, X_FALLBACK_CAP_SECONDS)
+        x_cap = _frequency_setting(db, "config_x_fallback_cap_seconds", X_FALLBACK_CAP_SECONDS)
+        effective = min(effective * 4, x_cap)
     return effective
 
 
@@ -1152,7 +1171,10 @@ def flush_digest(
 
 
 def _scheduler_loop_delay(
-    interval_seconds: int, priority_interval_seconds: int, jitter_seconds: int
+    interval_seconds: int,
+    priority_interval_seconds: int,
+    jitter_seconds: int,
+    db=None,
 ) -> float:
     """主循环单轮等待时间：取全局/优先/雪球组合间隔中较小者，保证更短间隔被调度。
 
@@ -1160,7 +1182,8 @@ def _scheduler_loop_delay(
     永远等不到下一次调用，优先间隔形同虚设。由 poll_once 的内部到期判断决定
     每个 KOL 本轮是否抓取，这里只负责把轮询节奏提到最短间隔。
     """
-    base = min(interval_seconds, priority_interval_seconds, COMBINATION_BASE_SECONDS)
+    combination_base = _frequency_setting(db, "config_combination_base_seconds", COMBINATION_BASE_SECONDS)
+    base = min(interval_seconds, priority_interval_seconds, combination_base)
     base = max(base, 1)  # 防御：非法配置（0/负值）不能退化成忙轮询
     return base + random.uniform(0, jitter_seconds)
 
@@ -1719,6 +1742,7 @@ class Scheduler:
                 interval_seconds,
                 priority_interval,
                 self.polling_config.jitter_seconds,
+                db=self.db,
             )
             await asyncio.sleep(max(0.0, delay - elapsed))
 

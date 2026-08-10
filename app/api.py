@@ -197,6 +197,12 @@ class PollingConfigIn(BaseModel):
     cookie_keepalive_interval_seconds: int | None = None
     daily_report_hour: int | None = None
     translate_twitter_content: bool | None = None
+    # 采集频率档位（无新帖自适应降频参数，后台可调即时生效）
+    combination_base_seconds: int | None = None
+    combination_idle_cap_seconds: int | None = None
+    normal_idle_cap_seconds: int | None = None
+    priority_idle_cap_seconds: int | None = None
+    x_fallback_cap_seconds: int | None = None
 
 
 class CookieIn(BaseModel):
@@ -462,6 +468,42 @@ def create_api_router(
             86400,
         ),
         ("daily_report_hour", "config_daily_report_hour", "stats_daily_report_hour", 0, 23),
+        # 采集频率档位：无新帖自适应降频参数（scheduler._effective_interval 读取）
+        (
+            "combination_base_seconds",
+            "config_combination_base_seconds",
+            "config_combination_base_seconds",
+            5,
+            3600,
+        ),
+        (
+            "combination_idle_cap_seconds",
+            "config_combination_idle_cap_seconds",
+            "config_combination_idle_cap_seconds",
+            5,
+            86400,
+        ),
+        (
+            "normal_idle_cap_seconds",
+            "config_normal_idle_cap_seconds",
+            "config_normal_idle_cap_seconds",
+            5,
+            86400,
+        ),
+        (
+            "priority_idle_cap_seconds",
+            "config_priority_idle_cap_seconds",
+            "config_priority_idle_cap_seconds",
+            5,
+            86400,
+        ),
+        (
+            "x_fallback_cap_seconds",
+            "config_x_fallback_cap_seconds",
+            "config_x_fallback_cap_seconds",
+            5,
+            86400,
+        ),
     ]
 
     def _effective_polling() -> dict:

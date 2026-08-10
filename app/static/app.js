@@ -2275,6 +2275,21 @@ async function loadAdminStats() {
           <input id="pc-translate" type="checkbox" ${s.polling_config.translate_twitter_content ? "checked" : ""}> X 内容自动翻译成中文
           <span class="muted">（配置 TWITTER_COOKIE 后走 X 官方翻译，质量同网页版）</span>
         </label>
+        <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)" title="无新帖时自动拉长抓取间隔，2 倍步进，有新帖立即恢复">组合基础间隔(秒)
+          <input id="pc-cb" type="number" class="form-control" style="margin:0;width:110px" min="5" max="3600" value="${s.polling_config.combination_base_seconds}">
+        </label>
+        <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)" title="组合长期无调仓时封顶的空轮间隔">组合空轮封顶(秒)
+          <input id="pc-cc" type="number" class="form-control" style="margin:0;width:110px" min="5" max="86400" value="${s.polling_config.combination_idle_cap_seconds}">
+        </label>
+        <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)" title="普通大V长期无新帖时封顶的空轮间隔">普通大V空轮封顶(秒)
+          <input id="pc-nc" type="number" class="form-control" style="margin:0;width:110px" min="5" max="86400" value="${s.polling_config.normal_idle_cap_seconds}">
+        </label>
+        <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)" title="优先大V长期无新帖时封顶的空轮间隔">优先大V空轮封顶(秒)
+          <input id="pc-pc" type="number" class="form-control" style="margin:0;width:110px" min="5" max="86400" value="${s.polling_config.priority_idle_cap_seconds}">
+        </label>
+        <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)" title="X 降级到 RSSHub 备用通道期间封顶的抓取间隔">X降级封顶(秒)
+          <input id="pc-xc" type="number" class="form-control" style="margin:0;width:110px" min="5" max="86400" value="${s.polling_config.x_fallback_cap_seconds}">
+        </label>
         <button class="btn-normal" onclick="savePollingConfig()">保存抓取设置</button>
         <span id="pc-result" class="muted"></span>
       </div>
@@ -2456,6 +2471,11 @@ async function savePollingConfig() {
     cookie_keepalive_interval_seconds: Number($("#pc-keepalive").value),
     daily_report_hour: Number($("#pc-daily").value),
     translate_twitter_content: $("#pc-translate").checked,
+    combination_base_seconds: Number($("#pc-cb").value),
+    combination_idle_cap_seconds: Number($("#pc-cc").value),
+    normal_idle_cap_seconds: Number($("#pc-nc").value),
+    priority_idle_cap_seconds: Number($("#pc-pc").value),
+    x_fallback_cap_seconds: Number($("#pc-xc").value),
   };
   try {
     await api("/api/admin/polling-config", { method: "PUT", body: JSON.stringify(body) });

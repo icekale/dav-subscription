@@ -1170,6 +1170,45 @@ def test_polling_config_get_and_update():
     assert resp.status_code == 400
 
 
+def test_polling_config_frequency_tiers():
+    """采集频率档位参数：GET 返回默认值、PUT 保存即时生效、超范围被拒。"""
+    client = make_client()
+    headers = auth_headers(client)
+    cfg = client.get("/api/admin/polling-config", headers=headers).json()
+    assert cfg["combination_base_seconds"] == 30
+    assert cfg["combination_idle_cap_seconds"] == 120
+    assert cfg["normal_idle_cap_seconds"] == 900
+    assert cfg["priority_idle_cap_seconds"] == 180
+    assert cfg["x_fallback_cap_seconds"] == 1800
+
+    resp = client.put(
+        "/api/admin/polling-config",
+        headers=headers,
+        json={
+            "combination_base_seconds": 45,
+            "combination_idle_cap_seconds": 200,
+            "normal_idle_cap_seconds": 600,
+            "priority_idle_cap_seconds": 300,
+            "x_fallback_cap_seconds": 900,
+        },
+    )
+    assert resp.status_code == 200
+    got = resp.json()
+    assert got["combination_base_seconds"] == 45
+    assert got["combination_idle_cap_seconds"] == 200
+    assert got["normal_idle_cap_seconds"] == 600
+    assert got["priority_idle_cap_seconds"] == 300
+    assert got["x_fallback_cap_seconds"] == 900
+
+    # 超范围被拒
+    resp = client.put(
+        "/api/admin/polling-config",
+        headers=headers,
+        json={"combination_base_seconds": 2},  # 低于下限 5
+    )
+    assert resp.status_code == 400
+
+
 def test_posts_search_and_push_log_filters():
     client = make_client()
     headers = auth_headers(client)
