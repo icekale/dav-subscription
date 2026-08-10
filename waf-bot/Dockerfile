@@ -6,6 +6,11 @@
 #     dockerfile: Dockerfile.chromium
 # 观察 jsdom 方案稳定运行一段时间后再考虑移除回退文件。
 FROM node:22-bookworm-slim AS node
+
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts
+
 FROM python:3.12-slim-bookworm
 
 COPY --from=node /usr/local/bin/node /usr/local/bin/node
