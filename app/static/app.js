@@ -40,6 +40,7 @@ const state = {
   homeQ: "",
   homeCategory: "",
   timelineFavorite: false,
+  timelineSecondary: false,
   timelinePlatform: "",
   timelineCategory: "",
   timelineTag: "",
@@ -792,6 +793,7 @@ function tlFilterKey() {
   return JSON.stringify([
     state.timelineQ || "", state.timelinePlatform || "",
     state.timelineCategory || "", state.timelineTag || "", state.timelineFavorite,
+    state.timelineSecondary,
   ]);
 }
 
@@ -825,6 +827,7 @@ async function renderTimeline(seq) {
         <div class="tl-actions">
           <button id="tl-filter-toggle" class="btn-ghost ${state.timelineQ || state.timelineCategory ? "has-filter" : ""}" aria-expanded="false" aria-controls="tl-filter-panel" onclick="tlFilterPanel()">筛选</button>
           <button id="timeline-fav-toggle" class="fav-toggle ${state.timelineFavorite ? "fav-on" : ""}" aria-pressed="${state.timelineFavorite}" onclick="toggleTimelineFav()">${STAR_SVG} 特别关注</button>
+          <button id="timeline-secondary-toggle" class="fav-toggle ${state.timelineSecondary ? "fav-on" : ""}" aria-pressed="${state.timelineSecondary}" onclick="toggleTimelineSecondary()">🔕 次要大V</button>
         </div>
       </div>
       <div class="tl-filter-panel" id="tl-filter-panel">
@@ -878,6 +881,7 @@ async function checkNewPosts() {
     if (state.timelineCategory) params.set("category_id", state.timelineCategory);
     if (state.timelineTag) params.set("tag", state.timelineTag);
     if (state.timelineFavorite) params.set("favorite", "1");
+    if (state.timelineSecondary) params.set("include_secondary", "1");
     const posts = await api(`/api/my/feed?${params}`);
     if (posts[0]?.id > _tlLatestId) {
       const badge = $("#tl-new-badge");
@@ -935,6 +939,7 @@ function tlResetFilters() {
   state.timelineTag = "";
   state.timelinePlatform = "";
   state.timelineFavorite = false;
+  state.timelineSecondary = false;
   const q = $("#tl-q"); if (q) q.value = "";
   const cat = $("#tl-category"); if (cat) cat.value = "";
   const tag = $("#tl-tag"); if (tag) tag.value = "";
@@ -946,6 +951,10 @@ function tlResetFilters() {
   const fav = $("#timeline-fav-toggle"); if (fav) {
     fav.classList.remove("fav-on");
     fav.setAttribute("aria-pressed", "false");
+  }
+  const sec = $("#timeline-secondary-toggle"); if (sec) {
+    sec.classList.remove("fav-on");
+    sec.setAttribute("aria-pressed", "false");
   }
   $("#tl-filterbar").classList.remove("open");
   loadTimeline(true, routeRenderSeq);
@@ -985,6 +994,7 @@ async function loadTimeline(reset = true, routeSeq) {
     if (state.timelineCategory) params.set("category_id", state.timelineCategory);
     if (state.timelineTag) params.set("tag", state.timelineTag);
     if (state.timelineFavorite) params.set("favorite", "1");
+    if (state.timelineSecondary) params.set("include_secondary", "1");
     const posts = await api(`/api/my/feed?${params}`);
     // 条件改变、已离开动态页或路由已切换：丢弃过期响应
     if (seq !== _tlSeq || !$("#feed") || !routeStillActive(routeSeq)) return;
@@ -1048,6 +1058,17 @@ function toggleTimelineFav() {
   if (btn) {
     btn.classList.toggle("fav-on", state.timelineFavorite);
     btn.setAttribute("aria-pressed", String(state.timelineFavorite));
+  }
+  loadTimeline(true, routeRenderSeq);
+}
+
+function toggleTimelineSecondary() {
+  // 次要大V开关：默认关闭（动态页隐藏次要大V），开启后显示其动态
+  state.timelineSecondary = !state.timelineSecondary;
+  const btn = $("#timeline-secondary-toggle");
+  if (btn) {
+    btn.classList.toggle("fav-on", state.timelineSecondary);
+    btn.setAttribute("aria-pressed", String(state.timelineSecondary));
   }
   loadTimeline(true, routeRenderSeq);
 }

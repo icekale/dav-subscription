@@ -1421,12 +1421,19 @@ class DB:
         q: str | None = None,
         favorite: bool = False,
         tag: str | None = None,
+        include_secondary: bool = False,
     ) -> list[dict]:
         if not kol_ids:
             return []
         placeholders = ", ".join("?" * len(kol_ids))
         conds = [f"p.kol_id IN ({placeholders})"]
         params: list = [user_id, *kol_ids]
+        if not include_secondary:
+            # 默认隐藏次要大V的动态（全局 kols.secondary 或个人订阅 secondary）：
+            # 避免连珠炮式发言刷屏时间线；特别关注（favorite）穿透始终显示
+            conds.append(
+                "(s.favorite = 1 OR (COALESCE(k.secondary, 0) = 0 AND COALESCE(s.secondary, 0) = 0))"
+            )
         if platform:
             conds.append("p.platform = ?")
             params.append(platform)

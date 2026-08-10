@@ -1621,6 +1621,48 @@ def test_my_feed_filters_and_pagination():
     assert any(c["id"] == cid and c["name"] == "财经" for c in cats)
 
 
+def test_my_feed_hides_secondary_by_default():
+    """/api/my/feed 默认隐藏次要大V动态；include_secondary=1 时显示；特别关注穿透。"""
+    client = make_client()
+    db = client.app.state.db
+
+    normal_kid = db.add_kol("xueqiu", "普通大V", "n1")
+    secondary_kid = db.add_kol("xueqiu", "次要大V", "s1", secondary=True)
+    fav_secondary_kid = db.add_kol("xueqiu", "特别关注次要", "s2", secondary=True)
+
+    reg = register(client, "secuser")
+    headers = {"Authorization": f"Bearer {reg.json()['token']}"}
+    uid = reg.json()["user"]["id"]
+    for kid in (normal_kid, secondary_kid, fav_secondary_kid):
+        db.add_subscription(uid, kid, type="post")
+    # 特别关注一个次要大V（favorite 穿透应始终显示）
+    db.set_subscription_favorite(uid, fav_secondary_kid, True)
+    # 另一个次要大V标个人次要（个人 secondary 同样默认隐藏）
+    db.set_subscription_secondary(uid, secondary_kid, True)
+
+    db.insert_post("xueqiu", normal_kid, "p1", "普通", "普通大V的帖子", "u1", "")
+    db.insert_post("xueqiu", secondary_kid, "p2", "次要", "次要大V的帖子", "u2", "")
+    db.insert_post("xueqiu", fav_secondary_kid, "p3", "关注", "特别关注的次要大V", "u3", "")
+
+    # 默认：次要大V被隐藏，特别关注穿透可见
+    feed = client.get("/api/my/feed", headers=headers).json()
+    assert [p["external_id"] for p in feed] == ["p3", "p1"]
+
+    # 开启 include_secondary：全部可见
+    feed = client.get("/api/my/feed?include_secondary=1", headers=headers).json()
+    assert [p["external_id"] for p in feed] == ["p3", "p2", "p1"]
+
+    # 管理员视角同样默认隐藏（favorite 穿透是按用户的，管理员未标关注 → 全部次要隐藏）
+    admin_reg = register(client, "secadmin")
+    db.update_user(admin_reg.json()["user"]["id"], is_admin=True)
+    admin_uid = admin_reg.json()["user"]["id"]
+    for kid in (normal_kid, secondary_kid, fav_secondary_kid):
+        db.add_subscription(admin_uid, kid, type="post")
+    admin_headers = {"Authorization": f"Bearer {admin_reg.json()['token']}"}
+    admin_feed = client.get("/api/my/feed", headers=admin_headers).json()
+    assert [p["external_id"] for p in admin_feed] == ["p1"]
+
+
 def test_wechat_login(monkeypatch):
     cfg = Config()
     cfg.wechat.app_id = "wx_app"
