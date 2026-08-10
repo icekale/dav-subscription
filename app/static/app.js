@@ -42,6 +42,8 @@ const HISTORY_ICON = `<svg class="nav-svg" viewBox="0 0 24 24" fill="none" strok
 const USERS_ICON = `<svg class="nav-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`;
 const KEY_ICON = `<svg class="nav-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>`;
 const PLUS_ICON = `<svg class="nav-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>`;
+const X_ICON = `<svg class="x-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6L6 18M6 6l12 12"/></svg>`;
+const SEARCH_ICON = `<svg class="search-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>`;
 const GITHUB_ICON = `<svg class="sidebar-gh-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.55 0-.27-.01-1.17-.02-2.12-3.2.7-3.87-1.36-3.87-1.36-.52-1.33-1.28-1.68-1.28-1.68-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.03 1.75 2.69 1.25 3.35.95.1-.74.4-1.25.72-1.54-2.55-.29-5.23-1.28-5.23-5.68 0-1.26.45-2.28 1.18-3.09-.12-.29-.51-1.46.11-3.05 0 0 .96-.31 3.15 1.18a10.9 10.9 0 0 1 5.74 0c2.19-1.49 3.15-1.18 3.15-1.18.62 1.59.23 2.76.11 3.05.73.81 1.18 1.83 1.18 3.09 0 4.41-2.69 5.38-5.25 5.67.41.35.77 1.05.77 2.12 0 1.53-.01 2.76-.01 3.14 0 .3.2.66.8.55A11.51 11.51 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5z"/></svg>`;
 // 主题切换图标：线性风格，与 TRASH_ICON 一致（stroke=currentColor）
 const THEME_SUN_ICON = `<svg class="theme-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>`;
@@ -390,29 +392,28 @@ async function renderHome(seq) {
       const recs = await api("/api/recommendations");
       if (routeStillActive(seq) && recs.length) {
         onboardingHtml = `
-          <section class="section-panel" style="border-color:var(--color-primary)">
+          <section class="section-panel">
             <header class="section-head"><div>
-              <p class="section-eyebrow">Welcome</p>
-              <h3 class="section-title">👋 欢迎！先订阅几位大V</h3>
+              <h3 class="section-title">欢迎！先订阅几位大V</h3>
               <p class="section-meta">以下是最热门的大V；订阅后新帖会自动推送到你绑定的渠道。</p>
             </div></header>
             <div class="row" style="gap:12px;flex-wrap:wrap">${recs.map((rec) => `
               <div class="kol-item" style="flex:1;min-width:230px">
                 ${avatarHtml(rec.name, rec.avatar_url)}
-                <div class="kol-info" onclick="location.hash='#/kol/${rec.id}'">
+                <a class="kol-info" href="#/kol/${rec.id}">
                   <div class="base">
                     <span class="name">${escapeHtml(rec.name)}</span>
                     <span class="tag">${PLATFORM_LABELS[rec.platform] || escapeHtml(rec.platform)}</span>
                     ${rec.category_name ? `<span class="tag">${escapeHtml(rec.category_name)}</span>` : ""}
                   </div>
                   <div class="desc">${rec.subscriber_count} 人订阅</div>
-                </div>
+                </a>
                 <button class="btn-sub ${rec.subscribed ? "subscribed" : ""}" onclick="quickSubscribe(${rec.id}, this)">
                   ${rec.subscribed ? "✓ 已订阅" : "订阅"}
                 </button>
               </div>`).join("")}
             </div>
-            <p class="muted" style="margin-top:12px">💡 也可以先去<a href="#/settings">绑定推送渠道</a>，再回来订阅。</p>
+            <p class="muted" style="margin-top:12px">也可以先去<a href="#/settings">绑定推送渠道</a>，再回来订阅。</p>
           </section>`;
       }
     } catch {
@@ -425,13 +426,12 @@ async function renderHome(seq) {
     <section class="section-panel">
       <header class="section-head">
         <div>
-          <p class="section-eyebrow">Catalog</p>
           <h3 class="section-title">全部大V</h3>
           <p class="section-meta" id="catalog-meta">加载中…</p>
         </div>
         <div class="toolbar" style="margin-top:12px">
           <div class="search-bar" style="flex:1;min-width:220px">
-            <span>🔍</span>
+            ${SEARCH_ICON}
             <input id="home-search" placeholder="搜索昵称或 ID，即时过滤" oninput="homeSearch(this.value)">
           </div>
           <div class="platform-tabs" id="platform-tabs"></div>
@@ -708,7 +708,6 @@ async function renderMySubs(seq) {
     <section class="section-panel">
       <header class="section-head">
         <div>
-          <p class="section-eyebrow">Subscriptions</p>
           <h3 class="section-title">已订阅</h3>
         </div>
       </header>
@@ -769,7 +768,6 @@ async function renderCombinations(seq) {
     <section class="section-panel">
       <header class="section-head">
         <div>
-          <p class="section-eyebrow">Cubes</p>
           <h3 class="section-title">雪球组合</h3>
           <p class="section-meta" id="combo-meta">加载中…</p>
         </div>
@@ -814,6 +812,41 @@ function tlFilterKey() {
     state.timelineCategory || "", state.timelineTag || "", state.timelineFavorite,
     state.timelineSecondary,
   ]);
+}
+
+// 生效筛选条件 → 可见 chip 列表：用户随时能看到自己被什么过滤着，逐个可移除
+function tlActiveChips() {
+  const chips = [];
+  if (state.timelineQ) chips.push({ key: "q", label: `关键词：${state.timelineQ}` });
+  if (state.timelineCategory) {
+    const c = (_tlCategories || []).find((x) => String(x.id) === String(state.timelineCategory));
+    if (c) chips.push({ key: "category", label: `分类：${c.name}` });
+  }
+  if (state.timelineTag) chips.push({ key: "tag", label: `标签：${state.timelineTag}` });
+  if (state.timelinePlatform) {
+    const p = TL_PLATFORMS.find(([v]) => v === state.timelinePlatform);
+    if (p) chips.push({ key: "platform", label: `平台：${p[1]}` });
+  }
+  return chips;
+}
+
+function tlActiveChipsHtml() {
+  const chips = tlActiveChips();
+  if (!chips.length) return "";
+  return `<div class="tl-active-chips">${chips.map((c) => `
+    <span class="tl-active-chip">${escapeHtml(c.label)}<button class="tl-chip-x" onclick="tlRemoveFilter('${c.key}')" aria-label="移除${escapeHtml(c.label)}" title="移除该筛选">${X_ICON}</button></span>`).join("")}</div>`;
+}
+
+function tlRemoveFilter(key) {
+  if (key === "q") state.timelineQ = "";
+  else if (key === "category") state.timelineCategory = "";
+  else if (key === "tag") state.timelineTag = "";
+  else if (key === "platform") {
+    state.timelinePlatform = "";
+    const pills = $("#tl-pills");
+    if (pills) pills.innerHTML = tlPillsHtml();
+  }
+  loadTimeline(true, routeRenderSeq);
 }
 
 const TL_SKELETON = `<div class="tl-skeleton">${Array(4).fill(`
@@ -861,6 +894,7 @@ async function renderTimeline(seq) {
         </div>
       </div>
     </div>
+    ${tlActiveChipsHtml()}
     <div class="tl-new-badge" id="tl-new-badge">
       <button class="tl-new-badge-btn" onclick="refreshTimeline()">↑ 有新动态，点击刷新</button>
     </div>
@@ -1163,7 +1197,7 @@ function postCard(post) {
       </div>
       ${!titleDup && post.title ? `<div class="p-title">${escapeHtml(post.title)}</div>` : ""}
       <div class="p-content">${escapeHtml(shown)}${body.length > 200
-        ? `<span class="post-expand-btn" onclick="tlTogglePost(${post.id})">${expanded ? "收起 ▲" : "展开全文 ▼"}</span>`
+        ? `<button class="post-expand-btn" onclick="tlTogglePost(${post.id})" aria-expanded="${expanded}">${expanded ? "收起 ▲" : "展开全文 ▼"}</button>`
         : ""}</div>
       ${Array.isArray(post.images) && post.images.length ? `
         <div class="post-images">
@@ -1190,7 +1224,7 @@ async function renderSearch(seq) {
   $("#main").innerHTML = `
     <section class="section-panel">
       <div class="search-bar" style="margin-bottom:16px">
-        <span>🔍</span>
+        ${SEARCH_ICON}
         <input id="search-input" placeholder="输入昵称或 ID，回车搜索" value="${escapeHtml(query)}" onkeydown="if(event.key==='Enter')doSearch()">
         <button class="btn-ghost" onclick="doSearch()">搜索</button>
       </div>
@@ -1201,7 +1235,7 @@ async function renderSearch(seq) {
     askSection.innerHTML = `
       <section class="section-panel">
         <header class="section-head">
-          <div><p class="section-eyebrow">Request</p><h3 class="section-title">申请添加大V</h3>
+          <div><h3 class="section-title">申请添加大V</h3>
           <p class="section-meta">目录里没有的大V？提交申请，管理员审批通过后即可订阅。</p></div>
         </header>
         <div class="toolbar" style="margin-top:12px">
@@ -1217,7 +1251,7 @@ async function renderSearch(seq) {
         <div id="ask-result" class="muted" style="margin-top:12px"></div>
       </section>
       <section class="section-panel">
-        <header class="section-head"><div><p class="section-eyebrow">My Requests</p><h3 class="section-title">我的申请</h3></div></header>
+        <header class="section-head"><div><h3 class="section-title">我的申请</h3></div></header>
         <div id="my-asks"></div>
       </section>`;
     // 先取引用再 append：第一次 appendChild 会移动节点，children[1] 会随之失效
@@ -1306,7 +1340,6 @@ async function renderKolPage(kolId, seq) {
       <section class="section-panel">
         <header class="section-head">
           <div>
-            <p class="section-eyebrow">Posts</p>
             <h3 class="section-title">${escapeHtml(kol.name)} · 最近动态</h3>
             <p class="section-meta">外部 ID：${escapeHtml(kol.external_id)} · ${PLATFORM_LABELS[kol.platform] || escapeHtml(kol.platform)}${kol.category_name ? " · " + escapeHtml(kol.category_name) : ""}</p>
           </div>
@@ -1547,7 +1580,6 @@ async function renderSettings(seq) {
       <section class="section-panel">
         <header class="section-head">
           <div>
-            <p class="section-eyebrow">Preferences</p>
             <h3 class="section-title">推送开关</h3>
             <p class="section-meta">总开关与每日精选摘要。</p>
           </div>
@@ -1572,7 +1604,6 @@ async function renderSettings(seq) {
       <section class="section-panel">
         <header class="section-head">
           <div>
-            <p class="section-eyebrow">DND</p>
             <h3 class="section-title">免打扰时段</h3>
             <p class="section-meta">时段内不推送新帖（支持跨午夜），结束后一次性补一条汇总；系统告警不受影响。特别关注可设为穿透免打扰。</p>
           </div>
@@ -1605,9 +1636,8 @@ async function renderSettings(seq) {
       <section class="section-panel">
         <header class="section-head">
           <div>
-            <p class="section-eyebrow">Keywords</p>
             <h3 class="section-title">关键词提醒</h3>
-            <p class="section-meta">命中关键词的动态会加 🔑 标记、并在免打扰时段实时推送（穿透免打扰）；每行一个，最多 20 个，每个不超过 50 字。</p>
+            <p class="section-meta">命中关键词的动态会加标记，并在免打扰时段实时推送（穿透免打扰）；每行一个，最多 20 个，每个不超过 50 字。</p>
           </div>
         </header>
         <div class="form-row">
@@ -1626,7 +1656,6 @@ async function renderSettings(seq) {
       <section class="section-panel">
         <header class="section-head">
           <div>
-            <p class="section-eyebrow">Channels</p>
             <h3 class="section-title">推送渠道</h3>
             <p class="section-meta">绑定状态每 10 秒自动刷新；绑定了多个渠道时，可在下方勾选要接收推送的渠道（不选则全部推送）。</p>
           </div>
@@ -1642,13 +1671,12 @@ async function renderSettings(seq) {
       <section class="section-panel">
         <header class="section-head">
           <div>
-            <p class="section-eyebrow">Channel Setup</p>
             <h3 class="section-title">渠道绑定</h3>
             <p class="section-meta">按序绑定想用的推送渠道，每个渠道的步骤可展开；绑定状态在「推送渠道状态」卡片查看。</p>
           </div>
         </header>
         <div class="channel-bind-block" id="custom-bots-bind">
-          <h4 class="section-title">⓪ 自建机器人（推荐，免共享限频）</h4>
+          <h4 class="section-title">自建机器人（推荐，免共享限频）</h4>
           <p class="section-meta">共享机器人所有用户共用一个应用配额；自建/个人机器人是<b>属于你自己的机器人应用</b>，推送配额独立、不受共享应用限制。Telegram 自建约 1 分钟，飞书个人扫码自动创建。</p>
           <div class="channel-bind-block" style="padding-top:8px">
             <h4 class="section-title">Telegram 自建机器人</h4>
@@ -1669,7 +1697,7 @@ async function renderSettings(seq) {
           </div>
         </div>
         <div class="channel-bind-block" id="telegram-bind">
-          <h4 class="section-title">① Telegram 机器人</h4>
+          <h4 class="section-title">1. Telegram 机器人</h4>
           ${bindGuideHtml(!!state.user.telegram_chat_id, `
         <ol style="padding-left:20px;line-height:2">
           <li>打开 Telegram，搜索并进入 ${tgTarget}（找不到就点上方链接）。</li>
@@ -1679,8 +1707,8 @@ async function renderSettings(seq) {
         </ol>`)}
         </div>
         <div class="channel-bind-block" id="feishu-bind">
-          <h4 class="section-title">② 飞书机器人 · 共享备选</h4>
-          <p class="section-meta">👎 不推荐：所有用户共用一个应用，推送配额共享，人多可能被限频。仅作为没有个人机器人时的临时备选，建议优先用上方「⓪ 自建机器人」里的个人机器人。</p>
+          <h4 class="section-title">2. 飞书机器人 · 共享备选</h4>
+          <p class="section-meta">不推荐：所有用户共用一个应用，推送配额共享，人多可能被限频。仅作为没有个人机器人时的临时备选，建议优先用上方「自建机器人」里的个人机器人。</p>
           ${bindGuideHtml(!!(state.user.feishu_open_id && state.user.feishu_chat_id), `
         <ol style="padding-left:20px;line-height:2">
           <li>打开飞书 App，点顶部「搜索」，搜索 ${fsTarget} 并进入。</li>
@@ -1691,7 +1719,7 @@ async function renderSettings(seq) {
         </ol>`)}
         </div>
         <div class="channel-bind-block" id="wecom-bind">
-          <h4 class="section-title">③ 企业微信群机器人</h4>
+          <h4 class="section-title">3. 企业微信群机器人</h4>
           <p class="section-meta">无需申请应用；在企业微信任意群里添加「群机器人」即可，推送会发到这个群。</p>
           ${bindGuideHtml(!!state.user.wecom_webhook, `
         <ol style="padding-left:20px;line-height:2">
@@ -1712,7 +1740,7 @@ async function renderSettings(seq) {
           <p class="muted">⚠️ webhook 等同群管理权限，请勿泄露给他人；不同用户应使用各自的群机器人。</p>
         </div>
         <div class="channel-bind-block" id="bark-bind">
-          <h4 class="section-title">④ Bark（iPhone 推送）</h4>
+          <h4 class="section-title">4. Bark（iPhone 推送）</h4>
           <p class="section-meta">iOS 自托管用户神器：Bark App 免登录、免费、推送直达锁屏，无需申请任何开发者资质。</p>
           ${bindGuideHtml(!!state.user.bark_key, `
         <ol style="padding-left:20px;line-height:2">
@@ -1737,7 +1765,6 @@ async function renderSettings(seq) {
       <section class="section-panel">
         <header class="section-head">
           <div>
-            <p class="section-eyebrow">AI</p>
             <h3 class="section-title">AI 摘要（可选，用你的大模型）</h3>
             <p class="section-meta">配置后，每日精选摘要和免打扰汇总会先用大模型生成 AI 要点，再发原文列表。接口为 OpenAI 兼容格式（/chat/completions），DeepSeek / 通义 / Kimi / 本地 Ollama 均可。不填则用系统默认摘要。</p>
           </div>
@@ -1773,7 +1800,6 @@ async function renderSettings(seq) {
       <section class="section-panel">
         <header class="section-head">
           <div>
-            <p class="section-eyebrow">Security</p>
             <h3 class="section-title">修改密码</h3>
             <p class="section-meta">定期更换密码，保护你的账号安全。</p>
           </div>
@@ -1795,7 +1821,6 @@ async function renderSettings(seq) {
       <section class="section-panel">
         <header class="section-head">
           <div>
-            <p class="section-eyebrow">Sync</p>
             <h3 class="section-title">与网页/小程序账号同步（可选）</h3>
             <p class="section-meta">机器人是独立账号；想让机器人订阅与网页账号合并，用绑定码。</p>
           </div>
@@ -1816,7 +1841,6 @@ async function renderSettings(seq) {
       <section class="section-panel">
         <header class="section-head">
           <div>
-            <p class="section-eyebrow">RSS</p>
             <h3 class="section-title">RSS 订阅源（用任意阅读器收动态）</h3>
             <p class="section-meta">不想用聊天工具？把下面地址加进 Reeder / NetNewsWire / 其他任何 RSS 阅读器，就能直接收你订阅大V的动态，无需登录。</p>
           </div>
@@ -2404,7 +2428,7 @@ async function loadAdminStats() {
   $("#admin-body").innerHTML = `
     <section class="section-panel">
       <header class="section-head">
-        <div><p class="section-eyebrow">Config</p><h3 class="section-title">抓取设置</h3>
+        <div><h3 class="section-title">抓取设置</h3>
         <p class="section-meta">保存后即时生效，无需重启。</p></div>
       </header>
       <div class="cfg-grid">
@@ -2485,7 +2509,7 @@ async function loadAdminStats() {
     </section>
     <section class="section-panel">
       <header class="section-head">
-        <div><p class="section-eyebrow">Data Sources</p><h3 class="section-title">数据源稳定性</h3>
+        <div><h3 class="section-title">数据源稳定性</h3>
         <p class="section-meta">抓取健康、24h 成功率与事件流；页面每 30 秒自动刷新，可随时手动刷新。</p></div>
         <div class="toolbar" style="margin-top:12px">
           <span id="stats-refresh-at" class="muted"></span>
@@ -2503,17 +2527,17 @@ async function loadAdminStats() {
       </div>
     </section>
     <section class="section-panel">
-      <header class="section-head"><div><p class="section-eyebrow">Events</p><h3 class="section-title">数据源事件</h3>
+      <header class="section-head"><div><h3 class="section-title">数据源事件</h3>
       <p class="section-meta">最近 30 条抓取成功 / 失败 / 降级记录（保留 7 天）。</p></div></header>
       <div id="source-events"></div>
     </section>
     <section class="section-panel">
-      <header class="section-head"><div><p class="section-eyebrow">KOL Health</p><h3 class="section-title">大V抓取健康</h3>
+      <header class="section-head"><div><h3 class="section-title">大V抓取健康</h3>
       <p class="section-meta">按「最近抓到新帖时间」从旧到新排列，顶部即长期无更新的候选排查对象。</p></div></header>
       <div id="kol-health"></div>
     </section>
     <section class="section-panel">
-      <header class="section-head"><div><p class="section-eyebrow">Weibo</p><h3 class="section-title">微博 Cookie</h3>
+      <header class="section-head"><div><h3 class="section-title">微博 Cookie</h3>
       <p class="section-meta">扫码登录后自动保存 Cookie，或配置账号密码自动续期。</p></div></header>
       <div>
         <button class="btn-normal" onclick="startWeiboQr()">微博扫码登录</button>
@@ -2529,7 +2553,7 @@ async function loadAdminStats() {
     </section>
     <section class="section-panel">
       <header class="section-head">
-        <div><p class="section-eyebrow">Xueqiu</p><h3 class="section-title">雪球 Cookie</h3>
+        <div><h3 class="section-title">雪球 Cookie</h3>
         <p class="section-meta">${xq.set ? `已写入（${escapeHtml(xq.updated_at || "")}），预览：${escapeHtml(xq.preview)}` : "未写入，抓取可能受限或被反爬拦截"}${s.keepalive_interval_seconds > 0 ? ` · 每 ${Math.round(s.keepalive_interval_seconds / 3600)} 小时自动保活` : ""}</p></div>
       </header>
       <textarea id="xq-cookie" class="form-control" rows="4" style="font-family:monospace" placeholder="登录 xueqiu.com 后，浏览器 F12 → Application → Cookies 复制整串（形如 xq_a_token=...; u=...）"></textarea>
@@ -2834,7 +2858,7 @@ async function loadAdminDashboard() {
     if (!routeStillActive(_adminRenderSeq)) return;
     $("#admin-body").innerHTML = `
       <section class="section-panel">
-        <header class="section-head"><div><p class="section-eyebrow">Overview</p><h3 class="section-title">核心指标</h3>
+        <header class="section-head"><div><h3 class="section-title">核心指标</h3>
         <p class="section-meta">用户、订阅与推送的业务总览（推送统计为近 7 天）。</p></div></header>
         <div style="display:flex;gap:12px;flex-wrap:wrap">
           ${statCard("注册用户", u.total || 0)}
@@ -2846,24 +2870,24 @@ async function loadAdminDashboard() {
         </div>
       </section>
       <section class="section-panel">
-        <header class="section-head"><div><p class="section-eyebrow">Push Trend</p><h3 class="section-title">近 14 天推送趋势</h3>
+        <header class="section-head"><div><h3 class="section-title">近 14 天推送趋势</h3>
         <p class="section-meta">每日推送条数（绿色=成功，红色=失败）。</p></div></header>
         ${trendHtml}
       </section>
       <div style="display:flex;gap:14px;flex-wrap:wrap">
         <section class="section-panel" style="flex:1;min-width:300px">
-          <header class="section-head"><div><p class="section-eyebrow">Sources</p><h3 class="section-title">帖子来源分布</h3>
+          <header class="section-head"><div><h3 class="section-title">帖子来源分布</h3>
           <p class="section-meta">累计抓取帖子按平台。</p></div></header>
           ${platformRows || `<p class="muted">暂无帖子</p>`}
         </section>
         <section class="section-panel" style="flex:1;min-width:300px">
-          <header class="section-head"><div><p class="section-eyebrow">Channels</p><h3 class="section-title">渠道推送成功率（7 天）</h3>
+          <header class="section-head"><div><h3 class="section-title">渠道推送成功率（7 天）</h3>
           <p class="section-meta">各渠道成功/总数与成功率。</p></div></header>
           ${channelRows || `<p class="muted">近 7 天暂无推送</p>`}
         </section>
       </div>
       <section class="section-panel">
-        <header class="section-head"><div><p class="section-eyebrow">Health</p><h3 class="section-title">数据源健康</h3>
+        <header class="section-head"><div><h3 class="section-title">数据源健康</h3>
         <p class="section-meta">各平台抓取状态与 24h 成功率，以及最近事件流。</p></div></header>
         <div class="table-wrap">
           <table>
@@ -2900,7 +2924,7 @@ async function loadAdminKols() {
   $("#admin-body").innerHTML = `
     <section class="section-panel">
       <header class="section-head">
-        <div><p class="section-eyebrow">Create</p><h3 class="section-title">添加大V</h3></div>
+        <div><h3 class="section-title">添加大V</h3></div>
         <div class="toolbar" style="margin-top:12px">
           <select id="ad-platform" class="form-control" style="margin:0;width:auto">
             <option value="xueqiu">雪球</option>
@@ -2917,7 +2941,7 @@ async function loadAdminKols() {
     </section>
     <section class="section-panel">
       <header class="section-head">
-        <div><p class="section-eyebrow">Batch</p><h3 class="section-title">批量导入大V</h3>
+        <div><h3 class="section-title">批量导入大V</h3>
         <p class="section-meta">每行一个：昵称 + 雪球主页链接/UID（昵称可省略），如：<code>段永平 https://xueqiu.com/u/12345</code></p></div>
       </header>
       <textarea id="ad-batch-lines" class="form-control" rows="8" style="font-family:monospace;min-height:180px;resize:vertical" placeholder="https://xueqiu.com/u/12345&#10;段永平 12345&#10;https://xueqiu.com/67890"></textarea>
@@ -2935,7 +2959,7 @@ async function loadAdminKols() {
     </section>
     <section class="section-panel">
       <header class="section-head">
-        <div><p class="section-eyebrow">List</p><h3 class="section-title">大V列表</h3></div>
+        <div><h3 class="section-title">大V列表</h3></div>
         <div class="platform-tabs" id="admin-kols-tabs" style="margin-top:12px"></div>
       </header>
       <div class="table-wrap">
@@ -3177,7 +3201,7 @@ async function loadAdminRequests() {
   if (!routeStillActive(_adminRenderSeq)) return;
   $("#admin-body").innerHTML = `
     <section class="section-panel">
-      <header class="section-head"><div><p class="section-eyebrow">Requests</p><h3 class="section-title">添加审批</h3>
+      <header class="section-head"><div><h3 class="section-title">添加审批</h3>
       <p class="section-meta">用户申请添加的大V，审批通过后进入订阅广场。</p></div></header>
       <div class="table-wrap">
         <table>
@@ -3187,7 +3211,7 @@ async function loadAdminRequests() {
       </div>
     </section>
     <section class="section-panel">
-      <header class="section-head"><div><p class="section-eyebrow">History</p><h3 class="section-title">处理记录</h3></div></header>
+      <header class="section-head"><div><h3 class="section-title">处理记录</h3></div></header>
       <div class="table-wrap">
         <table>
           <thead><tr><th scope="col">ID</th><th scope="col">平台</th><th scope="col">昵称</th><th scope="col">外部ID</th><th scope="col">申请人</th><th scope="col">状态</th><th scope="col">处理时间</th></tr></thead>
@@ -3225,7 +3249,7 @@ async function loadAdminCodes() {
   $("#admin-body").innerHTML = `
     <section class="section-panel">
       <header class="section-head">
-        <div><p class="section-eyebrow">Invite Codes</p><h3 class="section-title">生成注册邀请码</h3>
+        <div><h3 class="section-title">生成注册邀请码</h3>
         <p class="section-meta">一次性注册码，用户注册后自动作废；共 ${codes.length} 个，已用 ${used} 个。</p></div>
       </header>
       <div class="toolbar" style="margin-top:12px">
@@ -3240,7 +3264,7 @@ async function loadAdminCodes() {
       </div>
     </section>
     <section class="section-panel">
-      <header class="section-head"><div><p class="section-eyebrow">List</p><h3 class="section-title">注册码列表</h3></div></header>
+      <header class="section-head"><div><h3 class="section-title">注册码列表</h3></div></header>
       <div class="table-wrap">
         <table>
           <thead><tr><th scope="col">邀请码</th><th scope="col">备注</th><th scope="col">状态</th><th scope="col">使用者</th><th scope="col">生成时间</th><th scope="col">使用时间</th><th scope="col">操作</th></tr></thead>
@@ -3294,7 +3318,7 @@ async function loadAdminCategories() {
   $("#admin-body").innerHTML = `
     <section class="section-panel">
       <header class="section-head">
-        <div><p class="section-eyebrow">Create</p><h3 class="section-title">添加分类</h3></div>
+        <div><h3 class="section-title">添加分类</h3></div>
         <div class="toolbar" style="margin-top:12px">
           <input id="cat-name" class="form-control" style="margin:0;width:280px" placeholder="分类名，如：实盘、宏观、行业研究">
           <button class="btn-normal" onclick="adminAddCategory()">添加分类</button>
@@ -3302,7 +3326,7 @@ async function loadAdminCategories() {
       </header>
     </section>
     <section class="section-panel">
-      <header class="section-head"><div><p class="section-eyebrow">List</p><h3 class="section-title">分类列表</h3></div></header>
+      <header class="section-head"><div><h3 class="section-title">分类列表</h3></div></header>
       <div class="table-wrap">
         <table>
           <thead><tr><th scope="col">ID</th><th scope="col">分类名</th><th scope="col">大V数</th><th scope="col">操作</th></tr></thead>
@@ -3371,7 +3395,7 @@ async function loadAdminTags() {
   $("#admin-body").innerHTML = `
     <section class="section-panel">
       <header class="section-head">
-        <div><p class="section-eyebrow">Vocabulary</p><h3 class="section-title">贴文标签词表</h3>
+        <div><h3 class="section-title">贴文标签词表</h3>
         <p class="section-meta">新帖抓取入库时按关键词规则自动打标（零成本、不依赖 LLM）。每行一个标签：<b>标签名 | 关键词1,关键词2</b>，正文/标题命中任一关键词即打该标签，每条最多 3 个。</p></div>
       </header>
       <textarea id="tag-vocab-input" class="form-control" rows="10" style="margin-top:12px;font-family:monospace;line-height:1.6" placeholder="宏观 | 央行,降息,GDP&#10;大盘 | A股,沪指,指数">${escapeHtml(vocabText)}</textarea>
@@ -3382,21 +3406,21 @@ async function loadAdminTags() {
     </section>
     <section class="section-panel">
       <header class="section-head">
-        <div><p class="section-eyebrow">Stocks</p><h3 class="section-title">常用股票名</h3>
+        <div><h3 class="section-title">常用股票名</h3>
         <p class="section-meta">帖子纯文字提及这些股票名时会打上股票标签（每行一个；$股票名(代码)$ 标记自动识别、无需在此登记）。</p></div>
       </header>
       <textarea id="stock-names-input" class="form-control" rows="6" style="margin-top:12px;font-family:monospace;line-height:1.6" placeholder="贵州茅台&#10;宁德时代">${escapeHtml(stockNames.join("\n"))}</textarea>
     </section>
     <section class="section-panel">
       <header class="section-head">
-        <div><p class="section-eyebrow">Aliases</p><h3 class="section-title">黑话别名（LLM 每日自动识别）</h3>
+        <div><h3 class="section-title">黑话别名（LLM 每日自动识别）</h3>
         <p class="section-meta">LLM 每日扫描帖子自动识别股票昵称并写入（如 宁王→宁德时代）；此处可手动修正。每行「别名=正式名」，正式名需在常用股票名表中。</p></div>
       </header>
       <textarea id="stock-aliases-input" class="form-control" rows="5" style="margin-top:12px;font-family:monospace;line-height:1.6" placeholder="宁王=宁德时代">${escapeHtml(aliasText)}</textarea>
     </section>
     <section class="section-panel">
       <header class="section-head">
-        <div><p class="section-eyebrow">Backfill</p><h3 class="section-title">回填历史贴文</h3>
+        <div><h3 class="section-title">回填历史贴文</h3>
         <p class="section-meta">给全部未打标贴文按当前词表 + 股票名单补标签（关键词规则，零成本）。</p></div>
       </header>
       <div class="toolbar" style="margin-top:12px">
@@ -3405,7 +3429,7 @@ async function loadAdminTags() {
       </div>
     </section>
     <section class="section-panel">
-      <header class="section-head"><div><p class="section-eyebrow">Preview</p><h3 class="section-title">当前词表（${tags.length} 个）</h3></div></header>
+      <header class="section-head"><div><h3 class="section-title">当前词表（${tags.length} 个）</h3></div></header>
       <div class="tag-vocab-preview">
         ${tags.length ? tags.map((r) => `<span class="cat cat-tag">${escapeHtml(r.tag)}</span>`).join("") : "（空）"}
       </div>
@@ -3481,7 +3505,7 @@ function renderAdminPosts() {
   $("#admin-body").innerHTML = `
     <section class="section-panel">
       <header class="section-head">
-        <div><p class="section-eyebrow">Posts</p><h3 class="section-title">帖子列表</h3><p class="section-meta">已加载 ${_adminPosts.length} 条 · 点击内容展开全文 · 按大V/平台/关键词筛选</p></div>
+        <div><h3 class="section-title">帖子列表</h3><p class="section-meta">已加载 ${_adminPosts.length} 条 · 点击内容展开全文 · 按大V/平台/关键词筛选</p></div>
         <div class="toolbar" style="margin-top:12px">
           <input id="ad-posts-q" class="form-control" style="margin:0;width:240px" placeholder="搜索标题/内容关键词" value="${escapeHtml(state.adminPostsQ || "")}" onkeydown="if(event.key==='Enter')adminFilterPosts()">
           <select id="ad-posts-platform" class="form-control" style="margin:0;width:auto" onchange="adminFilterPosts()">
@@ -3513,7 +3537,7 @@ function postRowHtml(p) {
     <tr${expanded ? ' style="background:var(--color-surface-accent-soft)"' : ""}>
       <td>${p.id}</td><td>${escapeHtml(p.kol_name)}</td>
       <td>${escapeHtml(p.category_name || "")}</td>
-      <td class="post-cell" onclick="adminTogglePost(${p.id})" title="点击展开/收起全文">
+      <td class="post-cell" onclick="adminTogglePost(${p.id})" title="点击展开/收起全文" role="button" tabindex="0" aria-expanded="${expanded}" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();adminTogglePost(${p.id})}">
         <pre class="content-cell">${escapeHtml(body.slice(0, expanded ? 100000 : 120))}</pre>
         <span class="muted" style="font-size:12px">${expanded ? "▲ 收起" : (body.length > 120 ? "▼ 展开全文" : "")}</span>
       </td>
@@ -3573,7 +3597,7 @@ async function loadAdminLogs() {
   $("#admin-body").innerHTML = `
     <section class="section-panel">
       <header class="section-head">
-        <div><p class="section-eyebrow">Push Logs</p><h3 class="section-title">推送记录</h3></div>
+        <div><h3 class="section-title">推送记录</h3></div>
         <div class="toolbar" style="margin-top:12px">
           <select id="ad-logs-user" class="form-control" style="margin:0;width:auto">
             <option value="">全部用户</option>
@@ -3617,7 +3641,6 @@ async function loadAdminAudit() {
     <section class="section-panel">
       <header class="section-head">
         <div>
-          <p class="section-eyebrow">System Logs</p>
           <h3 class="section-title">系统日志</h3>
           <p class="section-meta">内存环形缓冲的最近 500 条日志，每 5 秒自动刷新；更完整历史见 docker logs（LOG_LEVEL=DEBUG 可开启更详细日志）。</p>
         </div>
@@ -3636,7 +3659,7 @@ async function loadAdminAudit() {
       <pre class="syslog" id="syslog-pre">加载中…</pre>
     </section>
     <section class="section-panel">
-      <header class="section-head"><div><p class="section-eyebrow">Audit</p><h3 class="section-title">操作日志</h3>
+      <header class="section-head"><div><h3 class="section-title">操作日志</h3>
       <p class="section-meta">管理员关键操作记录（改权限/删用户/增删大V/注册码/cookie）。</p></div></header>
       <div class="table-wrap">
         <table>
@@ -3706,7 +3729,7 @@ async function loadAdminUsers() {
   if (!routeStillActive(_adminRenderSeq)) return;
   $("#admin-body").innerHTML = `
     <section class="section-panel">
-      <header class="section-head"><div><p class="section-eyebrow">Users</p><h3 class="section-title">注册用户</h3></div></header>
+      <header class="section-head"><div><h3 class="section-title">注册用户</h3></div></header>
       <div class="table-wrap">
         <table>
           <thead><tr><th scope="col">ID</th><th scope="col">用户名</th><th scope="col">角色</th><th scope="col">Telegram</th><th scope="col">飞书</th><th scope="col">企业微信</th><th scope="col">Bark</th><th scope="col">推送</th><th scope="col">注册时间</th><th scope="col">操作</th></tr></thead>
@@ -4043,6 +4066,10 @@ function switchAuthMode(mode) {
   resetAuthButtons();
   document.querySelectorAll(".switch-btn").forEach((btn) =>
     btn.classList.toggle("active", btn.dataset.mode === mode)
+  );
+  // 登录/注册 tab 的选中态同步给读屏（aria-selected）
+  document.querySelectorAll(".switch-btn").forEach((btn) =>
+    btn.setAttribute("aria-selected", String(btn.dataset.mode === mode))
   );
 }
 

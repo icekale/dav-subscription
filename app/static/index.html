@@ -24,7 +24,7 @@
     })();
   </script>
   <link rel="stylesheet" href="/vendor/design-tokens.css?v=13">
-  <link rel="stylesheet" href="/style.css?v=82">
+  <link rel="stylesheet" href="/style.css?v=83">
 </head>
 <body>
   <!-- 登录 / 注册 -->
@@ -50,9 +50,9 @@
       </div>
       <section class="login-card">
         <div class="login-card-body">
-          <div class="auth-switch" role="tablist">
-            <button type="button" class="switch-btn active" data-mode="login" role="tab">登录</button>
-            <button type="button" class="switch-btn" data-mode="register" role="tab">注册</button>
+          <div class="auth-switch" role="tablist" aria-label="登录或注册">
+            <button type="button" class="switch-btn active" data-mode="login" role="tab" aria-selected="true">登录</button>
+            <button type="button" class="switch-btn" data-mode="register" role="tab" aria-selected="false">注册</button>
           </div>
           <form id="login-form" class="login-form">
             <h2 class="login-title">欢迎回来</h2>
@@ -110,7 +110,7 @@
     <div class="main-col">
       <header class="topbar">
         <div class="topbar-title">
-          <button id="btn-back" class="icon-btn hidden">‹</button>
+          <button id="btn-back" class="icon-btn hidden" aria-label="返回上一页">‹</button>
           <img class="topbar-logo" src="/logo-mark.svg" alt="V Push">
           <h2 id="page-title">订阅广场</h2>
         </div>
@@ -120,6 +120,6 @@
     </div>
     <nav id="bottom-nav" class="bottom-nav"></nav>
   </div>
-  <script src="/app.js?v=106"></script>
+  <script src="/app.js?v=107"></script>
 </body>
 </html>

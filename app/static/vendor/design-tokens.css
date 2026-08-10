@@ -134,6 +134,8 @@
   --color-accent-soft: rgba(22, 119, 255, 0.12);
   /* 强调色文字：浅色同 accent（浅底对比 5.1:1 达标）；深色主题覆盖为亮蓝 */
   --color-accent-text: #1668e0;
+  /* 品牌渐变（logo/头像底）：上亮蓝过渡到主色，统一进 token 避免硬编码漂移 */
+  --brand-gradient: linear-gradient(180deg, #2a86ff, var(--color-accent));
 
   /* 平台品牌色（图标用；深色模式在 .theme-dark 中覆盖） */
   --color-brand-xueqiu: #287dff;
