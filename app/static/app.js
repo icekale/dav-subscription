@@ -2252,44 +2252,69 @@ async function loadAdminStats() {
         <div><p class="section-eyebrow">Config</p><h3 class="section-title">抓取设置</h3>
         <p class="section-meta">保存后即时生效，无需重启。</p></div>
       </header>
-      <div class="row" style="gap:14px;align-items:flex-end;margin-top:12px;flex-wrap:wrap">
-        <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)">轮询间隔(秒)
-          <input id="pc-interval" type="number" class="form-control" style="margin:0;width:110px" min="1" max="3600" value="${s.polling_config.interval_seconds}">
-        </label>
-        <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)">优先大V间隔(秒)
-          <input id="pc-priority" type="number" class="form-control" style="margin:0;width:110px" min="1" max="600" value="${s.polling_config.priority_interval_seconds}">
-        </label>
-        <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)">合并推送周期(秒)
-          <input id="pc-digest" type="number" class="form-control" style="margin:0;width:110px" min="0" max="86400" value="${s.polling_config.digest_interval_seconds}">
-        </label>
-        <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)">雪球探测(秒)
-          <input id="pc-probe" type="number" class="form-control" style="margin:0;width:110px" min="0" max="86400" value="${s.polling_config.source_probe_interval_seconds}">
-        </label>
-        <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)">cookie保活(秒)
-          <input id="pc-keepalive" type="number" class="form-control" style="margin:0;width:110px" min="0" max="86400" value="${s.polling_config.cookie_keepalive_interval_seconds}">
-        </label>
-        <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)">每日精选小时
-          <input id="pc-daily" type="number" class="form-control" style="margin:0;width:110px" min="0" max="23" value="${s.polling_config.daily_report_hour}">
-        </label>
-        <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--color-text-muted);height:36px">
-          <input id="pc-translate" type="checkbox" ${s.polling_config.translate_twitter_content ? "checked" : ""}> X 内容自动翻译成中文
-          <span class="muted">（配置 TWITTER_COOKIE 后走 X 官方翻译，质量同网页版）</span>
-        </label>
-        <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)" title="无新帖时自动拉长抓取间隔，2 倍步进，有新帖立即恢复">组合基础间隔(秒)
-          <input id="pc-cb" type="number" class="form-control" style="margin:0;width:110px" min="5" max="3600" value="${s.polling_config.combination_base_seconds}">
-        </label>
-        <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)" title="组合长期无调仓时封顶的空轮间隔">组合空轮封顶(秒)
-          <input id="pc-cc" type="number" class="form-control" style="margin:0;width:110px" min="5" max="86400" value="${s.polling_config.combination_idle_cap_seconds}">
-        </label>
-        <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)" title="普通大V长期无新帖时封顶的空轮间隔">普通大V空轮封顶(秒)
-          <input id="pc-nc" type="number" class="form-control" style="margin:0;width:110px" min="5" max="86400" value="${s.polling_config.normal_idle_cap_seconds}">
-        </label>
-        <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)" title="优先大V长期无新帖时封顶的空轮间隔">优先大V空轮封顶(秒)
-          <input id="pc-pc" type="number" class="form-control" style="margin:0;width:110px" min="5" max="86400" value="${s.polling_config.priority_idle_cap_seconds}">
-        </label>
-        <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)" title="X 降级到 RSSHub 备用通道期间封顶的抓取间隔">X降级封顶(秒)
-          <input id="pc-xc" type="number" class="form-control" style="margin:0;width:110px" min="5" max="86400" value="${s.polling_config.x_fallback_cap_seconds}">
-        </label>
+      <div class="cfg-grid">
+        <div class="cfg-group">
+          <p class="cfg-group-title">基础节拍</p>
+          <div class="row" style="gap:12px;flex-wrap:wrap">
+            <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)">轮询间隔(秒)
+              <input id="pc-interval" type="number" class="form-control" style="margin:0;width:110px" min="1" max="3600" value="${s.polling_config.interval_seconds}">
+            </label>
+            <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)">优先大V间隔(秒)
+              <input id="pc-priority" type="number" class="form-control" style="margin:0;width:110px" min="1" max="600" value="${s.polling_config.priority_interval_seconds}">
+            </label>
+            <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)">合并推送周期(秒)
+              <input id="pc-digest" type="number" class="form-control" style="margin:0;width:110px" min="0" max="86400" value="${s.polling_config.digest_interval_seconds}">
+            </label>
+          </div>
+        </div>
+        <div class="cfg-group">
+          <p class="cfg-group-title">组合高频 <span class="hint">调仓实时推送</span></p>
+          <div class="row" style="gap:12px;flex-wrap:wrap">
+            <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)" title="组合抓取频率；无新帖时自动拉长，2 倍步进，调仓出现即恢复">组合基础间隔(秒)
+              <input id="pc-cb" type="number" class="form-control" style="margin:0;width:110px" min="5" max="3600" value="${s.polling_config.combination_base_seconds}">
+            </label>
+            <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)" title="组合长期无调仓时封顶的空轮间隔">组合空轮封顶(秒)
+              <input id="pc-cc" type="number" class="form-control" style="margin:0;width:110px" min="5" max="86400" value="${s.polling_config.combination_idle_cap_seconds}">
+            </label>
+          </div>
+        </div>
+        <div class="cfg-group">
+          <p class="cfg-group-title">自适应降频 <span class="hint">无新帖自动拉长</span></p>
+          <div class="row" style="gap:12px;flex-wrap:wrap">
+            <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)" title="普通大V长期无新帖时封顶的空轮间隔">普通大V空轮封顶(秒)
+              <input id="pc-nc" type="number" class="form-control" style="margin:0;width:110px" min="5" max="86400" value="${s.polling_config.normal_idle_cap_seconds}">
+            </label>
+            <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)" title="优先大V长期无新帖时封顶的空轮间隔">优先大V空轮封顶(秒)
+              <input id="pc-pc" type="number" class="form-control" style="margin:0;width:110px" min="5" max="86400" value="${s.polling_config.priority_idle_cap_seconds}">
+            </label>
+            <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)" title="X 降级到 RSSHub 备用通道期间封顶的抓取间隔">X降级封顶(秒)
+              <input id="pc-xc" type="number" class="form-control" style="margin:0;width:110px" min="5" max="86400" value="${s.polling_config.x_fallback_cap_seconds}">
+            </label>
+          </div>
+        </div>
+        <div class="cfg-group">
+          <p class="cfg-group-title">X 通道</p>
+          <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--color-text-muted);height:36px">
+            <input id="pc-translate" type="checkbox" ${s.polling_config.translate_twitter_content ? "checked" : ""}> X 内容自动翻译成中文
+            <span class="muted">（配置 TWITTER_COOKIE 后走 X 官方翻译，质量同网页版）</span>
+          </label>
+        </div>
+        <div class="cfg-group">
+          <p class="cfg-group-title">保活与定时</p>
+          <div class="row" style="gap:12px;flex-wrap:wrap">
+            <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)">雪球探测(秒)
+              <input id="pc-probe" type="number" class="form-control" style="margin:0;width:110px" min="0" max="86400" value="${s.polling_config.source_probe_interval_seconds}">
+            </label>
+            <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)">cookie保活(秒)
+              <input id="pc-keepalive" type="number" class="form-control" style="margin:0;width:110px" min="0" max="86400" value="${s.polling_config.cookie_keepalive_interval_seconds}">
+            </label>
+            <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)">每日精选小时
+              <input id="pc-daily" type="number" class="form-control" style="margin:0;width:110px" min="0" max="23" value="${s.polling_config.daily_report_hour}">
+            </label>
+          </div>
+        </div>
+      </div>
+      <div class="cfg-save-row">
         <button class="btn-normal" onclick="savePollingConfig()">保存抓取设置</button>
         <span id="pc-result" class="muted"></span>
       </div>
