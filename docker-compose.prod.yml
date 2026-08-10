@@ -77,8 +77,8 @@ services:
       - TWITTER_AUTH_TOKEN=${TWITTER_AUTH_TOKEN}
     networks: [dav]
 
-  # 无头浏览器定期过目标站点的 JS 执行型 WAF（雪球 acw 挑战等），
-  # 把通关 cookie 写到共享数据卷，主容器抓取时读取复用。
+  # 轻量 JS solver 定期通过目标站点的 WAF 挑战（雪球 acw 挑战等），
+  # 把验证通过的 cookie 写到共享数据卷，主容器抓取时读取复用。
   waf-bot:
     build: ./waf-bot
     container_name: dav-waf-bot

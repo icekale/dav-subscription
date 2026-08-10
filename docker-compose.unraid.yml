@@ -54,7 +54,7 @@ services:
       LOG_LEVEL: "${LOG_LEVEL:-INFO}"
       # 日志落盘到数据卷（随 data 持久化，滚动 5MB×3，重启不丢）
       LOG_FILE: "${LOG_FILE:-/data/logs/app.log}"
-      # waf-bot 无头浏览器写的通关 cookie 文件（雪球 acw WAF 挑战）
+      # waf-bot 轻量 JS solver 写的通关 cookie 文件（雪球 acw WAF 挑战）
       WAF_COOKIE_FILE: "/data/waf_cookies.json"
     volumes:
       - /mnt/user/appdata/dav-subscription/data:/data
@@ -75,14 +75,13 @@ services:
       # 新版 RSSHub 的 X 路由要求 auth_token（登录态 cookie 中的 auth_token= 值）
       - TWITTER_AUTH_TOKEN=${TWITTER_AUTH_TOKEN}
 
-  # 无头浏览器定期过目标站点的 JS 执行型 WAF（雪球 acw 挑战等），
-  # 把通关 cookie 写到共享数据卷，主容器抓取时读取复用。
+  # 轻量 JS solver 定期通过目标站点的 WAF 挑战（雪球 acw 挑战等），
+  # 把验证通过的 cookie 写到共享数据卷，主容器抓取时读取复用。
   waf-bot:
     build:
       context: ./waf-bot
       args:
         PIP_INDEX_URL: https://pypi.tuna.tsinghua.edu.cn/simple
-        PLAYWRIGHT_DOWNLOAD_HOST: https://npmmirror.com/mirrors/playwright/
     container_name: dav-waf-bot
     restart: unless-stopped
     networks: [dav-net]
