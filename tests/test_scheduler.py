@@ -708,6 +708,60 @@ def test_priority_kol_bypasses_digest(monkeypatch):
     assert digest == {}
 
 
+def test_combination_kol_bypasses_digest_and_pushes_realtime(monkeypatch):
+    """雪球组合非优先但也实时推送（调仓通知不被合并摘要拖延）。"""
+    db = make_db()
+    kid = db.add_kol("combination", "伯言-A股", "ZH3623878")
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.add_subscription(uid, kid)
+    calls = []
+
+    class FakeTG:
+        def __init__(self, config, chat_id=None, client=None, **kwargs):
+            self.client = SimpleNamespace(close=lambda: None)
+
+        def notify(self, post):
+            calls.append(post.external_id)
+
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FakeTG)
+    ncfg = SimpleNamespace(
+        telegram=SimpleNamespace(bot_token="t", chat_id=""),
+        feishu=SimpleNamespace(),
+        wecom=SimpleNamespace(),
+    )
+    digest: dict[int, list] = {}
+    poll_once(
+        db,
+        {"combination": FakeFetcher([make_post(kid)])},
+        [],
+        interval_seconds=0,
+        digest=digest,
+        notifiers_config=ncfg,
+    )
+    assert len(calls) == 1
+    assert digest == {}  # 组合不进入合并摘要缓冲
+
+
+def test_combination_interval_highest_frequency():
+    """雪球组合基础间隔 30s、空轮封顶 120s，高于优先大V。"""
+    from app.scheduler import (
+        COMBINATION_BASE_SECONDS,
+        COMBINATION_IDLE_CAP_SECONDS,
+    )
+
+    db = make_db()
+    state = PlatformState()
+    kol_c = {"id": 1, "priority": 0, "platform": "combination"}
+    # 基础间隔
+    assert _effective_interval(db, kol_c, state, 180, 60) == COMBINATION_BASE_SECONDS
+    assert COMBINATION_BASE_SECONDS == 30
+    # 空轮拉伸到封顶
+    for n, expect in ((1, 60), (2, COMBINATION_IDLE_CAP_SECONDS), (3, COMBINATION_IDLE_CAP_SECONDS)):
+        state.empty_rounds[1] = n
+        assert _effective_interval(db, kol_c, state, 180, 60) == expect
+    assert COMBINATION_IDLE_CAP_SECONDS == 120
+
+
 def test_source_health_recorded():
     db = make_db()
     add_kol_subscribed(db, "xueqiu", "A", "1")
@@ -2494,14 +2548,14 @@ def test_delete_posts_older_than():
 def test_scheduler_loop_delay_uses_min_interval():
     from app.scheduler import _scheduler_loop_delay
 
-    assert _scheduler_loop_delay(180, 60, 0) == 60
-    assert _scheduler_loop_delay(180, 180, 0) == 180
-    assert _scheduler_loop_delay(60, 180, 0) == 60
-    assert 60 <= _scheduler_loop_delay(180, 60, 30) <= 90
+    assert _scheduler_loop_delay(180, 60, 0) == 30  # 组合 30s 最高频档
+    assert _scheduler_loop_delay(180, 180, 0) == 30
+    assert _scheduler_loop_delay(60, 180, 0) == 30
+    assert 30 <= _scheduler_loop_delay(180, 60, 30) <= 60
 
 
 def test_scheduler_run_loop_sleeps_priority_interval(monkeypatch):
-    """主循环单轮等待时长应取优先间隔，而非全局间隔。"""
+    """主循环单轮等待时长应取最短间隔（雪球组合 30s），而非全局/优先间隔。"""
     import asyncio
 
     db = make_db()
@@ -2542,7 +2596,7 @@ def test_scheduler_run_loop_sleeps_priority_interval(monkeypatch):
     asyncio.run(scheduler.run())
 
     assert sleeps, "主循环应至少 sleep 一次"
-    assert 59 < sleeps[0] <= 60, f"应约为优先间隔 60s，实际 {sleeps[0]}"
+    assert 29 < sleeps[0] <= 30, f"应约为组合最短间隔 30s，实际 {sleeps[0]}"
 
 
 def test_scheduler_loop_delay_floors_at_one():
