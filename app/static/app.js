@@ -531,7 +531,7 @@ function kolCard(kol) {
         ${avatarHtml(kol.name, kol.avatar_url)}
         <div class="kol-card-info">
           <div class="base">
-            <span class="name">${escapeHtml(kol.name)}</span>
+            <span class="name" title="${escapeHtml(kol.name)}">${escapeHtml(kol.name)}</span>
             <span class="tag">${PLATFORM_LABELS[kol.platform] || escapeHtml(kol.platform)}</span>
             ${kol.category_name ? `<span class="tag">${escapeHtml(kol.category_name)}</span>` : ""}
           </div>
