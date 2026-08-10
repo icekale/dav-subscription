@@ -1,6 +1,6 @@
 import json
 
-import pytest  # type: ignore[import-not-found]
+import pytest
 import watchdog
 
 

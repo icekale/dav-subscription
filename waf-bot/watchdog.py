@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 from urllib.parse import urljoin
 
-from curl_cffi import requests  # type: ignore[import-not-found]
+from curl_cffi import requests
 
 UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
