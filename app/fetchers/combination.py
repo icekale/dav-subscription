@@ -155,6 +155,9 @@ class CombinationFetcher(Fetcher):
                 target_ok = isinstance(target_w, (int, float))
                 stock = h.get("stock_name") or ""
                 stock_symbol = h.get("stock_symbol") or ""
+                # 全量快照记录会把未变动持仓也列出来（prev==target），调仓卡只报变化，跳过
+                if prev_ok and target_ok and abs(target_w - prev_w) < 1e-9:
+                    continue
                 action = ""
                 prev_s = f"{prev_w:.1f}%" if prev_ok else ""
                 target_s = f"{target_w:.1f}%" if target_ok else ""
@@ -177,8 +180,15 @@ class CombinationFetcher(Fetcher):
                         "target": target_s or "0.0%",
                     }
                 )
-            cash = item.get("cash")
-            cash_pct = f"{cash:.1f}%" if isinstance(cash, (int, float)) else ""
+            # 接口的 cash 字段对「只列变动」的记录是伪值（100 − Σ变动targets，如新建后显示
+            # 现金 81%，实际 0%）；cash_value 才是组合内真实现金（按净值计），现金占比 = cash_value / 净值。
+            cash_value = item.get("cash_value")
+            cube_net = profile.get("net_value")
+            cash_pct = (
+                f"{cash_value / cube_net * 100:.1f}%"
+                if isinstance(cash_value, (int, float)) and cube_net
+                else ""
+            )
             cash_line = f"现金 {cash_pct}" if cash_pct else ""
             content = "\n".join(lines)
             if cash_line:

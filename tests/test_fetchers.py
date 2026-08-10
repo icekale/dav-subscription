@@ -293,7 +293,8 @@ def test_combination_fetch_parses_rebalancing():
             {
                 "id": 237035355,
                 "status": "success",
-                "cash": 80.0,
+                "cash": 80.0,  # 伪值：100 − Σ变动targets
+                "cash_value": 0.0,  # 真实现金：净值 1.8472 → 0.0%
                 "updated_at": 1785822205799,
                 "rebalancing_histories": [
                     {
@@ -307,6 +308,28 @@ def test_combination_fetch_parses_rebalancing():
                         "stock_symbol": "SH600519",
                         "prev_weight": 0.0,
                         "target_weight": 5.2,
+                    },
+                    # 未变动持仓（全量快照记录会列出），应被跳过
+                    {
+                        "stock_name": "中国平安",
+                        "stock_symbol": "SH601318",
+                        "prev_weight": 30.0,
+                        "target_weight": 30.0,
+                    },
+                ],
+            },
+            {
+                "id": 236548180,
+                "status": "success",
+                "cash": 100.0,  # 伪值
+                "cash_value": 0.4618,  # 真实现金：净值 1.8472 → 25.0%
+                "updated_at": 1785000000000,
+                "rebalancing_histories": [
+                    {
+                        "stock_name": "三星电子",
+                        "stock_symbol": "KRX005930",
+                        "prev_weight": 25.0,
+                        "target_weight": 0.0,
                     },
                 ],
             },
@@ -341,7 +364,7 @@ def test_combination_fetch_parses_rebalancing():
     posts = fetcher.fetch(
         {"id": 1, "name": "伯言-A股", "external_id": "https://xueqiu.com/P/ZH3623878"}
     )
-    assert len(posts) == 1
+    assert len(posts) == 2
     p = posts[0]
     assert p.external_id == "237035355"
     assert p.platform == "combination"
@@ -349,11 +372,18 @@ def test_combination_fetch_parses_rebalancing():
     assert "年化 27.1%" in p.content and "净值 1.847" in p.content
     assert "🗑 永杉锂业 清仓 21.1%" in p.content
     assert "➕ 贵州茅台 0.0% → 5.2%" in p.content
-    assert "现金 80.0%" in p.content
+    # 现金取 cash_value/净值（真实现金 0.0%），不显示接口伪值 80.0%
+    assert "现金 0.0%" in p.content and "现金 80.0%" not in p.content
+    # 未变动持仓（中国平安 30.0% → 30.0%）不渲染
+    assert "中国平安" not in p.content
     assert p.title == "伯言-A股 调仓"
     assert p.detail["actions"][0]["type"] == "清仓"
     assert p.detail["actions"][1]["type"] == "增持"
-    assert p.detail["cash"] == "80.0%"
+    assert len(p.detail["actions"]) == 2  # 未变动行不入 actions
+    assert p.detail["cash"] == "0.0%"
+    # 第二笔：真实现金非零（清仓 25% 后现金 25.0%），不显示伪值 100.0%
+    assert "现金 25.0%" in posts[1].content and "现金 100.0%" not in posts[1].content
+    assert posts[1].detail["cash"] == "25.0%"
 
 
 def test_xueqiu_cookie_expired_403_raises_clear_error():
