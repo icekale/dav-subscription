@@ -32,6 +32,11 @@
         {{kol.favorite ? '★ 已特别关注（优先推送）' : '☆ 设为特别关注（优先推送）'}}
       </view>
     </view>
+    <view wx:if="{{kol.subscribed}}" class="fav-row">
+      <view class="fav-btn {{kol.secondary ? 'sec-on' : ''}}" bindtap="toggleSecondary">
+        {{kol.secondary ? '🔕 已设为次要（降频推送）' : '🔔 设为次要（合并摘要推送）'}}
+      </view>
+    </view>
   </view>
   <view class="card">
     <view class="card-title">最近动态</view>

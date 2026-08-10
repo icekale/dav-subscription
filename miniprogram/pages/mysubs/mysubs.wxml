@@ -22,6 +22,7 @@
             <text class="kol-name">{{item.name}}</text>
             <text class="tag">{{item.platform_label}}</text>
             <text wx:if="{{item.favorite}}" class="star-tag">★ 特别关注</text>
+            <text wx:if="{{item.secondary}}" class="sec-tag">🔕 次要</text>
           </view>
           <view class="kol-desc">{{item.category_name || '未分类'}}</view>
           <view wx:if="{{item.platform === 'xueqiu'}}" class="sub-type-row">
@@ -36,6 +37,7 @@
           </view>
         </view>
         <view class="item-actions">
+          <view class="fav-btn {{item.secondary ? 'sec-on' : ''}}" data-id="{{item.id}}" catchtap="toggleSecondary">{{item.secondary ? '🔕' : '🔔'}}</view>
           <view class="fav-btn {{item.favorite ? 'fav-on' : ''}}" data-id="{{item.id}}" catchtap="toggleFavorite">{{item.favorite ? '★' : '☆'}}</view>
           <button class="btn-sub subscribed" data-id="{{item.id}}" bindtap="unsubscribe">退订</button>
         </view>

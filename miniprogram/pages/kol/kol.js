@@ -85,6 +85,22 @@ Page({
     }
   },
 
+  async toggleSecondary() {
+    const kol = this.data.kol;
+    if (!kol || !kol.subscribed) return;
+    const next = !kol.secondary;
+    try {
+      await request(`/api/subscriptions/${kol.id}/secondary`, {
+        method: "PUT",
+        data: { secondary: next },
+      });
+      this.setData({ "kol.secondary": next });
+      wx.showToast({ title: next ? "已设为次要（降频推送）🔕" : "已取消次要", icon: "success" });
+    } catch (err) {
+      wx.showToast({ title: err.message, icon: "none" });
+    }
+  },
+
   copyLink(e) {
     wx.setClipboardData({ data: e.currentTarget.dataset.url });
   },

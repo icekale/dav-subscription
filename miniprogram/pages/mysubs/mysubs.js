@@ -24,8 +24,9 @@ Page({
         ...k,
         platform_label: platformLabel(k.platform),
         avatar_url: resolveAvatar(k.avatar_url),
-        // /api/my/subscriptions 的 favorite 来自数据库原始 0/1，归一化为布尔
+        // /api/my/subscriptions 的 favorite/secondary 来自数据库原始 0/1，归一化为布尔
         favorite: !!k.favorite,
+        secondary: !!k.secondary,
       }));
       this.setData({ kols, shown: this._filter(kols, this.data.view), loading: false });
     } catch (err) {
@@ -81,6 +82,24 @@ Page({
       const kols = this.data.kols.map((k) => (k.id === id ? { ...k, favorite: next } : k));
       this.setData({ kols, shown: this._filter(kols, this.data.view) });
       wx.showToast({ title: next ? "已加入特别关注 ⭐" : "已取消特别关注", icon: "success" });
+    } catch (err) {
+      wx.showToast({ title: err.message, icon: "none" });
+    }
+  },
+
+  async toggleSecondary(e) {
+    const id = e.currentTarget.dataset.id;
+    const kol = this.data.kols.find((k) => k.id === id);
+    if (!kol) return;
+    const next = !kol.secondary;
+    try {
+      await request(`/api/subscriptions/${id}/secondary`, {
+        method: "PUT",
+        data: { secondary: next },
+      });
+      const kols = this.data.kols.map((k) => (k.id === id ? { ...k, secondary: next } : k));
+      this.setData({ kols, shown: this._filter(kols, this.data.view) });
+      wx.showToast({ title: next ? "已设为次要（降频推送）🔕" : "已取消次要", icon: "success" });
     } catch (err) {
       wx.showToast({ title: err.message, icon: "none" });
     }

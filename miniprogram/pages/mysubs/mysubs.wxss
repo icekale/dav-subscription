@@ -28,6 +28,15 @@
   padding: 4rpx 16rpx;
   margin-left: 12rpx;
 }
+.sec-tag {
+  display: inline-block;
+  font-size: 20rpx;
+  color: var(--text-muted);
+  background: rgba(100, 116, 139, 0.14);
+  border-radius: var(--radius-pill);
+  padding: 4rpx 16rpx;
+  margin-left: 12rpx;
+}
 .sub-type-row { display: flex; gap: 12rpx; margin-top: 14rpx; flex-wrap: wrap; }
 .sub-type-chip {
   height: 48rpx;
@@ -68,4 +77,9 @@
   background: rgba(250, 204, 21, 0.14);
   border-color: rgba(202, 138, 4, 0.4);
   color: #b45309;
+}
+.fav-btn.sec-on {
+  background: rgba(100, 116, 139, 0.16);
+  border-color: rgba(100, 116, 139, 0.45);
+  color: #475569;
 }

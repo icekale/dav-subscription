@@ -44,3 +44,8 @@
   border-color: rgba(202, 138, 4, 0.4);
   color: #b45309;
 }
+.fav-btn.sec-on {
+  background: rgba(100, 116, 139, 0.16);
+  border-color: rgba(100, 116, 139, 0.45);
+  color: #475569;
+}
