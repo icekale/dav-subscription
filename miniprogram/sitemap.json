@@ -1,4 +1,4 @@
 {
-  "desc": "大V订阅小程序页面索引",
+  "desc": "V Push小程序页面索引",
   "rules": [{ "action": "allow", "page": "*" }]
 }

@@ -166,5 +166,5 @@ class BarkNotifier(Notifier):
     def send_text(self, text: str) -> None:
         # 告警等纯文本：首行做标题，其余做正文
         lines = (text or "").strip().splitlines()
-        title = lines[0][:50] if lines else "大V订阅"
+        title = lines[0][:50] if lines else "V Push"
         self._post(title, "\n".join(lines[1:]) or title)

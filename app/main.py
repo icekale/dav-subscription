@@ -172,7 +172,7 @@ def create_app(config=None, db_path: str | Path | None = None) -> FastAPI:
             scheduler.stop()
         db.close()
 
-    app = FastAPI(title="大V订阅", lifespan=lifespan)
+    app = FastAPI(title="V Push", lifespan=lifespan)
     app.state.db = db
 
     @app.middleware("http")

@@ -1,6 +1,6 @@
 {
-  "name": "大V订阅",
-  "short_name": "大V订阅",
+  "name": "V Push",
+  "short_name": "V Push",
   "description": "聚合订阅雪球 / 微博 / X 大V公开动态，新帖实时推送。",
   "start_url": "/",
   "scope": "/",

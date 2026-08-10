@@ -59,7 +59,7 @@ def test_build_rss_xml_basic():
     ]
     xml = build_rss_xml(posts, "alice", "https://dav.example.com")
     assert "<rss version=\"2.0\">" in xml
-    assert "大V订阅 · alice 的关注动态" in xml
+    assert "V Push · alice 的关注动态" in xml
     # 标题含平台标签 + 回复标记
     assert "[雪球]" in xml
     assert "回复" in xml

@@ -1641,7 +1641,7 @@ class Scheduler:
         from .notifiers.telegram import TelegramNotifier
         from .notifiers.wecom import WeComNotifier
 
-        message = "✅ 大V订阅服务已启动"
+        message = "✅ V Push服务已启动"
         client = httpx.Client(timeout=15)
         sent_any = False
         try:

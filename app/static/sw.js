@@ -1,4 +1,4 @@
-/* 大V订阅 Service Worker —— network-first：静态外壳离线可用，API 永不缓存 */
+/* V Push Service Worker —— network-first：静态外壳离线可用，API 永不缓存 */
 const CACHE = "dav-shell-v1";
 const SHELL = [
   "/",

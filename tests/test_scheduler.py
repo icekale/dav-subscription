@@ -1655,7 +1655,7 @@ def test_startup_message_only_to_admins(monkeypatch):
 
     asyncio.run(scheduler._send_startup_message())
 
-    assert sent == [("111", "✅ 大V订阅服务已启动")]
+    assert sent == [("111", "✅ V Push服务已启动")]
 
 
 def test_startup_message_respects_push_channels(monkeypatch):
@@ -1705,7 +1705,7 @@ def test_startup_message_respects_push_channels(monkeypatch):
 
     asyncio.run(scheduler._send_startup_message())
 
-    assert sent["tg"] == [("111", "✅ 大V订阅服务已启动")]
+    assert sent["tg"] == [("111", "✅ V Push服务已启动")]
     assert sent["fs"] == []  # 未勾选飞书 → 不发
 
 

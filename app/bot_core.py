@@ -6,7 +6,7 @@ import time
 from math import ceil
 
 HELP_TEXT = (
-    "📌 大V订阅机器人\n"
+    "📌 V Push机器人\n"
     "/list — 查看可订阅的大V（/list 2 翻页）\n"
     "/search 关键词 — 按名字/UID 搜索大V（结果带订阅按钮）\n"
     "/sub 1 / 雪球/微博主页链接 / UID — 订阅大V\n"
@@ -20,7 +20,7 @@ HELP_TEXT = (
 )
 
 WELCOME_TEXT = (
-    "👋 欢迎使用大V订阅机器人！\n\n"
+    "👋 欢迎使用V Push机器人！\n\n"
     "✅ 当前会话已建立：订阅大V后，新帖会直接发到这里。\n\n"
     "接下来只需 3 步：\n"
     "1️⃣ 发 /list 查看可订阅的大V\n"

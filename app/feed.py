@@ -83,10 +83,10 @@ def build_rss_xml(posts: list[dict], username: str, site_url: str) -> str:
     """渲染 RSS 2.0 XML（posts 为 db.list_feed_posts 的行 dict）。"""
     rss = ElementTree.Element("rss", {"version": "2.0"})
     channel = ElementTree.SubElement(rss, "channel")
-    ElementTree.SubElement(channel, "title").text = f"大V订阅 · {username} 的关注动态"
+    ElementTree.SubElement(channel, "title").text = f"V Push · {username} 的关注动态"
     ElementTree.SubElement(channel, "link").text = site_url or "https://localhost"
     ElementTree.SubElement(channel, "description").text = (
-        f"{username} 在自托管大V订阅上关注的大V动态（雪球/微博/X）。"
+        f"{username} 在自托管V Push上关注的大V动态（雪球/微博/X）。"
     )
     ElementTree.SubElement(channel, "language").text = "zh-cn"
     ElementTree.SubElement(channel, "generator").text = "vpush"

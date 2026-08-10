@@ -1,7 +1,7 @@
 <view class="login-page">
   <view class="login-head">
     <view class="brand-mark">V</view>
-    <view class="login-title">大V订阅</view>
+    <view class="login-title">V Push</view>
     <view class="login-sub">关注大V公开动态 · 新帖实时推送</view>
   </view>
 

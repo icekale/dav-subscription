@@ -1,6 +1,6 @@
 <view class="page">
   <view class="card hero">
-    <view class="eyebrow">DaV Catalog</view>
+    <view class="eyebrow">V Push Catalog</view>
     <view class="hero-title">订阅广场</view>
     <view class="hero-sub">浏览大V目录，点击卡片查看动态，一键订阅你关注的人。</view>
   </view>
