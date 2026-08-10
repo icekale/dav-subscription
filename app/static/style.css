@@ -1114,7 +1114,7 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
   .tl-group .post-images img { width: 100%; height: auto; aspect-ratio: 1; }
   .tl-filterbar-top { flex-direction: column; align-items: stretch; }
   .tl-pills { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 4px; }
-  .tl-actions { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
+  .tl-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; width: 100%; }
   .tl-actions button { width: 100%; justify-content: center; }
   .btn-normal, .btn-ghost, .channel-btn { min-height: 44px; }
   .btn-add { min-height: 44px; }
