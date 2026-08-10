@@ -283,6 +283,64 @@ def test_alerts_disabled_suppresses_admin_alerts(monkeypatch):
     assert notifier.texts == []
 
 
+def test_source_health_alert_low_success_rate():
+    """24h 成功率低于阈值（且尝试次数足够）时告警，每 6h 限频。"""
+    from app.scheduler import maybe_alert_source_health
+
+    db = make_db()
+    db.add_kol("xueqiu", "A", "1")  # 默认 enabled
+    # 24h 内 10 次尝试、3 次成功 → 成功率 30% < 70%
+    for _ in range(3):
+        db.add_source_event("xueqiu", "ok", "ok=1", ok_count=1)
+    for _ in range(7):
+        db.add_source_event("xueqiu", "fail", "fail=1", fail_count=1)
+    notifier = FakeNotifier()
+    maybe_alert_source_health(db, [notifier])
+    assert len(notifier.texts) == 1
+    assert "成功率 30%" in notifier.texts[0]
+    assert "雪球" in notifier.texts[0]
+    # 6h 限频：再次调用不重复告警
+    notifier.texts.clear()
+    maybe_alert_source_health(db, [notifier])
+    assert notifier.texts == []
+
+
+def test_source_health_alert_silent_platform():
+    """平台超过 N 小时无成功抓取（整体静默）时告警。"""
+    from app.scheduler import (
+        SOURCE_HEALTH_SILENT_HOURS,
+        maybe_alert_source_health,
+    )
+
+    db = make_db()
+    db.add_kol("weibo", "A", "1")  # 默认 enabled
+    db.set_setting(
+        "source_ok_weibo", str(int(time.time()) - (SOURCE_HEALTH_SILENT_HOURS + 1) * 3600)
+    )
+    notifier = FakeNotifier()
+    maybe_alert_source_health(db, [notifier])
+    assert len(notifier.texts) == 1
+    assert "无成功抓取" in notifier.texts[0]
+    assert "微博" in notifier.texts[0]
+
+
+def test_source_health_alert_skips_healthy_and_no_kol():
+    """健康平台、无启用大V的平台不告警。"""
+    from app.scheduler import maybe_alert_source_health
+
+    db = make_db()
+    # xueqiu：有启用大V且健康（100% 成功率 + source_ok 新鲜）
+    db.add_kol("xueqiu", "A", "1")
+    db.add_source_event("xueqiu", "ok", "ok=1", ok_count=10)
+    db.set_setting("source_ok_xueqiu", str(int(time.time())))
+    # weibo：无启用大V（加一个后停用）
+    db.add_kol("weibo", "B", "1")
+    db.update_kol(db.list_kols()[1]["id"], enabled=False)
+    notifier = FakeNotifier()
+    maybe_alert_source_health(db, [notifier])
+    assert notifier.texts == []
+
+
 def test_poll_once_fetches_platforms_concurrently():
     db = make_db()
     kids = {}

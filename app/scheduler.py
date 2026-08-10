@@ -14,7 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
 from .channels import channel_enabled
-from .db import DB
+from .db import ALLOWED_PLATFORMS, DB
 from .fetchers.base import Fetcher, Post
 from .notifiers.base import Notifier
 
@@ -36,6 +36,13 @@ XUEQIU_PROBE_ALERT_KEY = "xueqiu_probe_alert_at"
 COOKIE_KEEPALIVE_ALERT_KEY = "cookie_keepalive_alert_at"
 WEIBO_COOKIE_TIME_KEY = "weibo_cookie_updated_at"
 WEIBO_QR_RENEWAL_KEY = "weibo_qr_renewal_at"
+# 平台级健康阈值告警：与 maybe_alert_source_failure（单 KOL 连续失败）互补，
+# 管「平台整体变差但每轮恰有 1 个大V成功」的温水煮蛙场景。每 6 小时最多一条。
+SOURCE_HEALTH_ALERT_KEY = "source_health_alert_at"
+SOURCE_HEALTH_MIN_ATTEMPTS = 10  # 24h 尝试次数门槛，够多才评估成功率避免偶发误报
+SOURCE_HEALTH_LOW_RATE = 70.0  # 24h 成功率低于此值告警
+SOURCE_HEALTH_SILENT_HOURS = 6  # 超过 N 小时无成功抓取判定「整体静默」
+SOURCE_HEALTH_CHECK_INTERVAL = 600  # 主循环里每 10 分钟检查一次
 WEIBO_QR_RENEWAL_COOLDOWN = 15 * 60
 
 # X 网页端公开的 guest bearer token（来自 abs.twimg.com 前端包），用于内部翻译接口
@@ -481,6 +488,58 @@ def maybe_alert_source_recovered(
             notifier.send_text(message)
         except Exception as exc:  # noqa: BLE001
             logger.warning("数据源恢复通知发送失败 channel=%s err=%s", notifier.channel, exc)
+
+
+def maybe_alert_source_health(db: DB, notifiers: list[Notifier]) -> None:
+    """平台级健康阈值告警：24h 成功率过低、或长时间无成功抓取（整体静默）。
+
+    与 maybe_alert_source_failure（单 KOL 连续失败）互补——那个管单点失败，
+    这里管「平台整体变差但每轮恰有 1 个大V成功」的温水煮蛙场景：
+    降频后每轮 KOL 少，成功率口径可能仍高，但若长时间整体没成功就该人工介入。
+    每 6 小时最多一条（SOURCE_ALERT_INTERVAL），多平台问题合并推送。
+    """
+    if not _alerts_enabled():
+        return
+    now = int(time.time())
+    last = db.get_setting(SOURCE_HEALTH_ALERT_KEY)
+    if last:
+        try:
+            if now - int(last) < SOURCE_ALERT_INTERVAL:
+                return
+        except (TypeError, ValueError):
+            pass
+    issues = []
+    for platform in sorted(ALLOWED_PLATFORMS):
+        if not any(k["enabled"] for k in db.list_kols(platform=platform)):
+            continue  # 无启用大V的平台不评估
+        label = PLATFORM_LABELS.get(platform, platform)
+        # 1) 24h 成功率过低（尝试次数足够多才评估，避免偶发误报）
+        ev = db.source_event_stats(platform, 24)
+        total = ev["ok"] + ev["fail"]
+        if total >= SOURCE_HEALTH_MIN_ATTEMPTS:
+            rate = ev["ok"] * 100 / total
+            if rate < SOURCE_HEALTH_LOW_RATE:
+                issues.append(
+                    f"{label}：24h 成功率 {rate:.0f}%（成功 {ev['ok']}/失败 {ev['fail']}）"
+                )
+        # 2) 长时间无成功抓取（整体静默，如平台全挂但退避未触发单点告警）
+        ok_at = db.get_setting(f"source_ok_{platform}")
+        if ok_at:
+            try:
+                silent_hours = (now - int(ok_at)) / 3600
+            except (TypeError, ValueError):
+                silent_hours = 0
+            if silent_hours >= SOURCE_HEALTH_SILENT_HOURS:
+                issues.append(f"{label}：已 {silent_hours:.0f} 小时无成功抓取")
+    if not issues:
+        return
+    db.set_setting(SOURCE_HEALTH_ALERT_KEY, str(now))
+    message = "⚠️ 数据源健康告警\n" + "\n".join(f"· {i}" for i in issues)
+    for notifier in notifiers:
+        try:
+            notifier.send_text(message)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("数据源健康告警发送失败 channel=%s err=%s", notifier.channel, exc)
 
 
 def maybe_warn_weibo_login(db: DB, notifiers: list[Notifier], detail: str) -> None:
@@ -1482,6 +1541,7 @@ class Scheduler:
         self._last_xueqiu_probe = time.monotonic()
         self._last_cookie_keepalive = time.monotonic()
         self._last_retry = 0.0
+        self._last_health_check = time.monotonic()
 
     def stop(self):
         self._stop.set()
@@ -1695,6 +1755,15 @@ class Scheduler:
                     report_ok = False
                 if report_ok:
                     self.db.set_setting("daily_report_last_date", time.strftime("%Y-%m-%d"))
+            # 平台级健康阈值检查（每 10 分钟一次，轻量 SQL）：成功率过低/整体静默告警
+            if now_mono - self._last_health_check >= SOURCE_HEALTH_CHECK_INTERVAL:
+                self._last_health_check = now_mono
+                try:
+                    await asyncio.to_thread(
+                        maybe_alert_source_health, self.db, self.notifiers
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.exception("数据源健康告警异常")
             # 股票黑话别名识别 + 误标清理：每天一次（配 LLM 才识别，清理恒执行）
             if self._stock_alias_due():
                 try:
