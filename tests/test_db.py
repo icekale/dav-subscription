@@ -62,3 +62,18 @@ def test_subscribers_of_kol_includes_secondary(tmp_path):
     db.set_subscription_secondary(uid, kid, True)
     subs = db.subscribers_of_kol(kid)
     assert subs and subs[0]["secondary"] == 1
+
+
+def test_list_subscriptions_returns_personal_secondary(tmp_path):
+    """list_subscriptions 的 secondary 必须是订阅关系（个人）的，而非 kols 全局列。
+
+    kols 表也有 secondary（全局次要）列，SELECT k.* 与其同名冲突时
+    dict(row) 会取到全局值导致个人状态丢失（刷新后铃铛复位）。
+    """
+    db = DB(str(tmp_path / "t.db"))
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    kid = db.add_kol("xueqiu", "A", "1")  # kols.secondary = 0
+    db.add_subscription(uid, kid)
+    db.set_subscription_secondary(uid, kid, True)  # subscriptions.secondary = 1
+    subs = db.list_subscriptions(uid)
+    assert subs and subs[0]["secondary"] == 1

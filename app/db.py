@@ -911,8 +911,9 @@ class DB:
         )
 
     def list_subscriptions(self, user_id: int) -> list[dict]:
-        return self._rows(
-            "SELECT k.*, s.type AS subscribe_type, s.favorite AS favorite, s.secondary AS secondary, "
+        rows = self._rows(
+            "SELECT k.*, s.type AS subscribe_type, s.favorite AS favorite, "
+            "s.secondary AS sub_secondary, "
             "c.name AS category_name, "
             "s.created_at AS subscribed_at "
             "FROM subscriptions s JOIN kols k ON k.id = s.kol_id "
@@ -920,6 +921,11 @@ class DB:
             "WHERE s.user_id = ? ORDER BY s.id",
             (user_id,),
         )
+        # kols 表也有 secondary（全局次要）列，k.* 会与之同名冲突且 dict(row) 取到全局值；
+        # 用别名带回个人次要（覆盖全局列）
+        for r in rows:
+            r["secondary"] = r.pop("sub_secondary")
+        return rows
 
     def count_subscriptions(self, user_id: int) -> int:
         rows = self._rows(

@@ -424,6 +424,10 @@ def test_secondary_api():
     client.put(f"/api/subscriptions/{kid}/secondary", headers=headers, json={"secondary": False})
     cat = client.get("/api/catalog", headers=headers).json()
     assert next(k for k in cat if k["id"] == kid)["secondary"] is False
+    # 我的订阅接口：返回个人 secondary（而非 kols 全局列，刷新后不丢状态）
+    client.put(f"/api/subscriptions/{kid}/secondary", headers=headers, json={"secondary": True})
+    subs = client.get("/api/my/subscriptions", headers=headers).json()
+    assert next(k for k in subs if k["id"] == kid)["secondary"] == 1
 
 
 def test_change_password_api():
