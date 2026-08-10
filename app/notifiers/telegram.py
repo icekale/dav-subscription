@@ -141,9 +141,10 @@ def build_telegram_daily(posts: list[Post]) -> str:
     return "\n".join(lines).rstrip()
 
 
-def build_telegram_dnd_summary(posts: list[Post]) -> str:
-    """免打扰时段汇总：一次列出缓冲的新动态（最多 10 条）。"""
-    lines = [f"<b>📵 免打扰时段汇总</b>（{len(posts)} 条新动态）", ""]
+def build_telegram_dnd_summary(posts: list[Post], title: str | None = None) -> str:
+    """免打扰/次要大V汇总：一次列出缓冲的新动态（最多 10 条）。"""
+    heading = title or "📵 免打扰时段汇总"
+    lines = [f"<b>{escape(heading)}</b>（{len(posts)} 条新动态）", ""]
     numbered = len(posts) > 1
     for i, post in enumerate(posts[:DND_MAX_ITEMS], 1):
         body = digest_body(post, full=False, max_chars=100)
@@ -311,7 +312,7 @@ class TelegramNotifier(Notifier):
             }
         )
 
-    def send_dnd_summary(self, posts: list[Post]) -> None:
+    def send_dnd_summary(self, posts: list[Post], title: str | None = None) -> None:
         keyboard = None
         first_url = next((p.url for p in posts if p.url), "")
         if first_url:
@@ -320,7 +321,7 @@ class TelegramNotifier(Notifier):
                 ensure_ascii=False,
             )
         data = {
-            "text": build_telegram_dnd_summary(posts),
+            "text": build_telegram_dnd_summary(posts, title=title),
             "parse_mode": "HTML",
             "disable_web_page_preview": True,
         }

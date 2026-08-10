@@ -282,8 +282,9 @@ def build_feishu_daily_card(posts: list[Post]) -> dict:
     }
 
 
-def build_feishu_dnd_summary_card(posts: list[Post]) -> dict:
-    """免打扰时段汇总卡片。"""
+def build_feishu_dnd_summary_card(posts: list[Post], title: str | None = None) -> dict:
+    """免打扰/次要大V汇总卡片。"""
+    heading = title or "📵 免打扰时段汇总"
     elements = []
     numbered = len(posts) > 1
     for i, post in enumerate(posts[:DND_MAX_ITEMS], 1):
@@ -306,7 +307,7 @@ def build_feishu_dnd_summary_card(posts: list[Post]) -> dict:
     if first_url:
         elements.append(_open_url_button("查看全部", first_url, button_type="primary"))
     summary_content = card_summary(
-        f"📵 免打扰时段汇总（{len(posts)} 条新动态）",
+        f"{heading}（{len(posts)} 条新动态）",
         digest_body(posts[0], full=False, max_chars=60) if posts else "",
     )
     return {
@@ -318,7 +319,7 @@ def build_feishu_dnd_summary_card(posts: list[Post]) -> dict:
         "header": {
             "title": {
                 "tag": "plain_text",
-                "content": f"📵 免打扰时段汇总（{len(posts)} 条新动态）",
+                "content": f"{heading}（{len(posts)} 条新动态）",
             },
             "template": "blue",
         },
@@ -452,8 +453,8 @@ class FeishuNotifier(Notifier):
     def send_daily(self, posts: list[Post]) -> None:
         self._send_card(build_feishu_daily_card(posts))
 
-    def send_dnd_summary(self, posts: list[Post]) -> None:
-        self._send_card(build_feishu_dnd_summary_card(posts))
+    def send_dnd_summary(self, posts: list[Post], title: str | None = None) -> None:
+        self._send_card(build_feishu_dnd_summary_card(posts, title=title))
 
     def send_text(self, text: str) -> None:
         if self.open_id or self.chat_id:

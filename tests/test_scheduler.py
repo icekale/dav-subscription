@@ -782,7 +782,7 @@ def test_personal_secondary_user_buffered_not_realtime(monkeypatch):
         def notify(self, post):
             sent.append(post.external_id)
 
-        def send_dnd_summary(self, posts):
+        def send_dnd_summary(self, posts, title=None):
             sent.append(("summary", len(posts)))
 
     monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FakeTG)
@@ -1141,7 +1141,7 @@ def test_dnd_summary_failure_alerts_admin(monkeypatch):
         def __init__(self, *args, **kwargs):
             self.client = SimpleNamespace(close=lambda: None)
 
-        def send_dnd_summary(self, posts):
+        def send_dnd_summary(self, posts, title=None):
             raise RuntimeError("boom")
 
     monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FailingTG)
@@ -1181,7 +1181,7 @@ def test_dnd_summary_failure_enters_retry_queue(monkeypatch):
         def __init__(self, *args, **kwargs):
             self.client = SimpleNamespace(close=lambda: None)
 
-        def send_dnd_summary(self, posts):
+        def send_dnd_summary(self, posts, title=None):
             raise RuntimeError("boom")
 
     monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FailingTG)
@@ -1231,7 +1231,7 @@ def test_dnd_summary_success_does_not_duplicate(monkeypatch):
         def __init__(self, *args, **kwargs):
             self.client = SimpleNamespace(close=lambda: None)
 
-        def send_dnd_summary(self, posts):
+        def send_dnd_summary(self, posts, title=None):
             pass
 
     monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", OkTG)
@@ -1854,7 +1854,7 @@ def test_flush_dnd_buffers_sends_summary(monkeypatch):
         def __init__(self, *args, **kwargs):
             self.client = SimpleNamespace(close=lambda: None)
 
-        def send_dnd_summary(self, posts):
+        def send_dnd_summary(self, posts, title=None):
             sent.append(len(posts))
 
     monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FakeTG)
@@ -2817,7 +2817,7 @@ def test_dnd_summary_writes_push_logs(monkeypatch):
         def __init__(self, config, chat_id=None, client=None, **kwargs):
             self.client = SimpleNamespace(close=lambda: None)
 
-        def send_dnd_summary(self, posts):
+        def send_dnd_summary(self, posts, title=None):
             sent.append(posts)
 
     monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FakeTG)
@@ -3563,13 +3563,14 @@ def test_effective_interval_secondary_tier():
     assert iv == 60
 
 
-def test_secondary_kol_goes_to_secondary_digest(monkeypatch):
+def test_secondary_kol_buffered_into_user_buffer_not_kol_digest(monkeypatch):
+    """次要大V：新帖不进普通 KOL 摘要，进用户级合并缓冲（所有非特别关注订阅者）。"""
     db = make_db()
     kid = db.add_kol("xueqiu", "S", "1", secondary=True)
     uid = db.add_user("u", "h", telegram_chat_id="111")
     db.add_subscription(uid, kid)
     digest: dict[int, list] = {}
-    secondary_digest: dict[int, list] = {}
+    secondary_buffer: dict[int, list] = {}
     posts = [make_post(kid)]
     sent = []
 
@@ -3577,8 +3578,8 @@ def test_secondary_kol_goes_to_secondary_digest(monkeypatch):
         def __init__(self, config, chat_id=None, client=None, **kwargs):
             self.client = SimpleNamespace(close=lambda: None)
 
-        def send_digest(self, posts, kol_name, platform):
-            sent.append((len(posts), kol_name))
+        def notify(self, post):
+            sent.append(("realtime", post.external_id))
 
     monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FakeTG)
     ncfg = SimpleNamespace(
@@ -3592,19 +3593,85 @@ def test_secondary_kol_goes_to_secondary_digest(monkeypatch):
         [],
         interval_seconds=0,
         digest=digest,
-        secondary_digest=secondary_digest,
+        secondary_buffer=secondary_buffer,
         notifiers_config=ncfg,
     )
     assert sent == []
     assert digest == {}
-    assert len(secondary_digest.get(kid, [])) == 1
-    flush_digest(db, secondary_digest, [], ncfg)
-    assert sent == [(1, "S")]
-    assert secondary_digest == {}
+    # 非特别关注订阅者进用户级合并缓冲，flush 时以摘要样式推送
+    assert len(secondary_buffer.get(uid, [])) == 1
+
+    scheduler = Scheduler(
+        db,
+        {},
+        [],
+        SimpleNamespace(),
+        notifiers_config=ncfg,
+        xueqiu_config=SimpleNamespace(cookie=""),
+        weibo_config=SimpleNamespace(cookie="", username="", password=""),
+    )
+    scheduler._secondary_buffer[uid] = secondary_buffer[uid]
+    monkeypatch.setattr("app.scheduler._in_dnd_window", lambda user, now=None: False)
+    scheduler._flush_secondary_buffers()
+    assert scheduler._secondary_buffer == {}
+
+
+def test_secondary_kols_merge_cross_kol_in_one_summary(monkeypatch):
+    """多个次要大V的新帖合并到同一用户缓冲，flush 只发一条摘要（跨大V合并）。"""
+    db = make_db()
+    kid1 = db.add_kol("xueqiu", "S1", "1", secondary=True)
+    kid2 = db.add_kol("xueqiu", "S2", "2", secondary=True)
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.add_subscription(uid, kid1)
+    db.add_subscription(uid, kid2)
+    secondary_buffer: dict[int, list] = {}
+    sent = []
+
+    class FakeTG:
+        def __init__(self, config, chat_id=None, client=None, **kwargs):
+            self.client = SimpleNamespace(close=lambda: None)
+
+        def send_dnd_summary(self, posts, title=None):
+            sent.append((len(posts), title))
+
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FakeTG)
+    ncfg = SimpleNamespace(
+        telegram=SimpleNamespace(bot_token="t", chat_id=""),
+        feishu=SimpleNamespace(),
+        wecom=SimpleNamespace(),
+    )
+    poll_once(
+        db,
+        {"xueqiu": FakeFetcher([
+            Post(platform="xueqiu", kol_id=kid1, kol_name="S1", external_id="p1",
+                 title="t", content="c", url="u", published_at=""),
+            Post(platform="xueqiu", kol_id=kid2, kol_name="S2", external_id="p2",
+                 title="t", content="c", url="u", published_at=""),
+        ])},
+        [],
+        interval_seconds=0,
+        secondary_buffer=secondary_buffer,
+        notifiers_config=ncfg,
+    )
+    assert len(secondary_buffer.get(uid, [])) == 2
+    scheduler = Scheduler(
+        db,
+        {},
+        [],
+        SimpleNamespace(),
+        notifiers_config=ncfg,
+        xueqiu_config=SimpleNamespace(cookie=""),
+        weibo_config=SimpleNamespace(cookie="", username="", password=""),
+    )
+    scheduler._secondary_buffer[uid] = secondary_buffer[uid]
+    monkeypatch.setattr("app.scheduler._in_dnd_window", lambda user, now=None: False)
+    scheduler._flush_secondary_buffers()
+    # 一条摘要、带次要标题，含来自两个次要大V的帖子
+    assert sent == [(2, "🔕 次要大V合并摘要")]
 
 
 def test_secondary_kol_realtime_when_long_digest_disabled(monkeypatch):
-    """secondary_digest_interval=0（长摘要禁用）时次要大V应实时推送而非进普通 digest。"""
+    """secondary_digest_interval=0（合并禁用）时次要大V应实时推送而非进普通 digest。"""
     db = make_db()
     kid = db.add_kol("xueqiu", "S", "1", secondary=True)
     uid = db.add_user("u", "h", telegram_chat_id="111")
@@ -3631,7 +3698,7 @@ def test_secondary_kol_realtime_when_long_digest_disabled(monkeypatch):
         [],
         interval_seconds=0,
         digest=digest,
-        secondary_digest=None,  # 长摘要禁用
+        secondary_buffer=None,  # 合并禁用
         notifiers_config=ncfg,
     )
     assert calls == ["p1"]

@@ -113,8 +113,9 @@ def build_wecom_daily(posts: list[Post]) -> str:
     return "\n".join(lines).rstrip()
 
 
-def build_wecom_dnd_summary(posts: list[Post]) -> str:
-    lines = [f"**📵 免打扰时段汇总**（{len(posts)} 条新动态）", ""]
+def build_wecom_dnd_summary(posts: list[Post], title: str | None = None) -> str:
+    heading = title or "📵 免打扰时段汇总"
+    lines = [f"**{heading}**（{len(posts)} 条新动态）", ""]
     numbered = len(posts) > 1
     for i, post in enumerate(posts[:DND_MAX_ITEMS], 1):
         body = _md_escape(digest_body(post, full=False, max_chars=100))
@@ -178,8 +179,8 @@ class WeComNotifier(Notifier):
     def send_daily(self, posts: list[Post]) -> None:
         self._send_markdown(build_wecom_daily(posts))
 
-    def send_dnd_summary(self, posts: list[Post]) -> None:
-        self._send_markdown(build_wecom_dnd_summary(posts))
+    def send_dnd_summary(self, posts: list[Post], title: str | None = None) -> None:
+        self._send_markdown(build_wecom_dnd_summary(posts, title=title))
 
     def send_text(self, text: str) -> None:
         self._send_markdown(text)

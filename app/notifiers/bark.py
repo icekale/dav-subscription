@@ -99,8 +99,9 @@ def build_bark_digest(posts: list[Post], kol_name: str, platform: str) -> str:
     return "\n".join(lines)
 
 
-def build_bark_dnd_summary(posts: list[Post]) -> str:
-    lines = [f"🌙 免打扰时段汇总（{len(posts)} 条新动态）", ""]
+def build_bark_dnd_summary(posts: list[Post], title: str | None = None) -> str:
+    heading = title or "🌙 免打扰时段汇总"
+    lines = [f"{heading}（{len(posts)} 条新动态）", ""]
     for post in posts[:DND_MAX_ITEMS]:
         platform = PLATFORM_LABELS.get(post.platform, post.platform)
         body = digest_body(post, full=False)
@@ -155,8 +156,8 @@ class BarkNotifier(Notifier):
             build_bark_digest(posts, kol_name, platform),
         )
 
-    def send_dnd_summary(self, posts: list[Post]) -> None:
-        self._post("🌙 免打扰时段汇总", build_bark_dnd_summary(posts))
+    def send_dnd_summary(self, posts: list[Post], title: str | None = None) -> None:
+        self._post(title or "🌙 免打扰时段汇总", build_bark_dnd_summary(posts, title=title))
 
     def send_daily(self, posts: list[Post]) -> None:
         # 每日精选与免打扰汇总同构：标题 + 逐条「· 大V（平台）：摘要」

@@ -738,7 +738,6 @@ def poll_once(
     interval_seconds: int = 180,
     priority_interval_seconds: int = 60,
     digest: dict[int, list[Post]] | None = None,
-    secondary_digest: dict[int, list[Post]] | None = None,
     retry_queue: PushRetryQueue | None = None,
     dnd_buffer: dict[int, list[Post]] | None = None,
     secondary_buffer: dict[int, list[Post]] | None = None,
@@ -801,7 +800,6 @@ def poll_once(
                     priority_interval_seconds,
                     notifiers_config,
                     digest,
-                    secondary_digest,
                     retry_queue,
                     platform_lock[kol["platform"]],
                     client,
@@ -861,7 +859,6 @@ def _fetch_kol_once(
     priority_interval_seconds: int,
     notifiers_config,
     digest: dict[int, list[Post]] | None,
-    secondary_digest: dict[int, list[Post]] | None,
     retry_queue: PushRetryQueue | None,
     state_lock: threading.Lock,
     client=None,
@@ -988,12 +985,12 @@ def _fetch_kol_once(
         logger.info("新帖 platform=%s kol=%s id=%s", post.platform, post.kol_name, post.external_id)
         if not kol.get("priority") and kol["platform"] != "combination":
             if kol.get("secondary"):
-                if secondary_digest is not None:
-                    # 次要大V进入长周期合并摘要缓冲，按 secondary_digest_interval 统一推送
-                    secondary_digest.setdefault(kol["id"], []).append(post)
-                    _buffer_personal_secondary(db, kol["id"], post, secondary_buffer)
+                if secondary_buffer is not None:
+                    # 次要大V：所有非特别关注订阅者进用户级合并缓冲，
+                    # 跨大V按 secondary_digest_interval 周期统一推一条摘要
+                    _buffer_secondary_subscribers(db, kol["id"], post, secondary_buffer)
                 else:
-                    # 长摘要禁用（secondary_digest_interval=0）时实时推送
+                    # 次要合并禁用（secondary_digest_interval=0）时实时推送
                     notify_subscribers(
                         db, post_id, post, notifiers_config, notifiers, retry_queue,
                         client=client, dnd_buffer=dnd_buffer, secondary_buffer=secondary_buffer,
@@ -1018,12 +1015,27 @@ def _buffer_personal_secondary(db, kol_id: int, post: Post, secondary_buffer) ->
     """KOL 级摘要缓冲时，把个人次要用户（非特别关注）的帖子同时进用户级延迟缓冲。
 
     这些用户不参与 KOL 摘要（notify_digest_subscribers 会跳过），改由用户级
-    延迟缓冲按 digest 周期合并推送，避免同一帖双重到达。
+    延迟缓冲按次要合并周期统一推送，避免同一帖双重到达。
     """
     if secondary_buffer is None:
         return
     for user in db.subscribers_of_kol(kol_id):
         if bool(user.get("secondary")) and not bool(user.get("favorite")):
+            secondary_buffer.setdefault(user["id"], []).append(post)
+
+
+def _buffer_secondary_subscribers(db, kol_id: int, post: Post, secondary_buffer) -> None:
+    """次要大V新帖：所有非特别关注订阅者进用户级合并缓冲。
+
+    与 _buffer_personal_secondary 的区别：次要大V是全局档位，所有订阅者
+    （除特别关注）都应延迟合并推送，而不是只有个人次要用户。多条次要大V
+    共享同一缓冲，flush 时按用户跨大V合并成一条摘要，避免每个次要大V
+    各发一条摘要。
+    """
+    if secondary_buffer is None:
+        return
+    for user in db.subscribers_of_kol(kol_id):
+        if not bool(user.get("favorite")):
             secondary_buffer.setdefault(user["id"], []).append(post)
 
 
@@ -1585,8 +1597,6 @@ class Scheduler:
         self.llm_config = llm_config
         self.states: dict[str, PlatformState] = {}
         self._digest: dict[int, list[Post]] = {}
-        self._secondary_digest: dict[int, list[Post]] = {}
-        self._last_secondary_digest_flush = time.monotonic()
         self._dnd_buffer: dict[int, list[Post]] = {}
         self._secondary_buffer: dict[int, list[Post]] = {}
         self._last_secondary_buffer_flush = time.monotonic()
@@ -1721,10 +1731,9 @@ class Scheduler:
                     interval_seconds,
                     priority_interval,
                     self._digest if digest_interval > 0 else None,
-                    self._secondary_digest if secondary_digest_interval > 0 else None,
                     self.retry_queue,
                     self._dnd_buffer,
-                    secondary_buffer=self._secondary_buffer if digest_interval > 0 else None,
+                    secondary_buffer=self._secondary_buffer if secondary_digest_interval > 0 else None,
                     llm_config=self.llm_config,
                 )
                 self.db.set_setting("stats_last_poll_at", str(int(time.time())))
@@ -1768,42 +1777,23 @@ class Scheduler:
                     )
                 except Exception:  # noqa: BLE001
                     logger.exception("摘要推送失败")
-            # 次要大V长周期摘要到点统一推送（与普通摘要独立计时）
+            # 次要大V长周期合并摘要到点统一推送：与普通摘要独立计时，
+            # 个人次要（bell）用户共用同一缓冲与周期，跨大V合并成一条
             if (
                 secondary_digest_interval > 0
-                and self._secondary_digest
-                and now_mono - self._last_secondary_digest_flush >= secondary_digest_interval
+                and self._secondary_buffer
+                and now_mono - self._last_secondary_buffer_flush >= secondary_digest_interval
             ):
-                self._last_secondary_digest_flush = now_mono
+                self._last_secondary_buffer_flush = now_mono
                 try:
-                    await asyncio.to_thread(
-                        flush_digest,
-                        self.db,
-                        self._secondary_digest,
-                        self.notifiers,
-                        self.notifiers_config,
-                        self.retry_queue,
-                        self._dnd_buffer,
-                        self.llm_config,
-                    )
+                    await asyncio.to_thread(self._flush_secondary_buffers)
                 except Exception:  # noqa: BLE001
-                    logger.exception("次要大V摘要推送失败")
+                    logger.exception("次要大V合并摘要推送失败")
             # 免打扰时段结束：补推汇总
             try:
                 self._flush_dnd_buffers()
             except Exception:  # noqa: BLE001
                 logger.exception("免打扰汇总推送失败")
-            # 个人次要缓冲到点：以摘要样式推给各用户（周期 = 合并推送周期）
-            if (
-                digest_interval > 0
-                and self._secondary_buffer
-                and now_mono - self._last_secondary_buffer_flush >= digest_interval
-            ):
-                self._last_secondary_buffer_flush = now_mono
-                try:
-                    self._flush_secondary_buffers()
-                except Exception:  # noqa: BLE001
-                    logger.exception("个人次要缓冲推送失败")
             # 雪球 cookie 主动探测
             probe_interval = _polling_setting(
                 self.db,
@@ -2026,7 +2016,7 @@ class Scheduler:
                 logger.warning("免打扰汇总推送失败 user=%s err=%s", user["username"], exc)
 
     def _flush_secondary_buffers(self) -> None:
-        """个人次要缓冲到点：把每位用户积压的新帖以摘要样式推送（复用免打扰汇总发送）。"""
+        """次要大V合并缓冲到点：把每位用户积压的新帖以摘要样式推送（跨大V合并）。"""
         if not self._secondary_buffer:
             return
         now = datetime.now()
@@ -2042,15 +2032,16 @@ class Scheduler:
                 continue  # 已进入免打扰时段，留给 dnd 机制处理，下轮再试
             self._secondary_buffer.pop(user_id, None)
             try:
-                self._send_dnd_summary(user, posts)
+                self._send_dnd_summary(user, posts, title="🔕 次要大V合并摘要")
             except Exception as exc:  # noqa: BLE001
-                logger.warning("个人次要汇总推送失败 user=%s err=%s", user["username"], exc)
+                logger.warning("次要大V汇总推送失败 user=%s err=%s", user["username"], exc)
                 # 发送失败：帖子写失败日志并入重试队列（_send_dnd_summary 内部处理），
                 # 缓冲已弹出，不重复推送
 
-    def _send_dnd_summary(self, user: dict, posts: list[Post]) -> None:
-        """把免打扰时段缓冲的动态汇总成一条推送给用户（按所选通道），并补写推送日志。
+    def _send_dnd_summary(self, user: dict, posts: list[Post], title: str | None = None) -> None:
+        """把缓冲的动态汇总成一条推送给用户（按所选通道），并补写推送日志。
 
+        默认标题为「免打扰时段汇总」；次要大V合并摘要传 title="🔕 次要大V合并摘要"。
         配置了 LLM 时先尝试生成 AI 要点（失败自动降级为普通汇总，不影响推送）。
         """
         if self.notifiers_config is None or not posts:
@@ -2082,7 +2073,10 @@ class Scheduler:
                     notifier = build_channel_notifier(channel, user, self.notifiers_config, client=client, db=self.db)
                     if summary:
                         notifier.send_text(f"📊 AI 摘要\n\n{summary}")
-                    notifier.send_dnd_summary(posts)
+                    if title is not None:
+                        notifier.send_dnd_summary(posts, title=title)
+                    else:
+                        notifier.send_dnd_summary(posts)
                     for post in posts:
                         post_id = self.db.get_post_id(post.platform, post.external_id)
                         if post_id:
