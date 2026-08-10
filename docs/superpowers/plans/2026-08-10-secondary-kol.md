@@ -308,12 +308,17 @@ def test_secondary_kol_goes_to_secondary_digest(monkeypatch):
     digest: dict[int, list[Post]] | None = None,
     secondary_digest: dict[int, list[Post]] | None = None,
 
-# poll_once 分派（971 行附近）
-        if digest is not None and not kol.get("priority") and kol["platform"] != "combination":
-            if kol.get("secondary") and secondary_digest is not None:
-                secondary_digest.setdefault(kol["id"], []).append(post)
-            else:
+# poll_once 分派（971 行附近）——注意：次要大V在长摘要禁用（secondary_digest=None）时实时推送
+        if not kol.get("priority") and kol["platform"] != "combination":
+            if kol.get("secondary"):
+                if secondary_digest is not None:
+                    secondary_digest.setdefault(kol["id"], []).append(post)
+                else:
+                    notify_subscribers(...)  # 长摘要禁用时实时推送
+            elif digest is not None:
                 digest.setdefault(kol["id"], []).append(post)
+            else:
+                notify_subscribers(...)
         else:
             notify_subscribers(...)
 
