@@ -260,6 +260,71 @@ def test_invalid_probe_json_preserves_old_file(tmp_path):
     assert output.read_text(encoding="utf-8") == "old cookies"
 
 
+def test_seed_cookie_uses_auth_probe_and_10022_preserves_old_file(tmp_path):
+    output = tmp_path / "waf_cookies.json"
+    write_old(output)
+    config = target()
+    config["seed_cookie"] = "xq_a_token=token"
+    session = FakeSession(
+        [
+            FakeResponse("home", content_type="text/html"),
+            FakeResponse(
+                "{}",
+                content_type="application/json",
+                json_value={"error_code": "10022", "error_description": ""},
+            ),
+        ],
+        {"xq_a_token": "token"},
+    )
+
+    assert not watchdog.refresh(config, session=session, output=output)
+    assert output.read_text(encoding="utf-8") == "old cookies"
+    assert session.calls[1][0] == watchdog.AUTH_PROBE_URL
+    assert session.calls[1][1]["params"] == watchdog.AUTH_PROBE_PARAMS
+
+
+def test_seed_cookie_auth_probe_rejects_http_400(tmp_path):
+    output = tmp_path / "waf_cookies.json"
+    write_old(output)
+    config = target()
+    config["seed_cookie"] = "xq_a_token=token"
+    session = FakeSession(
+        [
+            FakeResponse("home", content_type="text/html"),
+            FakeResponse(
+                "{}",
+                content_type="application/json",
+                status_code=400,
+                json_value={"error_code": "10022"},
+            ),
+        ],
+        {"xq_a_token": "token"},
+    )
+
+    assert not watchdog.refresh(config, session=session, output=output)
+    assert output.read_text(encoding="utf-8") == "old cookies"
+
+
+def test_seed_cookie_auth_probe_success_publishes(tmp_path):
+    config = target()
+    config["seed_cookie"] = "xq_a_token=token"
+    session = FakeSession(
+        [
+            FakeResponse("home", content_type="text/html"),
+            FakeResponse(
+                "{}",
+                content_type="application/json",
+                json_value={"rebalancing": []},
+            ),
+        ],
+        {"xq_a_token": "token"},
+    )
+
+    assert watchdog.refresh(config, session=session, output=tmp_path / "out.json")
+    assert session.calls[1][0] == watchdog.AUTH_PROBE_URL
+    assert (tmp_path / "out.json").exists()
+
+
 def test_seed_cookie_injects_values_into_session(tmp_path):
     session = FakeSession(
         [

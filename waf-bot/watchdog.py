@@ -23,6 +23,12 @@ SEED_COOKIE = os.environ.get("WAF_SEED_COOKIE", "")
 SOLVER = Path(__file__).with_name("solver.js")
 PROBE_URL = "https://xueqiu.com/statuses/user_timeline.json"
 PROBE_PARAMS = {"user_id": "1247347556", "page": 1, "count": 1}
+# 登录态探测：组合调仓接口未登录必返回 error_code 10022（实测确认），
+# 配置了 WAF_SEED_COOKIE 时用它验证登录会话有效后才允许覆盖 Cookie。
+AUTH_PROBE_URL = "https://xueqiu.com/cubes/rebalancing/history.json"
+AUTH_PROBE_PARAMS = {"cube_symbol": "ZH000001", "page": 1, "count": 1}
+AUTH_ERROR_CODE = "10022"
+
 TARGETS = [
     {
         "url": "https://xueqiu.com/",
@@ -132,16 +138,26 @@ def refresh(
                 return False
 
         stage = "probe"
+        seed = target.get("seed_cookie") or ""
+        if seed:
+            # 登录态会话：必须通过需要登录的组合调仓接口验证，
+            # 登录失效（10022）时保留旧 Cookie，不覆盖成游客会话。
+            probe_url, probe_params = AUTH_PROBE_URL, AUTH_PROBE_PARAMS
+        else:
+            probe_url, probe_params = PROBE_URL, PROBE_PARAMS
         probe = session.get(
-            PROBE_URL,
+            probe_url,
             headers={**_XHR_HEADERS, "Referer": target_url},
-            params=PROBE_PARAMS,
+            params=probe_params,
             timeout=30,
         )
         if probe.status_code != 200:
             return False
         payload = probe.json()
-        if not isinstance(payload, dict) or not isinstance(payload.get("statuses"), list):
+        if seed:
+            if not isinstance(payload, dict) or payload.get("error_code") == AUTH_ERROR_CODE:
+                return False
+        elif not isinstance(payload, dict) or not isinstance(payload.get("statuses"), list):
             return False
 
         cookies = list(session.cookies.jar)
