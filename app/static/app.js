@@ -2290,6 +2290,15 @@ async function loadAdminStats() {
             <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)" title="X 降级到 RSSHub 备用通道期间封顶的抓取间隔">X降级封顶(秒)
               <input id="pc-xc" type="number" class="form-control" style="margin:0;width:110px" min="5" max="86400" value="${s.polling_config.x_fallback_cap_seconds}">
             </label>
+            <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)" title="次要大V基础抓取间隔">次要大V间隔(秒)
+              <input id="pc-si" type="number" class="form-control" style="margin:0;width:110px" min="60" max="86400" value="${s.polling_config.secondary_interval_seconds}">
+            </label>
+            <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)" title="次要大V长期无新帖时封顶的空轮间隔">次要大V空轮封顶(秒)
+              <input id="pc-sc" type="number" class="form-control" style="margin:0;width:110px" min="60" max="86400" value="${s.polling_config.secondary_idle_cap_seconds}">
+            </label>
+            <label style="display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--color-text-muted)" title="次要大V合并推送周期，0 = 实时推送">次要大V推送周期(秒)
+              <input id="pc-sd" type="number" class="form-control" style="margin:0;width:110px" min="0" max="86400" value="${s.polling_config.secondary_digest_interval_seconds}">
+            </label>
           </div>
         </div>
         <div class="cfg-group">
@@ -2396,6 +2405,7 @@ function renderStatsData(s) {
         ${statCard("大V / 启用", `${s.kols} / ${s.enabled_kols}`)}
         ${statCard("活跃抓取", s.active_kols ?? "-")}
         ${statCard("优先大V", s.priority_kols)}
+        ${statCard("次要大V", s.secondary_kols)}
         ${statCard("用户 / 帖子", `${s.users} / ${s.posts}`)}
       </div>`;
   }
@@ -2501,6 +2511,9 @@ async function savePollingConfig() {
     normal_idle_cap_seconds: Number($("#pc-nc").value),
     priority_idle_cap_seconds: Number($("#pc-pc").value),
     x_fallback_cap_seconds: Number($("#pc-xc").value),
+    secondary_interval_seconds: Number($("#pc-si").value),
+    secondary_idle_cap_seconds: Number($("#pc-sc").value),
+    secondary_digest_interval_seconds: Number($("#pc-sd").value),
   };
   try {
     await api("/api/admin/polling-config", { method: "PUT", body: JSON.stringify(body) });
@@ -2772,18 +2785,20 @@ async function loadAdminKols() {
       </header>
       <div class="table-wrap">
         <table>
-          <thead><tr><th scope="col">ID</th><th scope="col">平台</th><th scope="col">昵称</th><th scope="col">分类</th><th scope="col">外部ID</th><th scope="col">优先</th><th scope="col">原创</th><th scope="col">可见性</th><th scope="col">状态</th><th scope="col">操作</th></tr></thead>
+          <thead><tr><th scope="col">ID</th><th scope="col">平台</th><th scope="col">昵称</th><th scope="col">分类</th><th scope="col">外部ID</th><th scope="col">优先</th><th scope="col">次要</th><th scope="col">原创</th><th scope="col">可见性</th><th scope="col">状态</th><th scope="col">操作</th></tr></thead>
           <tbody>${kols.map((k) => `
             <tr>
               <td>${k.id}</td><td>${PLATFORM_LABELS[k.platform] || k.platform}</td>
               <td>${escapeHtml(k.name)}</td><td>${escapeHtml(k.category_name || "")}</td>
               <td>${escapeHtml(k.external_id)}</td>
               <td>${k.priority ? '<span class="status-ok">是</span>' : "否"}</td>
+              <td>${k.secondary ? '<span class="status-ok">是</span>' : "否"}</td>
               <td>${k.original_only ? '<span class="status-ok">是</span>' : "否"}</td>
               <td>${k.is_private ? '<span class="status-ok">私有</span>' : "公开"}</td>
               <td class="${k.enabled ? "status-ok" : "status-fail"}">${k.enabled ? "启用" : "停用"}</td>
               <td>
                 <button class="btn-sm" onclick="adminTogglePriority(${k.id}, ${!k.priority})">${k.priority ? "取消优先" : "设为优先"}</button>
+                <button class="btn-sm" onclick="adminToggleSecondary(${k.id}, ${!k.secondary})">${k.secondary ? "取消次要" : "设为次要"}</button>
                 <button class="btn-sm" onclick="adminToggleKol(${k.id}, ${k.enabled ? 0 : 1})">${k.enabled ? "停用" : "启用"}</button>
                 <button class="btn-sm" onclick="adminEditKol(${k.id})">编辑</button>
                 <button class="btn-sm danger" onclick="adminDeleteKol(${k.id})">删除</button>
@@ -2869,6 +2884,17 @@ async function adminTogglePriority(id, priority) {
   try {
     await api(`/api/kols/${id}`, { method: "PUT", body: JSON.stringify({ priority: !!priority }) });
     flash(`已${priority ? "设为优先" : "取消优先"}「${kol ? kol.name : "该大V"}」`);
+    loadAdminKols();
+  } catch (err) {
+    alert("操作失败: " + err.message);
+  }
+}
+
+async function adminToggleSecondary(id, secondary) {
+  const kol = state.adminKols.find((k) => k.id === id);
+  try {
+    await api(`/api/kols/${id}`, { method: "PUT", body: JSON.stringify({ secondary: !!secondary }) });
+    flash(`已${secondary ? "设为次要" : "取消次要"}「${kol ? kol.name : "该大V"}」`);
     loadAdminKols();
   } catch (err) {
     alert("操作失败: " + err.message);

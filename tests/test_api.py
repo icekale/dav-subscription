@@ -191,10 +191,14 @@ def test_stats_api():
     client.post(
         "/api/kols", headers=headers, json={"platform": "xueqiu", "name": "A", "external_id": "1", "priority": True}
     )
+    client.post(
+        "/api/kols", headers=headers, json={"platform": "xueqiu", "name": "B", "external_id": "2", "secondary": True}
+    )
     stats = client.get("/api/stats", headers=headers).json()
-    assert stats["kols"] == 1
-    assert stats["enabled_kols"] == 1
+    assert stats["kols"] == 2
+    assert stats["enabled_kols"] == 2
     assert stats["priority_kols"] == 1
+    assert stats["secondary_kols"] == 1
     assert stats["users"] == 1
     assert stats["posts"] == 0
     assert "polling_interval_seconds" in stats

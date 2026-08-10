@@ -1830,6 +1830,7 @@ def create_api_router(
             "enabled_kols": sum(1 for k in kols if k["enabled"]),
             "active_kols": len(db.kol_ids_with_subscribers()),  # 有订阅者、正在被抓取的大V数
             "priority_kols": sum(1 for k in kols if k.get("priority")),
+            "secondary_kols": sum(1 for k in kols if k.get("secondary")),
             "users": db.count_users(),
             "posts": db.count_posts(),
             "sources": sources,
