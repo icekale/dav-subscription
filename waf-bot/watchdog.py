@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 from urllib.parse import urljoin
 
-from curl_cffi import requests
+from curl_cffi import requests  # type: ignore[import-not-found]
 
 UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
@@ -61,8 +61,11 @@ def _solve_challenge(html: str, url: str) -> str:
     )
     payload = json.loads(result.stdout)
     signed_url = payload.get("signed_url") if isinstance(payload, dict) else None
-    if not isinstance(signed_url, str) or not signed_url:
-        raise ValueError("solver returned no signed URL")
+    if not isinstance(signed_url, str):
+        raise RuntimeError("solver returned no signed URL")
+    signed_url = signed_url.strip()
+    if not signed_url:
+        raise RuntimeError("solver returned no signed URL")
     return signed_url
 
 

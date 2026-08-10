@@ -1,6 +1,6 @@
 import json
 
-import pytest
+import pytest  # type: ignore[import-not-found]
 import watchdog
 
 
@@ -57,6 +57,36 @@ def target(tmp_path):
 
 def write_old(path):
     path.write_text("old cookies", encoding="utf-8")
+
+
+def test_solver_rejects_whitespace_signed_url(monkeypatch):
+    html = "<html>complete challenge HTML</html>"
+    url = "https://xueqiu.com/"
+    calls = {}
+
+    class Completed:
+        stdout = json.dumps({"signed_url": " \t\n"})
+
+    def run(command, **kwargs):
+        calls["command"] = command
+        calls["kwargs"] = kwargs
+        return Completed()
+
+    monkeypatch.setattr(watchdog.subprocess, "run", run)
+
+    with pytest.raises(RuntimeError, match="signed URL"):
+        watchdog._solve_challenge(html, url)
+
+    assert calls["command"] == ["node", str(watchdog.SOLVER)]
+    assert json.loads(calls["kwargs"]["input"]) == {
+        "html": html,
+        "url": url,
+        "user_agent": watchdog.UA,
+    }
+    assert calls["kwargs"]["text"] is True
+    assert calls["kwargs"]["capture_output"] is True
+    assert calls["kwargs"]["timeout"] == 10
+    assert calls["kwargs"]["check"] is True
 
 
 def test_challenge_solves_exact_html_and_publishes_verified_cookies(tmp_path):
