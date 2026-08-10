@@ -827,7 +827,7 @@ async function renderTimeline(seq) {
         <div class="tl-actions">
           <button id="tl-filter-toggle" class="btn-ghost ${state.timelineQ || state.timelineCategory ? "has-filter" : ""}" aria-expanded="false" aria-controls="tl-filter-panel" onclick="tlFilterPanel()">筛选</button>
           <button id="timeline-fav-toggle" class="fav-toggle ${state.timelineFavorite ? "fav-on" : ""}" aria-pressed="${state.timelineFavorite}" onclick="toggleTimelineFav()">${STAR_SVG} 特别关注</button>
-          <button id="timeline-secondary-toggle" class="fav-toggle ${state.timelineSecondary ? "fav-on" : ""}" aria-pressed="${state.timelineSecondary}" onclick="toggleTimelineSecondary()">🔕 次要大V</button>
+          <button id="timeline-secondary-toggle" class="fav-toggle ${state.timelineSecondary ? "fav-on" : ""}" aria-pressed="${state.timelineSecondary}" onclick="toggleTimelineSecondary()">${BELL_OFF_ICON} 次要大V</button>
         </div>
       </div>
       <div class="tl-filter-panel" id="tl-filter-panel">
