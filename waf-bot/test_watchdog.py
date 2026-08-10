@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 import watchdog
@@ -8,13 +9,17 @@ class FakeCookies:
     def __init__(self, values=None):
         self.values = dict(values or {})
         self.set_calls = []
+        self.jar = self
+
+    def __iter__(self):
+        return iter(
+            type("Cookie", (), {"name": name, "value": value})
+            for name, value in self.values.items()
+        )
 
     def set(self, name, value, **kwargs):
         self.set_calls.append((name, value, kwargs))
         self.values[name] = value
-
-    def get_dict(self):
-        return dict(self.values)
 
 
 class FakeResponse:
@@ -45,18 +50,108 @@ class FakeSession:
         self.closed = True
 
 
-def target(tmp_path):
+def target():
     return {
         "url": "https://xueqiu.com/",
         "out": "xueqiu",
         "seed_cookie": "",
-        "ok_marker": "unused",
-        "output": tmp_path / "waf_cookies.json",
     }
 
 
 def write_old(path):
     path.write_text("old cookies", encoding="utf-8")
+
+
+def test_refresh_uses_unique_temp_and_cleans_it_on_replace_failure(tmp_path, monkeypatch):
+    output = tmp_path / "cookies.json"
+    write_old(output)
+    victim = tmp_path / "victim"
+    victim.write_text("sentinel", encoding="utf-8")
+    stale = Path(f"{output}.xueqiu.tmp")
+    stale.symlink_to(victim)
+    session = FakeSession(
+        [
+            FakeResponse("home", content_type="text/html"),
+            FakeResponse("{}", content_type="application/json", json_value={"statuses": []}),
+        ],
+        {"acw_tc": "new"},
+    )
+    replaced = {}
+
+    def fail_replace(source, destination):
+        replaced["source"] = Path(source)
+        replaced["destination"] = Path(destination)
+        raise OSError("replace failed")
+
+    monkeypatch.setattr(watchdog.os, "replace", fail_replace)
+
+    assert not watchdog.refresh(target(), session=session, output=output)
+    assert output.read_text(encoding="utf-8") == "old cookies"
+    assert replaced["destination"] == output
+    assert replaced["source"] != stale
+    assert not replaced["source"].exists()
+    assert stale.is_symlink()
+    assert victim.read_text(encoding="utf-8") == "sentinel"
+
+
+def test_refresh_serializes_duplicate_cookie_scopes(tmp_path):
+    session = FakeSession(
+        [
+            FakeResponse("home", content_type="text/html"),
+            FakeResponse("{}", content_type="application/json", json_value={"statuses": []}),
+        ]
+    )
+    session.cookies = watchdog.requests.Cookies()
+    session.cookies.set("same", "one", domain=".xueqiu.com", path="/")
+    session.cookies.set("same", "two", domain="xueqiu.com", path="/")
+    output = tmp_path / "cookies.json"
+
+    assert watchdog.refresh(target(), session=session, output=output)
+    assert json.loads(output.read_text(encoding="utf-8"))["cookies"] == [
+        {"name": "same", "value": "one"},
+        {"name": "same", "value": "two"},
+    ]
+
+
+def test_owned_session_closes_after_success(tmp_path, monkeypatch):
+    session = FakeSession(
+        [
+            FakeResponse("home", content_type="text/html"),
+            FakeResponse("{}", content_type="application/json", json_value={"statuses": []}),
+        ],
+        {"acw_tc": "ok"},
+    )
+    monkeypatch.setattr(watchdog.requests, "Session", lambda **kwargs: session)
+
+    assert watchdog.refresh(target(), output=tmp_path / "cookies.json")
+    assert session.closed
+
+
+def test_owned_session_closes_after_failure(tmp_path, monkeypatch):
+    session = FakeSession(
+        [
+            FakeResponse("home", content_type="text/html"),
+            FakeResponse("bad", content_type="text/html", json_value=ValueError("bad json")),
+        ],
+        {"acw_tc": "intermediate"},
+    )
+    monkeypatch.setattr(watchdog.requests, "Session", lambda **kwargs: session)
+
+    assert not watchdog.refresh(target(), output=tmp_path / "cookies.json")
+    assert session.closed
+
+
+def test_injected_session_remains_caller_owned(tmp_path):
+    session = FakeSession(
+        [
+            FakeResponse("home", content_type="text/html"),
+            FakeResponse("bad", content_type="text/html", json_value=ValueError("bad json")),
+        ],
+        {"acw_tc": "intermediate"},
+    )
+
+    assert not watchdog.refresh(target(), session=session, output=tmp_path / "cookies.json")
+    assert not session.closed
 
 
 def test_solver_rejects_whitespace_signed_url(monkeypatch):
@@ -106,7 +201,7 @@ def test_challenge_solves_exact_html_and_publishes_verified_cookies(tmp_path):
         return "/signed?md5__1038=abc"
 
     output = tmp_path / "waf_cookies.json"
-    assert watchdog.refresh(target(tmp_path), session=session, solve=solve, output=output)
+    assert watchdog.refresh(target(), session=session, solve=solve, output=output)
     assert solver_inputs == [(html, "https://xueqiu.com/")]
     assert session.calls[1][0] == "https://xueqiu.com/signed?md5__1038=abc"
     assert session.calls[1][1]["headers"]["Referer"] == "https://xueqiu.com/"
@@ -130,7 +225,7 @@ def test_render_data_on_signed_response_preserves_old_file(tmp_path):
     )
 
     assert not watchdog.refresh(
-        target(tmp_path),
+        target(),
         session=session,
         solve=lambda html, url: "/signed?md5__1038=abc",
         output=output,
@@ -149,7 +244,7 @@ def test_invalid_probe_json_preserves_old_file(tmp_path):
         {"xq_a_token": "token"},
     )
 
-    assert not watchdog.refresh(target(tmp_path), session=session, output=output)
+    assert not watchdog.refresh(target(), session=session, output=output)
     assert output.read_text(encoding="utf-8") == "old cookies"
 
 
@@ -160,7 +255,7 @@ def test_seed_cookie_injects_values_into_session(tmp_path):
             FakeResponse("{}", content_type="application/json", json_value={"statuses": []}),
         ]
     )
-    config = target(tmp_path)
+    config = target()
     config["seed_cookie"] = "xq_a_token=token; u=42; ignored"
 
     assert watchdog.refresh(config, session=session, output=tmp_path / "out.json")
@@ -182,7 +277,7 @@ def test_unchallenged_homepage_still_requires_probe(tmp_path):
     )
 
     assert watchdog.refresh(
-        target(tmp_path),
+        target(),
         session=session,
         solve=lambda html, url: (_ for _ in ()).throw(AssertionError("solver should not run")),
         output=output,
@@ -202,5 +297,5 @@ def test_probe_requires_list_valued_statuses(tmp_path, probe_json):
         {"xq_a_token": "token"},
     )
 
-    assert not watchdog.refresh(target(tmp_path), session=session, output=output)
+    assert not watchdog.refresh(target(), session=session, output=output)
     assert output.read_text(encoding="utf-8") == "old cookies"

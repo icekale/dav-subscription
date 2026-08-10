@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 from urllib.parse import urljoin
@@ -26,7 +27,6 @@ TARGETS = [
     {
         "url": "https://xueqiu.com/",
         "out": "xueqiu",
-        "ok_marker": "雪球",
         "seed_cookie": SEED_COOKIE,
     },
 ]
@@ -137,14 +137,21 @@ def refresh(
         if not isinstance(payload, dict) or not isinstance(payload.get("statuses"), list):
             return False
 
-        cookies = session.cookies.get_dict()
+        cookies = list(session.cookies.jar)
         if not cookies:
             return False
-        cookie_list = [{"name": name, "value": value} for name, value in cookies.items()]
+        cookie_list = [{"name": cookie.name, "value": cookie.value} for cookie in cookies]
         destination = Path(output if output is not None else OUTPUT)
-        temp_path = Path(f"{destination}.{target['out']}.tmp")
         stage = "write"
-        with temp_path.open("w", encoding="utf-8") as file:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=destination.parent,
+            prefix=f".{destination.name}.{target['out']}.",
+            suffix=".tmp",
+            delete=False,
+        ) as file:
+            temp_path = Path(file.name)
             json.dump(
                 {"fetched_at": int(time.time()), "cookies": cookie_list},
                 file,
