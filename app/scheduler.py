@@ -83,6 +83,45 @@ def _polling_bool(db: DB, key: str, default: bool = False) -> bool:
     return value.strip().lower() in ("1", "true", "yes", "on")
 
 
+# 无新帖自适应降频：空轮越多间隔越长（2 倍步进），有新帖立即恢复基础间隔。
+# 普通大V封顶 900s（合并推送周期 600s，低活跃大V晚几分钟看到可接受）；
+# 优先大V温和拉伸封顶 180s（实时性最坏 +2min）。X 降级 RSSHub 期间再 ×4。
+# ponytail: 固定步进/封顶常量，够用即可；需要调参时再挪到 polling-config。
+NORMAL_IDLE_CAP_SECONDS = 900
+PRIORITY_IDLE_CAP_SECONDS = 180
+X_FALLBACK_CAP_SECONDS = 1800
+
+
+def _in_x_fallback(db: DB) -> bool:
+    """X 直抓当前是否处于 RSSHub 降级状态（最近一次降级晚于最近一次直抓成功）。"""
+    fallback_at = db.get_setting("x_direct_last_fallback_at")
+    if not fallback_at:
+        return False
+    direct_ok = db.get_setting("x_direct_last_ok_at")
+    return not direct_ok or fallback_at > direct_ok
+
+
+def _effective_interval(
+    db: DB,
+    kol: dict,
+    state: PlatformState,
+    interval_seconds: int,
+    priority_interval_seconds: int,
+) -> int:
+    """单个大V本轮的有效抓取间隔。
+
+    基础间隔（优先大V更短）× 空轮拉伸（2 倍步进，封顶）→ 有效间隔；
+    平台为 X 且处于 RSSHub 降级时再 ×4（封顶 1800s），避免打爆备用通道。
+    """
+    base = priority_interval_seconds if kol.get("priority") else interval_seconds
+    empty = min(state.empty_rounds.get(kol["id"], 0), 6)
+    cap = PRIORITY_IDLE_CAP_SECONDS if kol.get("priority") else NORMAL_IDLE_CAP_SECONDS
+    effective = min(base * (2**empty), cap)
+    if kol["platform"] == "twitter" and db is not None and _in_x_fallback(db):
+        effective = min(effective * 4, X_FALLBACK_CAP_SECONDS)
+    return effective
+
+
 def translate_text(
     text: str,
     target: str = "zh-CN",
@@ -340,12 +379,13 @@ def _keyword_hit(keywords: list[str], post: Post) -> bool:
 
 
 class PlatformState:
-    """每个平台连续失败次数与退避截止时间。"""
+    """每个平台连续失败次数、退避截止时间与各 KOL 空轮计数。"""
 
     def __init__(self):
         self.fail_count = 0
         self.skip_until = 0.0
         self.last_fetched: dict[int, float] = {}
+        self.empty_rounds: dict[int, int] = {}  # 无新帖连续空轮数，驱动自适应降频
         self.alerted = False
 
 
@@ -620,8 +660,10 @@ def poll_once(
         state = states.setdefault(kol["platform"], PlatformState())
         if now < state.skip_until:
             continue
-        # 按大V优先级错峰：优先大V用更短间隔，普通大V用全局间隔
-        effective = priority_interval_seconds if kol.get("priority") else interval_seconds
+        # 自适应间隔：优先大V更短，空轮拉伸，X 降级 RSSHub 期间加倍
+        effective = _effective_interval(
+            db, kol, state, interval_seconds, priority_interval_seconds
+        )
         # 从未抓取过的大V首轮立即抓取（monotonic 基准在容器启动早期可能小于间隔，
         # 用「从未抓取」标记判断而不是拿 0 当基准，避免首轮被误跳过）
         if kol["id"] in state.last_fetched and now - state.last_fetched[kol["id"]] < effective:
@@ -723,10 +765,17 @@ def _fetch_kol_once(
     llm_config=None,
 ) -> None:
     """并发 worker：抓取单个大V并处理新帖（状态读写加锁保护）。"""
-    effective = priority_interval_seconds if kol.get("priority") else interval_seconds
+    effective = _effective_interval(
+        db, kol, state, interval_seconds, priority_interval_seconds
+    )
     # 与 poll_once 一致：从未抓取过的大V立即抓取，避免用 0 当基准误跳过首轮
     if kol["id"] in state.last_fetched and now - state.last_fetched[kol["id"]] < effective:
         return
+    # 轮内随机错峰（0.2~1.2s）：打破同平台并发请求的固定节律指纹，降低被反爬识别的概率
+    time.sleep(random.uniform(0.2, 1.2))
+    if kol["id"] not in state.last_fetched:
+        # 冷启动首轮错峰：避免应用启动瞬间各平台请求同时打出
+        time.sleep(random.uniform(0, 5))
     try:
         posts = fetcher.fetch(kol)
     except Exception as exc:  # noqa: BLE001 - 单源失败不影响其他
@@ -822,6 +871,11 @@ def _fetch_kol_once(
         )
     # 批量入库（一个事务），再逐条推送
     post_ids = db.insert_posts_batch(posts)
+    # 空轮判定用「本轮是否新增入库」：时间线接口总是返回最近 N 条（含旧帖），
+    # 用 posts 是否为空会永远判为有新帖，降频失效；有新帖立即重置，否则空轮 +1
+    new_count = sum(1 for pid in post_ids if pid is not None)
+    with state_lock:
+        state.empty_rounds[kol["id"]] = 0 if new_count else state.empty_rounds.get(kol["id"], 0) + 1
     for post, post_id in zip(posts, post_ids):
         if post_id is None:
             continue

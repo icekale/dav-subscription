@@ -12,8 +12,10 @@ from app.config import FeishuConfig, NotifiersConfig, TelegramConfig
 from app.db import DB
 from app.fetchers.base import Post
 from app.scheduler import (
+    PlatformState,
     PushRetryQueue,
     Scheduler,
+    _effective_interval,
     _polling_bool,
     _polling_setting,
     _x_fallback_advice,
@@ -295,7 +297,8 @@ def test_poll_once_fetches_platforms_concurrently():
                 with lock:
                     stats["active"] += 1
                     stats["max"] = max(stats["max"], stats["active"])
-                time.sleep(0.15)
+                # 长于轮内错峰上限（1.2s），确保跨平台并行能被观测到
+                time.sleep(1.5)
                 with lock:
                     stats["active"] -= 1
                 return [post]
@@ -1065,6 +1068,84 @@ def test_poll_once_clears_next_retry_on_all_success():
     db.set_setting("source_next_retry_at_xueqiu", "9999999999")
     poll_once(db, {"xueqiu": FakeFetcher([make_post(kid)])}, [])
     assert db.get_setting("source_next_retry_at_xueqiu") == ""
+
+
+def test_empty_rounds_stretch_interval_then_reset_on_new_post():
+    """无新帖空轮越多间隔越长（2 倍步进），有新帖立即重置回基础间隔。"""
+    db = make_db()
+    state = PlatformState()
+    kol_normal = {"id": 1, "priority": 0, "platform": "xueqiu"}
+    kol_priority = {"id": 2, "priority": 1, "platform": "xueqiu"}
+    # 基础间隔
+    assert _effective_interval(db, kol_normal, state, 180, 60) == 180
+    assert _effective_interval(db, kol_priority, state, 180, 60) == 60
+    # 空轮拉伸：普通 180→360→720→封顶 900；优先 60→120→180 封顶
+    for n, expect in ((1, 360), (2, 720), (3, 900), (4, 900)):
+        state.empty_rounds[1] = n
+        assert _effective_interval(db, kol_normal, state, 180, 60) == expect
+    for n, expect in ((1, 120), (2, 180), (3, 180)):
+        state.empty_rounds[2] = n
+        assert _effective_interval(db, kol_priority, state, 180, 60) == expect
+    # 有新帖重置
+    state.empty_rounds[1] = 0
+    assert _effective_interval(db, kol_normal, state, 180, 60) == 180
+
+
+def test_x_fallback_multiplies_interval():
+    """X 处于 RSSHub 降级时有效间隔 ×4（封顶 1800s），避免打爆备用通道。"""
+    db = make_db()
+    db.set_setting("x_direct_last_fallback_at", str(int(time.time())))
+    db.set_setting("x_direct_last_ok_at", str(int(time.time()) - 600))  # 降级晚于成功
+    state = PlatformState()
+    kol_x = {"id": 1, "priority": 0, "platform": "twitter"}
+    # 基础 180 ×4 = 720；空轮 1 轮 360 ×4 = 1440；空轮 2 轮封顶 1800
+    assert _effective_interval(db, kol_x, state, 180, 60) == 720
+    state.empty_rounds[1] = 1
+    assert _effective_interval(db, kol_x, state, 180, 60) == 1440
+    state.empty_rounds[1] = 2
+    assert _effective_interval(db, kol_x, state, 180, 60) == 1800
+    # 降级恢复（直抓成功晚于降级）→ 回到基础间隔（空轮计数也重置后）
+    db.set_setting("x_direct_last_ok_at", str(int(time.time())))
+    state.empty_rounds[1] = 0
+    assert _effective_interval(db, kol_x, state, 180, 60) == 180
+
+
+def test_poll_once_records_empty_rounds():
+    """空轮计数：无新帖空轮 +1，有新帖归零。"""
+    db = make_db()
+    kid = add_kol_subscribed(db, "xueqiu", "A", "1")
+    db.set_setting("source_next_retry_at_xueqiu", "9999999999")
+    states: dict = {}
+    poll_once(db, {"xueqiu": FakeFetcher([])}, [], states=states)  # 空轮
+    assert states["xueqiu"].empty_rounds.get(kid) == 1
+    # 推进 last_fetched（空轮后间隔 360s，需把上次抓取时间推远让第二轮到期）
+    states["xueqiu"].last_fetched[kid] = time.monotonic() - 1000
+    poll_once(db, {"xueqiu": FakeFetcher([make_post(kid)])}, [], states=states)  # 有新帖
+    assert states["xueqiu"].empty_rounds.get(kid) == 0
+
+
+def test_poll_once_interval_stretch_skips_due():
+    """间隔被空轮拉伸后，未到期的 KOL 本轮不抓取；空轮归零后恢复到期判断。"""
+    db = make_db()
+    kid = add_kol_subscribed(db, "xueqiu", "A", "1")
+    calls = []
+
+    class CountingFetcher:
+        def fetch(self, kol):
+            calls.append(kol["id"])
+            return []
+
+    state = PlatformState()
+    now = time.monotonic()
+    state.last_fetched[kid] = now - 400  # 距今 400s
+    # 空轮 2 轮 → 有效间隔 720s > 400s → 本轮跳过
+    state.empty_rounds[kid] = 2
+    poll_once(db, {"xueqiu": CountingFetcher()}, [], states={"xueqiu": state})
+    assert calls == []
+    # 空轮归零 → 有效间隔 180s < 400s → 本轮抓取
+    state.empty_rounds[kid] = 0
+    poll_once(db, {"xueqiu": CountingFetcher()}, [], states={"xueqiu": state})
+    assert calls == [kid]
 
 
 def test_poll_once_skips_kol_without_subscribers():
@@ -2208,11 +2289,17 @@ def test_priority_kol_fetched_more_often(monkeypatch):
     normal_id = add_kol_subscribed(db, "xueqiu", "普通", "1")
     priority_id = add_kol_subscribed(db, "xueqiu", "优先", "2", priority=True)
     calls = []
+    kid_counter = [0]
 
     class CountingFetcher:
         def fetch(self, kol):
             calls.append(kol["id"])
-            return []
+            # 每次返回唯一 external_id 的新帖：入库不重复 → 空轮计数保持 0，
+            # 间隔不被拉伸（聚焦优先级频率本身）
+            post = make_post(kol["id"])
+            post.external_id = f"p{kid_counter[0]}"
+            kid_counter[0] += 1
+            return [post]
 
     states = {}
     kwargs = {"interval_seconds": 180, "priority_interval_seconds": 60}

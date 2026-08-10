@@ -1,5 +1,6 @@
 import json
 import re
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -758,6 +759,71 @@ def test_weibo_login_failure_raises():
         assert "登录失败" in str(exc)
         return
     raise AssertionError("登录失败时应抛出异常")
+
+
+def test_weibo_login_failure_sets_cooldown():
+    """登录失败后记录冷却时间戳，冷却期内不再打登录接口。"""
+    db = DB(":memory:")
+    login_hits = {"n": 0}
+
+    def handler(request):
+        if request.url.path == "/sso/prelogin.php":
+            _, priv = rsa.newkeys(512)
+            return httpx.Response(
+                200,
+                text=(
+                    'sinaSSOController.preloginCallBack({"retcode":0,'
+                    f'"pubkey":"{format(priv.n, "x")}","nonce":"abc","rsakv":"1",'
+                    '"servertime":"1700000000","pcid":""})'
+                ),
+            )
+        if request.url.path == "/sso/login.php":
+            login_hits["n"] += 1
+            return httpx.Response(200, text="retcode=101 密码错误")
+        return httpx.Response(200, json={"ok": 0, "msg": "请先登录"})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    fetcher = WeiboFetcher(WeiboConfig(username="user", password="wrong"), db=db, client=client)
+    try:
+        fetcher.fetch({"id": 2, "name": "微博大V", "external_id": "1234567890"})
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("登录失败时应抛出异常")
+    assert login_hits["n"] == 1
+    assert db.get_setting("weibo_login_last_attempt_at")  # 冷却时间戳已写
+
+    # 冷却期内再次抓取：不再调用登录接口，直接报「冷却中」
+    try:
+        fetcher.fetch({"id": 2, "name": "微博大V", "external_id": "1234567890"})
+    except RuntimeError as exc:
+        assert "冷却" in str(exc)
+    else:
+        raise AssertionError("冷却期内应报冷却错误")
+    assert login_hits["n"] == 1  # 登录接口未再被打
+
+    # 冷却过期后恢复尝试
+    db.set_setting("weibo_login_last_attempt_at", str(int(time.time()) - 31 * 60))
+    try:
+        fetcher.fetch({"id": 2, "name": "微博大V", "external_id": "1234567890"})
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("恢复后登录仍应失败并抛异常")
+    assert login_hits["n"] == 2  # 恢复后重新尝试登录
+
+
+def test_weibo_login_success_clears_cooldown():
+    """登录成功后清空冷却标记，后续抓取正常走登录流程。"""
+    db = DB(":memory:")
+    client, _ = _make_weibo_login_mocks(
+        json.loads((FIXTURES / "weibo_sample.json").read_text(encoding="utf-8"))
+    )
+    db.set_setting("weibo_login_last_attempt_at", str(int(time.time()) - 31 * 60))  # 冷却已过
+    fetcher = WeiboFetcher(WeiboConfig(username="user", password="pass"), db=db, client=client)
+    posts = fetcher.fetch({"id": 2, "name": "微博大V", "external_id": "1234567890"})
+    assert len(posts) == 1
+    assert db.get_setting("weibo_login_last_attempt_at") in (None, "")  # 冷却标记已清
 
 
 def test_weibo_432_raises_clear_error():

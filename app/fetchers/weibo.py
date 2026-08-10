@@ -20,6 +20,10 @@ logger = logging.getLogger(__name__)
 WEIBO_COOKIE_KEY = "weibo_cookie"
 # 同一时刻只允许一个微博登录流程（并发 worker 触发时互斥，避免 cookie 互相覆盖）
 _login_lock = threading.Lock()
+# 微博对高频密码登录比高频抓取更敏感（登录失败可触发账号级验证码/风控）：
+# 登录失败后冷却 30 分钟再重试，避免 cookie 失效期间每轮反复打登录接口
+WEIBO_LOGIN_COOLDOWN_SECONDS = 30 * 60
+WEIBO_LOGIN_ATTEMPT_KEY = "weibo_login_last_attempt_at"
 PRELOGIN_URL = "https://login.sina.com.cn/sso/prelogin.php"
 LOGIN_URL = "https://login.sina.com.cn/sso/login.php"
 # 桌面端 AJAX 接口，配合 weibo.com 域会话 cookie（扫码登录得到的会话即可用）
@@ -197,11 +201,32 @@ class WeiboFetcher(Fetcher):
         return data
 
     def _login(self) -> None:
-        """weibo.cn passport 登录：拿 SUB 等 cookie 并持久化。"""
+        """weibo.cn passport 登录：拿 SUB 等 cookie 并持久化。
+
+        登录失败进入 30 分钟冷却，避免 cookie 失效期间每轮反复打登录接口
+        触发账号级风控；冷却期内报清晰错误，引导手动更新 cookie。
+        """
         if not self.source_config.username or not self.source_config.password:
             raise RuntimeError("未配置 weibo.username/password，无法自动登录")
+        last = self.db.get_setting(WEIBO_LOGIN_ATTEMPT_KEY)
+        if last:
+            try:
+                elapsed = int(time.time()) - int(last)
+            except (TypeError, ValueError):
+                elapsed = WEIBO_LOGIN_COOLDOWN_SECONDS + 1  # 格式异常视为冷却已过
+            if 0 <= elapsed < WEIBO_LOGIN_COOLDOWN_SECONDS:
+                remaining_min = (WEIBO_LOGIN_COOLDOWN_SECONDS - elapsed) // 60
+                raise RuntimeError(
+                    f"微博登录失败冷却中（约 {remaining_min} 分钟后重试），"
+                    "请先手动更新微博 cookie 恢复抓取"
+                )
         with _login_lock:
-            self._do_login()
+            try:
+                self._do_login()
+            except Exception:
+                self.db.set_setting(WEIBO_LOGIN_ATTEMPT_KEY, str(int(time.time())))
+                raise
+        self.db.set_setting(WEIBO_LOGIN_ATTEMPT_KEY, "")
 
     def _do_login(self) -> None:
         pre = self._prelogin()
