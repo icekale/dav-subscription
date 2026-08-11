@@ -3113,7 +3113,7 @@ async function loadAdminKols() {
       </header>
       <textarea id="ad-batch-lines" class="form-control" rows="8" style="font-family:monospace;min-height:180px;resize:vertical" placeholder="https://xueqiu.com/u/12345&#10;段永平 12345&#10;https://xueqiu.com/67890"></textarea>
       <div class="toolbar" style="margin-top:12px">
-        <select id="ad-batch-platform" class="form-control" style="margin:0;width:auto">
+        <select id="ad-batch-platform" class="form-control" style="margin:0;width:auto" onchange="adminPlatformDefaultCat(this, '#ad-batch-category')">
           <option value="xueqiu">雪球</option>
           <option value="combination">雪球组合</option>
           <option value="weibo">微博</option>
@@ -3286,9 +3286,9 @@ async function adminBatchAddKols() {
 }
 
 // 雪球组合默认分类：实盘（选平台后自动填写）
-function adminPlatformDefaultCat(sel) {
+function adminPlatformDefaultCat(sel, catSel) {
   if (sel.value !== "combination") return;
-  const cat = $("#ad-category");
+  const cat = $(catSel || "#ad-category");
   if (!cat) return;
   for (const opt of cat.options) {
     if (opt.textContent.trim() === "实盘") { cat.value = opt.value; break; }
