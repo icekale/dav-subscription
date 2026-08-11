@@ -3560,12 +3560,12 @@ async function loadAdminVocab() {
       <header class="section-head">
         <div><h3 class="section-title">分类与标签</h3>
         <p class="section-meta">分类按大V分组（订阅广场/动态页/管理列表筛选）；标签按关键词规则给贴文内容自动打标。</p></div>
-        <div class="platform-tabs" style="margin-top:12px">
-          <button class="platform-tab ${tab === "categories" ? "selected" : ""}" onclick="location.hash='#/admin/vocab'">分类</button>
-          <button class="platform-tab ${tab === "tags" ? "selected" : ""}" onclick="location.hash='#/admin/vocab?tab=tags'">标签</button>
+        <div class="settings-tabs" role="tablist" aria-label="分类与标签">
+          <button class="settings-tab ${tab === "categories" ? "active" : ""}" data-tab="categories" onclick="location.hash='#/admin/vocab'">分类</button>
+          <button class="settings-tab ${tab === "tags" ? "active" : ""}" data-tab="tags" onclick="location.hash='#/admin/vocab?tab=tags'">标签</button>
         </div>
       </header>
-      <div id="vocab-tab-body"></div>
+      <div id="vocab-tab-body" class="settings-tab-panel"></div>
     </section>`;
   await loadAdminVocabTab(tab);
 }
