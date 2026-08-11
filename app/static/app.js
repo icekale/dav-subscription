@@ -2477,7 +2477,7 @@ async function renderAdmin(tab, seq) {
         <div class="admin-sk-table-row"><div class="admin-sk-line"></div><div class="admin-sk-line"></div><div class="admin-sk-line"></div></div>
       </div>`).join("")}
     </div>`;
-  const loaders = { dashboard: loadAdminDashboard, stats: loadAdminStats, kols: loadAdminKols, requests: loadAdminRequests, codes: loadAdminCodes, categories: loadAdminCategories, tags: loadAdminTags, posts: loadAdminPosts, logs: loadAdminLogs, audit: loadAdminAudit, users: loadAdminUsers };
+  const loaders = { dashboard: loadAdminDashboard, stats: loadAdminStats, kols: loadAdminKols, requests: loadAdminRequests, codes: loadAdminCodes, vocab: loadAdminVocab, posts: loadAdminPosts, logs: loadAdminLogs, audit: loadAdminAudit, users: loadAdminUsers };
   try {
     await loaders[tab]();
   } catch (err) {
@@ -4283,6 +4283,11 @@ async function router() {
     else if (page === "kol") await renderKolPage(Number(param), renderSeq);
     else if (page === "admin") {
       if (!state.user.is_admin) { location.hash = "#/timeline"; return; }
+      // 分类管理/标签管理已合并为 admin/vocab：旧书签自动跳转
+      if (param === "categories" || param === "tags") {
+        location.hash = "#/admin/vocab";
+        return;
+      }
       await renderAdmin(param || "dashboard", renderSeq);
     }
     else { location.hash = "#/timeline"; await renderTimeline(renderSeq); }
