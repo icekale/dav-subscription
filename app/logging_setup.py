@@ -114,7 +114,5 @@ def setup_logging(level: str | None = None, log_file: str | None = None) -> None
                 )
                 file_handler.setFormatter(formatter)
                 root.addHandler(file_handler)
-    # httpx 访问日志会打印完整 URL（含 bot token），默认降到 WARNING 防泄露
-    logging.getLogger("httpx").setLevel(
-        logging.DEBUG if (level or "").upper() == "DEBUG" else logging.WARNING
-    )
+    # httpx 访问日志可能包含 Telegram bot token；始终禁止请求 URL 进入应用日志。
+    logging.getLogger("httpx").setLevel(logging.WARNING)

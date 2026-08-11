@@ -849,6 +849,7 @@ def test_change_password_api():
         json={"old_password": "pass123456", "new_password": "newpass123"},
     )
     assert resp.status_code == 200
+    assert client.get("/api/me", headers=headers).status_code == 401
     assert client.post("/api/auth/login", json={"username": "pwuser", "password": "pass123456"}).status_code == 401
     assert client.post("/api/auth/login", json={"username": "pwuser", "password": "newpass123"}).status_code == 200
 
@@ -878,6 +879,20 @@ def test_channel_claim_conflict():
     # 解绑自己的渠道不受影响
     assert client.put("/api/me", headers=headers_a, json={"telegram_chat_id": ""}).status_code == 200
     assert client.put("/api/me", headers=headers_a, json={"wecom_webhook": ""}).status_code == 200
+
+
+def test_me_update_validation_is_atomic():
+    client = make_client()
+    headers = user_headers(client, "atomicme")
+
+    resp = client.put(
+        "/api/me",
+        headers=headers,
+        json={"telegram_chat_id": "123456", "push_channels": "telegram,invalid"},
+    )
+
+    assert resp.status_code == 400
+    assert client.get("/api/me", headers=headers).json()["telegram_chat_id"] == ""
 
 
 def test_custom_telegram_bot_bind(monkeypatch):
@@ -987,16 +1002,33 @@ def test_admin_delete_user_cascades():
     assert client.app.state.db.list_subscriptions(uid) == []
 
 
+def test_admin_user_update_validation_is_atomic():
+    client = make_client()
+    admin_headers = auth_headers(client, "boss01")
+    reg = register(client, "atomicuser")
+    uid = reg.json()["user"]["id"]
+
+    resp = client.put(
+        f"/api/users/{uid}",
+        headers=admin_headers,
+        json={"is_admin": True, "password": "123"},
+    )
+
+    assert resp.status_code == 400
+    assert client.app.state.db.get_user(uid)["is_admin"] == 0
+
+
 def test_admin_reset_password():
     client = make_client()
     admin_headers = auth_headers(client, "boss01")
-    user_headers(client, "victim", "oldpass123")
+    old_headers = user_headers(client, "victim", "oldpass123")
 
     users = client.get("/api/users", headers=admin_headers).json()
     uid = next(u["id"] for u in users if u["username"] == "victim")
     # 新密码太短
     assert client.put(f"/api/users/{uid}", headers=admin_headers, json={"password": "123"}).status_code == 400
     assert client.put(f"/api/users/{uid}", headers=admin_headers, json={"password": "newpass456"}).status_code == 200
+    assert client.get("/api/me", headers=old_headers).status_code == 401
     assert client.post("/api/auth/login", json={"username": "victim", "password": "oldpass123"}).status_code == 401
     assert client.post("/api/auth/login", json={"username": "victim", "password": "newpass456"}).status_code == 200
 
@@ -2399,14 +2431,31 @@ def test_db_busy_timeout_set():
 
 
 def test_img_proxy_fetches_image(monkeypatch):
-    """图片代理：合法图片 URL（非白名单域名走 SSRF 校验）经服务器转发。"""
+    """图片代理只允许应用实际使用的受信图床。"""
     import httpx as _httpx
 
     fake_resp = _httpx.Response(200, content=b"\xff\xd8\xfffakejpeg", headers={"content-type": "image/jpeg"})
-    monkeypatch.setattr("app.url_safety.safe_get", lambda client, url, timeout=15: fake_resp)
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def stream(self, method, url, **kwargs):
+            class Stream:
+                def __enter__(self):
+                    return fake_resp
+
+                def __exit__(self, *args):
+                    return False
+
+            return Stream()
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(_httpx, "Client", FakeClient)
     client = make_client()
-    # 非白名单域名（如任意图床）：走 safe_get + SSRF 校验
-    resp = client.get("/api/img-proxy", params={"url": "https://example-cdn.com/x.jpg"})
+    resp = client.get("/api/img-proxy", params={"url": "https://pbs.twimg.com/x.jpg"})
     assert resp.status_code == 200
     assert resp.content == b"\xff\xd8\xfffakejpeg"
     assert resp.headers["content-type"] == "image/jpeg"
@@ -2417,10 +2466,76 @@ def test_img_proxy_rejects_non_image(monkeypatch):
     import httpx as _httpx
 
     fake_resp = _httpx.Response(200, content=b"<html>not an image</html>", headers={"content-type": "text/html"})
-    monkeypatch.setattr("app.url_safety.safe_get", lambda client, url, timeout=15: fake_resp)
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def stream(self, method, url, **kwargs):
+            class Stream:
+                def __enter__(self):
+                    return fake_resp
+
+                def __exit__(self, *args):
+                    return False
+
+            return Stream()
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(_httpx, "Client", FakeClient)
     client = make_client()
-    resp = client.get("/api/img-proxy", params={"url": "https://example.com/page"})
+    resp = client.get("/api/img-proxy", params={"url": "https://pbs.twimg.com/page"})
     assert resp.status_code == 400
+
+
+def test_img_proxy_rejects_unlisted_public_host():
+    client = make_client()
+    assert client.get(
+        "/api/img-proxy", params={"url": "https://example-cdn.com/x.jpg"}
+    ).status_code == 400
+
+
+def test_img_proxy_stops_reading_after_limit(monkeypatch):
+    import httpx as _httpx
+
+    class FakeResp:
+        status_code = 200
+
+        def __init__(self):
+            self.headers = {"content-type": "image/jpeg"}
+
+        def raise_for_status(self):
+            pass
+
+        def iter_bytes(self):
+            yield b"x" * (6 * 1024 * 1024)
+            yield b"y" * (6 * 1024 * 1024)
+            raise AssertionError("超过上限后不应继续读取")
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def stream(self, method, url, **kwargs):
+            class Stream:
+                def __enter__(self):
+                    return FakeResp()
+
+                def __exit__(self, *args):
+                    return False
+
+            return Stream()
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(_httpx, "Client", FakeClient)
+    client = make_client()
+    assert client.get(
+        "/api/img-proxy", params={"url": "https://pbs.twimg.com/large.jpg"}
+    ).status_code == 400
 
 
 def test_img_proxy_rejects_unsafe_url(monkeypatch):
@@ -2440,8 +2555,16 @@ def test_img_proxy_whitelisted_host_bypasses_dns_hijack(monkeypatch):
         def __init__(self, *a, **k):
             self.headers = {}
 
-        def get(self, url, timeout=None, follow_redirects=False):
-            return fake_resp
+        def stream(self, method, url, **kwargs):
+            class Stream:
+                def __enter__(self):
+                    return fake_resp
+
+                def __exit__(self, *args):
+                    return False
+
+            fake_resp.iter_bytes = lambda: iter([fake_resp.content])
+            return Stream()
 
         def close(self):
             pass
@@ -2502,12 +2625,13 @@ def test_passwordless_user_can_set_first_password():
     )
     assert resp.status_code == 200
 
-    # 设置后可用新密码登录
-    assert client.post(
+    # 首次设密立即撤销旧会话；重新登录后再改密必须校验旧密码。
+    assert client.get("/api/me", headers=headers).status_code == 401
+    login = client.post(
         "/api/auth/login", json={"username": "wx_pwd_user", "password": "newpass123"}
-    ).status_code == 200
-
-    # 已有密码后再改密必须校验旧密码
+    )
+    assert login.status_code == 200
+    headers = {"Authorization": f"Bearer {login.json()['token']}"}
     resp = client.post(
         "/api/me/password",
         headers=headers,
@@ -2647,13 +2771,13 @@ def test_bark_key_bind_api():
     assert resp.status_code == 200
     assert client.get("/api/me", headers=headers).json()["bark_key"] == "AaBbCcDdEeFf1234567890"
 
-    # 完整 URL 写法也接受
+    # 普通用户只允许设备 key，不能提供服务端目标 URL。
     resp = client.put(
         "/api/me", headers=headers,
         json={"bark_key": "https://api.day.app/AaBbCcDdEeFf1234567890"},
     )
-    assert resp.status_code == 200
-    assert client.get("/api/me", headers=headers).json()["bark_key"] == "https://api.day.app/AaBbCcDdEeFf1234567890"
+    assert resp.status_code == 400
+    assert client.get("/api/me", headers=headers).json()["bark_key"] == "AaBbCcDdEeFf1234567890"
 
 
 def test_bark_key_duplicate_rejected():

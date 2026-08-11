@@ -127,6 +127,7 @@ def create_app(config=None, db_path: str | Path | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         task = None
+        bot = None
         bot_task = None
         # 告警总开关统一用 config.alerts_enabled（config.yaml 与 ALERTS_ENABLED 环境变量均可配置）；
         # 在 lifespan 内注入而非模块级，避免导入即钉死全局 flag、影响测试对环境变量的操控
@@ -159,21 +160,18 @@ def create_app(config=None, db_path: str | Path | None = None) -> FastAPI:
         else:
             logger.warning("DAV_UI_ONLY=1 已跳过调度器与机器人长连接，仅提供网页 UI")
         yield
+        # 先通知调度器停止并等待当前 to_thread 任务返回，最后再关闭 SQLite。
         if task is not None:
-            task.cancel()
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+            scheduler.stop()
+            await task
         if bot_task is not None:
             bot_task.cancel()
             try:
                 await bot_task
             except asyncio.CancelledError:
                 pass
-        # 关停前把合并摘要缓冲发出去，避免重启/更新丢消息
-        if task is not None:
-            scheduler.stop()
+            if bot is not None:
+                bot.client.close()
         db.close()
 
     app = FastAPI(title="V Push", lifespan=lifespan)

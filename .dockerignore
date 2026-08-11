@@ -1,0 +1,17 @@
+.git
+.github
+.pi-subagents
+.worktrees
+.venv
+__pycache__
+.pytest_cache
+*.pyc
+.env
+config.yaml
+data
+backups
+docs
+miniprogram
+tests
+DESIGN.md
+.impeccable

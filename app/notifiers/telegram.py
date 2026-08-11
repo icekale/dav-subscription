@@ -191,7 +191,7 @@ class TelegramNotifier(Notifier):
         try:
             return self.client.post(url, **kw)
         except httpx.TransportError:
-            logger.warning("Telegram 网络瞬时故障，立即重试 url=%s", url)
+            logger.warning("Telegram 网络瞬时故障，立即重试")
             return self.client.post(url, **kw)
 
     def _send(self, data: dict) -> None:

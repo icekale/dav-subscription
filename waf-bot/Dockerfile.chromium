@@ -1,6 +1,6 @@
 # 备用回退镜像：Playwright/Chromium 版（jsdom 失效时切换）。
 # 默认使用 Dockerfile（jsdom 方案）。切换方法见 Dockerfile 顶部注释。
-FROM python:3.12-slim
+FROM python:3.12-slim@sha256:229a2c5bfa27522db7815ea81f9bed70af17ccb9de9fc7ad142b1877b5830d36
 
 WORKDIR /app
 # 国内网络加速（构建时可用 --build-arg 覆盖）：
@@ -38,7 +38,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN pip install --no-cache-dir -i ${PIP_INDEX_URL} --retries 5 --timeout 60 playwright && \
     playwright install chromium
 
-COPY watchdog_chromium.py /app/watchdog.py
+COPY --chown=99:100 watchdog_chromium.py /app/watchdog.py
 
 ENV WAF_COOKIE_FILE=/data/waf_cookies.json
+USER 99:100
 CMD ["python", "/app/watchdog.py"]

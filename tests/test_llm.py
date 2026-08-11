@@ -88,6 +88,20 @@ def test_custom_base_url_and_long_content_truncation():
     assert captured["content_len"] <= 12000
 
 
+def test_rejects_unsafe_api_base_before_request():
+    client = httpx.Client(
+        transport=httpx.MockTransport(
+            lambda request: (_ for _ in ()).throw(AssertionError("不应访问内网 LLM"))
+        )
+    )
+    unsafe = make_config(api_base="http://127.0.0.1:8000/v1")
+    unsafe.user_supplied = True
+    assert summarize_posts([make_post()], unsafe, client=client) is None
+    metadata = make_config(api_base="http://169.254.169.254/latest")
+    metadata.user_supplied = True
+    assert summarize_posts([make_post()], metadata, client=client) is None
+
+
 def test_cache_reuses_result_within_batch():
     calls = {"n": 0}
 

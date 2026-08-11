@@ -26,23 +26,13 @@ _KEY_RE = re.compile(r"^[A-Za-z0-9\-_]{10,100}$")
 
 
 def is_valid_bark_key(key: str) -> bool:
-    """Bark key：Bark App 生成的推送 key（字母数字横线，10-100 位）。
-
-    宽松校验：也允许带完整 URL 前缀的自建服务器写法（http(s)://.../key），
-    方便用户直接粘贴自建 Bark 服务器的完整地址。
-    """
-    key = (key or "").strip().rstrip("/")
-    if key.startswith(("http://", "https://")):
-        return bool(re.search(r"/[A-Za-z0-9\-_]{10,100}$", key))
-    return bool(_KEY_RE.fullmatch(key))
+    """Bark App 生成的推送 key；服务器地址只能由管理员配置。"""
+    return bool(_KEY_RE.fullmatch((key or "").strip()))
 
 
 def _normalize_key(key: str, server: str = DEFAULT_SERVER) -> tuple[str, str]:
     """把 key 或完整地址拆成 (server, key)；非法时抛错。"""
-    key = (key or "").strip().rstrip("/")
-    if key.startswith(("http://", "https://")):
-        server = key.rsplit("/", 1)[0]
-        key = key.rsplit("/", 1)[1]
+    key = (key or "").strip()
     server = (server or DEFAULT_SERVER).rstrip("/")
     if not is_valid_bark_key(key):
         raise RuntimeError(f"Bark key 无效: {key[:20]}…")

@@ -18,6 +18,20 @@ class _RetryableError(Exception):
     """瞬时错误（429/5xx/空响应），可重试一次。"""
 
 
+def _config_values(llm_config):
+    api_key = getattr(llm_config, "api_key", "") if llm_config else ""
+    if not api_key:
+        return None
+    api_base = (getattr(llm_config, "api_base", "") or "https://api.openai.com/v1").rstrip("/")
+    if getattr(llm_config, "user_supplied", False):
+        from .url_safety import is_allowed_user_llm_base
+
+        if not is_allowed_user_llm_base(api_base):
+            logger.warning("拒绝不安全的用户 LLM 地址")
+            return None
+    return api_key, api_base, getattr(llm_config, "model", "") or "gpt-4o-mini"
+
+
 SUMMARY_SYSTEM_PROMPT = (
     "你是信息摘要助手。把下面用户订阅的社交动态整理成简洁的中文要点。"
     "要求：按重要性排序，每条要点一行，以「- 」开头；"
@@ -53,11 +67,10 @@ def summarize_posts(posts, llm_config=None, client=None, cache=None) -> str | No
     cache: 可选 dict，以「配置+帖文ID列表」为键缓存摘要，同一批帖文只调一次
     大模型（批量推送时多个订阅用户共享同一份摘要）。
     """
-    api_key = getattr(llm_config, "api_key", "") if llm_config else ""
-    if not api_key:
+    values = _config_values(llm_config)
+    if values is None:
         return None
-    api_base = (getattr(llm_config, "api_base", "") or "https://api.openai.com/v1").rstrip("/")
-    model = getattr(llm_config, "model", "") or "gpt-4o-mini"
+    api_key, api_base, model = values
     import httpx
 
     posts = sorted(posts, key=lambda p: (getattr(p, "post_type", "") or "") == "reply")
@@ -236,11 +249,10 @@ def summarize_daily(posts, llm_config=None, client=None) -> DailySummary | None:
 
     与 summarize_posts 同款降级/重试策略；只传帖文标题/大V/平台/摘要，不传用户隐私字段。
     """
-    api_key = getattr(llm_config, "api_key", "") if llm_config else ""
-    if not api_key:
+    values = _config_values(llm_config)
+    if values is None:
         return None
-    api_base = (getattr(llm_config, "api_base", "") or "https://api.openai.com/v1").rstrip("/")
-    model = getattr(llm_config, "model", "") or "gpt-4o-mini"
+    api_key, api_base, model = values
     import httpx
 
     content = "\n".join(_daily_lines(posts))
@@ -322,11 +334,10 @@ def suggest_stock_aliases(candidates, known_stocks, llm_config=None, client=None
     未配置 LLM 或任何失败返回 []（调用方跳过本次识别）；confidence 为
     high/medium 的条目保留（调度层只采纳 high 自动写入），none 丢弃。
     """
-    api_key = getattr(llm_config, "api_key", "") if llm_config else ""
-    if not api_key or not candidates:
+    values = _config_values(llm_config)
+    if values is None or not candidates:
         return []
-    api_base = (getattr(llm_config, "api_base", "") or "https://api.openai.com/v1").rstrip("/")
-    model = getattr(llm_config, "model", "") or "gpt-4o-mini"
+    api_key, api_base, model = values
     import httpx
 
     owns_client = client is None
@@ -410,11 +421,10 @@ def resolve_stock_marks(marks, llm_config=None, client=None) -> list[dict]:
     is_alias=false → 官方名进股票名表；is_alias=true → 戏称进别名表。
     未配置 LLM 或任何失败返回 []（静默跳过本轮）。
     """
-    api_key = getattr(llm_config, "api_key", "") if llm_config else ""
-    if not api_key or not marks:
+    values = _config_values(llm_config)
+    if values is None or not marks:
         return []
-    api_base = (getattr(llm_config, "api_base", "") or "https://api.openai.com/v1").rstrip("/")
-    model = getattr(llm_config, "model", "") or "gpt-4o-mini"
+    api_key, api_base, model = values
     import httpx
 
     owns_client = client is None

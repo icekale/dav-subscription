@@ -1,10 +1,5 @@
 #!/usr/bin/env bash
-# 部署到 Unraid：基线校验 → rsync 同步 → md5 校验 → 重建镜像 → 重启容器 → 健康检查。
-# 用法：
-#   ./scripts/deploy_unraid.sh               # 同步最近一次提交改动的文件
-#   ./scripts/deploy_unraid.sh app/api.py    # 同步指定文件（可多个）
-# 防误覆盖：每个待同步文件会先比对 Unraid 与本地 HEAD~1 的 md5，
-# 不一致（Unraid 上有本地基线之外的改动）时中止，避免覆盖 Unraid 独有修改。
+# 部署到 Unraid：完整运行文件同步 → 在线备份 → 重建 → 健康检查。
 set -euo pipefail
 
 HOST="root@192.168.5.28"
@@ -12,86 +7,48 @@ REMOTE_DIR="/mnt/user/appdata/dav-subscription"
 COMPOSE_FILE="docker-compose.unraid.yml"
 PORT="18084"
 
-# 默认同步最近一次提交改动的文件；可传文件列表覆盖
-if [ "$#" -gt 0 ]; then
-  FILES=("$@")
-else
-  FILES=()
-  while IFS= read -r line; do
-    FILES+=("$line")
-  done < <(git diff --name-only HEAD~1)
-fi
+cd "$(git rev-parse --show-toplevel)"
 
-echo "== 筛选生产运行文件 =="
-RUNNING_FILES=()
-for f in "${FILES[@]}"; do
-  case "$f" in
-    app/*|README.md)
-      RUNNING_FILES+=("$f") ;;
-    *)
-      echo "  跳过（非生产运行文件）：$f" ;;
-  esac
-done
-FILES=("${RUNNING_FILES[@]}")
-if [ "${#FILES[@]}" -eq 0 ]; then
-  echo "没有需要同步的生产运行文件"; exit 0
-fi
+runtime_files() {
+  git ls-files | awk '
+    /^app\// || /^waf-bot\// || /^deploy\// || /^scripts\/backup/ ||
+    $0 == "Dockerfile" || $0 == "requirements.txt" || $0 == ".dockerignore" ||
+    $0 == "docker-compose.unraid.yml" || $0 == "README.md" { print }
+  '
+}
 
-echo "== 基线校验（防覆盖 Unraid 独有改动）=="
-for f in "${FILES[@]}"; do
-  [ -f "$f" ] || { echo "跳过（本地不存在）：$f"; continue; }
-  remote=$(ssh "$HOST" "md5sum '$REMOTE_DIR/$f'" 2>/dev/null | awk '{print $1}' || true)
-  if [ -z "$remote" ]; then
-    echo "  新增文件（Unraid 无此文件）：$f"
-    continue
-  fi
-  # Unraid 版本允许为「本地任一祖先提交」状态：
-  #   HEAD   = 已是最新，重复部署（重跑幂等）
-  #   祖先   = 落后 N 个提交（多提交部署），正常同步目标
-  # 两者都不是才判定为 Unraid 上的第三方/并发改动，中止保护
-  head_md5=$(git show HEAD:"$f" | md5 -q)
-  baseline_ok=false
-  for c in $(git rev-list HEAD); do
-    if [ "$(git show "$c:$f" 2>/dev/null | md5 -q)" = "$remote" ]; then
-      baseline_ok=true
-      break
-    fi
-  done
-  if [ "$baseline_ok" != true ]; then
-    echo "✋ 中止：$f 在 Unraid 上有本地提交历史之外的改动（可能被并发修改）"
-    echo "  Unraid: $remote"
-    echo "  HEAD:   $head_md5"
-    echo "  请先人工确认 Unraid 上的改动是否需要保留，再重试"
-    exit 1
-  fi
-done
+FILES=()
+while IFS= read -r file; do
+  FILES+=("$file")
+done < <(runtime_files)
+[ "${#FILES[@]}" -gt 0 ] || { echo "没有运行文件可同步"; exit 1; }
 
-echo "== rsync 同步 =="
-for f in "${FILES[@]}"; do
-  [ -f "$f" ] || continue
-  rsync -az "$f" "$HOST:$REMOTE_DIR/$f"
-done
+printf '%s\n' "${FILES[@]}" > /tmp/vpush-runtime-files.txt
 
-echo "== md5 校验 =="
-for f in "${FILES[@]}"; do
-  [ -f "$f" ] || continue
-  local_md5=$(md5 -q "$f")
-  remote_md5=$(ssh "$HOST" "md5sum '$REMOTE_DIR/$f'" | awk '{print $1}')
-  if [ "$local_md5" != "$remote_md5" ]; then
-    echo "✗ 校验失败：$f"; exit 1
-  fi
-  echo "  ✓ $f"
-done
+# 只同步明确的 Git 运行文件；--delete-missing-args 处理已删除文件，不触碰 .env/data。
+echo "== 同步完整运行文件 =="
+rsync -azR --files-from=/tmp/vpush-runtime-files.txt --delete-missing-args ./ "$HOST:$REMOTE_DIR/"
 
-echo "== 重建镜像 =="
-ssh "$HOST" "cd '$REMOTE_DIR' && docker compose -f $COMPOSE_FILE build vpush" | tail -2
+# 删除上一版 manifest 中已不再跟踪的运行文件。
+scp /tmp/vpush-runtime-files.txt "$HOST:$REMOTE_DIR/.deploy-manifest.new" >/dev/null
+ssh "$HOST" "cd '$REMOTE_DIR' && if [ -f .deploy-manifest ]; then while IFS= read -r f; do grep -Fxq \"\$f\" .deploy-manifest.new || rm -f -- \"\$f\"; done < .deploy-manifest; fi; mv .deploy-manifest.new .deploy-manifest"
 
-echo "== 重启容器（--remove-orphans 清掉已删除的旧服务容器） =="
-ssh "$HOST" "cd '$REMOTE_DIR' && docker compose -f $COMPOSE_FILE up -d --no-deps --remove-orphans" | tail -1
+# 先生成经过 SQLite quick_check 的线上备份，再把数据目录交给非 root 容器用户。
+echo "== 上线前备份 =="
+ssh "$HOST" "cd '$REMOTE_DIR' && KEEP=14 bash scripts/backup_unraid.sh" | tail -1
+echo "== 数据目录权限 =="
+ssh "$HOST" "chown -R 99:100 '$REMOTE_DIR/data' && find '$REMOTE_DIR/data' -type d -exec chmod 770 {} + && find '$REMOTE_DIR/data' -type f -exec chmod 660 {} + && chmod 600 '$REMOTE_DIR/data/dav.db'"
+
+echo "== 重建与重启 =="
+ssh "$HOST" "cd '$REMOTE_DIR' && docker compose -f '$COMPOSE_FILE' build vpush waf-bot"
+ssh "$HOST" "cd '$REMOTE_DIR' && docker compose -f '$COMPOSE_FILE' up -d --remove-orphans"
 
 echo "== 健康检查 =="
-sleep 8
-ssh "$HOST" "docker ps --format '{{.Names}} {{.Status}}' | grep -E 'vpush|rsshub'"
-curl -s -m 8 "http://192.168.5.28:$PORT/api/version"
+for _ in $(seq 1 24); do
+  if curl -fsS -m 5 "http://192.168.5.28:$PORT/healthz" >/dev/null; then break; fi
+  sleep 2
+done
+curl -fsS -m 8 "http://192.168.5.28:$PORT/api/version"
 echo
-echo "✅ 部署完成"
+ssh "$HOST" "docker ps --format '{{.Names}} {{.Status}}' | grep -E 'vpush|rsshub'; docker logs --tail=80 vpush 2>&1 | tail -80"
+echo "部署完成"

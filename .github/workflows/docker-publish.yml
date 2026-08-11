@@ -28,6 +28,11 @@ jobs:
           node --check app/static/app.js
           node --check miniprogram/utils/api.js
           node --check miniprogram/pages/*/*.js
+      - name: WAF solver 测试
+        working-directory: waf-bot
+        run: |
+          npm ci --ignore-scripts
+          npm test
 
   publish:
     needs: test

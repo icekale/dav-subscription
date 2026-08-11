@@ -1040,15 +1040,21 @@ def _buffer_secondary_subscribers(db, kol_id: int, post: Post, secondary_buffer)
 
 
 def _user_llm_config(user: dict, fallback=None):
-    """用户自配 LLM 优先，其次全局配置；只填了 key 时用 DeepSeek 默认值。"""
+    """用户自配 LLM 优先；不安全地址忽略并回退管理员全局配置。"""
     if not user.get("llm_api_key"):
         return fallback
     from types import SimpleNamespace
 
+    from .url_safety import is_allowed_user_llm_base
+
+    api_base = user.get("llm_api_base") or "https://api.deepseek.com"
+    if not is_allowed_user_llm_base(api_base):
+        return fallback
     return SimpleNamespace(
-        api_base=user.get("llm_api_base") or "https://api.deepseek.com",
+        api_base=api_base,
         api_key=user["llm_api_key"],
         model=user.get("llm_model") or "deepseek-chat",
+        user_supplied=True,
     )
 
 
@@ -1902,7 +1908,12 @@ class Scheduler:
                 self.polling_config.jitter_seconds,
                 db=self.db,
             )
-            await asyncio.sleep(max(0.0, delay - elapsed))
+            try:
+                await asyncio.wait_for(
+                    self._stop.wait(), timeout=max(0.0, delay - elapsed)
+                )
+            except TimeoutError:
+                pass
 
     def _recover_failed_pushes(self) -> None:
         """重启后把最近 24 小时失败的推送重新入队。"""

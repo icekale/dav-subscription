@@ -1,4 +1,8 @@
-"""DB 层单元测试：kols.secondary 列迁移、写入与 priority 互斥。"""
+"""DB 层单元测试：迁移、唯一性与事务一致性。"""
+import sqlite3
+
+import pytest
+
 from app.db import DB
 
 
@@ -100,6 +104,88 @@ def test_post_tag_state_distinguishes_pending_from_no_match(tmp_path):
         "tagged": 0,
         "pending": 1,
     }
+
+
+def test_duplicate_kol_migration_merges_subscription_flags(tmp_path):
+    path = tmp_path / "legacy.db"
+    db = DB(str(path))
+    uid = db.add_user("merge", "h")
+    keep_id = db.add_kol("xueqiu", "A", "same")
+    db.add_subscription(uid, keep_id, type="post")
+    db.close()
+
+    conn = sqlite3.connect(path)
+    conn.execute("DROP INDEX uq_kols_platform_external")
+    duplicate_id = conn.execute(
+        "INSERT INTO kols (platform, name, external_id) VALUES ('xueqiu', 'B', 'same')"
+    ).lastrowid
+    conn.execute(
+        "INSERT INTO subscriptions (user_id, kol_id, type, favorite, secondary) "
+        "VALUES (?, ?, 'reply', 1, 1)",
+        (uid, duplicate_id),
+    )
+    conn.commit()
+    conn.close()
+
+    migrated = DB(str(path))
+    rows = migrated.list_subscriptions(uid)
+    assert len(rows) == 1
+    assert rows[0]["subscribe_type"] == "both"
+    assert rows[0]["favorite"] == 1
+    assert rows[0]["secondary"] == 1
+
+
+def test_kol_and_pending_request_unique_indexes(tmp_path):
+    db = DB(str(tmp_path / "t.db"))
+    uid = db.add_user("unique", "h")
+    db.add_kol("xueqiu", "A", "same")
+    with pytest.raises(ValueError):
+        db.add_kol("xueqiu", "B", "same")
+    db.add_kol_request("weibo", "same", uid)
+    with pytest.raises(ValueError):
+        db.add_kol_request("weibo", "same", uid)
+
+    indexes = {r["name"] for r in db._rows("PRAGMA index_list(kols)")}
+    assert "uq_kols_platform_external" in indexes
+    request_indexes = {r["name"] for r in db._rows("PRAGMA index_list(kol_requests)")}
+    assert "uq_kol_requests_pending" in request_indexes
+
+
+def test_delete_kol_rolls_back_on_failure(tmp_path):
+    db = DB(str(tmp_path / "t.db"))
+    uid = db.add_user("rollback", "h")
+    kid = db.add_kol("xueqiu", "A", "rollback")
+    db.add_subscription(uid, kid)
+    post_id = db.insert_post("xueqiu", kid, "p1", "t", "c", "u", "")
+    db.add_push_log(post_id, "telegram", "success", user_id=uid)
+    db._execute(
+        "CREATE TRIGGER fail_post_delete BEFORE DELETE ON posts "
+        "BEGIN SELECT RAISE(ABORT, 'stop'); END"
+    )
+
+    with pytest.raises(sqlite3.IntegrityError):
+        db.delete_kol(kid)
+
+    assert db.get_kol(kid) is not None
+    assert db.list_subscriptions(uid)
+    assert db.list_push_logs(user_id=uid)
+
+
+def test_delete_user_rolls_back_on_failure(tmp_path):
+    db = DB(str(tmp_path / "t.db"))
+    uid = db.add_user("rollback", "h")
+    kid = db.add_kol("xueqiu", "A", "rollback-user")
+    db.add_subscription(uid, kid)
+    db._execute(
+        "CREATE TRIGGER fail_user_delete BEFORE DELETE ON users "
+        "BEGIN SELECT RAISE(ABORT, 'stop'); END"
+    )
+
+    with pytest.raises(sqlite3.IntegrityError):
+        db.delete_user(uid)
+
+    assert db.get_user(uid) is not None
+    assert db.list_subscriptions(uid)
 
 
 def test_update_post_tags_empty_list_marks_post_processed(tmp_path):

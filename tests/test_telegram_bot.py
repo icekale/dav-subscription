@@ -16,14 +16,46 @@ def make_env():
     return db, bot, kid, sent
 
 
-def update(chat_id, text):
+def update(chat_id, text, *, chat_type="private", sender_id=None):
     return {
         "message": {
-            "chat": {"id": chat_id},
-            "from": {"username": "icekale"},
+            "chat": {"id": chat_id, "type": chat_type},
+            "from": {"id": sender_id or chat_id, "username": "icekale"},
             "text": text,
         }
     }
+
+
+def test_bot_ignores_group_commands():
+    db, bot, _, sent = make_env()
+    bot.handle_update(update(-1001, "/start", chat_type="group", sender_id=999))
+    assert sent == []
+    assert db.get_user_by_telegram("-1001") is None
+
+
+def test_bot_group_callback_cannot_use_bound_admin_identity():
+    db = DB(Path(tempfile.mkdtemp()) / "bot.db")
+    admin_id = db.add_user("admin01", "hash", is_admin=True, telegram_chat_id="-1001")
+    requester_id = db.add_user("requester", "hash")
+    request_id = db.add_kol_request("xueqiu", "123", requester_id, "待审批")
+    bot = TelegramBot(db, "test_token", "secret")
+    calls = []
+    bot._call = lambda method, **params: calls.append((method, params))
+
+    bot.handle_update({
+        "callback_query": {
+            "id": "cq-group",
+            "from": {"id": 999, "username": "attacker"},
+            "data": f"approve:{request_id}",
+            "message": {
+                "chat": {"id": -1001, "type": "group"},
+                "message_id": 9,
+            },
+        }
+    })
+
+    assert db.get_kol_by_external("xueqiu", "123") is None
+    assert db.get_user(admin_id)["is_admin"] == 1
 
 
 def test_bot_command_flow():

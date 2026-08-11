@@ -6,6 +6,12 @@ services:
       args:
         PIP_INDEX_URL: https://pypi.tuna.tsinghua.edu.cn/simple
     container_name: vpush
+    user: "99:100"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /tmp:size=64m,mode=1777
     ports:
       # 宿主机 8000 常被其他服务占用，Unraid 部署用 18084 对外
       - "18084:8000"
@@ -65,7 +71,7 @@ services:
 
   # X 直抓失败时的备用通道（公共实例对数据中心 IP 限制较多，自建更可靠）
   rsshub:
-    image: diygod/rsshub:latest
+    image: diygod/rsshub:latest@sha256:c7622431189ad84847287dc07478df9ca7494f33987d322f3e3e2b11cd75a2cd
     container_name: dav-rsshub
     restart: unless-stopped
     networks: [dav-net]
@@ -88,9 +94,9 @@ services:
         PIP_INDEX_URL: https://pypi.tuna.tsinghua.edu.cn/simple
     container_name: vpush-waf-bot
     restart: unless-stopped
+    user: "99:100"
     read_only: true
     cap_drop: [ALL]
-    cap_add: [DAC_OVERRIDE]
     security_opt: ["no-new-privileges:true"]
     tmpfs:
       - /tmp:size=16m,mode=1777

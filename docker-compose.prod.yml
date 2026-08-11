@@ -3,6 +3,12 @@ services:
     build: .
     container_name: vpush
     restart: unless-stopped
+    user: "99:100"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /tmp:size=64m,mode=1777
     environment:
       - TZ=Asia/Shanghai
       - CONFIG_PATH=/app/config.yaml
@@ -49,7 +55,7 @@ services:
     networks: [dav]
 
   caddy:
-    image: caddy:2-alpine
+    image: caddy:2-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
     container_name: dav-caddy
     restart: unless-stopped
     ports:
@@ -67,7 +73,7 @@ services:
 
   # X 直抓失败时的备用通道
   rsshub:
-    image: diygod/rsshub:latest
+    image: diygod/rsshub:latest@sha256:c7622431189ad84847287dc07478df9ca7494f33987d322f3e3e2b11cd75a2cd
     container_name: dav-rsshub
     restart: unless-stopped
     environment:
@@ -86,9 +92,9 @@ services:
     build: ./waf-bot
     container_name: vpush-waf-bot
     restart: unless-stopped
+    user: "99:100"
     read_only: true
     cap_drop: [ALL]
-    cap_add: [DAC_OVERRIDE]
     security_opt: ["no-new-privileges:true"]
     tmpfs:
       - /tmp:size=16m,mode=1777

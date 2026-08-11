@@ -1,6 +1,11 @@
 import logging
 
+import httpx
+import pytest
+
 from app import logging_setup
+from app.config import TelegramConfig
+from app.notifiers.telegram import TelegramNotifier
 
 
 def test_ring_buffer_keeps_recent_logs():
@@ -32,3 +37,19 @@ def test_recent_logs_filter_by_level_and_keyword():
     lines_q = logging_setup.recent_logs(limit=500, q="kale")
     assert any("推送失败" in line for line in lines_q)
     assert not any("抓取正常" in line for line in lines_q)
+
+
+def test_telegram_transport_error_does_not_log_bot_token():
+    logging_setup.setup_logging("DEBUG")
+    token = "123456:secret-token"
+    client = httpx.Client(
+        transport=httpx.MockTransport(
+            lambda request: (_ for _ in ()).throw(httpx.ConnectError("down"))
+        )
+    )
+    notifier = TelegramNotifier(
+        TelegramConfig(bot_token=token, chat_id="1"), client=client
+    )
+    with pytest.raises(httpx.ConnectError):
+        notifier.send_text("test")
+    assert token not in "\n".join(logging_setup.recent_logs(limit=500))

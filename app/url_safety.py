@@ -9,12 +9,18 @@ from __future__ import annotations
 
 import ipaddress
 import socket
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse, urlunparse
 
 import httpx
 
 ALLOWED_SCHEMES = ("http", "https")
 MAX_REDIRECTS = 3
+USER_LLM_HOSTS = frozenset({
+    "api.openai.com",
+    "api.deepseek.com",
+    "api.x.ai",
+    "generativelanguage.googleapis.com",
+})
 
 # 直接拒绝的目标网段：环回/私网/链路本地/运营商级 NAT/云元数据/多播/保留段
 _BLOCKED_NETWORKS = [
@@ -81,21 +87,65 @@ def is_safe_http_url(url: str) -> bool:
     return not any(_blocked_ip(ip) for ip in ips)
 
 
-def safe_get(client: httpx.Client, url: str, timeout: float = 15) -> httpx.Response:
-    """校验 URL 安全后下载；跟随重定向时逐跳重新校验，防重定向到内网。
+def is_allowed_user_llm_base(url: str) -> bool:
+    """用户级 LLM 只允许明确的官方公网 HTTPS 端点。"""
+    try:
+        parsed = urlparse((url or "").strip())
+        port = parsed.port
+    except ValueError:
+        return False
+    return (
+        parsed.scheme == "https"
+        and parsed.hostname in USER_LLM_HOSTS
+        and port in (None, 443)
+        and not parsed.username
+        and not parsed.password
+    )
 
-    不安全地址或重定向次数超限抛 ValueError。
-    """
+
+def _pinned_request(url: str) -> tuple[str, str]:
+    """返回连接到已验证 IP 的 URL 与原始 Host，消除校验后再次 DNS 解析窗口。"""
+    try:
+        parsed = urlparse(url)
+        port = parsed.port
+    except ValueError:
+        raise ValueError(f"不安全的下载地址: {url[:80]}") from None
+    if parsed.scheme not in ALLOWED_SCHEMES or not parsed.hostname:
+        raise ValueError(f"不安全的下载地址: {url[:80]}")
+    host = parsed.hostname
+    try:
+        ipaddress.ip_address(host)
+        ips = [host]
+    except ValueError:
+        ips = sorted(_resolve_host_ips(host))
+    if not ips or any(_blocked_ip(ip) for ip in ips):
+        raise ValueError(f"不安全的下载地址: {url[:80]}")
+    ip = ips[0]
+    ip_host = f"[{ip}]" if ":" in ip else ip
+    netloc = f"{ip_host}:{port}" if port else ip_host
+    host_header = parsed.netloc.rsplit("@", 1)[-1]
+    pinned = urlunparse(parsed._replace(netloc=netloc))
+    return pinned, host_header
+
+
+def safe_get(client: httpx.Client, url: str, timeout: float = 15) -> httpx.Response:
+    """逐跳校验并连接到已验证 IP，保留原 Host/SNI。"""
     current = url
     for _ in range(MAX_REDIRECTS + 1):
-        if not is_safe_http_url(current):
-            raise ValueError(f"不安全的下载地址: {current[:80]}")
-        resp = client.get(current, timeout=timeout, follow_redirects=False)
+        pinned, host_header = _pinned_request(current)
+        hostname = urlparse(current).hostname or ""
+        resp = client.get(
+            pinned,
+            timeout=timeout,
+            follow_redirects=False,
+            headers={"Host": host_header},
+            extensions={"sni_hostname": hostname},
+        )
         if resp.status_code in (301, 302, 303, 307, 308):
             location = resp.headers.get("location")
             if not location:
                 return resp
-            current = str(resp.url.join(location))
+            current = urljoin(current, location)
             continue
         return resp
     raise ValueError(f"重定向次数过多: {url[:80]}")

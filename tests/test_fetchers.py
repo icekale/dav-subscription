@@ -25,61 +25,38 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 
 def test_xueqiu_dewatermark_crops_corner(monkeypatch, tmp_path):
-    """雪球图片去水印：右下角水印区域被裁掉并落盘本地；失败降级原 URL；外链不动。"""
-    from io import BytesIO
+    """雪球图片处理不得改变画布尺寸；失败降级原 URL；仅精确官方域名处理。"""
+    class FakeImage:
+        size = (400, 300)
 
-    from PIL import Image, ImageDraw
+        def copy(self):
+            return self
 
-    # 纯函数：右下角黑块（模拟水印）被完整裁掉
-    img = Image.new("RGB", (400, 300), "white")
-    ImageDraw.Draw(img).rectangle([300, 250, 399, 299], fill="black")
-    cropped = _crop_watermark(img)
-    assert cropped.size == (200, 255)  # 50% 宽 / 15% 高被裁
-    assert cropped.getpixel((199, 254)) == (255, 255, 255)  # 水印黑块已不在
+    # 兼容函数不得改变画布或像素对象。
+    img = FakeImage()
+    assert _crop_watermark(img) is img
 
-    # 全链路：mock 下载 → 本地文件 + 本地 URL
-    def fake_get(url, **kw):
-        buf = BytesIO()
-        img.save(buf, "PNG")
-        return SimpleNamespace(content=buf.getvalue(), raise_for_status=lambda: None)
-
-    monkeypatch.setattr("app.fetchers.xueqiu.httpx.get", fake_get)
-    out = _dewatermark_image("https://xqimg.imedao.com/abc.png", tmp_path)
-    assert out.startswith("/xq-images/")
-    assert (tmp_path / out.rsplit("/", 1)[1]).exists()
-    # 缓存命中：再次调用不再下载
+    # 水印与正文同层，无法可靠移除时保留原图，不再下载和破坏像素。
     monkeypatch.setattr(
         "app.fetchers.xueqiu.httpx.get",
-        lambda url, **kw: (_ for _ in ()).throw(AssertionError("不应再次下载")),
+        lambda url, **kw: (_ for _ in ()).throw(AssertionError("不应下载处理")),
     )
-    assert _dewatermark_image("https://xqimg.imedao.com/abc.png", tmp_path) == out
+    original = "https://xqimg.imedao.com/abc.png"
+    assert _dewatermark_image(original, tmp_path) == original
 
-    # 下载失败降级原 URL（用未缓存的新 URL）
-    monkeypatch.setattr(
-        "app.fetchers.xueqiu.httpx.get",
-        lambda url, **kw: (_ for _ in ()).throw(RuntimeError("网络挂了")),
-    )
-    assert _dewatermark_image("https://xqimg.imedao.com/new.png", tmp_path) == "https://xqimg.imedao.com/new.png"
-
-    # 外链图不动；雪球图床走处理
     db_fake = SimpleNamespace(path=str(tmp_path / "db.sqlite"))
-
-    def small_img_bytes():
-        buf = BytesIO()
-        Image.new("RGB", (10, 10), "white").save(buf, "PNG")
-        return buf.getvalue()
-
-    monkeypatch.setattr(
-        "app.fetchers.xueqiu.httpx.get",
-        lambda url, **kw: SimpleNamespace(
-            content=small_img_bytes(), raise_for_status=lambda: None
-        ),
-    )
     out_list = _dewatermark_images(
-        ["https://xqimg.imedao.com/zz.png", "https://other.example.com/a.jpg"], db_fake
+        [
+            "https://xqimg.imedao.com/zz.png",
+            "https://other.example.com/a.jpg?next=xqimg.imedao.com",
+            "https://xqimg.imedao.com.evil.test/a.jpg",
+        ], db_fake
     )
-    assert out_list[0].startswith("/xq-images/")
-    assert out_list[1] == "https://other.example.com/a.jpg"
+    assert out_list == [
+        "https://xqimg.imedao.com/zz.png",
+        "https://other.example.com/a.jpg?next=xqimg.imedao.com",
+        "https://xqimg.imedao.com.evil.test/a.jpg",
+    ]
 
 
 def test_xueqiu_parse_fixture():

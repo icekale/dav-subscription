@@ -1,4 +1,4 @@
 {$DOMAIN} {
 	encode gzip
-	reverse_proxy dav-subscription:8000
+	reverse_proxy vpush:8000
 }

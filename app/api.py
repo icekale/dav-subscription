@@ -772,6 +772,8 @@ def create_api_router(
         user = db.get_user(payload.get("uid"))
         if user is None:
             raise HTTPException(status_code=401, detail="用户不存在")
+        if int(payload.get("ver", 0)) != int(user.get("token_version") or 0):
+            raise HTTPException(status_code=401, detail="登录已失效，请重新登录")
         return user
 
     def require_admin(user: dict = Depends(get_current_user)):
@@ -819,7 +821,10 @@ def create_api_router(
             _record_login_failure(ip)
             raise
         user = db.get_user(uid)
-        return {"token": auth.create_token(uid, username, secret), "user": public_user(user)}
+        return {
+            "token": auth.create_token(uid, username, secret, user.get("token_version") or 0),
+            "user": public_user(user),
+        }
 
     @router.post("/auth/login")
     def login(body: LoginIn, request: Request):
@@ -858,7 +863,12 @@ def create_api_router(
         login_attempts.pop(ip, None)  # 登录成功清零，避免历史失败锁住正常用户
         account_failures.pop(_account_key(username), None)
         account_locked_until.pop(_account_key(username), None)
-        return {"token": auth.create_token(user["id"], user["username"], secret), "user": public_user(user)}
+        return {
+            "token": auth.create_token(
+                user["id"], user["username"], secret, user.get("token_version") or 0
+            ),
+            "user": public_user(user),
+        }
 
     @router.post("/auth/wechat")
     def wechat_login(body: WechatLoginIn):
@@ -882,7 +892,12 @@ def create_api_router(
                 wechat_openid=openid,
             )
             user = db.get_user(uid)
-        return {"token": auth.create_token(user["id"], user["username"], secret), "user": public_user(user)}
+        return {
+            "token": auth.create_token(
+                user["id"], user["username"], secret, user.get("token_version") or 0
+            ),
+            "user": public_user(user),
+        }
 
     # ---- 我的 ----
     @router.get("/feed/{token}.xml")
@@ -935,13 +950,15 @@ def create_api_router(
 
     @router.put("/me")
     def update_me(body: MeUpdate, user: dict = Depends(get_current_user)):
+        updates = {}
+        keywords = _UNSET
         if "telegram_chat_id" in body.model_fields_set:
             value = (body.telegram_chat_id or "").strip()
             if value:
                 owner = db.get_user_by_telegram(value)
                 if owner is not None and owner["id"] != user["id"]:
                     raise HTTPException(status_code=400, detail="该 Telegram 已绑定其他账号")
-            db.update_user(user["id"], telegram_chat_id=value)
+            updates["telegram_chat_id"] = value
         if "telegram_bot_token" in body.model_fields_set:
             value = (body.telegram_bot_token or "").strip()
             if value:
@@ -950,31 +967,20 @@ def create_api_router(
                     raise HTTPException(status_code=400, detail="该机器人 token 已被其他账号使用")
                 _bot_username, chat_id, error = _resolve_telegram_bot(value)
                 if not chat_id:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"自建机器人绑定失败：{error}",
-                    )
-                db.update_user(
-                    user["id"],
-                    telegram_bot_token=value,
-                    telegram_chat_id=chat_id,
-                )
-            else:
-                db.update_user(user["id"], telegram_bot_token="")
-        if "feishu_open_id" in body.model_fields_set:
-            value = (body.feishu_open_id or "").strip()
-            if value:
-                owner = db.get_user_by_feishu(value)
-                if owner is not None and owner["id"] != user["id"]:
-                    raise HTTPException(status_code=400, detail="该飞书账号已绑定其他账号")
-            db.update_user(user["id"], feishu_open_id=value)
-        if "feishu_chat_id" in body.model_fields_set:
-            value = (body.feishu_chat_id or "").strip()
-            if value:
-                owner = db.get_user_by_feishu_chat(value)
-                if owner is not None and owner["id"] != user["id"]:
-                    raise HTTPException(status_code=400, detail="该飞书会话已绑定其他账号")
-            db.update_user(user["id"], feishu_chat_id=value)
+                    raise HTTPException(status_code=400, detail=f"自建机器人绑定失败：{error}")
+                updates["telegram_chat_id"] = chat_id
+            updates["telegram_bot_token"] = value
+        for field, getter, error in (
+            ("feishu_open_id", db.get_user_by_feishu, "该飞书账号已绑定其他账号"),
+            ("feishu_chat_id", db.get_user_by_feishu_chat, "该飞书会话已绑定其他账号"),
+        ):
+            if field in body.model_fields_set:
+                value = (getattr(body, field) or "").strip()
+                if value:
+                    owner = getter(value)
+                    if owner is not None and owner["id"] != user["id"]:
+                        raise HTTPException(status_code=400, detail=error)
+                updates[field] = value
         if "wecom_webhook" in body.model_fields_set:
             value = (body.wecom_webhook or "").strip()
             if value:
@@ -988,7 +994,7 @@ def create_api_router(
                 owner = db.get_user_by_wecom_webhook(value)
                 if owner is not None and owner["id"] != user["id"]:
                     raise HTTPException(status_code=400, detail="该企业微信群机器人已绑定其他账号")
-            db.update_user(user["id"], wecom_webhook=value)
+            updates["wecom_webhook"] = value
         if "bark_key" in body.model_fields_set:
             value = (body.bark_key or "").strip()
             if value:
@@ -1002,53 +1008,52 @@ def create_api_router(
                 owner = db.get_user_by_bark_key(value)
                 if owner is not None and owner["id"] != user["id"]:
                     raise HTTPException(status_code=400, detail="该 Bark key 已绑定其他账号")
-            db.update_user(user["id"], bark_key=value)
+            updates["bark_key"] = value
         if "keywords" in body.model_fields_set:
             keywords = [k.strip() for k in (body.keywords or []) if k.strip()]
             if len(keywords) > KEYWORDS_MAX_COUNT:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"关键词最多 {KEYWORDS_MAX_COUNT} 个",
-                )
+                raise HTTPException(status_code=400, detail=f"关键词最多 {KEYWORDS_MAX_COUNT} 个")
             for keyword in keywords:
                 if len(keyword) > KEYWORDS_MAX_LENGTH:
                     raise HTTPException(
                         status_code=400,
                         detail=f"单个关键词最长 {KEYWORDS_MAX_LENGTH} 字：{keyword}",
                     )
-            db.set_user_keywords(user["id"], keywords)
         if "notify_enabled" in body.model_fields_set:
-            db.update_user(user["id"], notify_enabled=body.notify_enabled)
+            updates["notify_enabled"] = body.notify_enabled
         if "daily_report_enabled" in body.model_fields_set and body.daily_report_enabled is not None:
-            db.update_user(user["id"], daily_report=body.daily_report_enabled)
+            updates["daily_report"] = body.daily_report_enabled
         if "push_channels" in body.model_fields_set:
             value = (body.push_channels or "").strip()
             channels = [c.strip() for c in value.split(",") if c.strip()] if value else []
             invalid = [c for c in channels if c not in ("telegram", "feishu", "wecom", "bark")]
             if invalid:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"无效的推送渠道: {', '.join(invalid)}",
-                )
-            db.update_user(user["id"], push_channels=",".join(channels))
-        if "dnd_start" in body.model_fields_set:
-            value = (body.dnd_start or "").strip()
-            if value and not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", value):
-                raise HTTPException(status_code=400, detail="免打扰开始时间需为 HH:MM 格式（00:00-23:59）")
-            db.update_user(user["id"], dnd_start=value)
-        if "dnd_end" in body.model_fields_set:
-            value = (body.dnd_end or "").strip()
-            if value and not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", value):
-                raise HTTPException(status_code=400, detail="免打扰结束时间需为 HH:MM 格式（00:00-23:59）")
-            db.update_user(user["id"], dnd_end=value)
+                raise HTTPException(status_code=400, detail=f"无效的推送渠道: {', '.join(invalid)}")
+            updates["push_channels"] = ",".join(channels)
+        for field, label in (("dnd_start", "开始"), ("dnd_end", "结束")):
+            if field in body.model_fields_set:
+                value = (getattr(body, field) or "").strip()
+                if value and not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", value):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"免打扰{label}时间需为 HH:MM 格式（00:00-23:59）",
+                    )
+                updates[field] = value
         if "dnd_allow_favorite" in body.model_fields_set:
-            db.update_user(user["id"], dnd_allow_favorite=body.dnd_allow_favorite)
+            updates["dnd_allow_favorite"] = body.dnd_allow_favorite
         if "llm_api_key" in body.model_fields_set:
-            db.update_user(user["id"], llm_api_key=(body.llm_api_key or "").strip())
+            updates["llm_api_key"] = (body.llm_api_key or "").strip()
         if "llm_api_base" in body.model_fields_set:
-            db.update_user(user["id"], llm_api_base=(body.llm_api_base or "").strip())
+            value = (body.llm_api_base or "").strip()
+            if value:
+                from .url_safety import is_allowed_user_llm_base
+
+                if not is_allowed_user_llm_base(value):
+                    raise HTTPException(status_code=400, detail="用户 LLM 地址仅支持官方 HTTPS API 域名")
+            updates["llm_api_base"] = value
         if "llm_model" in body.model_fields_set:
-            db.update_user(user["id"], llm_model=(body.llm_model or "").strip())
+            updates["llm_model"] = (body.llm_model or "").strip()
+        db.update_user_atomic(user["id"], updates, keywords=keywords)
         return public_user(db.get_user(user["id"]))
 
     @router.post("/me/bind-code")
@@ -1170,7 +1175,7 @@ def create_api_router(
         # 微信/机器人自动创建的账号没有密码：已持有会话即可首次设密
         if user["password_hash"] and not auth.verify_password(body.old_password, user["password_hash"]):
             raise HTTPException(status_code=400, detail="原密码错误")
-        db.update_user(user["id"], password_hash=auth.hash_password(body.new_password))
+        db.update_user_password(user["id"], auth.hash_password(body.new_password))
         return {"ok": True}
 
     # ---- 目录与订阅 ----
@@ -2103,17 +2108,20 @@ def create_api_router(
         target = db.get_user(user_id)
         if target is None:
             raise HTTPException(status_code=404, detail="用户不存在")
+        updates = {}
+        revoke_tokens = False
         if "is_admin" in body.model_fields_set:
             if user_id == admin["id"] and not body.is_admin:
                 raise HTTPException(status_code=400, detail="不能取消自己的管理员权限")
-            db.update_user(user_id, is_admin=body.is_admin)
+            updates["is_admin"] = body.is_admin
         if "password" in body.model_fields_set:
             password = body.password or ""
             if len(password) < 6:
                 raise HTTPException(status_code=400, detail="密码至少6位")
             if len(password) > MAX_PASSWORD_LEN:
                 raise HTTPException(status_code=400, detail=f"密码最长{MAX_PASSWORD_LEN}位")
-            db.update_user(user_id, password_hash=auth.hash_password(password))
+            updates["password_hash"] = auth.hash_password(password)
+            revoke_tokens = True
         if "username" in body.model_fields_set:
             username = (body.username or "").strip()
             if len(username) < 6 or len(username) > 30:
@@ -2121,7 +2129,8 @@ def create_api_router(
             existing = db.get_user_by_username_ci(username)
             if existing is not None and existing["id"] != user_id:
                 raise HTTPException(status_code=400, detail="用户名已存在")
-            db.update_user(user_id, username=username)
+            updates["username"] = username
+        db.update_user_atomic(user_id, updates, revoke_tokens=revoke_tokens)
         _audit(
             admin,
             "update_user",
@@ -2216,26 +2225,24 @@ def create_api_router(
 
     @router.get("/img-proxy")
     def img_proxy(url: str, request: Request):
-        """第三方图床图片代理：X/雪球图床在部分网络（如大陆直连 X）不可达，经服务器转发。
-
-        优先走 safe_get 的 SSRF 校验（仅 http/https、拒绝内网/保留网段、重定向逐跳校验）。
-        已知公共图床域名（pbs.twimg.com 等）在部分家庭/公司网络会被 DNS 劫持到
-        透明代理地址（198.18/15 保留段），SSRF 校验会误拒；对这些白名单域名放宽
-        IP 网段校验（仍强制图片类型与大小限制，防被当作任意内容代理）。
-        """
+        """受信图床代理：精确域名、HTTPS、无重定向、流式限制 10 MB。"""
         from urllib.parse import urlparse
 
-        from .url_safety import safe_get
-
         url = (url or "").strip()
-        if not url:
-            raise HTTPException(status_code=400, detail="缺少 url 参数")
         try:
             parsed = urlparse(url)
         except ValueError:
-            raise HTTPException(status_code=400, detail="非法 url") from None
-        if parsed.scheme not in ("http", "https") or not parsed.hostname:
-            raise HTTPException(status_code=400, detail="非法 url")
+            parsed = None
+        if (
+            parsed is None
+            or parsed.scheme != "https"
+            or not parsed.hostname
+            or parsed.hostname.lower() not in IMAGE_PROXY_HOSTS
+            or parsed.username
+            or parsed.password
+        ):
+            raise HTTPException(status_code=400, detail="不支持的图片地址")
+
         import httpx
 
         client = httpx.Client(
@@ -2243,26 +2250,26 @@ def create_api_router(
             follow_redirects=False,
             headers={
                 "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
-                "Referer": "https://weibo.com/",  # 部分图床防盗链；对 X/雪球无副作用
+                "Referer": "https://weibo.com/",
             },
         )
         try:
-            if parsed.hostname.lower() in IMAGE_PROXY_HOSTS:
-                # 白名单图床：DNS 可能被劫持到透明代理网段，跳过 IP 网段校验直接下载
-                resp = client.get(url, timeout=15, follow_redirects=False)
-            else:
-                try:
-                    resp = safe_get(client, url)
-                except ValueError as exc:
-                    raise HTTPException(status_code=400, detail=str(exc)) from None
-            content_type = (resp.headers.get("content-type") or "").split(";")[0].strip().lower()
-            if content_type not in ("image/jpeg", "image/png", "image/webp", "image/gif"):
-                raise HTTPException(status_code=400, detail="非图片内容")
-            body = resp.content
-            if len(body) > 10 * 1024 * 1024:
-                raise HTTPException(status_code=400, detail="图片过大")
+            with client.stream("GET", url, follow_redirects=False) as resp:
+                if resp.status_code >= 400:
+                    raise HTTPException(status_code=502, detail="图片源请求失败")
+                content_type = (resp.headers.get("content-type") or "").split(";")[0].strip().lower()
+                if content_type not in ("image/jpeg", "image/png", "image/webp", "image/gif"):
+                    raise HTTPException(status_code=400, detail="非图片内容")
+                content_length = resp.headers.get("content-length")
+                if content_length and int(content_length) > 10 * 1024 * 1024:
+                    raise HTTPException(status_code=400, detail="图片过大")
+                body = bytearray()
+                for chunk in resp.iter_bytes():
+                    body.extend(chunk)
+                    if len(body) > 10 * 1024 * 1024:
+                        raise HTTPException(status_code=400, detail="图片过大")
             return Response(
-                content=body,
+                content=bytes(body),
                 media_type=content_type,
                 headers={"Cache-Control": "public, max-age=86400"},
             )

@@ -49,24 +49,27 @@ def test_safe_get_follows_redirect_revalidating(monkeypatch):
     requested = []
 
     def handler(request):
-        requested.append(request.url.host)
-        if request.url.host == "safe.example":
+        requested.append((request.url.host, request.headers["host"]))
+        if request.headers["host"] == "safe.example":
             return httpx.Response(302, headers={"location": "https://target.example/img"})
         return httpx.Response(200, headers={"content-type": "image/jpeg"}, content=b"x")
 
     monkeypatch.setattr(
         "app.url_safety._resolve_host_ips",
-        lambda host: ["93.184.216.34"],
+        lambda host: ["93.184.216.34" if host == "safe.example" else "93.184.216.35"],
     )
     client = httpx.Client(transport=httpx.MockTransport(handler))
     resp = safe_get(client, "https://safe.example/a")
     assert resp.status_code == 200
-    assert requested == ["safe.example", "target.example"]
+    assert requested == [
+        ("93.184.216.34", "safe.example"),
+        ("93.184.216.35", "target.example"),
+    ]
 
 
 def test_safe_get_blocks_redirect_to_internal(monkeypatch):
     def handler(request):
-        if request.url.host == "safe.example":
+        if request.headers["host"] == "safe.example":
             return httpx.Response(302, headers={"location": "http://169.254.169.254/latest/meta-data/"})
         raise AssertionError("internal URL should never be requested")
 

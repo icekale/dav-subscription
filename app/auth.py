@@ -38,10 +38,11 @@ def _b64d(text: str) -> bytes:
     return base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
 
 
-def create_token(user_id: int, username: str, secret: str) -> str:
+def create_token(user_id: int, username: str, secret: str, token_version: int = 0) -> str:
     payload = {
         "uid": user_id,
         "name": username,
+        "ver": int(token_version),
         "exp": int(time.time()) + TOKEN_TTL_SECONDS,
     }
     body = _b64e(json.dumps(payload, separators=(",", ":")).encode())

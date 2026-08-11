@@ -144,7 +144,7 @@ class TelegramBot:
         chat = msg.get("chat") or {}
         chat_id = chat.get("id")
         text = msg.get("text") or ""
-        if not chat_id or not text:
+        if not chat_id or not text or chat.get("type", "private") != "private":
             return
         from_info = msg.get("from") or {}
         self.core.handle(
@@ -159,9 +159,10 @@ class TelegramBot:
         data = cb.get("data") or ""
         cq_id = cb.get("id") or ""
         msg = cb.get("message") or {}
-        chat_id = (msg.get("chat") or {}).get("id")
+        chat = msg.get("chat") or {}
+        chat_id = chat.get("id")
         message_id = msg.get("message_id")
-        if not chat_id or not message_id:
+        if not chat_id or not message_id or chat.get("type", "private") != "private":
             return
         try:
             self._call("answerCallbackQuery", callback_query_id=cq_id)

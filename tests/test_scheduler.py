@@ -2775,6 +2775,28 @@ def test_delete_posts_older_than():
     assert db.list_push_logs() == []
 
 
+def test_delete_posts_older_than_rolls_back_batch_on_failure():
+    import sqlite3
+
+    import pytest
+
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "rollback-old")
+    post_id = db.insert_post("xueqiu", kid, "old", "t", "c", "u", "")
+    db.add_push_log(post_id, "telegram", "success")
+    db._execute("UPDATE posts SET fetched_at = datetime('now', '-40 days') WHERE id = ?", (post_id,))
+    db._execute(
+        "CREATE TRIGGER fail_old_delete BEFORE DELETE ON posts "
+        "BEGIN SELECT RAISE(ABORT, 'stop'); END"
+    )
+
+    with pytest.raises(sqlite3.IntegrityError):
+        db.delete_posts_older_than(30)
+
+    assert db.get_post(post_id) is not None
+    assert db.list_push_logs()
+
+
 def test_scheduler_loop_delay_uses_min_interval():
     from app.scheduler import _scheduler_loop_delay
 
@@ -2816,18 +2838,19 @@ def test_scheduler_run_loop_sleeps_priority_interval(monkeypatch):
         xueqiu_config=SimpleNamespace(cookie=""),
         weibo_config=SimpleNamespace(cookie="", username="", password=""),
     )
-    sleeps = []
+    waits = []
 
-    async def fake_sleep(delay):
-        sleeps.append(delay)
-        scheduler._stop.set()  # 睡一次就停，只验证单轮等待时长
+    async def fake_wait_for(awaitable, timeout):
+        awaitable.close()
+        waits.append(timeout)
+        scheduler._stop.set()  # 等一次就停，只验证单轮等待时长
 
-    monkeypatch.setattr("app.scheduler.asyncio.sleep", fake_sleep)
+    monkeypatch.setattr("app.scheduler.asyncio.wait_for", fake_wait_for)
     monkeypatch.setattr("app.scheduler.poll_once", lambda *a, **k: None)
     asyncio.run(scheduler.run())
 
-    assert sleeps, "主循环应至少 sleep 一次"
-    assert 29 < sleeps[0] <= 30, f"应约为组合最短间隔 30s，实际 {sleeps[0]}"
+    assert waits, "主循环应至少等待一次"
+    assert 29 < waits[0] <= 30, f"应约为组合最短间隔 30s，实际 {waits[0]}"
 
 
 def test_scheduler_loop_delay_floors_at_one():

@@ -197,6 +197,7 @@ CREATE TABLE IF NOT EXISTS users (
     dnd_start TEXT NOT NULL DEFAULT '',
     dnd_end TEXT NOT NULL DEFAULT '',
     dnd_allow_favorite INTEGER NOT NULL DEFAULT 0,
+    token_version INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE TABLE IF NOT EXISTS subscriptions (
@@ -306,6 +307,8 @@ class DB:
         self.path = str(path)
         Path(self.path).parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(self.path, check_same_thread=False, timeout=0)
+        if self.path != ":memory:":
+            Path(self.path).chmod(0o600)
         self._conn.row_factory = sqlite3.Row
         self._lock = threading.Lock()
         # 并发写（多 worker/健康检查脚本）时等待而非直接报错
@@ -387,6 +390,8 @@ class DB:
             self._conn.execute("ALTER TABLE users ADD COLUMN llm_api_key TEXT NOT NULL DEFAULT ''")
         if "llm_model" not in user_cols:
             self._conn.execute("ALTER TABLE users ADD COLUMN llm_model TEXT NOT NULL DEFAULT ''")
+        if "token_version" not in user_cols:
+            self._conn.execute("ALTER TABLE users ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0")
         self._conn.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_users_feed_token "
             "ON users(feed_token) WHERE feed_token != ''"
@@ -423,6 +428,93 @@ class DB:
             self._conn.execute(
                 "ALTER TABLE source_events ADD COLUMN fail_count INTEGER NOT NULL DEFAULT 0"
             )
+        # 并发创建的历史重复项先合并/收口，再由数据库唯一索引兜底。
+        duplicates = self._rows(
+            "SELECT platform, external_id, MIN(id) AS keep_id FROM kols "
+            "GROUP BY platform, external_id HAVING COUNT(*) > 1"
+        )
+        for group in duplicates:
+            keep_id = group["keep_id"]
+            duplicate_ids = [
+                r["id"] for r in self._rows(
+                    "SELECT id FROM kols WHERE platform = ? AND external_id = ? AND id != ?",
+                    (group["platform"], group["external_id"], keep_id),
+                )
+            ]
+            for duplicate_id in duplicate_ids:
+                for subscription in self._rows(
+                    "SELECT user_id, type, favorite, secondary FROM subscriptions WHERE kol_id = ?",
+                    (duplicate_id,),
+                ):
+                    existing_rows = self._rows(
+                        "SELECT type, favorite, secondary FROM subscriptions "
+                        "WHERE user_id = ? AND kol_id = ?",
+                        (subscription["user_id"], keep_id),
+                    )
+                    existing = existing_rows[0] if existing_rows else None
+                    if existing:
+                        subscribe_type = (
+                            existing["type"]
+                            if existing["type"] == subscription["type"]
+                            else "both"
+                        )
+                        self._conn.execute(
+                            "UPDATE subscriptions SET type = ?, favorite = ?, secondary = ? "
+                            "WHERE user_id = ? AND kol_id = ?",
+                            (
+                                subscribe_type,
+                                max(existing["favorite"], subscription["favorite"]),
+                                max(existing["secondary"], subscription["secondary"]),
+                                subscription["user_id"],
+                                keep_id,
+                            ),
+                        )
+                    else:
+                        self._conn.execute(
+                            "INSERT INTO subscriptions "
+                            "(user_id, kol_id, type, favorite, secondary) VALUES (?, ?, ?, ?, ?)",
+                            (
+                                subscription["user_id"],
+                                keep_id,
+                                subscription["type"],
+                                subscription["favorite"],
+                                subscription["secondary"],
+                            ),
+                        )
+                self._conn.execute("DELETE FROM subscriptions WHERE kol_id = ?", (duplicate_id,))
+                self._conn.execute(
+                    "INSERT OR IGNORE INTO kol_acl (kol_id, user_id) "
+                    "SELECT ?, user_id FROM kol_acl WHERE kol_id = ?",
+                    (keep_id, duplicate_id),
+                )
+                self._conn.execute("DELETE FROM kol_acl WHERE kol_id = ?", (duplicate_id,))
+                self._conn.execute("UPDATE posts SET kol_id = ? WHERE kol_id = ?", (keep_id, duplicate_id))
+                self._conn.execute(
+                    "INSERT OR IGNORE INTO cube_snapshots (kol_id, kind, payload, fetched_at) "
+                    "SELECT ?, kind, payload, fetched_at FROM cube_snapshots WHERE kol_id = ?",
+                    (keep_id, duplicate_id),
+                )
+                self._conn.execute("DELETE FROM cube_snapshots WHERE kol_id = ?", (duplicate_id,))
+                self._conn.execute("DELETE FROM kols WHERE id = ?", (duplicate_id,))
+        self._conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_kols_platform_external "
+            "ON kols(platform, external_id)"
+        )
+        pending_duplicates = self._rows(
+            "SELECT platform, external_id, MIN(id) AS keep_id FROM kol_requests "
+            "WHERE status = 'pending' GROUP BY platform, external_id HAVING COUNT(*) > 1"
+        )
+        for group in pending_duplicates:
+            self._conn.execute(
+                "UPDATE kol_requests SET status = 'rejected', handled_at = datetime('now') "
+                "WHERE platform = ? AND external_id = ? AND status = 'pending' AND id != ?",
+                (group["platform"], group["external_id"], group["keep_id"]),
+            )
+        self._conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_kol_requests_pending "
+            "ON kol_requests(platform, external_id) WHERE status = 'pending'"
+        )
+
         # 渠道绑定唯一化：先清理重复（保留最早注册的用户），再建唯一索引，
         # 避免两个账号绑定同一个 chat_id/open_id 导致重复推送或 /bind 合并错账号。
         for column in (
@@ -483,19 +575,22 @@ class DB:
             raise ValueError("该大V已存在")
         if priority and secondary:
             secondary = False  # 互斥：priority 优先（与 update_kol 行为一致）
-        return self._execute(
-            "INSERT INTO kols (platform, name, external_id, category_id, priority, secondary, original_only) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (
-                platform,
-                name,
-                external_id,
-                category_id,
-                1 if priority else 0,
-                1 if secondary else 0,
-                1 if original_only else 0,
-            ),
-        )
+        try:
+            return self._execute(
+                "INSERT INTO kols (platform, name, external_id, category_id, priority, secondary, original_only) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    platform,
+                    name,
+                    external_id,
+                    category_id,
+                    1 if priority else 0,
+                    1 if secondary else 0,
+                    1 if original_only else 0,
+                ),
+            )
+        except sqlite3.IntegrityError:
+            raise ValueError("该大V已存在") from None
 
     def get_kol(self, kol_id: int) -> dict | None:
         rows = self._rows(
@@ -674,15 +769,22 @@ class DB:
         self._execute(f"UPDATE kols SET {', '.join(sets)} WHERE id = ?", params)
 
     def delete_kol(self, kol_id: int):
-        # 级联清理该大V的订阅、帖子与推送记录，避免残留
-        self._execute("DELETE FROM kol_acl WHERE kol_id = ?", (kol_id,))
-        self._execute("DELETE FROM subscriptions WHERE kol_id = ?", (kol_id,))
-        self._execute(
-            "DELETE FROM push_logs WHERE post_id IN (SELECT id FROM posts WHERE kol_id = ?)",
-            (kol_id,),
-        )
-        self._execute("DELETE FROM posts WHERE kol_id = ?", (kol_id,))
-        self._execute("DELETE FROM kols WHERE id = ?", (kol_id,))
+        # 级联清理必须作为一个事务，任一步失败都保留完整原状态。
+        with self._lock:
+            try:
+                self._conn.execute("BEGIN")
+                self._conn.execute("DELETE FROM kol_acl WHERE kol_id = ?", (kol_id,))
+                self._conn.execute("DELETE FROM subscriptions WHERE kol_id = ?", (kol_id,))
+                self._conn.execute(
+                    "DELETE FROM push_logs WHERE post_id IN (SELECT id FROM posts WHERE kol_id = ?)",
+                    (kol_id,),
+                )
+                self._conn.execute("DELETE FROM posts WHERE kol_id = ?", (kol_id,))
+                self._conn.execute("DELETE FROM kols WHERE id = ?", (kol_id,))
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
 
     # ---- KOL 可见性（白名单） ----
     def set_kol_acl(self, kol_id: int, user_ids: list[int]) -> None:
@@ -719,10 +821,13 @@ class DB:
             (platform, external_id),
         ):
             raise ValueError("该大V已在目录中，直接订阅即可")
-        return self._execute(
-            "INSERT INTO kol_requests (platform, name, external_id, user_id) VALUES (?, ?, ?, ?)",
-            (platform, name.strip(), external_id, user_id),
-        )
+        try:
+            return self._execute(
+                "INSERT INTO kol_requests (platform, name, external_id, user_id) VALUES (?, ?, ?, ?)",
+                (platform, name.strip(), external_id, user_id),
+            )
+        except sqlite3.IntegrityError:
+            raise ValueError("该大V的申请已在处理中") from None
 
     def list_kol_requests(self, status: str | None = None) -> list[dict]:
         sql = (
@@ -866,6 +971,7 @@ class DB:
         "feishu_chat_id", "wecom_webhook", "notify_enabled", "daily_report",
         "push_channels", "dnd_start", "dnd_end", "dnd_allow_favorite",
         "feed_token", "bark_key", "llm_api_base", "llm_api_key", "llm_model",
+        "token_version",
     })
 
     def update_user(self, user_id: int, **kwargs) -> None:
@@ -882,6 +988,50 @@ class DB:
             return
         params.append(user_id)
         self._execute(f"UPDATE users SET {', '.join(sets)} WHERE id = ?", params)
+
+    def update_user_atomic(
+        self,
+        user_id: int,
+        updates: dict,
+        *,
+        keywords=_UNSET,
+        revoke_tokens: bool = False,
+    ) -> None:
+        """一次提交用户字段与关键词；密码变更可同时撤销既有 token。"""
+        sets, params = [], []
+        for key, value in updates.items():
+            if key not in self._UPDATE_USER_COLUMNS:
+                raise ValueError(f"非法用户字段: {key}")
+            if key in ("is_admin", "notify_enabled", "daily_report", "dnd_allow_favorite"):
+                value = _to_bool(value)
+            sets.append(f"{key} = ?")
+            params.append(value)
+        if revoke_tokens:
+            sets.append("token_version = token_version + 1")
+        with self._lock:
+            try:
+                self._conn.execute("BEGIN")
+                if sets:
+                    self._conn.execute(
+                        f"UPDATE users SET {', '.join(sets)} WHERE id = ?",
+                        (*params, user_id),
+                    )
+                if keywords is not _UNSET:
+                    self._conn.execute("DELETE FROM user_keywords WHERE user_id = ?", (user_id,))
+                    for keyword in keywords:
+                        self._conn.execute(
+                            "INSERT INTO user_keywords (user_id, keyword) VALUES (?, ?)",
+                            (user_id, keyword),
+                        )
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
+
+    def update_user_password(self, user_id: int, password_hash: str) -> None:
+        self.update_user_atomic(
+            user_id, {"password_hash": password_hash}, revoke_tokens=True
+        )
 
     def list_users(self) -> list[dict]:
         return self._rows("SELECT * FROM users ORDER BY id")
@@ -1259,11 +1409,18 @@ class DB:
                 raise
 
     def delete_user(self, user_id: int) -> None:
-        self._execute("DELETE FROM bind_codes WHERE user_id = ?", (user_id,))
-        self._execute("DELETE FROM subscriptions WHERE user_id = ?", (user_id,))
-        self._execute("DELETE FROM push_logs WHERE user_id = ?", (user_id,))
-        self._execute("DELETE FROM kol_acl WHERE user_id = ?", (user_id,))
-        self._execute("DELETE FROM users WHERE id = ?", (user_id,))
+        with self._lock:
+            try:
+                self._conn.execute("BEGIN")
+                self._conn.execute("DELETE FROM bind_codes WHERE user_id = ?", (user_id,))
+                self._conn.execute("DELETE FROM subscriptions WHERE user_id = ?", (user_id,))
+                self._conn.execute("DELETE FROM push_logs WHERE user_id = ?", (user_id,))
+                self._conn.execute("DELETE FROM kol_acl WHERE user_id = ?", (user_id,))
+                self._conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
 
     # ---- 雪球组合快照 ----
     def set_cube_snapshot(self, kol_id: int, kind: str, payload) -> None:
@@ -1481,12 +1638,19 @@ class DB:
             if not ids:
                 break
             placeholders = ", ".join("?" * len(ids))
-            self._execute(
-                f"DELETE FROM push_logs WHERE post_id IN ({placeholders})", ids
-            )
-            self._execute(
-                f"DELETE FROM posts WHERE id IN ({placeholders})", ids
-            )
+            with self._lock:
+                try:
+                    self._conn.execute("BEGIN")
+                    self._conn.execute(
+                        f"DELETE FROM push_logs WHERE post_id IN ({placeholders})", ids
+                    )
+                    self._conn.execute(
+                        f"DELETE FROM posts WHERE id IN ({placeholders})", ids
+                    )
+                    self._conn.commit()
+                except Exception:
+                    self._conn.rollback()
+                    raise
             removed += len(ids)
         return removed
 

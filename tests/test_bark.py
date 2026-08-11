@@ -57,18 +57,17 @@ def test_is_valid_bark_key():
     assert not is_valid_bark_key("short")
     assert not is_valid_bark_key("")
     assert not is_valid_bark_key("带中文的key")
-    # 完整 URL 写法
-    assert is_valid_bark_key("https://api.day.app/AaBbCcDdEeFf123456")
-    assert is_valid_bark_key("http://bark.local/AaBbCcDdEeFf123456")
+    # 用户设置只接受 key；自建服务器由管理员 BARK_SERVER 配置
+    assert not is_valid_bark_key("https://api.day.app/AaBbCcDdEeFf123456")
+    assert not is_valid_bark_key("http://127.0.0.1/AaBbCcDdEeFf123456")
 
 
 def test_normalize_key():
     server, key = _normalize_key("AaBbCcDdEeFf1234567890")
     assert server == "https://api.day.app"
     assert key == "AaBbCcDdEeFf1234567890"
-    server, key = _normalize_key("https://bark.example.com/AaBbCcDdEeFf123456")
-    assert server == "https://bark.example.com"
-    assert key == "AaBbCcDdEeFf123456"
+    with pytest.raises(RuntimeError):
+        _normalize_key("https://bark.example.com/AaBbCcDdEeFf123456")
     with pytest.raises(RuntimeError):
         _normalize_key("bad")
 
