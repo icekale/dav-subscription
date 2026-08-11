@@ -31,16 +31,44 @@ class RingBufferHandler(logging.Handler):
 
 LEVEL_RANK = {"DEBUG": 10, "INFO": 20, "WARNING": 30, "ERROR": 40, "CRITICAL": 50}
 
+# WARNING+ 持久化 sink（由 create_app 注入 DB 写入函数；未注入时丢弃）
+_error_sink = None
+
+
+def register_error_sink(sink) -> None:
+    """注册错误日志持久化回调（logging 模块不直接依赖 DB）。"""
+    global _error_sink
+    _error_sink = sink
+
+
+class ErrorDbHandler(logging.Handler):
+    """把 WARNING+ 日志写入 DB，跨重启可查（管理后台错误记录面板）。"""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        sink = _error_sink
+        if sink is None:
+            return
+        try:
+            sink(record)
+        except Exception:  # noqa: BLE001, S110 - 错误日志落库失败不影响业务
+            pass
+
 
 def recent_logs(limit: int = 200, level: str | None = None, q: str | None = None) -> list[str]:
-    """返回内存环形缓冲里的最近日志行，可按级别（含更高级别）与关键词过滤。"""
+    """返回内存环形缓冲里的最近日志行，可按级别（含更高级别）与关键词过滤。
+
+    DEBUG 为精确匹配（只显示 DEBUG 行）；其余级别为「及以上」（ERROR+ 含 ERROR/CRITICAL）。
+    """
     with _ring_lock:
         lines = list(_ring)
     if level:
-        min_rank = LEVEL_RANK.get(level.upper(), 0)
+        want = level.upper()
+        exact = want == "DEBUG"  # DEBUG 行最稀缺且不会混入上级日志，选它时只显示 DEBUG
+        min_rank = LEVEL_RANK.get(want, 0)
         lines = [
             line for line in lines
-            if _line_rank(line) is not None and _line_rank(line) >= min_rank
+            if (r := _line_rank(line)) is not None
+            and (r == LEVEL_RANK["DEBUG"] if exact else r >= min_rank)
         ]
     if q:
         needle = q.lower()

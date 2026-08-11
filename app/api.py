@@ -1466,6 +1466,23 @@ def create_api_router(
         """业务数据看板：用户/订阅/帖子/推送/数据源健康聚合。"""
         return db.dashboard_stats()
 
+    @router.get("/admin/error-logs", dependencies=[Depends(require_admin)])
+    def list_error_logs(
+        limit: int = 200,
+        level: str | None = None,
+        q: str | None = None,
+    ):
+        """WARNING+ 持久化错误日志（跨重启可查），可按级别与关键词过滤。"""
+        if level and level.upper() not in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):
+            raise HTTPException(status_code=400, detail="level 需为 DEBUG/INFO/WARNING/ERROR/CRITICAL")
+        return {
+            "logs": db.list_error_logs(
+                min(max(limit, 10), 2000),
+                level=level,
+                q=(q or "").strip() or None,
+            )
+        }
+
     @router.get("/admin/system-logs", dependencies=[Depends(require_admin)])
     def list_system_logs(
         limit: int = 200,

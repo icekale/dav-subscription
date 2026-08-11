@@ -160,6 +160,13 @@ CREATE TABLE IF NOT EXISTS push_logs (
     error TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE TABLE IF NOT EXISTS error_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    level TEXT NOT NULL,
+    logger TEXT NOT NULL DEFAULT '',
+    message TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 CREATE TABLE IF NOT EXISTS daily_report_deliveries (
     user_id INTEGER NOT NULL,
     report_date TEXT NOT NULL,
@@ -1505,6 +1512,45 @@ class DB:
         return self._execute(
             "INSERT INTO push_logs (post_id, channel, status, error, user_id) VALUES (?, ?, ?, ?, ?)",
             (post_id, channel, status, error, user_id),
+        )
+
+    # ---- 持久化错误日志（WARNING+，跨重启可查） ----
+    ERROR_LOG_KEEP = 5000
+
+    def record_error_log(self, level: str, logger: str, message: str) -> None:
+        self._execute(
+            "INSERT INTO error_logs (level, logger, message) VALUES (?, ?, ?)",
+            (level.upper(), logger, message),
+        )
+        # 保留最近 N 条，防止无界增长（WARNING+ 频率低，代价可忽略）
+        self._execute(
+            "DELETE FROM error_logs WHERE id NOT IN "
+            "(SELECT id FROM error_logs ORDER BY id DESC LIMIT ?)",
+            (self.ERROR_LOG_KEEP,),
+        )
+
+    def list_error_logs(
+        self, limit: int = 200, level: str | None = None, q: str | None = None
+    ) -> list[dict]:
+        conds, params = [], []
+        if level:
+            min_rank = {"DEBUG": 10, "INFO": 20, "WARNING": 30, "ERROR": 40, "CRITICAL": 50}[
+                level.upper()
+            ]
+            conds.append(
+                "CASE level WHEN 'DEBUG' THEN 10 WHEN 'INFO' THEN 20 WHEN 'WARNING' THEN 30 "
+                "WHEN 'ERROR' THEN 40 WHEN 'CRITICAL' THEN 50 ELSE 0 END >= ?"
+            )
+            params.append(min_rank)
+        if q:
+            conds.append("(logger LIKE ? OR message LIKE ?)")
+            like = f"%{q}%"
+            params.extend([like, like])
+        where = f"WHERE {' AND '.join(conds)}" if conds else ""
+        return self._rows(
+            f"SELECT id, level, logger, message, created_at FROM error_logs "
+            f"{where} ORDER BY id DESC LIMIT ?",
+            (*params, limit),
         )
 
     def list_push_logs(

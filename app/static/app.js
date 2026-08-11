@@ -3759,13 +3759,35 @@ async function loadAdminAudit() {
             <option value="ERROR">ERROR+</option>
             <option value="WARNING">WARNING+</option>
             <option value="INFO">INFO+</option>
-            <option value="DEBUG">DEBUG</option>
+            <option value="DEBUG">DEBUG（仅LOG_LEVEL=DEBUG时产生）</option>
           </select>
           <input id="syslog-q" class="form-control" style="width:220px" placeholder="关键词过滤（如 推送失败 / 大V名）" onkeydown="if(event.key==='Enter')loadAdminSysLogsPanel()">
           <button class="btn-normal" onclick="loadAdminSysLogsPanel()">刷新</button>
         </div>
       </header>
       <pre class="syslog" id="syslog-pre">加载中…</pre>
+    </section>
+    <section class="section-panel">
+      <header class="section-head">
+        <div>
+          <h3 class="section-title">错误记录</h3>
+          <p class="section-meta">WARNING 及以上日志持久化存储（跨重启保留最近 5000 条），即使环形缓冲滚动或重启后仍可查。</p>
+        </div>
+        <div class="toolbar" style="margin-top:12px">
+          <select id="errlog-level" class="form-control" style="width:auto" onchange="loadAdminErrorLogs()">
+            <option value="">全部级别</option>
+            <option value="ERROR">ERROR+</option>
+            <option value="WARNING">WARNING+</option>
+          </select>
+          <button class="btn-normal" onclick="loadAdminErrorLogs()">刷新</button>
+        </div>
+      </header>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th scope="col">时间</th><th scope="col">级别</th><th scope="col">来源</th><th scope="col">内容</th></tr></thead>
+          <tbody id="errlog-body"><tr><td colspan="4" class="muted">加载中…</td></tr></tbody>
+        </table>
+      </div>
     </section>
     <section class="section-panel">
       <header class="section-head"><div><h3 class="section-title">操作日志</h3>
@@ -3787,6 +3809,32 @@ async function loadAdminAudit() {
   stopSysLogsTimer();
   sysLogsTimer = setInterval(loadAdminSysLogsPanel, 5000);
   loadAdminSysLogsPanel();
+  loadAdminErrorLogs();
+}
+
+async function loadAdminErrorLogs() {
+  try {
+    const params = new URLSearchParams({ limit: "200" });
+    const levelEl = $("#errlog-level");
+    const level = levelEl ? levelEl.value : "";
+    if (level) params.set("level", level);
+    const data = await api(`/api/admin/error-logs?${params.toString()}`);
+    const rows = data.logs || [];
+    const body = $("#errlog-body");
+    if (!body) return;
+    body.innerHTML = rows.length
+      ? rows.map((r) => `
+          <tr>
+            <td>${escapeHtml(fmtDbTime(r.created_at))}</td>
+            <td class="${r.level === "ERROR" || r.level === "CRITICAL" ? "status-fail" : ""}">${escapeHtml(r.level)}</td>
+            <td class="muted">${escapeHtml(r.logger)}</td>
+            <td class="muted">${escapeHtml(r.message)}</td>
+          </tr>`).join("")
+      : `<tr><td colspan="4" class="muted">暂无错误记录 🎉</td></tr>`;
+  } catch (err) {
+    const body = $("#errlog-body");
+    if (body) body.innerHTML = `<tr><td colspan="4" class="muted">加载失败: ${escapeHtml(err.message)}</td></tr>`;
+  }
 }
 
 let sysLogsTimer = null;

@@ -335,6 +335,46 @@ def test_system_logs_api():
     assert client.get("/api/admin/system-logs", headers=uh).status_code == 403
 
 
+def test_recent_logs_debug_exact_match():
+    """级别筛选：DEBUG 精确匹配（只显示 DEBUG 行），其余级别为及以上。"""
+    from app import logging_setup
+    from app.logging_setup import recent_logs
+
+    with logging_setup._ring_lock:
+        logging_setup._ring.clear()
+        logging_setup._ring.append("2026-08-11 10:00:00.000 DEBUG app.a [t] debug line")
+        logging_setup._ring.append("2026-08-11 10:00:01.000 INFO app.b [t] info line")
+        logging_setup._ring.append("2026-08-11 10:00:02.000 WARNING app.c [t] warn line")
+        logging_setup._ring.append("2026-08-11 10:00:03.000 ERROR app.d [t] error line")
+    assert len(recent_logs(level="DEBUG")) == 1  # 只显示 DEBUG，不混入 INFO
+    assert len(recent_logs(level="INFO")) == 3
+    assert len(recent_logs(level="WARNING")) == 2
+    assert len(recent_logs(level="ERROR")) == 1
+
+
+def test_error_logs_persist_and_filter():
+    """错误记录：WARNING+ 落库、级别过滤、跨重启语义（DB 存储）。"""
+    client = make_client()
+    admin_headers = auth_headers(client)
+    db = client.app.state.db
+    db.record_error_log("WARNING", "app.test", "磁盘快满了")
+    db.record_error_log("ERROR", "app.test", "抓取失败 traceback")
+    db.record_error_log("INFO", "app.test", "普通信息不入错误记录")
+    resp = client.get("/api/admin/error-logs", headers=admin_headers)
+    assert resp.status_code == 200
+    logs = resp.json()["logs"]
+    assert [l["level"] for l in logs] == ["INFO", "ERROR", "WARNING"]  # 新->旧
+    # 级别过滤：ERROR+ 只看 ERROR（含 CRITICAL）
+    resp = client.get("/api/admin/error-logs?level=ERROR", headers=admin_headers)
+    assert [l["level"] for l in resp.json()["logs"]] == ["ERROR"]
+    # 关键词过滤
+    resp = client.get("/api/admin/error-logs?q=磁盘", headers=admin_headers)
+    assert [l["message"] for l in resp.json()["logs"]] == ["磁盘快满了"]
+    # 普通用户无权限
+    uh = user_headers(client, "errlog_user")
+    assert client.get("/api/admin/error-logs", headers=uh).status_code == 403
+
+
 def test_version_api(monkeypatch):
     from app.version import APP_VERSION
 

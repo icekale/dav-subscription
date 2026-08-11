@@ -16,7 +16,7 @@ from .api import create_api_router
 from .config import load_config
 from .db import DB
 from .fetchers import build_fetchers
-from .logging_setup import setup_logging
+from .logging_setup import register_error_sink, setup_logging
 from .notifiers import build_notifiers
 from .scheduler import Scheduler, set_alerts_enabled
 
@@ -51,6 +51,10 @@ def create_app(config=None, db_path: str | Path | None = None) -> FastAPI:
     if db_path is not None:
         config.db_path = str(db_path)
     db = DB(config.db_path)
+    # WARNING+ 日志持久化到 error_logs 表（跨重启可查，管理后台错误记录面板）
+    register_error_sink(
+        lambda record: db.record_error_log(record.levelname, record.name, record.getMessage())
+    )
     existing_xueqiu_cookie = db.get_setting("xueqiu_cookie")
     if existing_xueqiu_cookie:
         try:
