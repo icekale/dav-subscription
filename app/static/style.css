@@ -773,7 +773,10 @@ body.lightbox-open { overflow: hidden; }
 .post-expand-btn:hover { text-decoration: underline; }
 
 /* ---------- 动态页筛选条（平台胶囊 + 折叠筛选面板） ---------- */
-.tl-filterbar { position: sticky; top: 56px; z-index: 25; background: var(--color-surface-nav); backdrop-filter: blur(18px) saturate(180%); padding: 14px 0 12px; margin-bottom: 4px; } /* 与 topbar 同材质：半透明 + 模糊，融入页面渐变背景，不再平涂色块 */
+.tl-filterbar { position: sticky; top: 56px; z-index: 25; background: transparent; backdrop-filter: blur(18px) saturate(180%); padding: 14px 0 12px; margin-bottom: 4px; } /* 透明背景：页面渐变（fixed）直接透出，无平涂色带；滚动遮挡靠 blur（与 topbar 同材质） */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .tl-filterbar { background: var(--color-bg); } /* 旧浏览器无 blur：回退不透明底色保证滚动可读 */
+}
 /* 生效筛选条件 chip：筛选后常驻可见，逐个可移除（P0：筛选状态可见） */
 .tl-active-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 10px; }
 .tl-active-chip {
