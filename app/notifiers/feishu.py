@@ -456,7 +456,7 @@ class FeishuNotifier(Notifier):
     def send_dnd_summary(self, posts: list[Post], title: str | None = None) -> None:
         self._send_card(build_feishu_dnd_summary_card(posts, title=title))
 
-    def send_text(self, text: str) -> None:
+    def send_text(self, text: str, reply_markup: list | None = None) -> None:
         if self.open_id or self.chat_id:
             token = self._tenant_access_token()
             receive_id_type = "open_id" if self.open_id else "chat_id"

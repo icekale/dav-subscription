@@ -182,5 +182,5 @@ class WeComNotifier(Notifier):
     def send_dnd_summary(self, posts: list[Post], title: str | None = None) -> None:
         self._send_markdown(build_wecom_dnd_summary(posts, title=title))
 
-    def send_text(self, text: str) -> None:
+    def send_text(self, text: str, reply_markup: list | None = None) -> None:
         self._send_markdown(text)

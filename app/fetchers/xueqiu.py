@@ -184,17 +184,20 @@ def _extract_images(status: dict) -> list[str]:
 def resolve_profile(external_id: str, cookie: str = "") -> dict:
     """查询雪球用户昵称与头像（取最新一条动态里的 user 信息），失败返回空 dict。"""
     uid = normalize_xueqiu_id(external_id)
-    client = httpx.Client(
-        timeout=15,
-        follow_redirects=True,
-        headers={
-            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X)",
-            "Accept": "application/json, text/plain, */*",
-            "X-Requested-With": "XMLHttpRequest",
-            "Referer": f"https://xueqiu.com/u/{uid}",
-            **({"Cookie": cookie} if cookie else {}),
-        },
-    )
+    try:
+        client = httpx.Client(
+            timeout=15,
+            follow_redirects=True,
+            headers={
+                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X)",
+                "Accept": "application/json, text/plain, */*",
+                "X-Requested-With": "XMLHttpRequest",
+                "Referer": f"https://xueqiu.com/u/{uid}",
+                **({"Cookie": cookie} if cookie else {}),
+            },
+        )
+    except Exception:  # noqa: BLE001 - 非 ASCII ID（误填昵称）构造请求头失败时回退空结果，不阻断审批
+        return {}
     try:
         resp = client.get(
             XUEQIU_TIMELINE_URL,

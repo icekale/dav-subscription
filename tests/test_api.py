@@ -472,6 +472,29 @@ def test_kol_request_notify_tg_only_when_bound(monkeypatch):
     assert any(c.startswith("reject:") for c in callback)
 
 
+def test_resolve_profile_non_ascii_id_returns_empty():
+    """雪球昵称等非 ASCII ID：resolve_profile 回退空 dict，不抛 UnicodeEncodeError。"""
+    from app.fetchers.xueqiu import resolve_profile
+
+    assert resolve_profile("两刀插肋") == {}
+
+
+def test_approve_garbage_request_returns_clear_error():
+    """旧申请（未经验证入库的垃圾 ID，如雪球昵称）点通过时提示无效，不 500 崩溃。"""
+    client = make_client()
+    admin_headers = auth_headers(client)
+    u = register(client, "garbuser", "pass123456")
+    db = client.app.state.db
+    # 绕过提交校验，直接构造老式垃圾申请（雪球昵称而非数字 ID）
+    req_id = db.add_kol_request("xueqiu", "两刀插肋", u.json()["user"]["id"])
+    resp = client.post(f"/api/admin/kol-requests/{req_id}/approve", headers=admin_headers)
+    assert resp.status_code == 400, resp.text
+    detail = resp.json()["detail"]
+    assert "两刀插肋" in detail and "无效" in detail and "拒绝" in detail
+    assert db.get_kol_request(req_id)["status"] == "pending"  # 未被错误上架
+    assert db.get_kol_by_external("xueqiu", "两刀插肋") is None
+
+
 def test_tg_callback_approve_reject_kol_request(monkeypatch):
     """TG 审批按钮回调：管理员点通过/拒绝直接生效，非管理员被拒绝。"""
     monkeypatch.setattr("app.api.resolve_profile", lambda uid, cookie="": {})

@@ -405,6 +405,14 @@ def _do_approve_kol_request(db: DB, request_id: int, admin: dict, notifiers_conf
     req = db.get_kol_request(request_id)
     if req is None or req["status"] != "pending":
         raise HTTPException(status_code=404, detail="申请不存在或已处理")
+    # 兜底：旧申请可能未经新校验入库（昵称/垃圾文本），审批前再验一次，
+    # 避免上架无法抓取的坏大V（如雪球昵称而非数字 ID）
+    normalized, err = _normalize_kol_request_input(req["platform"], req["external_id"])
+    if err or normalized != req["external_id"]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"该申请的外部ID「{req['external_id']}」无效（{err or '格式不符'}），建议点「拒绝」",
+        )
     name = (req["name"] or "").strip()
     avatar_url = ""
     # 申请通常只填了主页链接，审批时自动补昵称与头像，避免上架占位名

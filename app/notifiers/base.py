@@ -10,5 +10,5 @@ class Notifier:
     def notify(self, post: Post) -> None:
         raise NotImplementedError
 
-    def send_text(self, text: str) -> None:
+    def send_text(self, text: str, reply_markup: list | None = None) -> None:
         raise NotImplementedError
