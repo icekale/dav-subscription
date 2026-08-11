@@ -3449,7 +3449,7 @@ async function loadAdminTags() {
   const tags = Array.isArray(data?.tags) ? data.tags : [];
   const stockNames = Array.isArray(data?.stock_names) ? data.stock_names : [];
   const stockAliases = Array.isArray(data?.stock_aliases) ? data.stock_aliases : [];
-  const stats = data?.stats || { total: 0, tagged: 0, pending: 0 };
+  const stats = data?.stats || { total: 0, processed: 0, tagged: 0, pending: 0 };
   if (!routeStillActive(_adminRenderSeq)) return;
   // 词表编辑：每行一个标签，格式「标签名 | 关键词,关键词」；关键词为空则该标签不命中
   const vocabText = tags.map((r) => `${r.tag} | ${(r.keywords || []).join(", ")}`).join("\n");
@@ -3465,7 +3465,7 @@ async function loadAdminTags() {
       <div class="toolbar" style="margin-top:12px">
         <button class="btn-normal" onclick="adminSaveTags()">保存词表</button>
       </div>
-      <p class="section-meta" style="margin-top:8px">已打标 ${stats.tagged} / ${stats.total} 条，待打标 ${stats.pending} 条</p>
+      <p class="section-meta" style="margin-top:8px">已处理 ${stats.processed} / ${stats.total} 条，其中有标签 ${stats.tagged} 条，待处理 ${stats.pending} 条</p>
     </section>
     <section class="section-panel">
       <header class="section-head">
