@@ -2588,6 +2588,89 @@ def test_tag_vocabulary_update_admin_only():
     assert client.put("/api/tags", headers=admin, json={"tags": []}).status_code == 400
 
 
+def test_tag_alias_requires_known_stock_name():
+    client = make_client()
+    admin = auth_headers(client, "tagadmin")
+
+    response = client.put(
+        "/api/tags",
+        headers=admin,
+        json={
+            "tags": [{"tag": "科技", "keywords": ["芯片"]}],
+            "stock_names": ["宁德时代"],
+            "stock_aliases": [{"alias": "宁王", "stock": "不存在股票"}],
+        },
+    )
+
+    assert response.status_code == 400
+    assert "常用股票名" in response.json()["detail"]
+
+
+def test_tag_alias_rejects_conflicting_mapping():
+    client = make_client()
+    admin = auth_headers(client, "tagadmin")
+
+    response = client.put(
+        "/api/tags",
+        headers=admin,
+        json={
+            "tags": [{"tag": "科技", "keywords": ["芯片"]}],
+            "stock_names": ["宁德时代", "比亚迪"],
+            "stock_aliases": [
+                {"alias": "宁王", "stock": "宁德时代"},
+                {"alias": "宁王", "stock": "比亚迪"},
+            ],
+        },
+    )
+
+    assert response.status_code == 400
+    assert "映射冲突" in response.json()["detail"]
+
+
+def test_tag_alias_deduplicates_identical_mapping():
+    client = make_client()
+    admin = auth_headers(client, "tagadmin")
+
+    response = client.put(
+        "/api/tags",
+        headers=admin,
+        json={
+            "tags": [{"tag": "科技", "keywords": ["芯片"]}],
+            "stock_names": ["宁德时代"],
+            "stock_aliases": [
+                {"alias": "宁王", "stock": "宁德时代"},
+                {"alias": "宁王", "stock": "宁德时代"},
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["stock_aliases"] == [
+        {"alias": "宁王", "stock": "宁德时代"}
+    ]
+
+
+def test_tag_vocabulary_update_keeps_stock_config_when_omitted():
+    """只改话题词表时不传 stock 字段，不得误清空已保存的股票名和别名。"""
+    client = make_client()
+    admin = auth_headers(client, "tagadmin")
+    db = client.app.state.db
+    db.set_stock_names(["宁德时代"])
+    db.set_stock_aliases([{"alias": "宁王", "stock": "宁德时代"}])
+
+    response = client.put(
+        "/api/tags",
+        headers=admin,
+        json={"tags": [{"tag": "科技", "keywords": ["芯片"]}]},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["stock_names"] == ["宁德时代"]
+    assert response.json()["stock_aliases"] == [
+        {"alias": "宁王", "stock": "宁德时代"}
+    ]
+
+
 def test_feed_returns_tags_and_filters_by_tag():
     client = make_client()
     admin = auth_headers(client, "tagadmin")

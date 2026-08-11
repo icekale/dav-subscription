@@ -175,8 +175,8 @@ class TagAliasIn(BaseModel):
 
 class TagVocabularyIn(BaseModel):
     tags: list[TagRuleIn]
-    stock_names: list[str] = []
-    stock_aliases: list[TagAliasIn] = []
+    stock_names: list[str] | None = None
+    stock_aliases: list[TagAliasIn] | None = None
 
 
 class TagBackfillIn(BaseModel):
@@ -1692,22 +1692,46 @@ def create_api_router(
                 status_code=400, detail=f"词表最多 {TAG_VOCABULARY_MAX} 个标签"
             )
         db.set_tag_vocabulary(deduped)
+        stock_names = db.get_stock_names()
         if body.stock_names is not None:
-            stock_names = [n.strip() for n in body.stock_names if n and n.strip()]
             seen_stocks, deduped_stocks = set(), []
-            for n in stock_names:
-                if n not in seen_stocks:
-                    seen_stocks.add(n)
-                    deduped_stocks.append(n)
-            db.set_stock_names(deduped_stocks)
+            for n in body.stock_names:
+                name = (n or "").strip()
+                if name and name not in seen_stocks:
+                    seen_stocks.add(name)
+                    deduped_stocks.append(name)
+            stock_names = deduped_stocks
+            db.set_stock_names(stock_names)
         if body.stock_aliases is not None:
-            cleaned_aliases = []
+            alias_targets: dict[str, str] = {}
             for a in body.stock_aliases:
                 alias = (a.alias or "").strip()
                 stock = (a.stock or "").strip()
-                if alias and stock:
-                    cleaned_aliases.append({"alias": alias, "stock": stock})
-            db.set_stock_aliases(cleaned_aliases)
+                if not alias or not stock:
+                    continue
+                if stock not in stock_names:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"别名 {alias} 的正式名 {stock} 不在常用股票名中",
+                    )
+                if alias in stock_names:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"别名 {alias} 与常用股票名重复",
+                    )
+                previous = alias_targets.get(alias)
+                if previous and previous != stock:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"别名 {alias} 映射冲突：{previous} / {stock}",
+                    )
+                alias_targets[alias] = stock
+            db.set_stock_aliases(
+                [
+                    {"alias": alias, "stock": stock}
+                    for alias, stock in alias_targets.items()
+                ]
+            )
         _audit(admin, "update_tag_vocabulary", detail=f"{len(deduped)} tags")
         return {
             "tags": db.get_tag_vocabulary(),
