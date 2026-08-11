@@ -227,6 +227,12 @@ class KolUpdate(BaseModel):
     original_only: bool | None = None
 
 
+class KolBatchAction(BaseModel):
+    ids: list[int]
+    action: str  # enable|disable|priority|secondary|category|delete
+    value: bool | int | None = None
+
+
 class CategoryIn(BaseModel):
     name: str
 
@@ -1503,6 +1509,51 @@ def create_api_router(
         }
 
     # ---- 管理（管理员）----
+    @router.get("/admin/kols", dependencies=[Depends(require_admin)])
+    def admin_list_kols(
+        limit: int = 50,
+        offset: int = 0,
+        platform: str | None = None,
+        category_id: int | None = None,
+        q: str | None = None,
+        status: int | None = None,
+    ):
+        """大V管理列表：分页 + 关键词/平台/分类/状态筛选（与公开目录 /api/kols 分离）。"""
+        if status is not None and status not in (0, 1):
+            raise HTTPException(status_code=400, detail="status 需为 0 或 1")
+        q = (q or "").strip() or None
+        return {
+            "total": db.count_kols(platform=platform, category_id=category_id, q=q, status=status),
+            "items": db.list_kols(
+                platform=platform,
+                category_id=category_id,
+                q=q,
+                status=status,
+                limit=bounded_limit(limit, default=50),
+                offset=max(offset, 0),
+            ),
+        }
+
+    @router.post("/admin/kols/batch", dependencies=[Depends(require_admin)])
+    def kol_batch_action(body: KolBatchAction, admin: dict = Depends(require_admin)):
+        """批量操作：enable/disable/priority/secondary/category/delete。"""
+        if not body.ids:
+            raise HTTPException(status_code=400, detail="请先选择大V")
+        action = body.action
+        if action in ("enable", "disable"):
+            db.set_kols_enabled(body.ids, action == "enable")
+        elif action in ("priority", "secondary"):
+            db.set_kols_flag(body.ids, action, bool(body.value))
+        elif action == "category":
+            db.set_kols_category(body.ids, body.value)
+        elif action == "delete":
+            for kol_id in body.ids:
+                db.delete_kol(kol_id)
+        else:
+            raise HTTPException(status_code=400, detail=f"不支持的操作: {action}")
+        _audit(admin, f"batch_{action}", str(len(body.ids)), f"ids={body.ids[:20]}")
+        return {"ok": True, "count": len(body.ids)}
+
     @router.get("/kols", dependencies=[Depends(require_admin)])
     def list_kols(platform: str | None = None, category_id: int | None = None):
         return db.list_kols(platform, category_id)

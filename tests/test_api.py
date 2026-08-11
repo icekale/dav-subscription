@@ -46,6 +46,79 @@ def user_headers(client, username, password="pass123456"):
     return {"Authorization": f"Bearer {token}"}
 
 
+def test_admin_kols_pagination_and_filters():
+    """管理大V列表：分页 + 关键词/平台/分类/状态筛选 + 权限。"""
+    client = make_client()
+    admin_headers = auth_headers(client)
+    db = client.app.state.db
+    cid = db.add_category("财经")
+    kids = []
+    for i in range(12):
+        kids.append(db.add_kol("xueqiu", f"测试大V{i}", f"uid{i}", category_id=cid if i < 6 else None))
+    db.add_kol("twitter", "X博主", "xuser")
+    db.set_kols_enabled(kids[:3], False)
+
+    # 分页
+    data = client.get("/api/admin/kols?limit=5&offset=0", headers=admin_headers).json()
+    assert data["total"] == 13 and len(data["items"]) == 5
+    page2 = client.get("/api/admin/kols?limit=5&offset=5", headers=admin_headers).json()
+    assert page2["items"][0]["id"] != data["items"][0]["id"]
+    # 关键词（昵称/外部ID）
+    data = client.get("/api/admin/kols?q=大V1", headers=admin_headers).json()
+    assert data["total"] == 3  # 大V1 + 大V10 + 大V11
+    assert all("大V1" in k["name"] for k in data["items"])
+    data = client.get("/api/admin/kols?q=uid1", headers=admin_headers).json()
+    assert data["total"] == 3  # uid1/uid10/uid11
+    # 平台 + 分类 + 状态
+    assert client.get("/api/admin/kols?platform=twitter", headers=admin_headers).json()["total"] == 1
+    assert client.get(f"/api/admin/kols?category_id={cid}", headers=admin_headers).json()["total"] == 6
+    assert client.get("/api/admin/kols?status=0", headers=admin_headers).json()["total"] == 3
+    # 非法状态
+    assert client.get("/api/admin/kols?status=2", headers=admin_headers).status_code == 400
+    # 普通用户无权限
+    uh = user_headers(client, "adminkols_user")
+    assert client.get("/api/admin/kols", headers=uh).status_code == 403
+    # 公开目录 /api/kols 不受影响（仍返回全部）
+    assert len(client.get("/api/kols", headers=admin_headers).json()) == 13
+
+
+def test_admin_kols_batch_actions():
+    """批量操作：启用/停用/优先/次要/改分类/删除。"""
+    client = make_client()
+    admin_headers = auth_headers(client)
+    db = client.app.state.db
+    cid = db.add_category("财经")
+    kids = [db.add_kol("xueqiu", f"批量{i}", f"b{i}") for i in range(4)]
+
+    def batch(ids, action, value=None):
+        return client.post(
+            "/api/admin/kols/batch", headers=admin_headers,
+            json={"ids": ids, "action": action, "value": value},
+        )
+
+    assert batch([], "enable").status_code == 400  # 空选择
+    assert batch(kids, "nonsense").status_code == 400  # 非法操作
+    assert batch(kids, "disable").status_code == 200
+    assert all(not db.get_kol(k)["enabled"] for k in kids)
+    assert batch(kids, "enable").status_code == 200
+    assert all(db.get_kol(k)["enabled"] for k in kids)
+    assert batch(kids, "priority", True).status_code == 200
+    assert all(db.get_kol(k)["priority"] for k in kids)
+    assert batch(kids, "secondary", True).status_code == 200
+    assert all(db.get_kol(k)["secondary"] for k in kids)
+    assert batch(kids[:2], "category", cid).status_code == 200
+    assert db.get_kol(kids[0])["category_id"] == cid and db.get_kol(kids[2])["category_id"] is None
+    # 批量删除：级联清理订阅/帖子
+    db.add_subscription(1, kids[0])
+    db.insert_post("xueqiu", kids[0], "bp1", "t", "c", "u", "")
+    assert batch(kids[:2], "delete").status_code == 200
+    assert db.get_kol(kids[0]) is None and db.get_kol(kids[1]) is None
+    assert db.get_kol(kids[2]) is not None
+    # 普通用户无权限
+    uh = user_headers(client, "batch_user")
+    assert client.post("/api/admin/kols/batch", headers=uh, json={"ids": kids, "action": "enable"}).status_code == 403
+
+
 def test_kol_crud_api():
     client = make_client()
     headers = auth_headers(client)

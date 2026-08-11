@@ -517,7 +517,16 @@ class DB:
             (source or "", kol_id),
         )
 
-    def list_kols(self, platform: str | None = None, category_id: int | None = None) -> list[dict]:
+    def list_kols(
+        self,
+        platform: str | None = None,
+        category_id: int | None = None,
+        q: str | None = None,
+        status: int | None = None,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> list[dict]:
+        """大V列表：可选平台/分类/关键词/启用状态筛选 + 分页（管理列表用）。"""
         sql = "SELECT k.*, c.name AS category_name FROM kols k LEFT JOIN categories c ON c.id = k.category_id"
         conds, params = [], []
         if platform:
@@ -526,10 +535,69 @@ class DB:
         if category_id is not None:
             conds.append("k.category_id = ?")
             params.append(category_id)
+        if q:
+            like = f"%{q}%"
+            conds.append("(k.name LIKE ? OR k.external_id LIKE ?)")
+            params.extend([like, like])
+        if status is not None:
+            conds.append("k.enabled = ?")
+            params.append(1 if status else 0)
         if conds:
             sql += " WHERE " + " AND ".join(conds)
         sql += " ORDER BY k.id"
+        if limit:
+            sql += " LIMIT ? OFFSET ?"
+            params.extend([limit, offset])
         return self._rows(sql, params)
+
+    def count_kols(
+        self,
+        platform: str | None = None,
+        category_id: int | None = None,
+        q: str | None = None,
+        status: int | None = None,
+    ) -> int:
+        """与 list_kols 同条件的大V总数（分页控件用）。"""
+        conds, params = [], []
+        if platform:
+            conds.append("k.platform = ?")
+            params.append(platform)
+        if category_id is not None:
+            conds.append("k.category_id = ?")
+            params.append(category_id)
+        if q:
+            like = f"%{q}%"
+            conds.append("(k.name LIKE ? OR k.external_id LIKE ?)")
+            params.extend([like, like])
+        if status is not None:
+            conds.append("k.enabled = ?")
+            params.append(1 if status else 0)
+        where = f"WHERE {' AND '.join(conds)}" if conds else ""
+        row = self._rows(f"SELECT COUNT(*) AS n FROM kols k {where}", params)
+        return _to_int(row[0]["n"]) if row else 0
+
+    def set_kols_enabled(self, ids: list[int], enabled: bool) -> None:
+        placeholders = ",".join("?" * len(ids))
+        self._execute(
+            f"UPDATE kols SET enabled = ? WHERE id IN ({placeholders})",
+            (1 if enabled else 0, *ids),
+        )
+
+    def set_kols_flag(self, ids: list[int], flag: str, value: bool) -> None:
+        """批量设置 priority / secondary 标记。"""
+        col = "priority" if flag == "priority" else "secondary"
+        placeholders = ",".join("?" * len(ids))
+        self._execute(
+            f"UPDATE kols SET {col} = ? WHERE id IN ({placeholders})",
+            (1 if value else 0, *ids),
+        )
+
+    def set_kols_category(self, ids: list[int], category_id: int | None) -> None:
+        placeholders = ",".join("?" * len(ids))
+        self._execute(
+            f"UPDATE kols SET category_id = ? WHERE id IN ({placeholders})",
+            (category_id, *ids),
+        )
 
     def get_kol_by_external(self, platform: str, external_id: str) -> dict | None:
         """按平台 + 外部ID 查大V（更新 external_id 时的唯一性校验用）。"""
