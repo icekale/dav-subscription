@@ -269,7 +269,7 @@ const NAV = [
     { label: "内容管理", items: [
       { route: "admin/dashboard", icon: DASHBOARD_ICON, label: "全景概览" },
       { route: "admin/kols", icon: V_ICON, label: "大V管理" },
-      { route: "admin/vocab", icon: FOLDER_ICON, label: "分类与标签" },
+      { route: "admin/vocab", icon: FOLDER_ICON, label: "标签分类" },
       { route: "admin/requests", icon: USER_PLUS_ICON, label: "添加审批" },
     ]},
     { label: "数据与日志", items: [
@@ -3558,9 +3558,9 @@ async function loadAdminVocab() {
   $("#admin-body").innerHTML = `
     <section class="section-panel">
       <header class="section-head">
-        <div><h3 class="section-title">分类与标签</h3>
+        <div><h3 class="section-title">标签分类</h3>
         <p class="section-meta">分类按大V分组（订阅广场/动态页/管理列表筛选）；标签按关键词规则给贴文内容自动打标。</p></div>
-        <div class="settings-tabs" role="tablist" aria-label="分类与标签">
+        <div class="settings-tabs" role="tablist" aria-label="标签分类">
           <button class="settings-tab ${tab === "categories" ? "active" : ""}" data-tab="categories" onclick="location.hash='#/admin/vocab'">分类</button>
           <button class="settings-tab ${tab === "tags" ? "active" : ""}" data-tab="tags" onclick="location.hash='#/admin/vocab?tab=tags'">标签</button>
         </div>
