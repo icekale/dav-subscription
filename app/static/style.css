@@ -668,7 +668,7 @@ textarea.form-control {
 .post-item .p-time { font-size: var(--text-xs); color: var(--color-text-muted); margin-top: 2px; }
 .post-item .p-title { font-size: var(--text-body); font-weight: var(--font-weight-bold); margin-top: 12px; color: var(--color-text); }
 /* 正文限行宽：外壳铺满后保持舒适阅读行长（65-75ch），超宽屏不整行读不动 */
-.post-item .p-content { color: var(--color-text); margin-top: 8px; line-height: 1.7; word-break: break-all; font-size: var(--text-md); max-width: 75ch; }
+.post-item .p-content { color: var(--color-text); margin-top: 8px; line-height: 1.7; word-break: break-all; font-size: var(--text-md); max-width: 75ch; white-space: pre-line; }
 .post-images { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 .post-images img {
   width: 120px; height: 120px; object-fit: cover;

@@ -1237,8 +1237,12 @@ function postCard(post) {
   const body = post.content || "（无正文）";
   const expanded = _tlExpanded.has(post.id);
   const shown = expanded ? body : body.slice(0, 200);
-  // X 帖常 title==content（如纯链接帖），标题和正文都渲染会视觉重复，跳过标题
-  const titleDup = !!post.title && post.title.trim() === (post.content || "").trim();
+  // X 帖常 title==content（如纯链接帖），标题和正文都渲染会视觉重复，跳过标题；
+  // 长文帖 title 常为 content 开头一段（截断），同样跳过避免重复展示
+  const titleDup = !!post.title && (
+    post.title.trim() === (post.content || "").trim()
+    || (post.content || "").trimStart().startsWith(post.title.trim())
+  );
   return `
     <div class="post-item">
       <div class="p-header">
