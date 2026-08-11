@@ -3484,10 +3484,11 @@ async function loadAdminTags() {
     <section class="section-panel">
       <header class="section-head">
         <div><h3 class="section-title">回填历史贴文</h3>
-        <p class="section-meta">给全部未打标贴文按当前词表 + 股票名单补标签（关键词规则，零成本）。</p></div>
+        <p class="section-meta">给未打标贴文按当前词表 + 股票名单补标签；「按当前规则重算全部」会覆盖全部历史贴文标签（危险操作，需确认）。</p></div>
       </header>
       <div class="toolbar" style="margin-top:12px">
-        <button class="btn-normal" onclick="adminBackfillTags()">回填全部未打标</button>
+        <button class="btn-normal" onclick="adminBackfillTags('pending')">处理待打标</button>
+        <button class="btn-ghost" onclick="adminBackfillTags('all')">按当前规则重算全部</button>
         <span id="tag-backfill-result" class="muted"></span>
       </div>
     </section>
@@ -3521,21 +3522,25 @@ async function adminSaveTags() {
   }
 }
 
-async function adminBackfillTags() {
-  const btn = $("[onclick='adminBackfillTags()']");
-  if (btn) btn.disabled = true;
+async function adminBackfillTags(mode = "pending") {
+  if (mode === "all" && !confirm("将覆盖全部历史贴文标签，确定继续？")) return;
+  const buttons = document.querySelectorAll("[onclick^='adminBackfillTags']");
+  buttons.forEach((button) => { button.disabled = true; });
   const result = $("#tag-backfill-result");
-  if (result) result.textContent = "回填中…";
+  if (result) result.textContent = mode === "all" ? "全量重算中…" : "处理中…";
   try {
-    const data = await api("/api/tags/backfill", { method: "POST", body: JSON.stringify({}) });
-    if (result) result.textContent = `已处理 ${data.processed} 条，其中打上标签 ${data.tagged} 条`;
-    flash("回填完成");
+    const data = await api("/api/tags/backfill", {
+      method: "POST",
+      body: JSON.stringify({ mode }),
+    });
+    if (result) result.textContent = `已处理 ${data.processed} 条，其中 ${data.tagged} 条有标签`;
+    flash(mode === "all" ? "全量重算完成" : "待打标处理完成");
     loadAdminTags();
   } catch (err) {
     if (result) result.textContent = "";
-    alert("回填失败: " + err.message);
+    alert("处理失败: " + err.message);
   } finally {
-    if (btn) btn.disabled = false;
+    buttons.forEach((button) => { button.disabled = false; });
   }
 }
 

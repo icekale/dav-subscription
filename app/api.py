@@ -6,6 +6,7 @@ import os
 import re
 import secrets
 import time
+from typing import Literal
 
 logger = logging.getLogger(__name__)
 
@@ -179,7 +180,7 @@ class TagVocabularyIn(BaseModel):
 
 
 class TagBackfillIn(BaseModel):
-    limit: int = 200
+    mode: Literal["pending", "all"] = "pending"
 
 
 class KolRequestIn(BaseModel):
@@ -1717,10 +1718,11 @@ def create_api_router(
 
     @router.post("/tags/backfill", dependencies=[Depends(require_admin)])
     def backfill_post_tags(body: TagBackfillIn, admin: dict = Depends(require_admin)):
-        """给全部未打标贴文补标签（关键词规则，零成本）。
+        """按当前规则回填/重算贴文标签（关键词规则，零成本）。
 
-        用 id 游标分页：未命中关键词的帖子保持未打标（tags 为空），若按
-        untagged_only 循环拉取会永远捞起同一批帖而死循环——游标只扫一遍。
+        mode=pending（默认）只处理尚未打标的帖（''/NULL）；mode=all 全量重算，
+        覆盖全部历史标签（含零命中帖标记为 []）。两种模式都用 id 游标扫一遍，
+        不会无限循环。保存词表不触发此操作，全量重算必须由管理员显式发起。
         """
         from .tagging import rule_tag_posts, stock_tag_posts
 
@@ -1732,7 +1734,7 @@ def create_api_router(
         below_id: int | None = None  # None 表示从最新开始，之后按每批最小 id 推进
         while True:
             batch = db.list_posts(
-                limit=500, untagged_only=True, below_id=below_id
+                limit=500, untagged_only=body.mode == "pending", below_id=below_id
             )
             if not batch:
                 break
@@ -1755,16 +1757,18 @@ def create_api_router(
             tagged = rule_tag_posts(posts, tag_rules)
             stock_tagged = stock_tag_posts(posts, stock_names, aliases=stock_aliases)
             for i, post in enumerate(posts):
-                # 合并：话题（≤3）+ 股票（≤2）
+                # 合并：话题（≤3）+ 股票（≤2）；空列表也回写（零命中标记为已处理）
                 merged = list((tagged.get(i) or [])[:3]) + list((stock_tagged.get(i) or [])[:2])
+                db.update_post_tags(batch[i]["id"], merged)
                 if merged:
-                    db.update_post_tags(batch[i]["id"], merged)
                     tagged_count += 1
             processed += len(batch)
             # 游标推进到本批最小 id（ORDER BY id DESC），下一批只扫更早的帖
             below_id = min(p["id"] for p in batch)
         _audit(
-            admin, "backfill_post_tags", detail=f"processed={processed} tagged={tagged_count}"
+            admin,
+            "backfill_post_tags",
+            detail=f"mode={body.mode} processed={processed} tagged={tagged_count}",
         )
         return {"processed": processed, "tagged": tagged_count}
 

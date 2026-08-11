@@ -2766,33 +2766,74 @@ def test_tag_filter_exact_element_match():
     assert [p["external_id"] for p in filtered] == ["f1"]
 
 
-def test_backfill_terminates_with_unmatched_posts():
-    """未命中关键词的帖子保持未打标，回填用 id 游标必须能终止（曾死循环）。"""
+def test_pending_backfill_does_not_rescan_processed_no_match_posts():
+    """零命中帖标记为已处理（[]），回填不会重复扫描（曾死循环回归）。"""
     client = make_client()
     admin = auth_headers(client, "tagadmin")
     db = client.app.state.db
     kid = db.add_kol("xueqiu", "标签大V", "tagloop1")
-    # 3 帖：1 个命中「宏观」（央行），2 个不含任何关键词
+    # 2 帖：1 个命中「宏观」（央行），1 个不含任何关键词
     db.insert_post("xueqiu", kid, "lp1", "央行降息", "央行宣布降息", "u", "")
     db.insert_post("xueqiu", kid, "lp2", "无关内容", "今天天气不错", "u", "")
-    db.insert_post("xueqiu", kid, "lp3", "更早的无关", "随便聊聊", "u", "")
 
-    # 第一次回填：游标扫一遍全部未打标帖（3 条），命中 1 条
-    resp = client.post("/api/tags/backfill", headers=admin, json={})
-    assert resp.status_code == 200, resp.text
-    data = resp.json()
-    assert data["processed"] == 3
-    assert data["tagged"] == 1
+    # 第一次回填：全部扫一遍，命中 1 条；零命中帖也标记为已处理
+    first = client.post("/api/tags/backfill", headers=admin, json={})
+    assert first.status_code == 200, first.text
+    assert first.json() == {"processed": 2, "tagged": 1}
 
-    # 第二次回填：未命中帖仍 untagged，游标重新扫到 2 条，但能正常终止（不死循环）
-    resp2 = client.post("/api/tags/backfill", headers=admin, json={})
-    assert resp2.status_code == 200, resp2.text
-    assert resp2.json()["tagged"] == 0
-    assert resp2.json()["processed"] == 2
+    # 第二次回填：零命中帖已是 []，不再被重复扫描（曾死循环）
+    second = client.post("/api/tags/backfill", headers=admin, json={})
+    assert second.status_code == 200, second.text
+    assert second.json() == {"processed": 0, "tagged": 0}
 
-    # 命中的帖子确实写库了
-    pid = db.get_post_id("xueqiu", "lp1")
-    assert db.get_post(pid)["tags"] == '["宏观"]'
+    # 命中的帖子确实写库了，零命中帖标记为已处理
+    assert db.get_post(db.get_post_id("xueqiu", "lp1"))["tags"] == '["宏观"]'
+    assert db.get_post(db.get_post_id("xueqiu", "lp2"))["tags"] == "[]"
+
+
+def test_full_retag_replaces_existing_and_clears_stale_tags(monkeypatch):
+    """mode=all 全量重算：覆盖已有标签，命中替换、零命中清空为 []。"""
+    client = make_client()
+    admin = auth_headers(client, "tagadmin")
+    db = client.app.state.db
+    kid = db.add_kol("xueqiu", "标签大V", "tag-retag")
+    old_id = db.insert_post("xueqiu", kid, "old", "旧标签", "无命中", "u", "")
+    hit_id = db.insert_post("xueqiu", kid, "hit", "政策", "新规出台", "u", "")
+    db.update_post_tags(old_id, ["已删除标签"])
+    db.update_post_tags(hit_id, ["旧政策"])
+
+    monkeypatch.setattr(
+        "app.tagging.rule_tag_posts",
+        lambda posts, rules: {
+            i: (["政策"] if post.external_id == "hit" else [])
+            for i, post in enumerate(posts)
+        },
+    )
+    monkeypatch.setattr(
+        "app.tagging.stock_tag_posts",
+        lambda posts, names, aliases=None: {i: [] for i in range(len(posts))},
+    )
+
+    response = client.post(
+        "/api/tags/backfill", headers=admin, json={"mode": "all"}
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {"processed": 2, "tagged": 1}
+    assert db.get_post(old_id)["tags"] == "[]"
+    assert db.get_post(hit_id)["tags"] == '["政策"]'
+
+
+def test_retag_rejects_unknown_mode():
+    """回填模式只允许 pending/all，未知值返回 422。"""
+    client = make_client()
+    admin = auth_headers(client, "tagadmin")
+
+    response = client.post(
+        "/api/tags/backfill", headers=admin, json={"mode": "recent"}
+    )
+
+    assert response.status_code == 422
 
 
 def test_backfill_merges_stock_tags(monkeypatch):
