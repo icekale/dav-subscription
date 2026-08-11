@@ -1691,7 +1691,7 @@ def create_api_router(
             raise HTTPException(
                 status_code=400, detail=f"词表最多 {TAG_VOCABULARY_MAX} 个标签"
             )
-        db.set_tag_vocabulary(deduped)
+        # 先校验后写入：任一 400 都不产生部分持久化
         stock_names = db.get_stock_names()
         if body.stock_names is not None:
             seen_stocks, deduped_stocks = set(), []
@@ -1701,9 +1701,8 @@ def create_api_router(
                     seen_stocks.add(name)
                     deduped_stocks.append(name)
             stock_names = deduped_stocks
-            db.set_stock_names(stock_names)
+        alias_targets: dict[str, str] = {}
         if body.stock_aliases is not None:
-            alias_targets: dict[str, str] = {}
             for a in body.stock_aliases:
                 alias = (a.alias or "").strip()
                 stock = (a.stock or "").strip()
@@ -1726,6 +1725,10 @@ def create_api_router(
                         detail=f"别名 {alias} 映射冲突：{previous} / {stock}",
                     )
                 alias_targets[alias] = stock
+        db.set_tag_vocabulary(deduped)
+        if body.stock_names is not None:
+            db.set_stock_names(stock_names)
+        if body.stock_aliases is not None:
             db.set_stock_aliases(
                 [
                     {"alias": alias, "stock": stock}
