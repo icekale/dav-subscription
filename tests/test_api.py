@@ -375,6 +375,23 @@ def test_error_logs_persist_and_filter():
     assert client.get("/api/admin/error-logs", headers=uh).status_code == 403
 
 
+def test_error_db_handler_captures_warnings():
+    """ErrorDbHandler 已挂到 root：WARNING 流向持久化 sink，INFO 不进。"""
+    import logging
+
+    from app import logging_setup
+
+    captured = []
+    logging_setup.register_error_sink(
+        lambda rec: captured.append((rec.levelname, rec.name, rec.getMessage()))
+    )
+    logging_setup.setup_logging(level="INFO")  # 幂等：handler 只挂一次
+    logging.getLogger("app.test").warning("测试告警")
+    logging.getLogger("app.test").info("普通信息不该进")
+    assert ("WARNING", "app.test", "测试告警") in captured
+    assert not any("普通信息" in c[2] for c in captured)
+
+
 def test_version_api(monkeypatch):
     from app.version import APP_VERSION
 

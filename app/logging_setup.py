@@ -100,6 +100,10 @@ def setup_logging(level: str | None = None, log_file: str | None = None) -> None
             ring = RingBufferHandler(level=logging.DEBUG)
             ring.setFormatter(formatter)
             root.addHandler(ring)
+            # WARNING+ 持久化到 DB（跨重启可查）；sink 由 create_app 注入，未注入时静默
+            error_db = ErrorDbHandler(level=logging.WARNING)
+            error_db.setFormatter(formatter)
+            root.addHandler(error_db)
             if log_file:
                 Path(log_file).parent.mkdir(parents=True, exist_ok=True)
                 file_handler = logging.handlers.RotatingFileHandler(
