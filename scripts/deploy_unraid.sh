@@ -25,9 +25,10 @@ done < <(runtime_files)
 
 printf '%s\n' "${FILES[@]}" > /tmp/vpush-runtime-files.txt
 
-# 只同步明确的 Git 运行文件；--delete-missing-args 处理已删除文件，不触碰 .env/data。
+# 只同步明确的 Git 运行文件，不触碰 .env/data；已删除文件由下方 manifest 对比清理。
+# 不用 --delete-missing-args：macOS 自带 openrsync 不支持该选项。
 echo "== 同步完整运行文件 =="
-rsync -azR --files-from=/tmp/vpush-runtime-files.txt --delete-missing-args ./ "$HOST:$REMOTE_DIR/"
+rsync -azR --files-from=/tmp/vpush-runtime-files.txt ./ "$HOST:$REMOTE_DIR/"
 
 # 删除上一版 manifest 中已不再跟踪的运行文件。
 scp /tmp/vpush-runtime-files.txt "$HOST:$REMOTE_DIR/.deploy-manifest.new" >/dev/null
