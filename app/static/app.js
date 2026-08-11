@@ -2849,8 +2849,9 @@ async function savePollingConfig() {
   };
   try {
     await api("/api/admin/polling-config", { method: "PUT", body: JSON.stringify(body) });
-    $("#pc-result").textContent = "已保存 ✅ 即时生效";
-    loadAdminStats();
+    // 只更新反馈提示，不重建页面——loadAdminStats 会整页重建并跳回监控总览
+    const tip = $("#pc-result");
+    if (tip) tip.textContent = "已保存 ✅ 即时生效";
   } catch (err) {
     alert("保存失败: " + err.message);
   }
@@ -2867,8 +2868,9 @@ async function saveXueqiuCookie() {
       method: "POST",
       body: JSON.stringify({ cookie }),
     });
-    $("#xq-result").textContent = "已保存 ✅";
-    loadAdminStats();
+    // 只更新反馈提示，不重建页面（同 savePollingConfig 的跳回总览问题）
+    const tip = $("#xq-result");
+    if (tip) tip.textContent = "已保存 ✅";
   } catch (err) {
     alert("保存失败: " + err.message);
   }
