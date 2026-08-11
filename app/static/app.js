@@ -881,7 +881,7 @@ async function renderTimeline(seq) {
       <div class="tl-filterbar-top">
         <div class="tl-pills" id="tl-pills">${tlPillsHtml()}</div>
         <div class="tl-actions">
-          <button id="tl-filter-toggle" class="fav-toggle ${state.timelineQ || state.timelineCategory ? "has-filter" : ""}" aria-expanded="false" aria-controls="tl-filter-panel" onclick="tlFilterPanel()">筛选</button>
+          <button id="tl-filter-toggle" class="fav-toggle ${state.timelineQ || state.timelineCategory || state.timelineTag ? "has-filter" : ""}" aria-expanded="false" aria-controls="tl-filter-panel" onclick="tlFilterPanel()">筛选</button>
           <button id="timeline-fav-toggle" class="fav-toggle ${state.timelineFavorite ? "fav-on" : ""}" aria-pressed="${state.timelineFavorite}" onclick="toggleTimelineFav()">${STAR_SVG} 特别关注</button>
           <button id="timeline-secondary-toggle" class="fav-toggle ${state.timelineSecondary ? "fav-on" : ""}" aria-pressed="${state.timelineSecondary}" onclick="toggleTimelineSecondary()" title="显示/隐藏次要大V动态（默认隐藏）">${state.timelineSecondary ? EYE_ICON : EYE_OFF_ICON} 次要大V</button>
         </div>
@@ -1050,6 +1050,12 @@ function tlResetFilters() {
 // 点击帖子标签直接进入该标签筛选（复用 timelineTag 状态与筛选条）
 function tlPickTag(tag) {
   state.timelineTag = tag;
+  const tagSel = $("#tl-tag");
+  if (tagSel) tagSel.value = tag;
+  const btn = $("#tl-filter-toggle");
+  if (btn) {
+    btn.classList.toggle("has-filter", !!(state.timelineQ || state.timelineCategory || state.timelineTag));
+  }
   loadTimeline(true, routeRenderSeq);
 }
 
@@ -1137,7 +1143,7 @@ function renderTimelineFeed() {
   const footer = _tlHasMore
     ? `<div class="toolbar" style="margin-top:14px;justify-content:center"><button class="btn-normal" onclick="timelineLoadMore()">加载更多</button></div>`
     : (posts.length ? `<p class="muted" style="text-align:center;margin-top:14px">已加载全部</p>` : "");
-  const hasFilter = state.timelineQ || state.timelinePlatform || state.timelineCategory;
+  const hasFilter = state.timelineQ || state.timelinePlatform || state.timelineCategory || state.timelineTag;
   const emptyMsg = state.timelineFavorite && !hasFilter
     ? "还没有特别关注大V的动态"
     : (hasFilter ? "没有符合条件的动态" : "还没有订阅任何大V");
