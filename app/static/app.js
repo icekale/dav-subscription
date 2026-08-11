@@ -1047,6 +1047,12 @@ function tlResetFilters() {
   loadTimeline(true, routeRenderSeq);
 }
 
+// 点击帖子标签直接进入该标签筛选（复用 timelineTag 状态与筛选条）
+function tlPickTag(tag) {
+  state.timelineTag = tag;
+  loadTimeline(true, routeRenderSeq);
+}
+
 async function loadTimelineCategories() {
   if (!_tlCategories) _tlCategories = await api("/api/categories");
   const sel = $("#tl-category");
@@ -1247,7 +1253,7 @@ function postCard(post) {
         ${post.category_name ? `<span class="cat">${escapeHtml(post.category_name)}</span>` : ""}
         ${post.post_type === "reply" ? `<span class="cat">回复</span>` : ""}
         ${Array.isArray(post.tags) && post.tags.length
-          ? post.tags.map((t) => `<span class="cat cat-tag">${escapeHtml(t)}</span>`).join("")
+          ? post.tags.map((t) => `<button type="button" class="cat cat-tag post-tag-filter" data-tag="${escapeHtml(t)}" onclick="tlPickTag(this.dataset.tag)">${escapeHtml(t)}</button>`).join("")
           : ""}
         <a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener">查看原文 →</a>
       </div>

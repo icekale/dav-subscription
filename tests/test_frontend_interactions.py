@@ -99,3 +99,17 @@ def test_route_token_guard_checks_latest_seq():
     assert "routeRenderSeq" in m.group(0)
     # 严格令牌：已删除「未传 token 视为活跃」的兼容分支
     assert "undefined" not in m.group(0)
+
+
+def test_post_tags_filter_timeline_without_inline_user_string():
+    """时间线帖子标签必须是可点击按钮：data-tag 传值 + tlPickTag 复用 state.timelineTag。
+
+    约束：onclick 不得把标签文本插进 JS 字符串（XSS 注入面），必须走 this.dataset.tag。
+    """
+    post_card = _fn_body("postCard")
+    pick_tag = _fn_body("tlPickTag")
+
+    assert 'data-tag="${escapeHtml(t)}"' in post_card
+    assert "tlPickTag(this.dataset.tag)" in post_card
+    assert "state.timelineTag = tag" in pick_tag
+    assert "loadTimeline(true, routeRenderSeq)" in pick_tag
