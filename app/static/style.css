@@ -440,12 +440,15 @@ textarea.form-control {
 .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 
 /* 抓取设置分组栅格：按抓取档位分组（基础轮询/雪球组合/自适应降频/次要大V/X通道/保活定时），
-   两列自适应，窄屏自动折为单列 */
+   固定两列（6 组 = 3 行 × 2 列），避免超宽屏 auto-fit 无限加列把卡片拉成横排一长条；窄屏折单列 */
 .cfg-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: repeat(2, 1fr);
   gap: 14px;
   margin-top: 14px;
+}
+@media (max-width: 640px) {
+  .cfg-grid { grid-template-columns: 1fr; }
 }
 .cfg-group {
   background: var(--color-surface-soft);
