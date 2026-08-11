@@ -41,6 +41,74 @@ def _normalize_weibo_id(external_id: str) -> str:
     return match.group(1) if match else external_id
 
 
+# ---- 大V申请输入甄别与归一化（过滤无效信息 + 平台纠错提示） ----
+_PLATFORM_LABELS = {"xueqiu": "雪球", "combination": "雪球组合", "weibo": "微博", "twitter": "X"}
+# X 的系统页面路径（用户主页链接不会以这些开头）
+_TWITTER_SYSTEM_PATHS = {"home", "explore", "search", "settings", "notifications",
+                         "messages", "compose", "bookmarks", "jobs", "login", "signup",
+                         "account", "i"}
+
+
+def _detect_platform_from_link(text: str) -> str | None:
+    """从链接粗判所属平台；雪球组合链接优先于雪球用户链接。"""
+    if re.search(r"(?:xueqiu\.com/P/|ZH\d)", text):
+        return "combination"
+    if "xueqiu.com" in text:
+        return "xueqiu"
+    if re.search(r"weibo\.(com|cn)", text):
+        return "weibo"
+    if re.search(r"(?:^|[/:.])x\.com|twitter\.com", text):
+        return "twitter"
+    return None
+
+
+def _normalize_kol_request_input(platform: str, raw: str) -> tuple[str, str | None]:
+    """校验并归一化用户的大V申请输入。
+
+    返回 (external_id, error)：error 非空时申请无效（external_id 为空）。
+    链接能识别出平台但与所选平台不符时，返回纠错提示让用户切换平台。
+    """
+    text = (raw or "").strip()
+    if not text:
+        return "", "请输入大V主页链接或 ID"
+    detected = _detect_platform_from_link(text)
+    if detected is not None and detected != platform:
+        return "", (
+            f"检测到这是「{_PLATFORM_LABELS[detected]}」的主页链接，"
+            f"请把平台切换为「{_PLATFORM_LABELS[detected]}」（当前选的是「{_PLATFORM_LABELS[platform]}」）"
+        )
+    if platform == "xueqiu":
+        m = re.search(r"xueqiu\.com/(?:u/)?(\d+)", text)
+        if m:
+            return m.group(1), None
+        if text.isdigit():
+            return text, None
+        return "", "无法识别的雪球主页链接，请使用 xueqiu.com/u/<数字ID> 形式（或直接填数字 ID）"
+    if platform == "combination":
+        m = re.search(r"(?:xueqiu\.com/P/)?(ZH\d+)", text)
+        if m:
+            return m.group(1), None
+        return "", "无法识别的雪球组合链接，请使用 xueqiu.com/P/ZHxxxxxx 或组合代码 ZHxxxxxx"
+    if platform == "weibo":
+        m = re.search(r"(?:weibo\.com|m\.weibo\.cn)/u/(\d+)", text)
+        if m:
+            return m.group(1), None
+        if text.isdigit():
+            return text, None
+        return "", "无法识别的微博主页链接，请复制对方主页「.../u/<数字UID>」形式的链接"
+    if platform == "twitter":
+        m = re.search(r"(?:x|twitter)\.com/([A-Za-z0-9_]+)", text)
+        if m:
+            path = m.group(1)
+            if re.search(r"/status/|/i(?:/|$)", text) or path in _TWITTER_SYSTEM_PATHS:
+                return "", "这是 X 的系统页面/推文链接，请复制用户主页链接（x.com/<用户名>）"
+            return path, None
+        if re.fullmatch(r"@?[A-Za-z0-9_]{1,15}", text):
+            return text.lstrip("@"), None
+        return "", "无法识别的 X 用户名，请使用 x.com/<用户名> 链接或 @用户名"
+    return "", f"不支持的平台: {platform}"
+
+
 def _account_key(username: str) -> str:
     """账号锁定/失败计数的统一键：去空白 + casefold。
 
@@ -1144,19 +1212,9 @@ def create_api_router(
         """用户申请添加大V，管理员审批后入库。"""
         if body.platform not in ALLOWED_PLATFORMS:
             raise HTTPException(status_code=400, detail=f"不支持的平台: {body.platform}")
-        external_id = body.external_id.strip()
-        if body.platform == "xueqiu":
-            match = re.search(r"xueqiu\.com/(?:u/)?(\d+)", external_id)
-            if match:
-                external_id = match.group(1)
-        elif body.platform == "combination":
-            symbol = extract_cube_symbol(external_id)
-            if symbol:
-                external_id = symbol
-        elif body.platform == "weibo":
-            external_id = _normalize_weibo_id(external_id)
-        if not external_id:
-            raise HTTPException(status_code=400, detail="请提供大V主页链接或ID")
+        external_id, err = _normalize_kol_request_input(body.platform, body.external_id)
+        if err:
+            raise HTTPException(status_code=400, detail=err)
         try:
             db.add_kol_request(body.platform, external_id, user["id"], name=body.name)
         except ValueError as exc:

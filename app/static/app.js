@@ -1295,7 +1295,7 @@ async function renderSearch(seq) {
             <option value="weibo">微博</option>
             <option value="twitter">X</option>
           </select>
-          <input id="ask-link" class="form-control" style="margin:0;flex:1;min-width:220px" placeholder="大V主页链接或 ID">
+          <input id="ask-link" class="form-control" style="margin:0;flex:1;min-width:220px" placeholder="大V主页链接或 ID" oninput="onAskLinkInput()">
           <button class="btn-normal" onclick="submitAsk()">提交申请</button>
         </div>
         <div id="ask-result" class="muted" style="margin-top:12px"></div>
@@ -1315,10 +1315,39 @@ async function renderSearch(seq) {
   else $("#search-input").focus();
 }
 
+const ASK_PLATFORM_LABELS = { xueqiu: "雪球", combination: "雪球组合", weibo: "微博", twitter: "X" };
+
+function detectAskPlatform(link) {
+  // 与后端 _detect_platform_from_link 同规则：输入链接时自动甄别平台
+  if (/(?:xueqiu\.com\/P\/|ZH\d)/.test(link)) return "combination";
+  if (link.includes("xueqiu.com")) return "xueqiu";
+  if (/weibo\.(com|cn)/.test(link)) return "weibo";
+  if (/(^|[\/:.])x\.com|twitter\.com/.test(link)) return "twitter";
+  return "";
+}
+
+function onAskLinkInput() {
+  // 粘贴链接时自动甄别平台：识别出其他平台则自动切换下拉并提示
+  const link = $("#ask-link").value.trim();
+  const detected = detectAskPlatform(link);
+  const sel = $("#ask-platform");
+  if (!detected || !sel || sel.value === detected) return;
+  sel.value = detected;
+  showAskResult(`已识别为「${ASK_PLATFORM_LABELS[detected]}」主页链接，平台已自动切换`, false);
+}
+
+function showAskResult(msg, isError) {
+  const el = $("#ask-result");
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.toggle("ask-error", !!isError);
+  el.classList.toggle("ask-ok", !isError);
+}
+
 async function submitAsk() {
   const external_id = $("#ask-link").value.trim();
   if (!external_id) {
-    alert("请填写大V主页链接或 ID");
+    showAskResult("请填写大V主页链接或 ID", true);
     return;
   }
   try {
@@ -1327,10 +1356,10 @@ async function submitAsk() {
       body: JSON.stringify({ platform: $("#ask-platform").value, external_id }),
     });
     $("#ask-link").value = "";
-    $("#ask-result").textContent = "已提交 ✅ 管理员审批通过后会自动出现在订阅广场";
+    showAskResult("已提交 ✅ 管理员审批通过后会自动出现在订阅广场", false);
     loadMyAsks();
   } catch (err) {
-    $("#ask-result").textContent = "提交失败: " + err.message;
+    showAskResult(err.message, true); // 后端返回具体的纠错提示（平台切换/链接格式）
   }
 }
 

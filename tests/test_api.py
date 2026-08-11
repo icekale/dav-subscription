@@ -352,6 +352,59 @@ def test_version_api(monkeypatch):
     assert "github.com" in data["url"]
 
 
+def test_kol_request_input_validation():
+    """申请输入过滤：无效信息拒绝、平台链接自动甄别并提示纠错。"""
+    client = make_client()
+    headers = user_headers(client, "valuser")
+    db = client.app.state.db
+
+    def submit(platform, external_id):
+        return client.post(
+            "/api/kol-requests", headers=headers, json={"platform": platform, "external_id": external_id}
+        )
+
+    def bad(platform, external_id, hint):
+        resp = submit(platform, external_id)
+        assert resp.status_code == 400, resp.text
+        assert hint in resp.json()["detail"], resp.json()["detail"]
+
+    # 各平台合法输入：链接提取 ID / 纯 ID 直通
+    assert submit("xueqiu", "https://xueqiu.com/u/1001").status_code == 200
+    assert submit("xueqiu", "12345").status_code == 200
+    assert submit("combination", "https://xueqiu.com/P/ZH900001").status_code == 200
+    assert submit("combination", "ZH900002").status_code == 200
+    assert submit("weibo", "https://weibo.com/u/2001").status_code == 200
+    assert submit("weibo", "https://m.weibo.cn/u/2002").status_code == 200
+    assert submit("twitter", "https://x.com/elonmusk").status_code == 200
+    assert submit("twitter", "@jack").status_code == 200
+    assert submit("twitter", "twitter.com/nasa").status_code == 200
+
+    # 无效信息：拒绝并提示
+    bad("xueqiu", "https://xueqiu.com/S/SH600000", "无法识别")
+    bad("xueqiu", "https://xueqiu.com/u/abc", "无法识别")
+    bad("combination", "https://xueqiu.com/P/123", "无法识别")
+    bad("combination", "abc", "无法识别")
+    bad("weibo", "https://weibo.com/n/某博主", "无法识别")
+    bad("twitter", "https://x.com/i/flow/login", "系统页面")
+    bad("twitter", "https://x.com/search?q=btc", "系统页面")
+    bad("twitter", "https://x.com/elonmusk/status/123", "推文")
+    bad("twitter", "这个不是链接", "无法识别")
+    bad("xueqiu", "", "请输入")
+
+    # 平台甄别：链接属于其他平台时提示切换平台
+    bad("xueqiu", "https://xueqiu.com/P/ZH900003", "雪球组合")
+    bad("combination", "https://xueqiu.com/u/1002", "雪球")
+    bad("xueqiu", "https://twitter.com/elonmusk", "「X」")
+    bad("weibo", "https://x.com/elonmusk", "「X」")
+    bad("twitter", "https://weibo.com/u/2003", "微博")
+
+    # 通过的申请都存了归一化后的 ID
+    ids = {r["external_id"] for r in db.list_kol_requests()}
+    assert "1001" in ids and "ZH900001" in ids and "ZH900002" in ids
+    assert {"elonmusk", "jack", "nasa"} <= ids
+    assert not any(r["external_id"].startswith("http") for r in db.list_kol_requests())
+
+
 def test_kol_request_notifies_admins(monkeypatch):
     client = make_client()
     auth_headers(client)

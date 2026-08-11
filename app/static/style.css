@@ -803,6 +803,8 @@ body.lightbox-open { overflow: hidden; }
   from { opacity: 0; transform: translateY(-4px); }
   to { opacity: 1; transform: none; }
 }
+.ask-error { color: var(--color-danger); }
+.ask-ok { color: var(--color-success); }
 .tl-skeleton { display: flex; flex-direction: column; gap: 16px; padding: 4px 0; }
 .tl-sk-item { display: flex; gap: 12px; align-items: flex-start; }
 .tl-sk-avatar {
