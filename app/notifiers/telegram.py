@@ -329,8 +329,11 @@ class TelegramNotifier(Notifier):
             data["reply_markup"] = keyboard
         self._send(data)
 
-    def send_text(self, text: str) -> None:
-        self._send({"text": text})
+    def send_text(self, text: str, reply_markup: list | None = None) -> None:
+        data: dict = {"text": text}
+        if reply_markup:
+            data["reply_markup"] = json.dumps({"inline_keyboard": reply_markup}, ensure_ascii=False)
+        self._send(data)
 
     def send_photo(self, photo: bytes, caption: str = "") -> None:
         if not self.bot_token or not self.chat_id:

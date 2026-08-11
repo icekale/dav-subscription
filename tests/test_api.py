@@ -417,8 +417,8 @@ def test_kol_request_notifies_admins(monkeypatch):
         def __init__(self, *args, **kwargs):
             self.client = SimpleNamespace(close=lambda: None)
 
-        def send_text(self, text):
-            sent.append(text)
+        def send_text(self, text, reply_markup=None):
+            sent.append((text, reply_markup))
 
     monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FakeTG)
     headers = user_headers(client, "requser")
@@ -428,7 +428,97 @@ def test_kol_request_notifies_admins(monkeypatch):
         json={"platform": "xueqiu", "external_id": "https://xueqiu.com/u/999999"},
     )
     assert resp.status_code == 200
-    assert any("新的大V添加申请" in t and "999999" in t for t in sent)
+    assert any("新的大V添加申请" in t and "999999" in t for t, _ in sent)
+
+
+def test_kol_request_notify_tg_only_when_bound(monkeypatch):
+    """管理员同时绑 TG 和飞书时，大V申请只推 TG（带审批按钮），不重复推飞书。"""
+    client = make_client()
+    auth_headers(client)
+    admin = client.app.state.db.get_user_by_username("testadmin")
+    client.app.state.db.update_user(
+        admin["id"], telegram_chat_id="111", telegram_bot_token="tok", feishu_chat_id="oc_abc"
+    )
+    sent_tg, sent_fs = [], []
+
+    class FakeTG:
+        def __init__(self, *args, **kwargs):
+            self.client = SimpleNamespace(close=lambda: None)
+
+        def send_text(self, text, reply_markup=None):
+            sent_tg.append((text, reply_markup))
+
+    class FakeFS:
+        def __init__(self, *args, **kwargs):
+            self.client = SimpleNamespace(close=lambda: None)
+
+        def send_text(self, text):
+            sent_fs.append(text)
+
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FakeTG)
+    monkeypatch.setattr("app.notifiers.feishu.FeishuNotifier", FakeFS)
+    headers = user_headers(client, "requser2")
+    resp = client.post(
+        "/api/kol-requests",
+        headers=headers,
+        json={"platform": "xueqiu", "external_id": "https://xueqiu.com/u/777777"},
+    )
+    assert resp.status_code == 200
+    assert len(sent_tg) == 1 and sent_fs == []  # 已绑 TG 不再重复推飞书
+    text, keyboard = sent_tg[0]
+    assert "添加审批" in text and "求添加" not in text
+    callback = [b["callback_data"] for row in keyboard for b in row]
+    assert any(c.startswith("approve:") for c in callback)
+    assert any(c.startswith("reject:") for c in callback)
+
+
+def test_tg_callback_approve_reject_kol_request(monkeypatch):
+    """TG 审批按钮回调：管理员点通过/拒绝直接生效，非管理员被拒绝。"""
+    monkeypatch.setattr("app.api.resolve_profile", lambda uid, cookie="": {})
+    client = make_client()
+    auth_headers(client)
+    db = client.app.state.db
+    admin = db.get_user_by_username("testadmin")
+    db.update_user(admin["id"], telegram_chat_id="111")
+    u = register(client, "askuser", "pass123456")
+    uid = u.json()["user"]["id"]
+    req_id = db.add_kol_request("xueqiu", "888888", uid)
+
+    from app.telegram_bot import TelegramBot
+
+    bot = TelegramBot(db, "tok", "secret")
+    calls = []
+    bot._call = lambda method, **params: calls.append((method, params))
+
+    def click(chat_id, data):
+        calls.clear()
+        bot.handle_update({
+            "callback_query": {
+                "id": "cq1", "data": data, "from": {"username": "tgadmin"},
+                "message": {"chat": {"id": chat_id}, "message_id": 5},
+            }
+        })
+
+    # 管理员点「通过」：上架 + 审批状态更新 + 消息编辑为已通过
+    click("111", f"approve:{req_id}")
+    assert db.get_kol_by_external("xueqiu", "888888") is not None
+    assert db.get_kol_request(req_id)["status"] == "approved"
+    assert any(m == "editMessageText" and "已通过" in p.get("text", "") for m, p in calls)
+
+    # 管理员点「拒绝」
+    req2 = db.add_kol_request("xueqiu", "888889", uid)
+    click("111", f"reject:{req2}")
+    assert db.get_kol_request(req2)["status"] == "rejected"
+    assert any(m == "editMessageText" and "已拒绝" in p.get("text", "") for m, p in calls)
+
+    # 非管理员点按钮：拒绝操作并提示
+    click("999", f"approve:{req2}")
+    assert db.get_kol_request(req2)["status"] == "rejected"  # 状态未被改动
+    assert any(m == "editMessageText" and "只有管理员" in p.get("text", "") for m, p in calls)
+
+    # 重复审批（已处理）提示失败
+    click("111", f"approve:{req2}")
+    assert any(m == "editMessageText" and "审批失败" in p.get("text", "") for m, p in calls)
 
 
 def test_push_channels_api():

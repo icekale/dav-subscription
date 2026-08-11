@@ -400,6 +400,112 @@ def _prune_window_dict(
             entries.pop(k, None)
 
 
+def _do_approve_kol_request(db: DB, request_id: int, admin: dict, notifiers_config=None) -> dict | None:
+    """审批通过大V申请（HTTP 端点与 TG 审批按钮共用）。"""
+    req = db.get_kol_request(request_id)
+    if req is None or req["status"] != "pending":
+        raise HTTPException(status_code=404, detail="申请不存在或已处理")
+    name = (req["name"] or "").strip()
+    avatar_url = ""
+    # 申请通常只填了主页链接，审批时自动补昵称与头像，避免上架占位名
+    if req["platform"] == "xueqiu":
+        profile = resolve_profile(
+            req["external_id"],
+            db.get_setting(XUEQIU_COOKIE_KEY) or os.environ.get("XUEQIU_COOKIE", ""),
+        )
+        name = name or profile.get("screen_name") or ""
+        avatar_url = profile.get("avatar_url") or ""
+    elif req["platform"] == "combination":
+        profile = resolve_combination_profile(
+            req["external_id"],
+            db.get_setting(XUEQIU_COOKIE_KEY) or os.environ.get("XUEQIU_COOKIE", ""),
+        )
+        name = name or profile.get("name") or ""
+        avatar_url = profile.get("avatar_url") or ""
+    elif req["platform"] == "weibo":
+        profile = resolve_weibo_profile(
+            req["external_id"],
+            db.get_setting(WEIBO_COOKIE_KEY) or os.environ.get("WEIBO_COOKIE", ""),
+        )
+        name = name or profile.get("name") or ""
+        avatar_url = profile.get("avatar_url") or ""
+    elif req["platform"] == "twitter":
+        profile = resolve_x_profile(req["external_id"])
+        name = name or profile.get("name") or ""
+        avatar_url = profile.get("avatar_url") or ""
+    name = name or f"{req['platform']}_{req['external_id']}"
+    try:
+        kid = db.add_kol(req["platform"], name, req["external_id"])
+        if avatar_url:
+            db.update_kol_avatar(kid, cache_avatar(db, kid, avatar_url))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    db.set_kol_request_status(request_id, "approved")
+    db.log_admin_action(admin["id"], "approve_kol_request", str(request_id), f"{name} {req['external_id']}")
+    try:
+        db.add_subscription(req["user_id"], kid)
+    except Exception:  # noqa: BLE001 - 自动订阅失败不阻塞审批
+        logger.warning("审批后自动订阅失败 request=%s", request_id, exc_info=True)
+    if notifiers_config is not None:
+        from .notifiers.feishu import FeishuNotifier
+        from .notifiers.telegram import TelegramNotifier
+        from .notifiers.wecom import WeComNotifier
+
+        requester = db.get_user(req["user_id"])
+        message = f"✅ 你申请的大V「{name}」已通过审批，已自动为你订阅"
+        if requester and requester["telegram_chat_id"] and notifiers_config.telegram.bot_token:
+            notifier = None
+            try:
+                notifier = TelegramNotifier(
+                    notifiers_config.telegram,
+                    chat_id=requester["telegram_chat_id"],
+                    bot_token=requester.get("telegram_bot_token") or None,
+                )
+                notifier.send_text(message)
+            except Exception:  # noqa: BLE001
+                logger.warning("审批通知 TG 发送失败 user=%s", requester["username"], exc_info=True)
+            finally:
+                if notifier is not None:
+                    notifier.client.close()
+        if requester and (requester.get("feishu_open_id") or requester.get("feishu_chat_id")):
+            notifier = None
+            try:
+                notifier = FeishuNotifier(
+                    notifiers_config.feishu,
+                    open_id=requester["feishu_open_id"] if not requester.get("feishu_chat_id") else None,
+                    chat_id=requester.get("feishu_chat_id") or None,
+                )
+                notifier.send_text(message)
+            except Exception:  # noqa: BLE001
+                logger.warning("审批通知飞书发送失败 user=%s", requester["username"], exc_info=True)
+            finally:
+                if notifier is not None:
+                    notifier.client.close()
+        if requester and requester.get("wecom_webhook"):
+            notifier = None
+            try:
+                notifier = WeComNotifier(
+                    notifiers_config.wecom,
+                    webhook_url=requester["wecom_webhook"],
+                )
+                notifier.send_text(message)
+            except Exception:  # noqa: BLE001
+                logger.warning("审批通知企业微信发送失败 user=%s", requester["username"], exc_info=True)
+            finally:
+                if notifier is not None:
+                    notifier.client.close()
+    return db.get_kol(kid)
+
+
+def _do_reject_kol_request(db: DB, request_id: int, admin: dict) -> None:
+    """拒绝大V申请（HTTP 端点与 TG 审批按钮共用）。"""
+    req = db.get_kol_request(request_id)
+    if req is None or req["status"] != "pending":
+        raise HTTPException(status_code=404, detail="申请不存在或已处理")
+    db.set_kol_request_status(request_id, "rejected")
+    db.log_admin_action(admin["id"], "reject_kol_request", str(request_id), req["external_id"])
+
+
 def create_api_router(
     db: DB,
     secret: str,
@@ -487,29 +593,43 @@ def create_api_router(
     def _audit(admin: dict, action: str, target: str = "", detail: str = "") -> None:
         db.log_admin_action(admin["id"], action, target, detail)
 
-    def _notify_admins_new_request(platform: str, ref: str, requester: dict) -> None:
-        """新的大V添加申请：按管理员各自绑定的渠道通知。"""
+    def _notify_admins_new_request(platform: str, ref: str, requester: dict, request_id: int) -> None:
+        """新的大V添加申请：优先 TG 带审批按钮；未绑 TG 的管理员走其他渠道。"""
         if notifiers_config is None:
             return
         import httpx
 
         from .channels import CHANNELS, build_channel_notifier, channel_bound
 
-        label = {"xueqiu": "雪球", "combination": "雪球组合", "weibo": "微博", "twitter": "X"}.get(
-            platform, platform
-        )
+        label = _PLATFORM_LABELS.get(platform, platform)
         message = (
             f"🆕 新的大V添加申请：{label}「{ref}」\n"
             f"申请人：{requester['username']}\n"
-            "请到管理后台「求添加」审批。"
+            "点击下方按钮直接审批，或到管理后台「添加审批」处理。"
         )
+        keyboard = [
+            [
+                {"text": "✅ 通过", "callback_data": f"approve:{request_id}"},
+                {"text": "❌ 拒绝", "callback_data": f"reject:{request_id}"},
+            ]
+        ]
         client = httpx.Client(timeout=15)
         try:
             for user in db.list_users():
                 if not user.get("is_admin"):
                     continue
+                # TG 是唯一带审批按钮的渠道：已绑 TG 的管理员只发 TG，避免多渠道重复推送
+                if channel_bound(user, "telegram", notifiers_config):
+                    try:
+                        notifier = build_channel_notifier(
+                            "telegram", user, notifiers_config, client=client, db=db
+                        )
+                        notifier.send_text(message, reply_markup=keyboard)
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning("大V申请 TG 通知失败 user=%s err=%s", user["username"], exc)
+                    continue
                 for channel in CHANNELS:
-                    if not channel_bound(user, channel, notifiers_config):
+                    if channel == "telegram" or not channel_bound(user, channel, notifiers_config):
                         continue
                     try:
                         notifier = build_channel_notifier(channel, user, notifiers_config, client=client, db=db)
@@ -1216,12 +1336,12 @@ def create_api_router(
         if err:
             raise HTTPException(status_code=400, detail=err)
         try:
-            db.add_kol_request(body.platform, external_id, user["id"], name=body.name)
+            request_id = db.add_kol_request(body.platform, external_id, user["id"], name=body.name)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from None
         # 通知管理员有新申请（通知失败不影响申请提交）
         try:
-            _notify_admins_new_request(body.platform, body.name or external_id, user)
+            _notify_admins_new_request(body.platform, body.name or external_id, user, request_id)
         except Exception as exc:  # noqa: BLE001
             logger.warning("大V申请通知管理员失败 err=%s", exc)
         return {"ok": True}
@@ -1236,107 +1356,11 @@ def create_api_router(
 
     @router.post("/admin/kol-requests/{request_id}/approve", dependencies=[Depends(require_admin)])
     def approve_kol_request(request_id: int, admin: dict = Depends(require_admin)):
-        req = db.get_kol_request(request_id)
-        if req is None or req["status"] != "pending":
-            raise HTTPException(status_code=404, detail="申请不存在或已处理")
-        name = (req["name"] or "").strip()
-        avatar_url = ""
-        # 申请通常只填了主页链接，审批时自动补昵称与头像，避免上架占位名
-        if req["platform"] == "xueqiu":
-            profile = resolve_profile(
-                req["external_id"],
-                db.get_setting(XUEQIU_COOKIE_KEY) or os.environ.get("XUEQIU_COOKIE", ""),
-            )
-            name = name or profile.get("screen_name") or ""
-            avatar_url = profile.get("avatar_url") or ""
-        elif req["platform"] == "combination":
-            profile = resolve_combination_profile(
-                req["external_id"],
-                db.get_setting(XUEQIU_COOKIE_KEY) or os.environ.get("XUEQIU_COOKIE", ""),
-            )
-            name = name or profile.get("name") or ""
-            avatar_url = profile.get("avatar_url") or ""
-        elif req["platform"] == "weibo":
-            profile = resolve_weibo_profile(
-                req["external_id"],
-                db.get_setting(WEIBO_COOKIE_KEY) or os.environ.get("WEIBO_COOKIE", ""),
-            )
-            name = name or profile.get("name") or ""
-            avatar_url = profile.get("avatar_url") or ""
-        elif req["platform"] == "twitter":
-            profile = resolve_x_profile(req["external_id"])
-            name = name or profile.get("name") or ""
-            avatar_url = profile.get("avatar_url") or ""
-        name = name or f"{req['platform']}_{req['external_id']}"
-        try:
-            kid = db.add_kol(req["platform"], name, req["external_id"])
-            if avatar_url:
-                db.update_kol_avatar(kid, cache_avatar(db, kid, avatar_url))
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from None
-        db.set_kol_request_status(request_id, "approved")
-        _audit(admin, "approve_kol_request", str(request_id), f"{name} {req['external_id']}")
-        try:
-            db.add_subscription(req["user_id"], kid)
-        except Exception:  # noqa: BLE001 - 自动订阅失败不阻塞审批
-            logger.warning("审批后自动订阅失败 request=%s", request_id, exc_info=True)
-        if notifiers_config is not None:
-            from .notifiers.feishu import FeishuNotifier
-            from .notifiers.telegram import TelegramNotifier
-            from .notifiers.wecom import WeComNotifier
-
-            requester = db.get_user(req["user_id"])
-            message = f"✅ 你申请的大V「{name}」已通过审批，已自动为你订阅"
-            if requester and requester["telegram_chat_id"] and notifiers_config.telegram.bot_token:
-                notifier = None
-                try:
-                    notifier = TelegramNotifier(
-                        notifiers_config.telegram,
-                        chat_id=requester["telegram_chat_id"],
-                        bot_token=requester.get("telegram_bot_token") or None,
-                    )
-                    notifier.send_text(message)
-                except Exception:  # noqa: BLE001
-                    logger.warning("审批通知 TG 发送失败 user=%s", requester["username"], exc_info=True)
-                finally:
-                    if notifier is not None:
-                        notifier.client.close()
-            if requester and (requester.get("feishu_open_id") or requester.get("feishu_chat_id")):
-                notifier = None
-                try:
-                    notifier = FeishuNotifier(
-                        notifiers_config.feishu,
-                        open_id=requester["feishu_open_id"] if not requester.get("feishu_chat_id") else None,
-                        chat_id=requester.get("feishu_chat_id") or None,
-                    )
-                    notifier.send_text(message)
-                except Exception:  # noqa: BLE001
-                    logger.warning("审批通知飞书发送失败 user=%s", requester["username"], exc_info=True)
-                finally:
-                    if notifier is not None:
-                        notifier.client.close()
-            if requester and requester.get("wecom_webhook"):
-                notifier = None
-                try:
-                    notifier = WeComNotifier(
-                        notifiers_config.wecom,
-                        webhook_url=requester["wecom_webhook"],
-                    )
-                    notifier.send_text(message)
-                except Exception:  # noqa: BLE001
-                    logger.warning("审批通知企业微信发送失败 user=%s", requester["username"], exc_info=True)
-                finally:
-                    if notifier is not None:
-                        notifier.client.close()
-        return db.get_kol(kid)
+        return _do_approve_kol_request(db, request_id, admin, notifiers_config)
 
     @router.post("/admin/kol-requests/{request_id}/reject", dependencies=[Depends(require_admin)])
     def reject_kol_request(request_id: int, admin: dict = Depends(require_admin)):
-        req = db.get_kol_request(request_id)
-        if req is None or req["status"] != "pending":
-            raise HTTPException(status_code=404, detail="申请不存在或已处理")
-        db.set_kol_request_status(request_id, "rejected")
-        _audit(admin, "reject_kol_request", str(request_id), req["external_id"])
+        _do_reject_kol_request(db, request_id, admin)
         return {"ok": True}
 
     @router.post("/admin/register-codes", dependencies=[Depends(require_admin)])

@@ -6,6 +6,7 @@ import json
 import logging
 
 import httpx
+from fastapi import HTTPException
 
 from .bot_core import SubscriptionBot
 from .notifiers.telegram import _tg_rate_limiter
@@ -171,6 +172,33 @@ class TelegramBot:
             str(chat_id),
             (cb.get("from") or {}).get("username") or "",
         )
+        if data.startswith(("approve:", "reject:")):
+            # 大V添加申请审批按钮：仅管理员可操作，走与后台端点相同的逻辑
+            if not user.get("is_admin"):
+                self._edit(chat_id, message_id, "只有管理员可以审批大V申请")
+                return
+            try:
+                request_id = int(data.split(":", 1)[1])
+            except ValueError:
+                request_id = 0
+            from .api import _do_approve_kol_request, _do_reject_kol_request
+
+            try:
+                if data.startswith("approve:"):
+                    kol = _do_approve_kol_request(self.db, request_id, user)
+                    if kol is None:
+                        self._edit(chat_id, message_id, f"审批失败：申请 {request_id} 不存在")
+                    else:
+                        self._edit(
+                            chat_id, message_id,
+                            f"✅ 已通过「{kol['name']}」的添加申请，已上架并自动订阅申请人",
+                        )
+                else:
+                    _do_reject_kol_request(self.db, request_id, user)
+                    self._edit(chat_id, message_id, "❌ 已拒绝该添加申请")
+            except HTTPException as exc:
+                self._edit(chat_id, message_id, f"审批失败：{exc.detail}")
+            return
         if data.startswith("unsub:"):
             try:
                 kol_id = int(data.split(":", 1)[1])
