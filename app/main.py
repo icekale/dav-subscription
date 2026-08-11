@@ -228,6 +228,10 @@ def create_app(config=None, db_path: str | Path | None = None) -> FastAPI:
     avatars_dir = Path(config.db_path).parent / "avatars"
     avatars_dir.mkdir(parents=True, exist_ok=True)
     app.mount("/avatars", StaticFiles(directory=avatars_dir), name="avatars")
+    # 雪球新采集图片去水印后的本地缓存（数据目录/xq_images）
+    xq_images_dir = Path(config.db_path).parent / "xq_images"
+    xq_images_dir.mkdir(parents=True, exist_ok=True)
+    app.mount("/xq-images", StaticFiles(directory=xq_images_dir), name="xq-images")
     app.mount(
         "/",
         _NoCacheStaticFiles(directory=Path(__file__).parent / "static", html=True),

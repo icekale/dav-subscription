@@ -6,6 +6,8 @@ import json
 import os
 import re
 import tempfile
+from io import BytesIO
+from pathlib import Path
 
 import httpx
 
@@ -153,6 +155,46 @@ def _avatar_url(user: dict) -> str:
     if photo_domain.startswith("http"):
         return f"{photo_domain}{first}"
     return ""
+
+
+# 雪球图床域名：只处理该域名下的图片（用户外链图不动）
+XUEQIU_IMG_HOSTS = ("xqimg.imedao.com",)
+# 右下角水印裁剪比例：实测雪球客户端水印约占宽 46% × 高 13.5%，留余量保证完整裁掉
+WATERMARK_CROP_W = 0.50
+WATERMARK_CROP_H = 0.15
+
+
+def _crop_watermark(img):
+    """裁掉右下角水印区域（纯函数，便于测试）；异常由调用方兜底降级。"""
+    w, h = img.size
+    return img.crop((0, 0, int(w * (1 - WATERMARK_CROP_W)), int(h * (1 - WATERMARK_CROP_H))))
+
+
+def _dewatermark_image(url: str, images_dir: str | Path) -> str:
+    """下载雪球图片 → 裁右下角水印 → 存本地，返回本地 URL；任何失败降级返回原 URL。"""
+    try:
+        from PIL import Image
+
+        key = hashlib.sha256(url.encode()).hexdigest()[:20]
+        target = Path(images_dir) / f"{key}.jpg"
+        if not target.exists():
+            resp = httpx.get(url, timeout=20, follow_redirects=True)
+            resp.raise_for_status()
+            img = Image.open(BytesIO(resp.content))
+            target.parent.mkdir(parents=True, exist_ok=True)
+            _crop_watermark(img).convert("RGB").save(target, "JPEG", quality=88)
+        return f"/xq-images/{target.name}"
+    except Exception:  # noqa: BLE001 - 去水印失败降级原图，不阻断抓取
+        return url
+
+
+def _dewatermark_images(urls: list[str], db) -> list[str]:
+    """新采集的雪球图床图片去水印（仅 xqimg.imedao.com）；外链图保持原样。"""
+    images_dir = Path(db.path).parent / "xq_images"
+    return [
+        _dewatermark_image(u, images_dir) if any(host in u for host in XUEQIU_IMG_HOSTS) else u
+        for u in urls
+    ]
 
 
 def _extract_images(status: dict) -> list[str]:
@@ -310,7 +352,7 @@ class XueqiuFetcher(Fetcher):
                     url=url,
                     published_at=format_published_at(str(s.get("created_at") or "")),
                     post_type=post_type,
-                    images=_extract_images(s),
+                    images=_dewatermark_images(_extract_images(s), self.db),
                 )
             )
         if statuses:

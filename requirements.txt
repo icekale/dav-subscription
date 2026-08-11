@@ -10,3 +10,4 @@ cryptography==44.0.1
 qrcode==8.0
 pypng==0.20220715.0
 curl_cffi==0.16.0
+Pillow>=10.0
