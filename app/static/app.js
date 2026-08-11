@@ -3550,10 +3550,35 @@ async function adminGenerateCodes() {
   }
 }
 
-async function loadAdminCategories() {
-  const categories = await api("/api/categories");
+async function loadAdminVocab() {
+  // 深链：#/admin/vocab?tab=tags 进标签 Tab，其余值（含无参数）进分类 Tab
+  const params = new URLSearchParams(location.hash.split("?")[1] || "");
+  const tab = params.get("tab") === "tags" ? "tags" : "categories";
   if (!routeStillActive(_adminRenderSeq)) return;
   $("#admin-body").innerHTML = `
+    <section class="section-panel">
+      <header class="section-head">
+        <div><h3 class="section-title">分类与标签</h3>
+        <p class="section-meta">分类按大V分组（订阅广场/动态页/管理列表筛选）；标签按关键词规则给贴文内容自动打标。</p></div>
+        <div class="platform-tabs" style="margin-top:12px">
+          <button class="platform-tab ${tab === "categories" ? "selected" : ""}" onclick="location.hash='#/admin/vocab'">分类</button>
+          <button class="platform-tab ${tab === "tags" ? "selected" : ""}" onclick="location.hash='#/admin/vocab?tab=tags'">标签</button>
+        </div>
+      </header>
+      <div id="vocab-tab-body"></div>
+    </section>`;
+  await loadAdminVocabTab(tab);
+}
+
+async function loadAdminVocabTab(tab) {
+  if (tab === "tags") return loadAdminTagsTab();
+  return loadAdminCategoriesTab();
+}
+
+async function loadAdminCategoriesTab() {
+  const categories = await api("/api/categories");
+  if (!routeStillActive(_adminRenderSeq)) return;
+  $("#vocab-tab-body").innerHTML = `
     <section class="section-panel">
       <header class="section-head">
         <div><h3 class="section-title">添加分类</h3></div>
@@ -3590,7 +3615,7 @@ async function adminAddCategory() {
   try {
     await api("/api/categories", { method: "POST", body: JSON.stringify({ name }) });
     flash(`已添加分类「${name}」`);
-    loadAdminCategories();
+    loadAdminVocabTab("categories");
   } catch (err) {
     alert("添加失败: " + err.message);
   }
@@ -3602,7 +3627,7 @@ async function adminRenameCategory(id) {
   try {
     await api(`/api/categories/${id}`, { method: "PUT", body: JSON.stringify({ name: name.trim() }) });
     flash("已重命名分类");
-    loadAdminCategories();
+    loadAdminVocabTab("categories");
   } catch (err) {
     alert("重命名失败: " + err.message);
   }
@@ -3613,13 +3638,13 @@ async function adminDeleteCategory(id) {
   try {
     await api(`/api/categories/${id}`, { method: "DELETE" });
     flash("已删除分类");
-    loadAdminCategories();
+    loadAdminVocabTab("categories");
   } catch (err) {
     alert("删除失败: " + err.message);
   }
 }
 
-async function loadAdminTags() {
+async function loadAdminTagsTab() {
   const data = await api("/api/tags");
   const tags = Array.isArray(data?.tags) ? data.tags : [];
   const stockNames = Array.isArray(data?.stock_names) ? data.stock_names : [];
@@ -3630,7 +3655,7 @@ async function loadAdminTags() {
   const vocabText = tags.map((r) => `${r.tag} | ${(r.keywords || []).join(", ")}`).join("\n");
   // 别名表编辑：每行「别名=正式名」
   const aliasText = stockAliases.map((a) => `${a.alias}=${a.stock}`).join("\n");
-  $("#admin-body").innerHTML = `
+  $("#vocab-tab-body").innerHTML = `
     <section class="section-panel">
       <header class="section-head">
         <div><h3 class="section-title">贴文标签词表</h3>
@@ -3691,7 +3716,7 @@ async function adminSaveTags() {
   try {
     const data = await api("/api/tags", { method: "PUT", body: JSON.stringify({ tags, stock_names: stockNames, stock_aliases: stockAliases }) });
     flash(`已保存词表（${data.tags.length} 个标签，${data.stock_names.length} 只股票，${data.stock_aliases.length} 个别名）`);
-    loadAdminTags();
+    loadAdminVocabTab("tags");
   } catch (err) {
     alert("保存失败: " + err.message);
   }
@@ -3710,7 +3735,7 @@ async function adminBackfillTags(mode = "pending") {
     });
     if (result) result.textContent = `已处理 ${data.processed} 条，其中 ${data.tagged} 条有标签`;
     flash(mode === "all" ? "全量重算完成" : "待打标处理完成");
-    loadAdminTags();
+    loadAdminVocabTab("tags");
   } catch (err) {
     if (result) result.textContent = "";
     alert("处理失败: " + err.message);
