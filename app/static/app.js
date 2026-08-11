@@ -855,6 +855,8 @@ function tlRemoveFilter(key) {
   else if (key === "tag") state.timelineTag = "";
   else if (key === "platform") {
     state.timelinePlatform = "";
+    const plat = $("#tl-platform");
+    if (plat) plat.value = "";
     const pills = $("#tl-pills");
     if (pills) pills.innerHTML = tlPillsHtml();
   }
@@ -889,7 +891,7 @@ async function renderTimeline(seq) {
       <div class="tl-filterbar-top">
         <div class="tl-pills" id="tl-pills">${tlPillsHtml()}</div>
         <div class="tl-actions">
-          <button id="tl-filter-toggle" class="fav-toggle ${state.timelineQ || state.timelineCategory || state.timelineTag ? "has-filter" : ""}" aria-expanded="false" aria-controls="tl-filter-panel" onclick="tlFilterPanel()">筛选</button>
+          <button id="tl-filter-toggle" class="fav-toggle ${state.timelineQ || state.timelinePlatform || state.timelineCategory || state.timelineTag ? "has-filter" : ""}" aria-expanded="false" aria-controls="tl-filter-panel" onclick="tlFilterPanel()">筛选</button>
           <button id="timeline-fav-toggle" class="fav-toggle ${state.timelineFavorite ? "fav-on" : ""}" aria-pressed="${state.timelineFavorite}" onclick="toggleTimelineFav()">${STAR_SVG} 特别关注</button>
           <button id="timeline-secondary-toggle" class="fav-toggle ${state.timelineSecondary ? "fav-on" : ""}" aria-pressed="${state.timelineSecondary}" onclick="toggleTimelineSecondary()" title="显示/隐藏次要大V动态（默认隐藏）">${state.timelineSecondary ? EYE_ICON : EYE_OFF_ICON} 次要大V</button>
         </div>
@@ -897,6 +899,7 @@ async function renderTimeline(seq) {
       <div class="tl-filter-panel" id="tl-filter-panel">
         <input id="tl-q" class="form-control" placeholder="搜索标题/内容关键词" value="${escapeHtml(state.timelineQ || "")}" onkeydown="if(event.key==='Enter')tlApplyFilter()">
         <div class="tl-filter-row">
+          <select id="tl-platform" class="form-control" onchange="tlApplyFilter()">${tlPlatformOptions()}</select>
           <select id="tl-category" class="form-control" onchange="tlApplyFilter()"><option value="">全部分类</option></select>
           <select id="tl-tag" class="form-control" onchange="tlApplyFilter()"><option value="">全部标签</option></select>
         </div>
@@ -1003,7 +1006,15 @@ function tlPickPlatform(p) {
   state.timelinePlatform = p;
   const pills = $("#tl-pills");
   if (pills) pills.innerHTML = tlPillsHtml();
+  const plat = $("#tl-platform");
+  if (plat) plat.value = p;
   loadTimeline(true, routeRenderSeq);
+}
+
+function tlPlatformOptions() {
+  return TL_PLATFORMS.map(([p, label]) =>
+    `<option value="${p}" ${state.timelinePlatform === p ? "selected" : ""}>${label}</option>`
+  ).join("");
 }
 
 function tlFilterPanel() {
@@ -1017,14 +1028,17 @@ function tlFilterPanel() {
 
 function tlApplyFilter() {
   state.timelineQ = $("#tl-q").value.trim();
+  state.timelinePlatform = $("#tl-platform").value;
   state.timelineCategory = $("#tl-category").value;
   state.timelineTag = $("#tl-tag").value;
   $("#tl-filterbar").classList.remove("open");
   const btn = $("#tl-filter-toggle");
   if (btn) {
-    btn.classList.toggle("has-filter", !!(state.timelineQ || state.timelineCategory || state.timelineTag));
+    btn.classList.toggle("has-filter", !!(state.timelineQ || state.timelinePlatform || state.timelineCategory || state.timelineTag));
     btn.setAttribute("aria-expanded", "false");
   }
+  const pills = $("#tl-pills");
+  if (pills) pills.innerHTML = tlPillsHtml(); // 面板改平台时同步桌面胶囊
   loadTimeline(true, routeRenderSeq);
 }
 
@@ -1036,6 +1050,7 @@ function tlResetFilters() {
   state.timelineFavorite = false;
   state.timelineSecondary = false;
   const q = $("#tl-q"); if (q) q.value = "";
+  const plat = $("#tl-platform"); if (plat) plat.value = "";
   const cat = $("#tl-category"); if (cat) cat.value = "";
   const tag = $("#tl-tag"); if (tag) tag.value = "";
   const pills = $("#tl-pills"); if (pills) pills.innerHTML = tlPillsHtml();
