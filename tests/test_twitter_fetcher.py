@@ -373,6 +373,78 @@ def test_twitter_direct_fetch_parses_tweets_and_avatar(monkeypatch):
     assert db.get_setting("x_direct_last_ok_at")
 
 
+def test_twitter_note_tweet_uses_full_body(monkeypatch):
+    """长文帖（NoteTweet）的 legacy.full_text 只是摘要，正文必须取 note_tweet 完整字段。
+
+    实测 2026-08：mark 一条 2567 字长帖，full_text 只给 197 字摘要，同响应
+    note_tweet.note_tweet_results.result.text 才是全文——不取会丢 2400 字。
+    """
+    monkeypatch.setenv("TWITTER_COOKIE", "auth_token=a; ct0=b; lang=zh-CN")
+
+    def handler(request):
+        if "UserByScreenName" in str(request.url):
+            return httpx.Response(200, json=_user_response())
+        if "UserTweets" in str(request.url):
+            return httpx.Response(
+                200,
+                json={
+                    "data": {
+                        "user": {
+                            "result": {
+                                "__typename": "User",
+                                "timeline": {
+                                    "timeline": {
+                                        "instructions": [
+                                            {
+                                                "type": "TimelineAddEntries",
+                                                "entries": [
+                                                    {
+                                                        "content": {
+                                                            "__typename": "TimelineTimelineItem",
+                                                            "itemContent": {
+                                                                "tweet_results": {
+                                                                    "result": {
+                                                                        "rest_id": "999",
+                                                                        "legacy": {
+                                                                            "full_text": "这是长文的 197 字摘要…",
+                                                                            "created_at": "Tue Aug 04 12:00:00 +0000 2026",
+                                                                            "id_str": "999",
+                                                                        },
+                                                                        "note_tweet": {
+                                                                            "note_tweet_results": {
+                                                                                "result": {
+                                                                                    "text": "这是长文的完整正文，一共两千多字。" * 30,
+                                                                                    "note_tweet_count": 700,
+                                                                                }
+                                                                            }
+                                                                        },
+                                                                    }
+                                                                }
+                                                            },
+                                                        }
+                                                    }
+                                                ],
+                                        }
+                                    ]
+                                },
+                            }
+                        }
+                    }
+                }
+            },
+        )
+        return httpx.Response(404)
+
+    db = DB(":memory:")
+    kid = db.add_kol("twitter", "SemiAnalysis", "https://x.com/SemiAnalysis_")
+    fetcher = _make_fetcher(handler, db)
+    posts = fetcher.fetch(db.get_kol(kid))
+    assert len(posts) == 1
+    assert "这是长文的完整正文" in posts[0].content
+    assert len(posts[0].content) > len("这是长文的 197 字摘要…")
+    assert posts[0].title == posts[0].content[:80]
+
+
 def test_twitter_falls_back_to_rsshub(monkeypatch):
     import datetime
     import email.utils

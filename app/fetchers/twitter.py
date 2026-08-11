@@ -475,6 +475,15 @@ class TwitterFetcher(Fetcher):
             text = (legacy.get("full_text") or legacy.get("text") or "").strip()
             if not text:
                 continue
+            # 长文帖（NoteTweet/article）：legacy.full_text 只是摘要（实测 200 字截断），
+            # 完整正文在 note_tweet.note_tweet_results.result.text（同响应，最长 2500+ 字）
+            note = (
+                ((tweet.get("note_tweet") or {}).get("note_tweet_results") or {})
+                .get("result") or {}
+            )
+            note_text = (note.get("text") or "").strip()
+            if note_text and len(note_text) > len(text):
+                text = note_text
             post_type = "reply" if legacy.get("in_reply_to_status_id_str") else ""
             posts.append(
                 Post(
