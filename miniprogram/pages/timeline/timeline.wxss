@@ -1,3 +1,22 @@
 .hero { background: linear-gradient(180deg, #ffffff, #fafcff); }
 .hero-title { font-size: 40rpx; font-weight: 700; color: var(--text-strong); margin-top: 8rpx; }
 .hero-sub { font-size: 26rpx; color: var(--text-muted); margin-top: 10rpx; }
+
+/* 标签筛选条 */
+.tag-filter-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 88rpx;
+  color: var(--text-strong);
+}
+.tag-filter-clear {
+  margin: 0;
+  padding: 0 24rpx;
+  min-height: 72rpx;
+  line-height: 72rpx;
+  color: var(--accent);
+  background: transparent;
+  font-size: 26rpx;
+}
+.tag-filter-clear::after { border: 0; }

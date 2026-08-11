@@ -6,10 +6,16 @@
   </view>
   <view class="card">
     <view class="card-title">最新动态</view>
+    <view wx:if="{{currentTag}}" class="tag-filter-bar">
+      <text>标签：{{currentTag}}</text>
+      <button class="tag-filter-clear" bindtap="clearTag">清除</button>
+    </view>
     <view wx:if="{{loading}}" class="empty">加载中…</view>
     <view wx:elif="{{posts.length === 0}}" class="empty">
-      还没有订阅任何大V
-      <view><button class="btn btn-primary" bindtap="goHome">去订阅</button></view>
+      <block wx:if="{{currentTag}}">没有“{{currentTag}}”标签的动态</block>
+      <block wx:else>还没有订阅任何大V</block>
+      <view wx:if="{{currentTag}}"><button class="btn" bindtap="clearTag">清除筛选</button></view>
+      <view wx:else><button class="btn btn-primary" bindtap="goHome">去订阅</button></view>
     </view>
     <view wx:else>
       <view class="post-item" wx:for="{{posts}}" wx:key="id">
@@ -27,7 +33,7 @@
           <text wx:if="{{item.post_type === 'reply'}}" class="tag">回复</text>
           <text wx:if="{{item.category_name}}" class="tag">{{item.category_name}}</text>
           <block wx:for="{{item.tags}}" wx:for-item="tag" wx:key="*this">
-            <text class="tag">{{tag}}</text>
+            <text class="tag" data-tag="{{tag}}" bindtap="selectTag">{{tag}}</text>
           </block>
           <text style="margin-left:12rpx">{{item.platform_label}}</text>
           <text class="post-link" data-url="{{item.url}}" bindtap="copyLink">查看原文 →</text>
