@@ -2178,6 +2178,41 @@ def test_new_posts_without_keyword_hits_not_tagged(monkeypatch):
     assert rows and rows[0]["tags"] == []
 
 
+def test_new_posts_without_keyword_hits_are_marked_processed(monkeypatch):
+    """规则成功但零命中的新帖标记为已处理（'[]'），不再进入待回填。"""
+    db = make_db()
+    kid = add_kol_subscribed(db, "xueqiu", "A", "1")
+    post = make_post(kid)
+    poll_once(db, {"xueqiu": FakeFetcher([post])}, [FakeNotifier()], interval_seconds=0)
+
+    post_id = db.get_post_id("xueqiu", post.external_id)
+    assert post_id is not None
+    row = db.get_post(post_id)
+    assert row is not None
+    assert row["tags"] == "[]"
+    assert db.tag_stats()["pending"] == 0
+
+
+def test_tagging_failure_leaves_post_pending(monkeypatch):
+    """打标抛异常时贴文仍入库，但保持 pending（''），下次回填可重试。"""
+    db = make_db()
+    kid = add_kol_subscribed(db, "xueqiu", "A", "1")
+
+    monkeypatch.setattr(
+        "app.tagging.rule_tag_posts",
+        lambda posts, rules: (_ for _ in ()).throw(RuntimeError("rule error")),
+    )
+    post = make_post(kid)
+    poll_once(db, {"xueqiu": FakeFetcher([post])}, [FakeNotifier()], interval_seconds=0)
+
+    post_id = db.get_post_id("xueqiu", post.external_id)
+    assert post_id is not None
+    row = db.get_post(post_id)
+    assert row is not None
+    assert row["tags"] == ""
+    assert db.tag_stats()["pending"] == 1
+
+
 def test_tagging_failure_does_not_block_ingest(monkeypatch):
     """打标抛异常时贴文仍入库（静默降级）。"""
     db = make_db()

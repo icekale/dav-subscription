@@ -77,3 +77,40 @@ def test_list_subscriptions_returns_personal_secondary(tmp_path):
     db.set_subscription_secondary(uid, kid, True)  # subscriptions.secondary = 1
     subs = db.list_subscriptions(uid)
     assert subs and subs[0]["secondary"] == 1
+
+
+def test_post_tag_state_distinguishes_pending_from_no_match(tmp_path):
+    db = DB(str(tmp_path / "t.db"))
+    kid = db.add_kol("xueqiu", "测试", "tag-state")
+    pending_id = db.insert_post("xueqiu", kid, "pending", "t", "c", "u", "")
+    no_match_id = db.insert_post(
+        "xueqiu", kid, "no-match", "t", "c", "u", "", tags=[]
+    )
+    assert pending_id is not None and no_match_id is not None
+    pending_row = db.get_post(pending_id)
+    no_match_row = db.get_post(no_match_id)
+    assert pending_row is not None and no_match_row is not None
+
+    assert pending_row["tags"] == ""
+    assert no_match_row["tags"] == "[]"
+    assert [p["external_id"] for p in db.list_posts(untagged_only=True)] == ["pending"]
+    assert db.tag_stats() == {
+        "total": 2,
+        "processed": 1,
+        "tagged": 0,
+        "pending": 1,
+    }
+
+
+def test_update_post_tags_empty_list_marks_post_processed(tmp_path):
+    db = DB(str(tmp_path / "t.db"))
+    kid = db.add_kol("xueqiu", "测试", "tag-update")
+    post_id = db.insert_post("xueqiu", kid, "p1", "t", "c", "u", "")
+    assert post_id is not None
+
+    db.update_post_tags(post_id, [])
+
+    row = db.get_post(post_id)
+    assert row is not None
+    assert row["tags"] == "[]"
+    assert db.tag_stats()["pending"] == 0

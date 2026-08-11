@@ -26,7 +26,8 @@ class Post:
     detail: dict | None = None
     images: list[str] = field(default_factory=list)
     favorite: bool = False
-    tags: list[str] = field(default_factory=list)
+    # None = 尚未执行规则打标（pending）；空列表 = 已执行但零命中；非空 = 已打标
+    tags: list[str] | None = None
 
 
 def strip_html(text: str) -> str:
