@@ -55,6 +55,24 @@ _ALIAS_STOPWORDS = {
 }
 
 
+def _contains_term(text_casefolded: str, term: str) -> bool:
+    """匹配单个关键词：纯 ASCII 词用英文单词边界，其他（中文/混合）子串匹配。
+
+    英文短词（如 AI、NVDA）做子串匹配会误命中 said/train 等含子串的单词，
+    因此对纯 ASCII 字母数字词要求前后不能是字母数字。text 需已 casefold。
+    """
+    cleaned = str(term).strip()
+    if not cleaned:
+        return False
+    folded = cleaned.casefold()
+    if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.+#-]*", cleaned):
+        return re.search(
+            rf"(?<![A-Za-z0-9]){re.escape(folded)}(?![A-Za-z0-9])",
+            text_casefolded,
+        ) is not None
+    return folded in text_casefolded
+
+
 def rule_tag_posts(posts, tag_rules) -> dict[int, list[str]]:
     """给一批贴文打标签，返回「输入列表下标 → 标签列表」（≤3，按词表顺序）。
 
@@ -75,13 +93,13 @@ def rule_tag_posts(posts, tag_rules) -> dict[int, list[str]]:
     for idx, post in enumerate(posts):
         text = (
             str(getattr(post, "title", "") or "") + " " + str(getattr(post, "content", "") or "")
-        ).lower()
+        ).casefold()
         if not text.strip():
             result[idx] = []
             continue
         tags: list[str] = []
         for tag, keywords in rules:
-            if any(kw.lower() in text for kw in keywords):
+            if any(_contains_term(text, kw) for kw in keywords):
                 tags.append(tag)
                 if len(tags) >= TAG_PER_POST_MAX:
                     break
@@ -141,17 +159,17 @@ def stock_tag_posts(posts, stock_names, aliases=None) -> dict[int, list[str]]:
                 break
         # 2) 常用股票名表子串匹配
         if len(tags) < STOCK_PER_POST_MAX:
-            lowered = text.lower()
+            folded = text.casefold()
             for name in names:
-                if name in lowered and name not in tags:
+                if _contains_term(folded, name) and name not in tags:
                     tags.append(name)
                     if len(tags) >= STOCK_PER_POST_MAX:
                         break
         # 3) 黑话别名 → 正式名
         if len(tags) < STOCK_PER_POST_MAX:
-            lowered = text.lower()
+            folded = text.casefold()
             for alias, stock in alias_map:
-                if alias in lowered and stock not in tags:
+                if _contains_term(folded, alias) and stock not in tags:
                     tags.append(stock)
                     if len(tags) >= STOCK_PER_POST_MAX:
                         break

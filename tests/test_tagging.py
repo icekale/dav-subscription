@@ -174,6 +174,7 @@ def test_cleanup_stale_tags_removes_old():
     db = DB(Path(tempfile.mkdtemp()) / "t.db")
     kid = db.add_kol("xueqiu", "A", "1")
     pid = db.insert_post("xueqiu", kid, "c1", "t", "c", "u", "")
+    assert pid is not None
     db.update_post_tags(pid, ["观点", "宏观", "科技"])
     removed = cleanup_stale_tags(db, valid_tags=["宏观", "科技", "宁德时代"])
     assert removed == 1
@@ -191,6 +192,7 @@ def test_cleanup_stale_tags_keeps_valid():
     db = DB(Path(tempfile.mkdtemp()) / "t.db")
     kid = db.add_kol("xueqiu", "A", "1")
     pid = db.insert_post("xueqiu", kid, "c2", "t", "c", "u", "")
+    assert pid is not None
     db.update_post_tags(pid, ["宏观", "宁德时代"])
     removed = cleanup_stale_tags(db, valid_tags=["宏观", "科技", "宁德时代"])
     assert removed == 0
@@ -224,3 +226,39 @@ def test_stock_mark_alias_uses_official_name():
     )
     assert result[0] == ["贵州茅台", "洋河股份"]
     assert "贵州茅坑" not in result[0]
+
+
+def test_short_english_keyword_uses_word_boundaries():
+    """英文短关键词按单词边界匹配，不误命中 train/said 里的子串。"""
+    rules = [{"tag": "科技", "keywords": ["AI"]}]
+    posts = [
+        make_post(content="AI 芯片继续发展", external_id="a"),
+        make_post(content="The train arrived", external_id="b"),
+        make_post(content="Said nothing useful", external_id="c"),
+    ]
+
+    result = rule_tag_posts(posts, rules)
+
+    assert result[0] == ["科技"]
+    assert result[1] == []
+    assert result[2] == []
+
+
+def test_english_stock_name_is_case_insensitive():
+    post = make_post(content="nvidia 发布新 GPU")
+
+    result = stock_tag_posts([post], ["NVIDIA"])
+
+    assert result[0] == ["NVIDIA"]
+
+
+def test_english_alias_is_case_insensitive():
+    post = make_post(content="nvda 再创新高")
+
+    result = stock_tag_posts(
+        [post],
+        ["英伟达"],
+        aliases=[{"alias": "NVDA", "stock": "英伟达"}],
+    )
+
+    assert result[0] == ["英伟达"]
