@@ -58,6 +58,11 @@ const state = {
   mysubsFavorite: false,
   adminKolsPlatform: "",
   adminKols: [],
+  adminKolsQ: "",
+  adminKolsCategory: "",
+  adminKolsStatus: "",
+  adminKolsPage: 0,
+  adminKolsTotal: 0,
   homeQ: "",
   homeCategory: "",
   timelineFavorite: false,
@@ -216,7 +221,12 @@ async function api(path, options = {}) {
     throw new Error("登录已过期，请重新登录");
   }
   const data = await resp.json().catch(() => ({}));
-  if (!resp.ok) throw new Error(data.detail || resp.statusText);
+  if (!resp.ok) {
+    // FastAPI 422 等校验错误的 detail 是数组/对象，直接拼接会显示 [object Object]
+    const detail = data.detail;
+    const msg = typeof detail === "string" ? detail : (detail ? JSON.stringify(detail) : resp.statusText);
+    throw new Error(msg);
+  }
   return data;
 }
 
