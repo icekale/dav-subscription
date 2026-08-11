@@ -495,6 +495,56 @@ def test_approve_garbage_request_returns_clear_error():
     assert db.get_kol_by_external("xueqiu", "两刀插肋") is None
 
 
+def test_approve_legacy_at_twitter_request(monkeypatch):
+    """旧 twitter 申请（@用户名 原样入库，未经归一化）审批二次校验应放行。"""
+    monkeypatch.setattr("app.api.resolve_x_profile", lambda uid: {})
+    client = make_client()
+    admin_headers = auth_headers(client)
+    u = register(client, "atuser", "pass123456")
+    db = client.app.state.db
+    req_id = db.add_kol_request("twitter", "@elonmusk", u.json()["user"]["id"])
+    resp = client.post(f"/api/admin/kol-requests/{req_id}/approve", headers=admin_headers)
+    assert resp.status_code == 200, resp.text
+    assert db.get_kol_by_external("twitter", "@elonmusk") is not None
+    assert db.get_kol_request(req_id)["status"] == "approved"
+
+
+def test_kol_request_tg_fail_falls_back_to_feishu(monkeypatch):
+    """TG 通知发送失败时回退飞书，管理员不至于收不到申请。"""
+    client = make_client()
+    auth_headers(client)
+    admin = client.app.state.db.get_user_by_username("testadmin")
+    client.app.state.db.update_user(
+        admin["id"], telegram_chat_id="111", telegram_bot_token="tok", feishu_chat_id="oc_abc"
+    )
+    sent_fs = []
+
+    class FailTG:
+        def __init__(self, *args, **kwargs):
+            self.client = SimpleNamespace(close=lambda: None)
+
+        def send_text(self, text, reply_markup=None):
+            raise RuntimeError("tg 挂了")
+
+    class FakeFS:
+        def __init__(self, *args, **kwargs):
+            self.client = SimpleNamespace(close=lambda: None)
+
+        def send_text(self, text):
+            sent_fs.append(text)
+
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FailTG)
+    monkeypatch.setattr("app.notifiers.feishu.FeishuNotifier", FakeFS)
+    headers = user_headers(client, "requser3")
+    resp = client.post(
+        "/api/kol-requests",
+        headers=headers,
+        json={"platform": "xueqiu", "external_id": "https://xueqiu.com/u/666666"},
+    )
+    assert resp.status_code == 200
+    assert len(sent_fs) == 1  # TG 失败后回退飞书
+
+
 def test_tg_callback_approve_reject_kol_request(monkeypatch):
     """TG 审批按钮回调：管理员点通过/拒绝直接生效，非管理员被拒绝。"""
     monkeypatch.setattr("app.api.resolve_profile", lambda uid, cookie="": {})

@@ -408,7 +408,10 @@ def _do_approve_kol_request(db: DB, request_id: int, admin: dict, notifiers_conf
     # 兜底：旧申请可能未经新校验入库（昵称/垃圾文本），审批前再验一次，
     # 避免上架无法抓取的坏大V（如雪球昵称而非数字 ID）
     normalized, err = _normalize_kol_request_input(req["platform"], req["external_id"])
-    if err or normalized != req["external_id"]:
+    stored = req["external_id"]
+    if req["platform"] == "twitter":
+        stored = stored.lstrip("@")  # 旧代码未归一化，@用户名 会原样入库
+    if err or normalized != stored:
         raise HTTPException(
             status_code=400,
             detail=f"该申请的外部ID「{req['external_id']}」无效（{err or '格式不符'}），建议点「拒绝」",
@@ -626,15 +629,19 @@ def create_api_router(
             for user in db.list_users():
                 if not user.get("is_admin"):
                     continue
-                # TG 是唯一带审批按钮的渠道：已绑 TG 的管理员只发 TG，避免多渠道重复推送
+                # TG 是唯一带审批按钮的渠道：已绑 TG 的管理员只发 TG，避免多渠道重复推送；
+                # TG 发送失败时回退其他渠道，避免管理员收不到通知
+                tg_ok = False
                 if channel_bound(user, "telegram", notifiers_config):
                     try:
                         notifier = build_channel_notifier(
                             "telegram", user, notifiers_config, client=client, db=db
                         )
                         notifier.send_text(message, reply_markup=keyboard)
+                        tg_ok = True
                     except Exception as exc:  # noqa: BLE001
                         logger.warning("大V申请 TG 通知失败 user=%s err=%s", user["username"], exc)
+                if tg_ok:
                     continue
                 for channel in CHANNELS:
                     if channel == "telegram" or not channel_bound(user, channel, notifiers_config):

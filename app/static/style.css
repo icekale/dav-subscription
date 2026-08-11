@@ -1015,6 +1015,8 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
 }
 .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .muted { color: var(--color-text-muted); font-size: var(--text-xs); line-height: 1.7; }
+.ask-error { color: var(--color-danger); }
+.ask-ok { color: var(--color-success); }
 .form-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
 .form-row label { font-size: var(--text-sm); font-weight: var(--font-weight-medium); color: var(--color-text-strong); }
 .form-row .form-control { margin-bottom: 0; }
