@@ -1616,6 +1616,14 @@ def test_my_feed_filters_and_pagination():
     combined = client.get("/api/my/feed?favorite=1&platform=xueqiu&q=茅台", headers=headers).json()
     assert [p["external_id"] for p in combined] == ["p1"]
 
+    # since_id：只返回比指定 id 新的帖子（X 式新帖检测/计数）
+    id_p3 = next(p["id"] for p in feed if p["external_id"] == "p3")
+    new_feed = client.get(f"/api/my/feed?since_id={id_p3}", headers=headers).json()
+    assert [p["external_id"] for p in new_feed] == ["p4"]
+    # since_id 与筛选叠加
+    new_xq = client.get(f"/api/my/feed?since_id={id_p3}&platform=xueqiu", headers=headers).json()
+    assert new_xq == []
+
     # /api/categories 登录用户可读（供动态页分类下拉），无需管理员
     cats = client.get("/api/categories", headers=headers).json()
     assert any(c["id"] == cid and c["name"] == "财经" for c in cats)

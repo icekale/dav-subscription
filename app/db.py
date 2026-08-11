@@ -1262,7 +1262,8 @@ class DB:
     ) -> int | None:
         detail_json = json.dumps(detail, ensure_ascii=False) if detail else ""
         images_json = json.dumps(images, ensure_ascii=False) if images else ""
-        tags_json = json.dumps(tags, ensure_ascii=False) if tags else ""
+        # None=未打标（pending，待回填）；[]=已处理但零命中（也持久化为 '[]'，避免重复回填）
+        tags_json = json.dumps(tags, ensure_ascii=False) if tags is not None else ""
         try:
             with self._lock:
                 cur = self._conn.execute(
@@ -1300,7 +1301,11 @@ class DB:
                 for p in posts:
                     detail_json = json.dumps(p.detail, ensure_ascii=False) if p.detail else ""
                     images_json = json.dumps(p.images, ensure_ascii=False) if p.images else ""
-                    tags_json = json.dumps(p.tags, ensure_ascii=False) if p.tags else ""
+                    tags_json = (
+                        json.dumps(p.tags, ensure_ascii=False)
+                        if p.tags is not None
+                        else ""
+                    )
                     cur = self._conn.execute(
                         "INSERT OR IGNORE INTO posts (platform, kol_id, external_id, title, content, post_type, images, url, published_at, detail, tags) "
                         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -1422,6 +1427,7 @@ class DB:
         favorite: bool = False,
         tag: str | None = None,
         include_secondary: bool = False,
+        since_id: int | None = None,
     ) -> list[dict]:
         if not kol_ids:
             return []
@@ -1454,6 +1460,9 @@ class DB:
             params.append(f'%"{escaped}"%')
         if favorite:
             conds.append("s.favorite = 1")
+        if since_id:
+            conds.append("p.id > ?")
+            params.append(since_id)
         return _normalize_post_tags(_normalize_post_images(self._rows(
             "SELECT p.*, k.name AS kol_name, k.category_id AS category_id, "
             "k.avatar_url AS avatar_url, c.name AS category_name, "
@@ -1579,8 +1588,8 @@ class DB:
         )
 
     def update_post_tags(self, post_id: int, tags: list[str]) -> None:
-        """回写单条贴文的 LLM 标签（回填/纠错用），tags 为空则清空。"""
-        tags_json = json.dumps(tags, ensure_ascii=False) if tags else ""
+        """回写单条贴文的标签（回填/纠错用），空列表持久化为 '[]'（已处理零命中）。"""
+        tags_json = json.dumps(tags, ensure_ascii=False)
         self._execute("UPDATE posts SET tags = ? WHERE id = ?", (tags_json, post_id))
 
     def get_tag_vocabulary(self) -> list[dict]:
@@ -1624,14 +1633,26 @@ class DB:
         self.set_setting(TAG_VOCABULARY_KEY, json.dumps(tags, ensure_ascii=False))
 
     def tag_stats(self) -> dict:
-        """已打标/待打标贴文统计（管理端回填进度展示用）。"""
+        """打标统计（管理端回填进度展示用）。
+
+        processed = 已成功执行规则（含零命中）；tagged = 实际有标签；
+        pending = 尚未执行规则（'' 或 NULL，需回填）。
+        """
         rows = self._rows(
             "SELECT COUNT(*) AS n, "
-            "SUM(CASE WHEN tags != '' THEN 1 ELSE 0 END) AS tagged FROM posts"
+            "SUM(CASE WHEN tags != '' THEN 1 ELSE 0 END) AS processed, "
+            "SUM(CASE WHEN tags != '' AND tags != '[]' THEN 1 ELSE 0 END) AS tagged "
+            "FROM posts"
         )
-        row = rows[0] if rows else {"n": 0, "tagged": 0}
-        n, tagged = _to_int(row["n"]), _to_int(row["tagged"])
-        return {"total": n, "tagged": tagged, "pending": n - tagged}
+        row = rows[0] if rows else {"n": 0, "processed": 0, "tagged": 0}
+        total = _to_int(row["n"])
+        processed = _to_int(row["processed"])
+        return {
+            "total": total,
+            "processed": processed,
+            "tagged": _to_int(row["tagged"]),
+            "pending": total - processed,
+        }
 
     def get_stock_names(self) -> list[str]:
         """读常用股票名表（settings 持久化），缺省用内置默认名单。"""

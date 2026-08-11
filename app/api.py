@@ -1068,6 +1068,7 @@ def create_api_router(
         favorite: int = 0,
         tag: str | None = None,
         include_secondary: int = 0,
+        since_id: int | None = None,  # 仅返回 id 大于该值的帖子（新帖检测/计数，配合现有筛选）
         user: dict = Depends(get_current_user),
     ):
         kol_ids = sorted(db.readable_subscribed_kol_ids(user["id"], user["is_admin"]))
@@ -1082,6 +1083,7 @@ def create_api_router(
             favorite=bool(favorite),
             tag=tag,
             include_secondary=bool(include_secondary),
+            since_id=since_id,
         )
 
     @router.get("/kols/{kol_id}")

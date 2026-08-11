@@ -805,6 +805,9 @@ let _tlTags = null;
 let _tlLatestId = 0;        // 当前已加载的最新帖 id，用于后台检测新帖
 let _tlLoadedFilter = null; // 缓存列表对应的筛选条件快照
 let _tlSavedScrollY = 0;    // 离开动态页时的滚动位置，切回时恢复
+let _tlPendingNew = [];     // 轮询拉到的新帖（点提示条时直接插到列表顶部）
+let _tlPendingLatestId = 0; // 已拉取的新帖中最新 id，轮询去重
+let _tlPollTimer = null;    // 新帖轮询定时器
 
 function tlFilterKey() {
   return JSON.stringify([
@@ -897,7 +900,7 @@ async function renderTimeline(seq) {
     </div>
     ${tlActiveChipsHtml()}
     <div class="tl-new-badge" id="tl-new-badge">
-      <button class="tl-new-badge-btn" onclick="refreshTimeline()">↑ 有新动态，点击刷新</button>
+      <button class="tl-new-badge-btn" onclick="refreshTimeline()">显示 <span id="tl-new-count">0</span> 帖子</button>
     </div>
     <p class="section-meta" id="tl-meta" style="margin:0 0 10px">已加载 ${_tlPosts.length} 条动态</p>
     <section class="section-panel">
@@ -906,7 +909,8 @@ async function renderTimeline(seq) {
   if (reuse) {
     renderTimelineFeed();
     window.scrollTo(0, _tlSavedScrollY); // 恢复离开时的阅读位置
-    checkNewPosts(); // 后台检测是否有新帖，有则浮出提示条
+    startTimelinePoll();
+    pollNewPosts(); // 后台检测新帖，有则浮出提示条
     return;
   }
   _tlPosts.length = 0;
@@ -917,6 +921,8 @@ async function renderTimeline(seq) {
     await loadTimelineCategories().catch(() => { _tlCategories = []; }); // 分类下拉失败降级，不阻塞 feed
     await loadTimelineTags().catch(() => { _tlTags = []; }); // 标签下拉失败降级，不阻塞 feed
     await loadTimeline(true, seq);
+    startTimelinePoll();
+    pollNewPosts(); // 首屏就绪后立即查一次新帖
   } catch (err) {
     if (!routeStillActive(seq)) return;
     const feed = $("#feed");
@@ -925,11 +931,20 @@ async function renderTimeline(seq) {
   }
 }
 
-async function checkNewPosts() {
-  // 静默对比当前列表最新帖与服务端最新帖，有更新才提示；失败不打扰
+function startTimelinePoll() {
+  stopTimelinePoll();
+  _tlPollTimer = setInterval(pollNewPosts, 60000); // X 式：约每分钟静默查一次新帖，计数实时更新
+}
+function stopTimelinePoll() {
+  if (_tlPollTimer) { clearInterval(_tlPollTimer); _tlPollTimer = null; }
+}
+
+async function pollNewPosts() {
+  // X 式新帖检测：按 since_id 只拉新帖，计数 + 缓存到 _tlPendingNew，提示条实时显示数量
   if (!_tlLatestId || !$("#feed")) return;
+  const seq = routeRenderSeq;
   try {
-    const params = new URLSearchParams({ limit: "1", offset: "0" });
+    const params = new URLSearchParams({ limit: "50", since_id: String(_tlPendingLatestId || _tlLatestId) });
     if (state.timelineQ) params.set("q", state.timelineQ);
     if (state.timelinePlatform) params.set("platform", state.timelinePlatform);
     if (state.timelineCategory) params.set("category_id", state.timelineCategory);
@@ -937,16 +952,34 @@ async function checkNewPosts() {
     if (state.timelineFavorite) params.set("favorite", "1");
     if (state.timelineSecondary) params.set("include_secondary", "1");
     const posts = await api(`/api/my/feed?${params}`);
-    if (posts[0]?.id > _tlLatestId) {
-      const badge = $("#tl-new-badge");
-      if (badge) badge.classList.add("show");
-    }
+    if (!routeStillActive(seq) || !$("#feed")) return;
+    const newer = posts.filter((p) => p.id > _tlPendingLatestId);
+    if (!newer.length) return;
+    _tlPendingNew.push(...newer);
+    _tlPendingLatestId = newer[0].id;
+    const count = $("#tl-new-count");
+    if (count) count.textContent = String(_tlPendingNew.length);
+    const badge = $("#tl-new-badge");
+    if (badge) badge.classList.add("show");
   } catch { /* 新帖检测失败静默 */ }
 }
 
 async function refreshTimeline() {
   const badge = $("#tl-new-badge");
   if (badge) badge.classList.remove("show");
+  if (_tlPendingNew.length) {
+    // X 式：把已拉到的新帖直接插到列表顶部，不整页重载
+    _tlPosts.unshift(..._tlPendingNew);
+    _tlOffset += _tlPendingNew.length; // 新帖进了 DB 顶部，offset 分页要同步后移
+    _tlLatestId = _tlPendingLatestId;
+    _tlPendingNew = [];
+    _tlPendingLatestId = 0;
+    const meta = $("#tl-meta");
+    if (meta) meta.textContent = `已加载 ${_tlPosts.length} 条动态`;
+    renderTimelineFeed();
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    return;
+  }
   await loadTimeline(true, routeRenderSeq);
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
@@ -1062,6 +1095,10 @@ async function loadTimeline(reset = true, routeSeq) {
     if (reset) {
       _tlLatestId = posts[0]?.id || 0; // 记录第一页最新帖 id，供新帖检测
       _tlLoadedFilter = tlFilterKey();
+      _tlPendingNew = []; // 筛选/刷新变化后，旧缓存的新帖失效
+      _tlPendingLatestId = 0;
+      const badge = $("#tl-new-badge");
+      if (badge) badge.classList.remove("show");
     }
     const meta = $("#tl-meta");
     if (meta) meta.textContent = `已加载 ${_tlPosts.length} 条动态`;
@@ -3971,6 +4008,7 @@ async function router() {
   stopSettingsPoll();
   stopSysLogsTimer();
   stopStatsTimer();
+  stopTimelinePoll();
   // 离开动态页前记录滚动位置，切回时恢复阅读位置
   if (document.querySelector("#feed")) _tlSavedScrollY = window.scrollY;
   const hash = location.hash.replace(/^#\/?/, "") || "timeline";
