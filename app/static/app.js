@@ -3093,7 +3093,7 @@ async function loadAdminKols() {
       <header class="section-head">
         <div><h3 class="section-title">添加大V</h3></div>
         <div class="toolbar" style="margin-top:12px">
-          <select id="ad-platform" class="form-control" style="margin:0;width:auto">
+          <select id="ad-platform" class="form-control" style="margin:0;width:auto" onchange="adminPlatformDefaultCat(this)">
             <option value="xueqiu">雪球</option>
             <option value="combination">雪球组合</option>
             <option value="weibo">微博</option>
@@ -3282,6 +3282,16 @@ async function adminBatchAddKols() {
     if (failLines) alert(`导入完成：成功 ${data.ok}/${data.total}\n\n失败：\n${failLines}`);
   } catch (err) {
     alert("批量导入失败: " + err.message);
+  }
+}
+
+// 雪球组合默认分类：实盘（选平台后自动填写）
+function adminPlatformDefaultCat(sel) {
+  if (sel.value !== "combination") return;
+  const cat = $("#ad-category");
+  if (!cat) return;
+  for (const opt of cat.options) {
+    if (opt.textContent.trim() === "实盘") { cat.value = opt.value; break; }
   }
 }
 
