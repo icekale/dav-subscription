@@ -2683,7 +2683,6 @@ async function loadAdminStats() {
         </div>
         <div class="cfg-save-row">
           <button class="btn-normal" onclick="savePollingConfig()">保存抓取设置</button>
-          <span id="pc-result" class="muted"></span>
         </div>
       </section>
     </div>
@@ -2711,7 +2710,6 @@ async function loadAdminStats() {
         <textarea id="xq-cookie" class="form-control" rows="4" style="font-family:monospace" placeholder="登录 xueqiu.com 后，浏览器 F12 → Application → Cookies 复制整串（形如 xq_a_token=...; u=...）"></textarea>
         <div class="toolbar" style="margin-top:12px">
           <button class="btn-normal" onclick="saveXueqiuCookie()">保存雪球 Cookie</button>
-          <span id="xq-result" class="muted"></span>
         </div>
       </section>
     </div>`;
@@ -2849,9 +2847,8 @@ async function savePollingConfig() {
   };
   try {
     await api("/api/admin/polling-config", { method: "PUT", body: JSON.stringify(body) });
-    // 只更新反馈提示，不重建页面——loadAdminStats 会整页重建并跳回监控总览
-    const tip = $("#pc-result");
-    if (tip) tip.textContent = "已保存 ✅ 即时生效";
+    // 标准操作反馈 toast；不重建页面（loadAdminStats 会整页重建并跳回监控总览）
+    flash("抓取设置已保存，即时生效");
   } catch (err) {
     alert("保存失败: " + err.message);
   }
@@ -2868,9 +2865,8 @@ async function saveXueqiuCookie() {
       method: "POST",
       body: JSON.stringify({ cookie }),
     });
-    // 只更新反馈提示，不重建页面（同 savePollingConfig 的跳回总览问题）
-    const tip = $("#xq-result");
-    if (tip) tip.textContent = "已保存 ✅";
+    // 标准操作反馈 toast；不重建页面（同 savePollingConfig 的跳回总览问题）
+    flash("雪球 Cookie 已保存");
   } catch (err) {
     alert("保存失败: " + err.message);
   }
