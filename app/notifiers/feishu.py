@@ -10,7 +10,7 @@ import httpx
 
 from ..fetchers.base import Post, digest_body, truncate_text
 from ..url_safety import safe_get
-from .base import Notifier
+from .base import Notifier, why_badges
 
 PLATFORM_LABELS = {"xueqiu": "雪球", "combination": "雪球组合", "weibo": "微博", "twitter": "X/Twitter"}
 DIGEST_MAX_ITEMS = 5
@@ -92,12 +92,14 @@ def _tenant_access_token(app_id: str, app_secret: str, client: httpx.Client) -> 
 def build_feishu_card(post: Post, favorite: bool = False, keyword: bool = False) -> dict:
     platform = PLATFORM_LABELS.get(post.platform, post.platform)
     content = truncate_text(post.content, 2000) or post.title or "（无正文）"
-    marks = ("⭐ " if favorite else "") + ("🔑 " if keyword else "")
-    title = f"📌 {marks}{post.kol_name} · {platform}"
+    title = f"📌 {post.kol_name} · {platform}"
     if post.post_type == "reply":
         title += " · 回复"
     category = post.category or ""
     meta_lines = []
+    badges = why_badges(favorite, keyword)
+    if badges:
+        meta_lines.append(badges)
     if category:
         meta_lines.append(f"🗂 {category}")
     tags = post.tags or []
@@ -339,8 +341,10 @@ class FeishuNotifier(Notifier):
         unsub_kol_id: int | None = None,
         favorite: bool = False,
         keyword: bool = False,
+        secondary: bool = False,
         app_id: str | None = None,
         app_secret: str | None = None,
+        interactive_buttons: bool = True,
     ):
         self.webhook_url = config.webhook_url
         # 个人机器人凭据优先，缺省回退全局共享应用（同 TelegramNotifier 的 bot_token 模式）
@@ -351,6 +355,9 @@ class FeishuNotifier(Notifier):
         self.unsub_kol_id = unsub_kol_id
         self.favorite = favorite
         self.keyword = keyword
+        self.secondary = secondary
+        # 个人机器人没有卡片回调订阅，按钮会失效——由构造方显式关闭
+        self.interactive_buttons = interactive_buttons
         self.client = client or httpx.Client(timeout=15)
 
     def _tenant_access_token(self) -> str:
@@ -414,7 +421,14 @@ class FeishuNotifier(Notifier):
                     )
             except Exception as exc:  # noqa: BLE001
                 logger.warning("飞书图片上传失败 err=%s", exc)
-        if self.unsub_kol_id is not None:
+        # 操作按钮仅共享应用可用：个人机器人没有卡片回调订阅，按钮会失效
+        if self.unsub_kol_id is not None and self.interactive_buttons:
+            card["body"]["elements"].append(
+                _callback_button(
+                    "🔔 取消次要" if self.secondary else "🔕 设为次要",
+                    {"action": "sec", "kol_id": self.unsub_kol_id},
+                )
+            )
             card["body"]["elements"].append(
                 _callback_button(
                     "退订",
@@ -448,7 +462,22 @@ class FeishuNotifier(Notifier):
         return keys
 
     def send_digest(self, posts: list[Post], kol_name: str, platform: str) -> None:
-        self._send_card(build_feishu_digest_card(posts, kol_name, platform))
+        card = build_feishu_digest_card(posts, kol_name, platform)
+        # 操作按钮仅共享应用可用：个人机器人没有卡片回调订阅，按钮会失效
+        if self.unsub_kol_id is not None and self.interactive_buttons:
+            card["body"]["elements"].append(
+                _callback_button(
+                    "🔔 取消次要" if self.secondary else "🔕 设为次要",
+                    {"action": "sec", "kol_id": self.unsub_kol_id},
+                )
+            )
+            card["body"]["elements"].append(
+                _callback_button(
+                    "退订",
+                    {"action": "unsub", "kol_id": self.unsub_kol_id},
+                )
+            )
+        self._send_card(card)
 
     def send_daily(self, posts: list[Post]) -> None:
         self._send_card(build_feishu_daily_card(posts))

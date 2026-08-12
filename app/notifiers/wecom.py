@@ -9,7 +9,7 @@ from __future__ import annotations
 import httpx
 
 from ..fetchers.base import Post, digest_body
-from .base import Notifier
+from .base import Notifier, why_badges
 
 PLATFORM_LABELS = {"xueqiu": "雪球", "combination": "雪球组合", "weibo": "微博", "twitter": "X/Twitter"}
 DIGEST_MAX_ITEMS = 5
@@ -31,9 +31,11 @@ def build_wecom_text(post: Post, favorite: bool = False, keyword: bool = False) 
     platform = PLATFORM_LABELS.get(post.platform, post.platform)
     body = _md_escape(post.content or post.title or "（无正文）")
     kind = " · 回复" if post.post_type == "reply" else ""
-    star = "⭐ " if favorite else ""
-    key = "🔑 " if keyword else ""
-    lines = [f"**📌 {star}{key}{post.kol_name} · {platform}{kind}**", "", body]
+    lines = [f"**📌 {post.kol_name} · {platform}{kind}**"]
+    badges = why_badges(favorite, keyword)
+    if badges:
+        lines.append(badges)
+    lines += ["", body]
     if post.category:
         lines.append(f"🗂 {post.category}")
     if post.published_at:

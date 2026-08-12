@@ -11,7 +11,7 @@ from html import escape
 import httpx
 
 from ..fetchers.base import Post, digest_body, truncate_text
-from .base import Notifier
+from .base import Notifier, why_badges
 
 PLATFORM_LABELS = {"xueqiu": "雪球", "combination": "雪球组合", "weibo": "微博", "twitter": "X/Twitter"}
 DIGEST_MAX_ITEMS = 10
@@ -51,12 +51,11 @@ def build_telegram_text(post: Post, favorite: bool = False, keyword: bool = Fals
     platform = PLATFORM_LABELS.get(post.platform, post.platform)
     body = truncate_text(post.content, 2000) or post.title or "（无正文）"
     kind = " · 回复" if post.post_type == "reply" else ""
-    marks = ("⭐ " if favorite else "") + ("🔑 " if keyword else "")
-    lines = [
-        f"<b>📌 {marks}{escape(post.kol_name)} · {platform}{kind}</b>",
-        "",
-        escape(body),
-    ]
+    badges = why_badges(favorite, keyword)
+    lines = [f"<b>📌 {escape(post.kol_name)} · {platform}{kind}</b>"]
+    if badges:
+        lines.append(badges)
+    lines.extend(["", escape(body)])
     if post.category:
         lines.append(f"🗂 {escape(post.category)}")
     lines.extend(
@@ -95,6 +94,22 @@ def build_combination_text(post: Post) -> str:
     if post.url:
         lines.append(f'🔗 <a href="{escape(post.url)}">查看原文</a>')
     return "\n".join(lines).rstrip()
+
+
+def _numbered_url_rows(posts: list[Post], max_items: int) -> list[list[dict]]:
+    """摘要/汇总的逐条查看按钮：编号 + 原文链接，每行最多 5 个。"""
+    rows: list[list[dict]] = []
+    row: list[dict] = []
+    for i, post in enumerate(posts[:max_items], 1):
+        if not post.url:
+            continue
+        row.append({"text": f"{i} 🔗", "url": post.url})
+        if len(row) == 5:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    return rows
 
 
 def build_telegram_digest(posts: list[Post], kol_name: str, platform: str) -> str:
@@ -173,14 +188,17 @@ class TelegramNotifier(Notifier):
         bot_token: str | None = None,
         favorite: bool = False,
         keyword: bool = False,
+        secondary: bool = False,
     ):
         # 用户自建 bot 时用用户自己的 token；否则用全局共享 bot
         self.bot_token = bot_token or config.bot_token
+        self.own_bot = bool(bot_token)  # 个人 bot 的消息回调不会到达全局轮询，按钮会失效
         self.chat_id = chat_id or config.chat_id
         self.client = client or httpx.Client(timeout=15, proxy=config.proxy or None)
         self.unsub_kol_id = unsub_kol_id
         self.favorite = favorite
         self.keyword = keyword
+        self.secondary = secondary
 
     def _post(self, url: str, **kw) -> httpx.Response:
         """POST 并容忍瞬时网络故障：TLS 握手超时等 TransportError 立即重试一次。
@@ -223,9 +241,17 @@ class TelegramNotifier(Notifier):
         self._send_text_message(post)
 
     def _send_text_message(self, post: Post) -> None:
+        kol_id = self.unsub_kol_id if self.unsub_kol_id is not None else post.kol_id
         keyboard = [[{"text": "🔗 查看原文", "url": post.url}]]
-        if self.unsub_kol_id is not None:
-            keyboard.append([{"text": "退订", "callback_data": f"unsub:{self.unsub_kol_id}"}])
+        # 操作按钮仅共享 bot 可用：个人 bot 的消息回调不会到达全局轮询
+        if kol_id and not self.own_bot:
+            sec_label = "🔔 取消次要" if self.secondary else "🔕 设为次要"
+            keyboard.append(
+                [
+                    {"text": sec_label, "callback_data": f"sec:{kol_id}"},
+                    {"text": "退订", "callback_data": f"unsub:{kol_id}"},
+                ]
+            )
         text = (
             build_combination_text(post)
             if post.platform == "combination" and post.detail
@@ -283,16 +309,15 @@ class TelegramNotifier(Notifier):
             raise RuntimeError(f"Telegram 返回错误: {result}")
 
     def send_digest(self, posts: list[Post], kol_name: str, platform: str) -> None:
-        keyboard = None
-        first_url = next((p.url for p in posts if p.url), "")
-        if first_url:
-            keyboard = json.dumps(
-                {
-                    "inline_keyboard": [
-                        [{"text": "🔗 查看全部", "url": first_url}]
-                    ]
-                },
-                ensure_ascii=False,
+        keyboard = _numbered_url_rows(posts, DIGEST_MAX_ITEMS)
+        # 操作按钮仅共享 bot 可用：个人 bot 的消息回调不会到达全局轮询
+        if self.unsub_kol_id is not None and not self.own_bot:
+            sec_label = "🔔 取消次要" if self.secondary else "🔕 设为次要"
+            keyboard.append(
+                [
+                    {"text": sec_label, "callback_data": f"sec:{self.unsub_kol_id}"},
+                    {"text": "退订", "callback_data": f"unsub:{self.unsub_kol_id}"},
+                ]
             )
         data = {
             "text": build_telegram_digest(posts, kol_name, platform),
@@ -300,7 +325,7 @@ class TelegramNotifier(Notifier):
             "disable_web_page_preview": True,
         }
         if keyboard:
-            data["reply_markup"] = keyboard
+            data["reply_markup"] = json.dumps({"inline_keyboard": keyboard}, ensure_ascii=False)
         self._send(data)
 
     def send_daily(self, posts: list[Post]) -> None:
@@ -313,20 +338,14 @@ class TelegramNotifier(Notifier):
         )
 
     def send_dnd_summary(self, posts: list[Post], title: str | None = None) -> None:
-        keyboard = None
-        first_url = next((p.url for p in posts if p.url), "")
-        if first_url:
-            keyboard = json.dumps(
-                {"inline_keyboard": [[{"text": "🔗 查看全部", "url": first_url}]]},
-                ensure_ascii=False,
-            )
+        keyboard = _numbered_url_rows(posts, DND_MAX_ITEMS)
         data = {
             "text": build_telegram_dnd_summary(posts, title=title),
             "parse_mode": "HTML",
             "disable_web_page_preview": True,
         }
         if keyboard:
-            data["reply_markup"] = keyboard
+            data["reply_markup"] = json.dumps({"inline_keyboard": keyboard}, ensure_ascii=False)
         self._send(data)
 
     def send_text(self, text: str, reply_markup: list | None = None) -> None:

@@ -83,9 +83,9 @@ def test_build_bark_text():
 
 def test_build_bark_text_marks():
     post = make_post()
-    assert "⭐ " in build_bark_text(post, favorite=True)
-    assert "🔑 " in build_bark_text(post, keyword=True)
-    assert "🔑 " in build_bark_text(post, favorite=True, keyword=True)
+    assert "特别关注" in build_bark_text(post, favorite=True)
+    assert "命中关键词" in build_bark_text(post, keyword=True)
+    assert "命中关键词" in build_bark_text(post, favorite=True, keyword=True)
 
 
 def test_build_bark_combination_text():

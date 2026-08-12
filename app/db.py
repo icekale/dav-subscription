@@ -1302,6 +1302,15 @@ class DB:
             (kol_id,),
         )
 
+    def get_subscription(self, user_id: int, kol_id: int) -> dict | None:
+        """单个订阅记录（type/favorite/secondary），未订阅返回 None。"""
+        rows = self._rows(
+            "SELECT type, favorite, secondary FROM subscriptions "
+            "WHERE user_id = ? AND kol_id = ?",
+            (user_id, kol_id),
+        )
+        return rows[0] if rows else None
+
     def set_subscription_favorite(self, user_id: int, kol_id: int, favorite: bool) -> bool:
         with self._lock:
             cur = self._conn.execute(

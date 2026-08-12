@@ -347,3 +347,108 @@ def test_bot_sub_private_kol_allowed_with_acl():
         }
     )
     assert db.subscribed_kol_ids(user["id"]) == {kid}
+
+
+def _callback_update(chat_id, message_id, data, text="通知正文", keyboard=None):
+    msg = {
+        "chat": {"id": chat_id, "type": "private"},
+        "message_id": message_id,
+        "text": text,
+    }
+    if keyboard:
+        msg["reply_markup"] = {"inline_keyboard": keyboard}
+    return {
+        "callback_query": {
+            "id": f"cq-{message_id}",
+            "from": {"id": chat_id, "username": "icekale"},
+            "data": data,
+            "message": msg,
+        }
+    }
+
+
+def _edit_calls(calls):
+    return [p for m, p in calls if m == "editMessageText"]
+
+
+def test_bot_unsub_callback_with_undo():
+    db, bot, kid, _ = make_env()
+    user_id = db.add_user("u1", "hash", telegram_chat_id="111")
+    db.add_subscription(user_id, kid, "both")
+    db.set_subscription_favorite(user_id, kid, True)
+    calls = []
+    bot._call = lambda method, **params: calls.append((method, params))
+
+    bot.handle_update(_callback_update(111, 1, f"unsub:{kid}"))
+    assert db.get_subscription(user_id, kid) is None
+    # 编辑消息保留正文，按钮换成撤销
+    edit = _edit_calls(calls)[-1]
+    assert edit["text"] == "通知正文"
+    kb = json.loads(edit["reply_markup"])["inline_keyboard"]
+    undo_data = kb[0][0]["callback_data"]
+    assert undo_data == f"unsubundo:{kid}"
+
+    # 撤销：恢复原订阅类型与标志
+    bot.handle_update(_callback_update(111, 1, undo_data, text="通知正文", keyboard=kb))
+    sub = db.get_subscription(user_id, kid)
+    assert sub is not None
+    assert sub["type"] == "both" and bool(sub["favorite"]) and not bool(sub["secondary"])
+
+
+def test_bot_sec_callback_toggle_and_undo():
+    db, bot, kid, _ = make_env()
+    user_id = db.add_user("u1", "hash", telegram_chat_id="111")
+    db.add_subscription(user_id, kid)
+    calls = []
+    bot._call = lambda method, **params: calls.append((method, params))
+
+    bot.handle_update(_callback_update(111, 2, f"sec:{kid}"))
+    assert bool(db.get_subscription(user_id, kid)["secondary"])
+    edit = _edit_calls(calls)[-1]
+    assert "合并推送" in edit["text"]
+    undo_data = json.loads(edit["reply_markup"])["inline_keyboard"][0][0]["callback_data"]
+    assert undo_data == f"secundo:{kid}"
+
+    bot.handle_update(_callback_update(111, 2, undo_data))
+    assert not bool(db.get_subscription(user_id, kid)["secondary"])
+
+
+def test_bot_sec_callback_requires_subscription():
+    db, bot, kid, _ = make_env()
+    db.add_user("u1", "hash", telegram_chat_id="111")
+    calls = []
+    bot._call = lambda method, **params: calls.append((method, params))
+
+    bot.handle_update(_callback_update(111, 3, f"sec:{kid}"))
+    assert "无法设置次要" in _edit_calls(calls)[-1]["text"]
+
+
+def test_bot_unsub_undo_expired():
+    db, bot, kid, _ = make_env()
+    user_id = db.add_user("u1", "hash", telegram_chat_id="111")
+    db.add_subscription(user_id, kid)
+    calls = []
+    bot._call = lambda method, **params: calls.append((method, params))
+
+    bot.handle_update(_callback_update(111, 4, f"unsub:{kid}"))
+    assert db.get_subscription(user_id, kid) is None
+    # 回拨时间戳模拟超时
+    key = "111:4"
+    ts, payload = bot._undo_windows[key]
+    bot._undo_windows[key] = (ts - 31, payload)
+
+    bot.handle_update(_callback_update(111, 4, f"unsubundo:{kid}"))
+    assert db.get_subscription(user_id, kid) is None
+    assert "撤销超时" in _edit_calls(calls)[-1]["text"]
+
+
+def test_bot_unsub_no_undo_when_not_subscribed():
+    db, bot, kid, _ = make_env()
+    db.add_user("u1", "hash", telegram_chat_id="111")
+    calls = []
+    bot._call = lambda method, **params: calls.append((method, params))
+
+    bot.handle_update(_callback_update(111, 5, f"unsub:{kid}"))
+    edit = _edit_calls(calls)[-1]
+    assert "已取消订阅" in edit["text"]
+    assert "撤销" not in edit["text"]

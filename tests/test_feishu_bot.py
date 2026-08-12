@@ -117,3 +117,37 @@ def test_feishu_card_hides_private_kol_and_denies_sub():
     resp = bot._on_card_action(event)
     assert resp.toast is not None and "无权订阅" in resp.toast.content
     assert db.subscribed_kol_ids(db.get_user_by_feishu("ou_9")["id"]) == set()
+
+
+def test_feishu_card_action_sec_toggle():
+    db, bot, _ = make_bot()
+    from lark_oapi.event.callback.model.p2_card_action_trigger import (
+        P2CardActionTrigger,
+    )
+
+    def fire():
+        return bot._on_card_action(
+            P2CardActionTrigger(
+                {
+                    "event": {
+                        "operator": {"open_id": "ou_9"},
+                        "action": {"value": {"action": "sec", "kol_id": 1}},
+                    }
+                }
+            )
+        )
+
+    # 建号但未订阅 → 拒绝
+    resp = fire()
+    assert resp.toast is not None and "未订阅" in resp.toast.content
+    user = db.get_user_by_feishu("ou_9")
+    assert user is not None
+    db.add_subscription(user["id"], 1)
+
+    resp = fire()
+    assert "已设为次要" in resp.toast.content
+    assert bool(db.get_subscription(user["id"], 1)["secondary"])
+
+    resp = fire()
+    assert "已恢复实时推送" in resp.toast.content
+    assert not bool(db.get_subscription(user["id"], 1)["secondary"])

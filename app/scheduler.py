@@ -724,6 +724,7 @@ def notify_subscribers(
                     alert_cb=maybe_alert_push_failure,
                     favorite=favorite,
                     keyword=keyword_hit,
+                    secondary=bool(user.get("secondary")),
                 )
     finally:
         if owns_client:
@@ -1125,6 +1126,7 @@ def notify_digest_subscribers(
                     unsub_kol_id=kol["id"],
                     bot_token=user.get("telegram_bot_token") or None,
                     favorite=favorite,
+                    secondary=bool(user.get("secondary")),
                 )
                 try:
                     if summary:
@@ -1168,8 +1170,10 @@ def notify_digest_subscribers(
                     chat_id=fs_kwargs["chat_id"],
                     unsub_kol_id=kol["id"],
                     favorite=favorite,
+                    secondary=bool(user.get("secondary")),
                     app_id=fs_kwargs["app_id"],
                     app_secret=fs_kwargs["app_secret"],
+                    interactive_buttons=not bool(fs_kwargs["app_id"]),
                 )
                 try:
                     if summary:
@@ -1991,7 +1995,9 @@ class Scheduler:
             self._dnd_buffer.setdefault(user["id"], []).append(post)
             self.retry_queue.drop(item)
             return
-        notifier = self._build_retry_notifier(item["channel"], item["user_id"], favorite=favorite)
+        notifier = self._build_retry_notifier(
+            item["channel"], item["user_id"], favorite=favorite, unsub_kol_id=post.kol_id
+        )
         try:
             notifier.notify(post)
         finally:
@@ -2129,7 +2135,13 @@ class Scheduler:
         finally:
             client.close()
 
-    def _build_retry_notifier(self, channel: str, user_id: int | None, favorite: bool = False):
+    def _build_retry_notifier(
+        self,
+        channel: str,
+        user_id: int | None,
+        favorite: bool = False,
+        unsub_kol_id: int | None = None,
+    ):
         from .channels import CHANNEL_LABELS, build_channel_notifier, channel_bound
 
         if user_id is None:
@@ -2147,6 +2159,7 @@ class Scheduler:
             user,
             self.notifiers_config,
             favorite=favorite,
+            unsub_kol_id=unsub_kol_id,
             db=self.db,
         )
 

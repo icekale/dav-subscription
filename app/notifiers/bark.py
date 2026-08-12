@@ -14,7 +14,7 @@ import urllib.parse
 import httpx
 
 from ..fetchers.base import Post, digest_body
-from .base import Notifier
+from .base import Notifier, why_badges
 
 PLATFORM_LABELS = {"xueqiu": "雪球", "combination": "雪球组合", "weibo": "微博", "twitter": "X/Twitter"}
 MAX_CONTENT_CHARS = 1600  # Bark 单条消息过长会被截断，正文截断到 1600 字
@@ -43,8 +43,11 @@ def build_bark_text(post: Post, favorite: bool = False, keyword: bool = False) -
     platform = PLATFORM_LABELS.get(post.platform, post.platform)
     body = (post.content or post.title or "（无正文）").strip()
     kind = " · 回复" if post.post_type == "reply" else ""
-    marks = ("⭐ " if favorite else "") + ("🔑 " if keyword else "")
-    lines = [f"{marks}{post.kol_name} · {platform}{kind}", "", body[:MAX_CONTENT_CHARS]]
+    lines = [f"{post.kol_name} · {platform}{kind}"]
+    badges = why_badges(favorite, keyword)
+    if badges:
+        lines.append(badges)
+    lines += ["", body[:MAX_CONTENT_CHARS]]
     if post.category:
         lines.append(f"🗂 {post.category}")
     if post.published_at:

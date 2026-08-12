@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 
 import httpx
 from fastapi import HTTPException
@@ -12,6 +13,9 @@ from .bot_core import SubscriptionBot
 from .notifiers.telegram import _tg_rate_limiter
 
 logger = logging.getLogger(__name__)
+
+# 通知按钮操作（退订/设次要）的撤销窗口
+UNDO_TTL_SECONDS = 30
 
 
 class TelegramBot:
@@ -22,6 +26,7 @@ class TelegramBot:
         self.offset = 0
         self.client = httpx.Client(timeout=35, proxy=proxy or None)
         self._last_search: dict[str, str] = {}  # chat_id -> 最近一次 /search 关键词（用于按钮回调后重渲染）
+        self._undo_windows: dict[str, tuple[float, dict]] = {}  # chat:msg -> (时间戳, 快照)
         self.core = SubscriptionBot(
             db,
             lambda identity_type, identity, text, **kwargs: self._send(identity, text, **kwargs),
@@ -154,6 +159,94 @@ class TelegramBot:
             text,
         )
 
+    def _remember_undo(self, chat_id, message_id, payload: dict) -> None:
+        self._undo_windows[f"{chat_id}:{message_id}"] = (time.time(), payload)
+
+    def _pop_undo(self, chat_id, message_id) -> tuple[float, dict] | None:
+        return self._undo_windows.pop(f"{chat_id}:{message_id}", None)
+
+    def _msg_keyboard(self, msg: dict) -> list[list[dict]] | None:
+        """取回调消息原始 inline 键盘，用于撤销时还原。"""
+        rm = msg.get("reply_markup") or {}
+        return rm.get("inline_keyboard") or None
+
+    def _handle_sub_action(self, data: str, chat_id, message_id, msg: dict, user: dict) -> None:
+        """通知/搜索按钮的订阅操作：退订、设次要，均带 30 秒内撤销。"""
+        action, _, rest = data.partition(":")
+        try:
+            kol_id = int(rest)
+        except ValueError:
+            kol_id = 0
+        kol = self.db.get_kol(kol_id)
+        if kol is None:
+            return
+        if action == "unsub":
+            sub = self.db.get_subscription(user["id"], kol_id)
+            self.db.remove_subscription(user["id"], kol_id)
+            if sub is None:
+                self._edit(chat_id, message_id, f"已取消订阅「{kol['name']}」")
+                return
+            self._remember_undo(
+                chat_id, message_id,
+                {
+                    "kind": "unsub",
+                    "kol_id": kol_id,
+                    "type": sub["type"],
+                    "favorite": bool(sub["favorite"]),
+                    "secondary": bool(sub["secondary"]),
+                },
+            )
+            self._edit(
+                chat_id, message_id,
+                msg.get("text") or f"已取消订阅「{kol['name']}」",
+                keyboard=[[{"text": f"↩️ 撤销退订「{kol['name']}」", "callback_data": f"unsubundo:{kol_id}"}]],
+            )
+            return
+        if action == "sec":
+            sub = self.db.get_subscription(user["id"], kol_id)
+            if sub is None:
+                self._edit(chat_id, message_id, f"未订阅「{kol['name']}」，无法设置次要")
+                return
+            was_secondary = bool(sub["secondary"])
+            self.db.set_subscription_secondary(user["id"], kol_id, not was_secondary)
+            self._remember_undo(
+                chat_id, message_id,
+                {"kind": "sec", "kol_id": kol_id, "was_secondary": was_secondary},
+            )
+            text = (
+                f"已恢复实时推送：「{kol['name']}」🔔"
+                if was_secondary
+                else f"已设为次要：「{kol['name']}」新帖合并推送 🔕"
+            )
+            self._edit(
+                chat_id, message_id, text,
+                keyboard=[[{"text": "↩️ 撤销", "callback_data": f"secundo:{kol_id}"}]],
+            )
+            return
+        # secundo / unsubundo
+        entry = self._pop_undo(chat_id, message_id)
+        if (
+            entry is None
+            or entry[1].get("kol_id") != kol_id
+            or time.time() - entry[0] > UNDO_TTL_SECONDS
+        ):
+            self._edit(chat_id, message_id, "⏳ 撤销超时或操作已失效（30 秒内可撤销）")
+            return
+        payload = entry[1]
+        if action == "unsubundo" and payload.get("kind") == "unsub":
+            self.db.add_subscription(user["id"], kol_id, payload.get("type", "post"))
+            self.db.set_subscription_favorite(user["id"], kol_id, bool(payload.get("favorite")))
+            self.db.set_subscription_secondary(user["id"], kol_id, bool(payload.get("secondary")))
+        elif action == "secundo" and payload.get("kind") == "sec":
+            self.db.set_subscription_secondary(user["id"], kol_id, bool(payload.get("was_secondary")))
+        else:
+            return
+        text = msg.get("text")
+        if text:
+            self._edit(chat_id, message_id, text, keyboard=self._msg_keyboard(msg))
+        else:
+            self._edit(chat_id, message_id, "已撤销 ✅")
+
     def _handle_callback(self, update: dict) -> None:
         cb = update.get("callback_query") or {}
         data = cb.get("data") or ""
@@ -200,15 +293,8 @@ class TelegramBot:
             except HTTPException as exc:
                 self._edit(chat_id, message_id, f"审批失败：{exc.detail}")
             return
-        if data.startswith("unsub:"):
-            try:
-                kol_id = int(data.split(":", 1)[1])
-            except ValueError:
-                kol_id = 0
-            kol = self.db.get_kol(kol_id)
-            if kol is not None:
-                self.db.remove_subscription(user["id"], kol_id)
-                self._edit(chat_id, message_id, f"已取消订阅「{kol['name']}」")
+        if data.startswith(("sec:", "secundo:", "unsubundo:", "unsub:")):
+            self._handle_sub_action(data, chat_id, message_id, msg, user)
             return
         if data.startswith("sub:"):
             # /search 结果里的订阅按钮：私有大V只有 ACL 用户可订阅，普通用户拒绝

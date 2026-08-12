@@ -205,6 +205,25 @@ class FeishuBot:
                 resp.card = CallBackCard({"type": "raw", "data": self._build_list_card(user, page, pages)})
                 resp.toast = CallBackToast({"type": "info", "content": f"第 {page}/{pages} 页"})
                 return resp
+            if act == "sec":
+                kol = self.db.get_kol(int(value.get("kol_id", 0) or 0))
+                user = self._get_or_create_user("feishu_open_id", open_id, open_id)
+                if kol is None:
+                    resp.toast = CallBackToast({"type": "error", "content": "大V不存在"})
+                    return resp
+                sub_row = self.db.get_subscription(user["id"], kol["id"])
+                if sub_row is None:
+                    resp.toast = CallBackToast({"type": "error", "content": "未订阅该大V"})
+                    return resp
+                was = bool(sub_row["secondary"])
+                self.db.set_subscription_secondary(user["id"], kol["id"], not was)
+                resp.toast = CallBackToast(
+                    {
+                        "type": "info",
+                        "content": "已恢复实时推送" if was else "已设为次要（合并推送）",
+                    }
+                )
+                return resp
             if act in ("sub", "unsub"):
                 kol = self.db.get_kol(int(value.get("kol_id", 0) or 0))
                 user = self._get_or_create_user("feishu_open_id", open_id, open_id)
