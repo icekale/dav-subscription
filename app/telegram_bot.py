@@ -194,6 +194,10 @@ class TelegramBot:
                     "type": sub["type"],
                     "favorite": bool(sub["favorite"]),
                     "secondary": bool(sub["secondary"]),
+                    # 原始消息快照：撤销回调的 reply_markup 是撤销按钮本身，
+                    # 必须用操作时的快照还原，否则还原编辑报 message not modified
+                    "text": msg.get("text") or "",
+                    "keyboard": self._msg_keyboard(msg),
                 },
             )
             self._edit(
@@ -211,7 +215,13 @@ class TelegramBot:
             self.db.set_subscription_secondary(user["id"], kol_id, not was_secondary)
             self._remember_undo(
                 chat_id, message_id,
-                {"kind": "sec", "kol_id": kol_id, "was_secondary": was_secondary},
+                {
+                    "kind": "sec",
+                    "kol_id": kol_id,
+                    "was_secondary": was_secondary,
+                    "text": msg.get("text") or "",
+                    "keyboard": self._msg_keyboard(msg),
+                },
             )
             text = (
                 f"已恢复实时推送：「{kol['name']}」🔔"
@@ -241,11 +251,16 @@ class TelegramBot:
             self.db.set_subscription_secondary(user["id"], kol_id, bool(payload.get("was_secondary")))
         else:
             return
-        text = msg.get("text")
-        if text:
-            self._edit(chat_id, message_id, text, keyboard=self._msg_keyboard(msg))
-        else:
-            self._edit(chat_id, message_id, "已撤销 ✅")
+        # 用操作时的快照还原原始消息（含原始键盘），避免拿当前撤销按钮键盘还原
+        keyboard = payload.get("keyboard")
+        text = payload.get("text") or msg.get("text")
+        try:
+            if text:
+                self._edit(chat_id, message_id, text, keyboard=keyboard)
+            else:
+                self._edit(chat_id, message_id, "已撤销 ✅", keyboard=keyboard)
+        except Exception:  # noqa: BLE001 - 界面还原失败不影响撤销已生效
+            logger.warning("撤销后还原消息失败 chat=%s msg=%s", chat_id, message_id, exc_info=True)
 
     def _handle_callback(self, update: dict) -> None:
         cb = update.get("callback_query") or {}

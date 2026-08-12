@@ -378,8 +378,15 @@ def test_bot_unsub_callback_with_undo():
     db.set_subscription_favorite(user_id, kid, True)
     calls = []
     bot._call = lambda method, **params: calls.append((method, params))
+    orig_kb = [
+        [{"text": "🔗 查看原文", "url": "https://example.com/1"}],
+        [
+            {"text": "🔕 设为次要", "callback_data": f"sec:{kid}"},
+            {"text": "退订", "callback_data": f"unsub:{kid}"},
+        ],
+    ]
 
-    bot.handle_update(_callback_update(111, 1, f"unsub:{kid}"))
+    bot.handle_update(_callback_update(111, 1, f"unsub:{kid}", keyboard=orig_kb))
     assert db.get_subscription(user_id, kid) is None
     # 编辑消息保留正文，按钮换成撤销
     edit = _edit_calls(calls)[-1]
@@ -388,11 +395,18 @@ def test_bot_unsub_callback_with_undo():
     undo_data = kb[0][0]["callback_data"]
     assert undo_data == f"unsubundo:{kid}"
 
-    # 撤销：恢复原订阅类型与标志
+    # 撤销：真实场景下回调消息带的是撤销按钮键盘，必须用快照还原原始键盘
     bot.handle_update(_callback_update(111, 1, undo_data, text="通知正文", keyboard=kb))
     sub = db.get_subscription(user_id, kid)
     assert sub is not None
     assert sub["type"] == "both" and bool(sub["favorite"]) and not bool(sub["secondary"])
+    restore = _edit_calls(calls)[-1]
+    assert restore["text"] == "通知正文"
+    restored_kb = json.loads(restore["reply_markup"])["inline_keyboard"]
+    # 原始键盘：查看原文 + [设次要, 退订]
+    assert restored_kb[0][0]["url"] == "https://example.com/1"
+    assert any(b.get("callback_data") == f"sec:{kid}" for row in restored_kb for b in row)
+    assert any(b.get("callback_data") == f"unsub:{kid}" for row in restored_kb for b in row)
 
 
 def test_bot_sec_callback_toggle_and_undo():
@@ -401,16 +415,27 @@ def test_bot_sec_callback_toggle_and_undo():
     db.add_subscription(user_id, kid)
     calls = []
     bot._call = lambda method, **params: calls.append((method, params))
+    orig_kb = [
+        [{"text": "🔗 查看原文", "url": "https://example.com/1"}],
+        [
+            {"text": "🔕 设为次要", "callback_data": f"sec:{kid}"},
+            {"text": "退订", "callback_data": f"unsub:{kid}"},
+        ],
+    ]
 
-    bot.handle_update(_callback_update(111, 2, f"sec:{kid}"))
+    bot.handle_update(_callback_update(111, 2, f"sec:{kid}", keyboard=orig_kb))
     assert bool(db.get_subscription(user_id, kid)["secondary"])
     edit = _edit_calls(calls)[-1]
     assert "合并推送" in edit["text"]
     undo_data = json.loads(edit["reply_markup"])["inline_keyboard"][0][0]["callback_data"]
     assert undo_data == f"secundo:{kid}"
 
-    bot.handle_update(_callback_update(111, 2, undo_data))
+    bot.handle_update(_callback_update(111, 2, undo_data, text=edit["text"], keyboard=json.loads(edit["reply_markup"])["inline_keyboard"]))
     assert not bool(db.get_subscription(user_id, kid)["secondary"])
+    # 还原编辑使用原始键盘
+    restore = _edit_calls(calls)[-1]
+    restored_kb = json.loads(restore["reply_markup"])["inline_keyboard"]
+    assert any(b.get("callback_data") == f"sec:{kid}" for row in restored_kb for b in row)
 
 
 def test_bot_sec_callback_requires_subscription():
@@ -429,8 +454,9 @@ def test_bot_unsub_undo_expired():
     db.add_subscription(user_id, kid)
     calls = []
     bot._call = lambda method, **params: calls.append((method, params))
+    orig_kb = [[{"text": "退订", "callback_data": f"unsub:{kid}"}]]
 
-    bot.handle_update(_callback_update(111, 4, f"unsub:{kid}"))
+    bot.handle_update(_callback_update(111, 4, f"unsub:{kid}", keyboard=orig_kb))
     assert db.get_subscription(user_id, kid) is None
     # 回拨时间戳模拟超时
     key = "111:4"
