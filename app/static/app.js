@@ -913,7 +913,6 @@ async function renderTimeline(seq) {
     <section class="section-panel tl-feed-panel">
       <div class="tl-new-badge" id="tl-new-badge">
         <button class="tl-new-badge-btn" onclick="refreshTimeline()">
-          ${BELL_ICON}
           <span class="tl-badge-avatars" id="tl-new-avatars"></span>
           <span id="tl-new-count">0</span> 条新动态
         </button>

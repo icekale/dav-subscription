@@ -838,15 +838,14 @@ body.lightbox-open { overflow: hidden; }
 }
 .tl-new-badge.show { display: block; animation: tl-new-slide 0.25s var(--ease-standard); }
 .tl-new-badge-btn {
-  display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 8px; white-space: nowrap;
   border: none; background: var(--color-accent); color: var(--color-white);
   font-size: var(--text-sm); font-weight: var(--font-weight-semibold);
-  padding: 8px 18px; border-radius: var(--radius-pill);
+  padding: 11px 20px; border-radius: var(--radius-pill);
   box-shadow: var(--shadow-sm); cursor: pointer;
   transition: background var(--ease-standard);
 }
 .tl-new-badge-btn:hover { background: var(--color-accent-strong); }
-.tl-new-badge-btn .bell-icon { width: 15px; height: 15px; flex-shrink: 0; }
 .tl-badge-avatars { display: inline-flex; align-items: center; }
 .tl-badge-avatars img, .tl-badge-avatars .ph {
   width: 22px; height: 22px; border-radius: 50%;
