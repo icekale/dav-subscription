@@ -1535,7 +1535,9 @@ class DB:
                     return None  # 唯一约束命中，帖子已存在
                 return cur.lastrowid
         except sqlite3.IntegrityError:
-            return None  # 并发下重复插入，视为已存在
+            # 并发下重复插入，视为已存在；回滚关闭隐式事务，避免悬空事务污染后续 BEGIN
+            self._conn.rollback()
+            return None
 
     def insert_posts_batch(self, posts) -> list[int | None]:
         """一个事务批量插入帖子，返回与入参对齐的 id 列表（已存在为 None）。"""

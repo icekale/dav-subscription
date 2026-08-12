@@ -793,6 +793,7 @@ body.lightbox-open { overflow: hidden; }
   .lightbox, .lightbox-img, .lightbox.closing, .lightbox.closing .lightbox-img { animation: none; }
   /* 骨架屏 shimmer 无限循环、toast 入场：reduce 下改为静态/瞬显 */
   .tl-sk-item, .tl-sk-line { animation: none; }
+  .tl-new-badge.show { animation: none; }
   .toast { animation: none; }
 }
 .post-item .p-meta { display: flex; align-items: center; gap: 10px; margin-top: 10px; font-size: var(--text-xs); color: var(--color-text-muted); flex-wrap: wrap; }
@@ -831,7 +832,7 @@ body.lightbox-open { overflow: hidden; }
 }
 .tl-chip-x:hover { background: var(--color-surface-hover); }
 .tl-chip-x .x-icon { width: 12px; height: 12px; }
-.tl-feed-panel { position: relative; margin-top: 16px; } /* 新帖胶囊的定位锚点：悬浮在面板顶边；上边距给胶囊留出筛选栏(吸顶毛玻璃)以下的完整空间，避免顶部被裁切 */
+.tl-feed-panel { position: relative; margin-top: 16px; } /* 新帖胶囊的定位锚点：悬浮在面板顶边；上边距给胶囊留出吸顶筛选栏以下的完整空间，避免顶部被裁切 */
 .tl-new-badge {
   position: absolute; top: -16px; left: 50%; transform: translateX(-50%);
   display: none; z-index: 5;
