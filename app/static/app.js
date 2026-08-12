@@ -14,7 +14,7 @@ const CHANNEL_ICONS = {
   wecom: `<svg class="ch-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 4c-4.42 0-8 3.02-8 6.75 0 2.13 1.22 4.02 3.12 5.26L6.2 19.5l3.66-1.83c.68.15 1.4.24 2.14.24 4.42 0 8-3.02 8-6.75S16.42 4 12 4z"/></svg>`,
   bark: `<svg class="ch-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg>`,
 };
-const APP_VERSION = "1.11.1";
+const APP_VERSION = "1.11.2";
 const PLATFORM_TABS = ["", "xueqiu", "combination", "weibo", "twitter"];
 const STAR_SVG = `<svg class="star-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5l2.95 5.98 6.6.96-4.78 4.66 1.13 6.58L12 17.6l-5.9 3.1 1.13-6.58L2.45 9.44l6.6-.96L12 2.5z"/></svg>`;
 // 次要（降频）铃铛图标：线性风格，与 TRASH_ICON 一致（stroke=currentColor）
@@ -4236,9 +4236,11 @@ function applyTheme() {
   const mode = themeMode();
   const dark = mode === "dark" || (mode === "auto" && systemPrefersDark());
   document.documentElement.classList.toggle("theme-dark", dark);
-  // 同步顶部浏览器 UI（桌面无意义，PWA/移动端状态栏）
+  // 同步顶部浏览器 UI（桌面无意义，PWA/移动端状态栏）。
+  // 用页面顶部背景色而非品牌强调色：iOS 用 theme-color 填充状态栏/安全区，
+  // 若填强调蓝会出现一条与页面不符的蓝色条（详见 PWA 顶部蓝条问题）。
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute("content", dark ? "#0d1014" : "#0d5cff");
+  if (meta) meta.setAttribute("content", dark ? "#11141a" : "#f8f8fb");
   // 品牌符号（登录页 + topbar + 侧边栏）用融合版，深浅各一
   const logo = document.querySelector(".topbar-logo");
   if (logo) logo.src = dark ? "/logo-mark-dark.svg" : "/logo-mark.svg";
