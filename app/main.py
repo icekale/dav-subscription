@@ -33,6 +33,14 @@ def background_workers_enabled() -> bool:
     return os.environ.get(WORKERS_ENV, "0") != "1"
 
 
+def docs_enabled() -> bool:
+    """是否对外暴露 /docs、/redoc、/openapi.json（默认关闭，WEB_ENABLE_DOCS=1 时开启）。
+
+    生产默认关闭以减少接口暴露面；本地开发调试时设 WEB_ENABLE_DOCS=1 即可。
+    """
+    return os.environ.get("WEB_ENABLE_DOCS", "0") == "1"
+
+
 class _NoCacheStaticFiles(StaticFiles):
     """html/js/css 每次请求都重新校验（ETag/304），避免浏览器缓存旧版本前端。"""
 
@@ -174,7 +182,14 @@ def create_app(config=None, db_path: str | Path | None = None) -> FastAPI:
                 bot.client.close()
         db.close()
 
-    app = FastAPI(title="V Push", lifespan=lifespan)
+    docs = docs_enabled()
+    app = FastAPI(
+        title="V Push",
+        lifespan=lifespan,
+        docs_url="/docs" if docs else None,
+        redoc_url="/redoc" if docs else None,
+        openapi_url="/openapi.json" if docs else None,
+    )
     app.state.db = db
 
     @app.middleware("http")
