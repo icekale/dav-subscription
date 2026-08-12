@@ -997,20 +997,27 @@ function tlBadgeAvatarsHtml(posts, max = 3) {
 }
 
 async function refreshTimeline() {
+  if (!_tlPendingNew.length) {
+    // 兜底：无缓存新帖时全量刷新
+    await loadTimeline(true, routeRenderSeq);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    return;
+  }
+  // 先补拉一次最新：覆盖「提示条出现后又有新帖」的窗口，点击即刷新到真正最新状态
+  await pollNewPosts();
   const badge = $("#tl-new-badge");
-  if (badge) badge.classList.remove("show");
   if (_tlPendingNew.length) {
-    // X 式：把已拉到的新帖直接插到列表顶部，不整页重载
+    // X 式：把已拉到的新帖直接插到列表顶部，不整页重载。
+    // 多批轮询累积（含点击时补拉）可能乱序，插入前统一按 id 倒序。
+    _tlPendingNew.sort((a, b) => b.id - a.id);
     _tlPosts.unshift(..._tlPendingNew);
     _tlOffset += _tlPendingNew.length; // 新帖进了 DB 顶部，offset 分页要同步后移
     _tlLatestId = _tlPendingLatestId;
     _tlPendingNew = [];
     _tlPendingLatestId = 0;
     renderTimelineFeed();
-    window.scrollTo({ top: 0, behavior: "smooth" });
-    return;
   }
-  await loadTimeline(true, routeRenderSeq);
+  if (badge) badge.classList.remove("show");
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
