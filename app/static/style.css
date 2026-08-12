@@ -834,7 +834,7 @@ body.lightbox-open { overflow: hidden; }
 }
 .tl-chip-x:hover { background: var(--color-surface-hover); }
 .tl-chip-x .x-icon { width: 12px; height: 12px; }
-.tl-feed-panel { position: relative; } /* 新帖胶囊的定位锚点：悬浮在面板顶边 */
+.tl-feed-panel { position: relative; margin-top: 16px; } /* 新帖胶囊的定位锚点：悬浮在面板顶边；上边距给胶囊留出筛选栏(吸顶毛玻璃)以下的完整空间，避免顶部被裁切 */
 .tl-new-badge {
   position: absolute; top: -16px; left: 50%; transform: translateX(-50%);
   display: none; z-index: 5;
