@@ -912,7 +912,11 @@ async function renderTimeline(seq) {
     ${tlActiveChipsHtml()}
     <section class="section-panel tl-feed-panel">
       <div class="tl-new-badge" id="tl-new-badge">
-        <button class="tl-new-badge-btn" onclick="refreshTimeline()">显示 <span id="tl-new-count">0</span> 帖子</button>
+        <button class="tl-new-badge-btn" onclick="refreshTimeline()">
+          ${BELL_ICON}
+          <span class="tl-badge-avatars" id="tl-new-avatars"></span>
+          <span id="tl-new-count">0</span> 条新动态
+        </button>
       </div>
       <div id="feed">${reuse ? "" : TL_SKELETON}</div>
     </section>`;
@@ -969,9 +973,28 @@ async function pollNewPosts() {
     _tlPendingLatestId = newer[0].id;
     const count = $("#tl-new-count");
     if (count) count.textContent = String(_tlPendingNew.length);
+    const avatars = $("#tl-new-avatars");
+    if (avatars) avatars.innerHTML = tlBadgeAvatarsHtml(_tlPendingNew);
     const badge = $("#tl-new-badge");
     if (badge) badge.classList.add("show");
   } catch { /* 新帖检测失败静默 */ }
+}
+
+// 新帖胶囊头像：去重取前 3 个头像（无头像用首字色块），超出部分以 +N 计数
+function tlBadgeAvatarsHtml(posts, max = 3) {
+  const seen = new Set();
+  const avs = [];
+  for (const p of posts) {
+    if (avs.length >= max) break;
+    const key = p.avatar_url || p.kol_name;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    avs.push(p.avatar_url
+      ? `<img src="${escapeHtml(p.avatar_url)}" alt="" onerror="this.remove()">`
+      : `<span class="ph">${escapeHtml(avatarText(p.kol_name))}</span>`);
+  }
+  const extra = posts.length - avs.length;
+  return avs.join("") + (extra > 0 ? `<span class="tl-badge-more">+${extra}</span>` : "");
 }
 
 async function refreshTimeline() {
