@@ -820,6 +820,10 @@ def test_secondary_api():
     client.put(f"/api/subscriptions/{kid}/secondary", headers=headers, json={"secondary": True})
     subs = client.get("/api/my/subscriptions", headers=headers).json()
     assert next(k for k in subs if k["id"] == kid)["secondary"] == 1
+    # 我的订阅接口：返回个人 secondary（而非 kols 全局列，刷新后不丢状态）
+    client.put(f"/api/subscriptions/{kid}/secondary", headers=headers, json={"secondary": True})
+    subs = client.get("/api/my/subscriptions", headers=headers).json()
+    assert next(k for k in subs if k["id"] == kid)["secondary"] == 1
 
 
 def test_change_password_api():
@@ -1642,6 +1646,21 @@ def test_polling_config_frequency_tiers():
     assert cfg["combination_idle_cap_seconds"] == 120
     assert cfg["normal_idle_cap_seconds"] == 900
     assert cfg["priority_idle_cap_seconds"] == 180
+    # 次要大V最低合并条数：默认 1（现行为），PUT 保存、超范围被拒
+    assert cfg["secondary_min_digest_count"] == 1
+    resp = client.put(
+        "/api/admin/polling-config",
+        headers=headers,
+        json={"secondary_min_digest_count": 3},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["secondary_min_digest_count"] == 3
+    resp = client.put(
+        "/api/admin/polling-config",
+        headers=headers,
+        json={"secondary_min_digest_count": 0},
+    )
+    assert resp.status_code == 400
     assert cfg["x_fallback_cap_seconds"] == 1800
     # 次要大V档位
     assert cfg["secondary_interval_seconds"] == 900
@@ -2438,7 +2457,7 @@ def test_img_proxy_fetches_image(monkeypatch):
 
     class FakeClient:
         def __init__(self, *args, **kwargs):
-            pass
+            self.headers = {}
 
         def stream(self, method, url, **kwargs):
             class Stream:
@@ -2469,7 +2488,7 @@ def test_img_proxy_rejects_non_image(monkeypatch):
 
     class FakeClient:
         def __init__(self, *args, **kwargs):
-            pass
+            self.headers = {}
 
         def stream(self, method, url, **kwargs):
             class Stream:
@@ -2516,7 +2535,7 @@ def test_img_proxy_stops_reading_after_limit(monkeypatch):
 
     class FakeClient:
         def __init__(self, *args, **kwargs):
-            pass
+            self.headers = {}
 
         def stream(self, method, url, **kwargs):
             class Stream:
