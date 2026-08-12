@@ -975,6 +975,9 @@ def _fetch_kol_once(
             "规则打标失败 platform=%s kol=%s err=%s", kol["platform"], kol["name"], exc
         )
     # 批量入库（一个事务），再逐条推送
+    # 首次抓取判定：该大V库中尚无任何帖子 → 本轮仅建立历史基线，不推送。
+    # 否则订阅新大V时，最近 N 条历史帖会一次性连推（连珠炮刷屏）。
+    first_fetch = not db.kol_has_posts(kol["id"])
     post_ids = db.insert_posts_batch(posts)
     # 空轮判定用「本轮是否新增入库」：时间线接口总是返回最近 N 条（含旧帖），
     # 用 posts 是否为空会永远判为有新帖，降频失效；有新帖立即重置，否则空轮 +1
@@ -985,6 +988,8 @@ def _fetch_kol_once(
         if post_id is None:
             continue
         logger.info("新帖 platform=%s kol=%s id=%s", post.platform, post.kol_name, post.external_id)
+        if first_fetch:
+            continue  # 首轮仅入库建基线，历史帖不推送；后续轮次新帖正常推送
         if not kol.get("priority") and kol["platform"] != "combination":
             if kol.get("secondary"):
                 if secondary_buffer is not None:

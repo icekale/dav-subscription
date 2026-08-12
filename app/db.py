@@ -1479,6 +1479,10 @@ class DB:
         )
         return rows[0]["id"] if rows else None
 
+    def kol_has_posts(self, kol_id: int) -> bool:
+        """该大V是否已入库过帖子（首次抓取基线判定）。"""
+        return bool(self._rows("SELECT 1 FROM posts WHERE kol_id = ? LIMIT 1", (kol_id,)))
+
     def get_post(self, post_id: int) -> dict | None:
         rows = self._rows(
             "SELECT p.*, k.name AS kol_name, k.platform AS kol_platform "
@@ -1524,9 +1528,11 @@ class DB:
                         tags_json,
                     ),
                 )
+                # 无论是否命中唯一约束都提交：忽略插入同样会打开隐式事务，
+                # 提前 return 不提交会把悬空事务留给下一个 BEGIN（事务嵌套报错）
+                self._conn.commit()
                 if cur.rowcount == 0:
                     return None  # 唯一约束命中，帖子已存在
-                self._conn.commit()
                 return cur.lastrowid
         except sqlite3.IntegrityError:
             return None  # 并发下重复插入，视为已存在

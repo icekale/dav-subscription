@@ -40,6 +40,16 @@ class FakeFetcher:
         return self.posts
 
 
+class KolScopedFetcher:
+    """按大V返回各自的帖子（模拟真实抓取器按 KOL 隔离返回，避免跨 KOL 竞态）。"""
+
+    def __init__(self, posts):
+        self.posts = posts
+
+    def fetch(self, kol):
+        return [p for p in self.posts if p.kol_id == kol["id"]]
+
+
 class FakeFetcherError:
     def fetch(self, kol):
         raise RuntimeError("boom")
@@ -119,11 +129,53 @@ def make_post(kol_id):
     )
 
 
+def seed_baseline_post(db, kid):
+    """预置一条基线帖，使该大V不再是「首次抓取」（首轮仅建基线不推送）。"""
+    # external_id 需按大V唯一：posts 唯一约束在 (platform, external_id)
+    db.insert_post("xueqiu", kid, f"baseline-{kid}", "t", "c", "u", "")
+
+
+def test_first_fetch_establishes_baseline_without_push(monkeypatch):
+    """订阅新大V：首次抓取只入库建立基线，历史帖不推送（避免连珠炮刷屏）。"""
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.add_subscription(uid, kid)
+    posts = [make_post(kid), make_post(kid)]
+    posts[1].external_id = "p2"
+    sent = []
+
+    class FakeTG:
+        def __init__(self, config, chat_id=None, client=None, **kwargs):
+            self.client = SimpleNamespace(close=lambda: None)
+
+        def notify(self, post):
+            sent.append(post.external_id)
+
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FakeTG)
+    ncfg = SimpleNamespace(
+        telegram=SimpleNamespace(bot_token="t", chat_id=""),
+        feishu=SimpleNamespace(),
+        wecom=SimpleNamespace(),
+    )
+    # 首轮：历史帖全部入库，但不推送
+    poll_once(db, {"xueqiu": FakeFetcher(posts)}, [], notifiers_config=ncfg)
+    assert sent == []
+    assert len(db.list_posts()) == 2
+
+    # 第二轮：新帖正常推送
+    posts[0].external_id = "p3"
+    poll_once(db, {"xueqiu": FakeFetcher(posts)}, [], notifiers_config=ncfg)
+    assert sent == ["p3"]
+    assert len(db.list_posts()) == 3
+
+
 def test_new_post_pushed_once(monkeypatch):
     db = make_db()
     kid = db.add_kol("xueqiu", "A", "1")
     cid = db.add_category("实盘")
     db.update_kol(kid, category_id=cid)
+    seed_baseline_post(db, kid)
     uid = db.add_user("u", "h", telegram_chat_id="111")
     db.add_subscription(uid, kid)
     post = make_post(kid)
@@ -147,12 +199,12 @@ def test_new_post_pushed_once(monkeypatch):
 
     poll_once(db, {"xueqiu": FakeFetcher([post])}, [], notifiers_config=ncfg)
     assert ("notify", post.external_id, "实盘") in calls
-    assert len(db.list_posts()) == 1
+    assert len(db.list_posts()) == 2  # 基线帖 + 新帖
     assert db.list_push_logs()[0]["status"] == "success"
 
     poll_once(db, {"xueqiu": FakeFetcher([post])}, [], notifiers_config=ncfg)
     assert calls.count(("notify", post.external_id, "实盘")) == 1
-    assert len(db.list_posts()) == 1
+    assert len(db.list_posts()) == 2
 
 
 def test_fetch_error_does_not_crash():
@@ -392,6 +444,7 @@ def test_posts_pushed_in_time_order(monkeypatch):
     kid = db.add_kol("weibo", "A", "1")
     uid = db.add_user("u", "h", telegram_chat_id="111")
     db.add_subscription(uid, kid)
+    seed_baseline_post(db, kid)
     # 抓取返回乱序（置顶/接口顺序），发布时间为三种不同格式
     posts = [
         Post(
@@ -698,6 +751,7 @@ def test_digest_buffers_non_priority_and_flushes(monkeypatch):
     kid = db.add_kol("xueqiu", "A", "1")  # 普通大V
     uid = db.add_user("u", "h", telegram_chat_id="111")
     db.add_subscription(uid, kid)
+    seed_baseline_post(db, kid)
     digest: dict[int, list] = {}
     posts = [make_post(kid), make_post(kid)]
     posts[1].external_id = "p2"
@@ -738,6 +792,7 @@ def test_priority_kol_bypasses_digest(monkeypatch):
     kid = db.add_kol("xueqiu", "P", "1", priority=True)
     uid = db.add_user("u", "h", telegram_chat_id="111")
     db.add_subscription(uid, kid)
+    seed_baseline_post(db, kid)
     calls = []
 
     class FakeTG:
@@ -772,6 +827,7 @@ def test_personal_secondary_user_buffered_not_realtime(monkeypatch):
     kid = db.add_kol("xueqiu", "A", "1")
     uid = db.add_user("u", "h", telegram_chat_id="111")
     db.add_subscription(uid, kid)
+    seed_baseline_post(db, kid)
     db.set_subscription_secondary(uid, kid, True)
     sent = []
 
@@ -876,6 +932,7 @@ def test_personal_secondary_favorite_bypasses_buffer(monkeypatch):
     kid = db.add_kol("xueqiu", "A", "1")
     uid = db.add_user("u", "h", telegram_chat_id="111")
     db.add_subscription(uid, kid)
+    seed_baseline_post(db, kid)
     db.set_subscription_secondary(uid, kid, True)
     db.set_subscription_favorite(uid, kid, True)
     sent = []
@@ -912,6 +969,7 @@ def test_combination_kol_bypasses_digest_and_pushes_realtime(monkeypatch):
     kid = db.add_kol("combination", "伯言-A股", "ZH3623878")
     uid = db.add_user("u", "h", telegram_chat_id="111")
     db.add_subscription(uid, kid)
+    seed_baseline_post(db, kid)
     calls = []
 
     class FakeTG:
@@ -1026,6 +1084,7 @@ def test_push_retry_queue_enqueued_on_failure_and_backoff_drops(monkeypatch):
     kid = db.add_kol("xueqiu", "A", "1")
     uid = db.add_user("u", "h", telegram_chat_id="111")
     db.add_subscription(uid, kid)
+    seed_baseline_post(db, kid)
 
     class FailingTelegram:
         def __init__(self, config, chat_id=None, client=None, **kwargs):
@@ -2549,6 +2608,7 @@ def test_push_failure_logged(monkeypatch):
     post = make_post(kid)
     uid = db.add_user("u", "h", telegram_chat_id="111")
     db.add_subscription(uid, kid)
+    seed_baseline_post(db, kid)
 
     class FailingTelegram:
         def __init__(self, config, chat_id=None, client=None, **kwargs):
@@ -2676,6 +2736,7 @@ def test_subscriber_push_uses_user_channels(monkeypatch):
     db.add_subscription(uid, kid)
     uid2 = db.add_user("u2", "hash", feishu_open_id="open789")
     db.add_subscription(uid2, kid)
+    seed_baseline_post(db, kid)
     ncfg = NotifiersConfig(
         telegram=TelegramConfig(bot_token="t"),
         feishu=FeishuConfig(app_id="a", app_secret="s"),
@@ -2723,6 +2784,7 @@ def test_global_tg_chat_subscriber_still_receives(monkeypatch):
     kid = db.add_kol("xueqiu", "A", "1")
     uid = db.add_user("u1", "hash", telegram_chat_id="777000")
     db.add_subscription(uid, kid)
+    seed_baseline_post(db, kid)
     ncfg = NotifiersConfig(
         telegram=TelegramConfig(bot_token="t", chat_id="777000"),
         feishu=FeishuConfig(app_id="a", app_secret="s"),
@@ -3721,6 +3783,7 @@ def test_secondary_kol_buffered_into_user_buffer_not_kol_digest(monkeypatch):
     kid = db.add_kol("xueqiu", "S", "1", secondary=True)
     uid = db.add_user("u", "h", telegram_chat_id="111")
     db.add_subscription(uid, kid)
+    seed_baseline_post(db, kid)
     digest: dict[int, list] = {}
     secondary_buffer: dict[int, list] = {}
     posts = [make_post(kid)]
@@ -3776,6 +3839,8 @@ def test_secondary_kols_merge_cross_kol_in_one_summary(monkeypatch):
     uid = db.add_user("u", "h", telegram_chat_id="111")
     db.add_subscription(uid, kid1)
     db.add_subscription(uid, kid2)
+    seed_baseline_post(db, kid1)
+    seed_baseline_post(db, kid2)
     secondary_buffer: dict[int, list] = {}
     sent = []
 
@@ -3794,7 +3859,7 @@ def test_secondary_kols_merge_cross_kol_in_one_summary(monkeypatch):
     )
     poll_once(
         db,
-        {"xueqiu": FakeFetcher([
+        {"xueqiu": KolScopedFetcher([
             Post(platform="xueqiu", kol_id=kid1, kol_name="S1", external_id="p1",
                  title="t", content="c", url="u", published_at=""),
             Post(platform="xueqiu", kol_id=kid2, kol_name="S2", external_id="p2",
@@ -3828,6 +3893,7 @@ def test_secondary_kol_realtime_when_long_digest_disabled(monkeypatch):
     kid = db.add_kol("xueqiu", "S", "1", secondary=True)
     uid = db.add_user("u", "h", telegram_chat_id="111")
     db.add_subscription(uid, kid)
+    seed_baseline_post(db, kid)
     digest: dict[int, list] = {}
     calls = []
 
