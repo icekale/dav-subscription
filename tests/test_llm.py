@@ -8,7 +8,7 @@ from app.fetchers.base import Post
 from app.llm import summarize_posts
 
 
-def make_post(content="正文内容", external_id="p1", title="标题") -> Post:
+def make_post(content="正文内容", external_id="p1", title="标题", url="https://xueqiu.com/1/2") -> Post:
     return Post(
         platform="xueqiu",
         kol_id=1,
@@ -16,7 +16,7 @@ def make_post(content="正文内容", external_id="p1", title="标题") -> Post:
         external_id=external_id,
         title=title,
         content=content,
-        url="https://xueqiu.com/1/2",
+        url=url,
         published_at="",
     )
 
@@ -239,10 +239,11 @@ def test_summarize_daily_prompt_includes_rules():
 
     client = httpx.Client(transport=httpx.MockTransport(handler))
     summarize_daily([make_post()], make_config(), client=client)
-    # system 指令要求综合成最多 3 条、每条限定字数、要点点名大V
-    assert "最多 3 条" in captured["system"]
-    assert "60~80 字" in captured["system"]
+    # system 指令要求综合成最多 8 条、每条限定字数、要点点名大V并标注依据序号
+    assert "最多 8 条" in captured["system"]
+    assert "100~150 字" in captured["system"]
     assert "大V" in captured["system"]
+    assert "（[N]）" in captured["system"]
     # 输入行带序号，模型可引用
     assert "1. [原帖][xueqiu] 张三：" in captured["user"]
 
@@ -335,22 +336,39 @@ def test_summarize_daily_max_tokens():
     assert captured["max_tokens"] == 16000
 
 
-def test_summarize_daily_enforces_max_three_points():
-    """模型输出 5 条要点时，解析层只保留前三条（顺序与引用序号不变）。"""
+def test_summarize_daily_enforces_max_eight_points():
+    """模型输出 10 条要点时，解析层只保留前八条（顺序与引用序号不变）。"""
     client = httpx.Client(transport=httpx.MockTransport(_daily_handler(
-        "今日共 5 条动态。\n"
-        "- 要点一（[1]）\n"
-        "- 要点二（[2]）\n"
-        "- 要点三（[3]）\n"
-        "- 要点四（[4]）\n"
-        "- 要点五（[5]）"
+        "今日共 10 条动态。\n"
+        + "\n".join(f"- 要点{i}（[{i}]）" for i in range(1, 11))
     )))
-    posts = [make_post(external_id=f"p{i}") for i in range(5)]
+    posts = [make_post(external_id=f"p{i}") for i in range(10)]
     summary = summarize_daily(posts, make_config(), client=client)
     assert summary is not None
-    assert len(summary.points) == 3
-    assert [p.text for p in summary.points] == ["要点一", "要点二", "要点三"]
-    assert [p.post_indexes for p in summary.points] == [[0], [1], [2]]
+    assert len(summary.points) == 8
+    assert [p.text for p in summary.points] == [f"要点{i}" for i in range(1, 9)]
+    assert [p.post_indexes for p in summary.points] == [[i - 1] for i in range(1, 9)]
+
+
+def test_render_daily_summary_with_posts_appends_links():
+    """传入 posts 后，要点末尾附依据帖子的原文链接。"""
+    summary = DailySummary(
+        overview="今日共 2 条动态。",
+        points=[
+            DailyPoint(text="要点甲", post_indexes=[1]),
+            DailyPoint(text="无来源要点", post_indexes=[]),
+        ],
+    )
+    posts = [make_post(external_id="p0"), make_post(external_id="p1", url="https://example.com/1")]
+    text = render_daily_summary(summary, posts)
+    assert "🔗 https://example.com/1" in text
+    assert "无来源要点" in text and "http" not in text.split("无来源要点")[1]
+
+
+def test_render_daily_summary_skips_link_when_posts_have_no_url():
+    summary = DailySummary(overview="", points=[DailyPoint(text="要点", post_indexes=[0])])
+    text = render_daily_summary(summary, [make_post(external_id="p0", url="")])
+    assert "http" not in text
 
 
 # ---- 股票黑话别名识别 ----

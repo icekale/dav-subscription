@@ -164,12 +164,14 @@ class DailySummary:
 
 
 DAILY_SUMMARY_SYSTEM_PROMPT = (
-    "你是财经内容主编，负责把用户今天订阅的社交动态综合整理成一份精炼的每日综述。"
+    "你是财经内容主编，负责把用户今天订阅的社交动态综合整理成一份信息量充足的每日综述。"
     "要求："
-    "1. 先写一句总览，点明今天共多少条动态、围绕哪些大V/话题；"
-    "2. 把全部内容综合成**最多 3 条**要点（宁可少而全，不要多而碎）；"
-    "3. **每条要点控制在 60~80 字左右**，只写核心结论与关键数字，细节、论证过程、背景一律省略；"
-    "4. 每条要点以「- 」开头，正文里直接点明是谁（大V名）说的、核心观点是什么；"
+    "1. 先写一句总览（如内容丰富可再加一句补充），点明今天共多少条动态、涉及哪些大V、当天主线话题；"
+    "2. 把全部内容综合成要点，最多 8 条：重要观点单独成条，同类话题合并成一条；"
+    "   覆盖当天值得关注的全部动态，不要因为追求精简而漏掉重要内容；"
+    "3. 每条要点 100~150 字：点明是谁（大V名）说的、核心观点与关键数字，"
+    "   并补一句关键依据（怎么说的/为什么/影响）；细节论证过程可省略；"
+    "4. 每条要点末尾标注依据的帖子序号，格式（[N]）或（[N][M]），对应输入行开头的序号；"
     "5. 保留关键数字与结论，去掉寒暄与无关细节；不要添加原文没有的信息，不要臆测。"
     "输出除总览和要点外不要任何解释。"
 )
@@ -179,7 +181,7 @@ def _daily_lines(posts) -> list[str]:
     """把一批贴文转成「序号. [原帖|回复][平台] KOL：正文摘要」的行，供每日综述。"""
     from .fetchers.base import digest_body
 
-    per_post = 2000 if len(posts) <= 2 else 400
+    per_post = 2000 if len(posts) <= 2 else 600  # 每日综述输出更宽，输入预算同步放宽
     lines = []
     for idx, post in enumerate(posts, start=1):
         platform = getattr(post, "platform", "") or ""
@@ -225,8 +227,8 @@ def _parse_daily_summary(text: str, post_count: int) -> DailySummary | None:
             points.append(DailyPoint(text=tail or body, post_indexes=indexes))
         elif stripped:
             overview_lines.append(stripped)
-    # 解析层强制上限：模型可能输出超过 3 条，只保留前三条（顺序与引用序号不变）
-    points = points[:3]
+    # 解析层强制上限：模型可能输出超过 8 条，只保留前八条（顺序与引用序号不变）
+    points = points[:8]
     if not points:
         logger.warning("LLM 每日综述无要点，降级为原始列表")
         return None
@@ -234,14 +236,34 @@ def _parse_daily_summary(text: str, post_count: int) -> DailySummary | None:
     return DailySummary(overview=overview, points=points)
 
 
-def render_daily_summary(summary: DailySummary) -> str:
-    """把综述渲染成纯文本：标题 + 总览 + 编号要点，不带原文链接。"""
+def render_daily_summary(summary: DailySummary, posts=None) -> str:
+    """把综述渲染成纯文本：标题 + 总览 + 编号要点。
+
+    posts 可选：传入后每条要点末尾附依据帖子的原文链接（取第一个依据帖），
+    不传则纯文本不带链接（保持旧行为）。
+    """
     lines = ["📊 今日大V精选（LLM 梳理）"]
     if summary.overview:
         lines += ["", summary.overview]
     for idx, point in enumerate(summary.points, start=1):
-        lines.append(f"{idx}. {point.text}")
+        line = f"{idx}. {point.text}"
+        url = _point_source_url(posts, point.post_indexes)
+        if url:
+            line += f"（🔗 {url}）"
+        lines.append(line)
     return "\n".join(lines)
+
+
+def _point_source_url(posts, post_indexes) -> str:
+    """取要点依据的第一个帖子链接；posts 为 None 或帖子无链接时返回空串。"""
+    if not posts or not post_indexes:
+        return ""
+    for idx in post_indexes:
+        if 0 <= idx < len(posts):
+            url = (getattr(posts[idx], "url", "") or "").strip()
+            if url:
+                return url
+    return ""
 
 
 def summarize_daily(posts, llm_config=None, client=None) -> DailySummary | None:

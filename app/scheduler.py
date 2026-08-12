@@ -2398,7 +2398,7 @@ class Scheduler:
             if summary is not None:
                 from .llm import render_daily_summary
 
-                daily_text = render_daily_summary(summary)
+                daily_text = render_daily_summary(summary, posts)
 
             _deliver(
                 "telegram",
