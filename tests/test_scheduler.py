@@ -829,6 +829,47 @@ def test_personal_secondary_user_buffered_not_realtime(monkeypatch):
     assert scheduler._secondary_buffer == {}
 
 
+def test_personal_secondary_flush_min_count(monkeypatch):
+    """个人次要：用户积压条数不足阈值时保留缓冲，够数才推摘要。"""
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.add_subscription(uid, kid)
+    sent = []
+
+    class FakeTG:
+        def __init__(self, config, chat_id=None, client=None, **kwargs):
+            self.client = SimpleNamespace(close=lambda: None)
+
+        def send_dnd_summary(self, posts, title=None):
+            sent.append(len(posts))
+
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FakeTG)
+    ncfg = SimpleNamespace(
+        telegram=SimpleNamespace(bot_token="t", chat_id=""),
+        feishu=SimpleNamespace(),
+        wecom=SimpleNamespace(),
+    )
+    scheduler = Scheduler(
+        db,
+        {},
+        [],
+        SimpleNamespace(),
+        notifiers_config=ncfg,
+        xueqiu_config=SimpleNamespace(cookie=""),
+        weibo_config=SimpleNamespace(cookie="", username="", password=""),
+    )
+    monkeypatch.setattr("app.scheduler._in_dnd_window", lambda user, now=None: False)
+    scheduler._secondary_buffer[uid] = [make_post(kid)]  # 1 条 < 2
+    scheduler._flush_secondary_buffers(min_count=2)
+    assert sent == []  # 不足不推
+    assert len(scheduler._secondary_buffer.get(uid, [])) == 1  # 继续攒
+    scheduler._secondary_buffer[uid].append(make_post(kid))  # 第 2 条
+    scheduler._flush_secondary_buffers(min_count=2)
+    assert sent == [2]
+    assert scheduler._secondary_buffer == {}
+
+
 def test_personal_secondary_favorite_bypasses_buffer(monkeypatch):
     """个人次要 + 特别关注：favorite 优先，仍实时推送。"""
     db = make_db()

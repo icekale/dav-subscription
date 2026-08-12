@@ -104,6 +104,7 @@ COMBINATION_IDLE_CAP_SECONDS = 120
 SECONDARY_BASE_SECONDS = 900
 SECONDARY_IDLE_CAP_SECONDS = 3600
 SECONDARY_DIGEST_INTERVAL_SECONDS = 3600
+SECONDARY_MIN_DIGEST_COUNT = 1
 
 
 def _frequency_setting(db: DB, key: str, default: int) -> int:
@@ -1726,6 +1727,11 @@ class Scheduler:
                 "config_secondary_digest_interval_seconds",
                 self.polling_config.secondary_digest_interval_seconds,
             )
+            secondary_min_count = _polling_setting(
+                self.db,
+                "config_secondary_min_digest_count",
+                SECONDARY_MIN_DIGEST_COUNT,
+            )
             try:
                 await asyncio.to_thread(
                     poll_once,
@@ -1792,7 +1798,7 @@ class Scheduler:
             ):
                 self._last_secondary_buffer_flush = now_mono
                 try:
-                    await asyncio.to_thread(self._flush_secondary_buffers)
+                    await asyncio.to_thread(self._flush_secondary_buffers, secondary_min_count)
                 except Exception:  # noqa: BLE001
                     logger.exception("次要大V合并摘要推送失败")
             # 免打扰时段结束：补推汇总
@@ -2026,8 +2032,12 @@ class Scheduler:
             except Exception as exc:  # noqa: BLE001
                 logger.warning("免打扰汇总推送失败 user=%s err=%s", user["username"], exc)
 
-    def _flush_secondary_buffers(self) -> None:
-        """次要大V合并缓冲到点：把每位用户积压的新帖以摘要样式推送（跨大V合并）。"""
+    def _flush_secondary_buffers(self, min_count: int = 1) -> None:
+        """次要大V合并缓冲到点：把每位用户积压的新帖以摘要样式推送（跨大V合并）。
+
+        min_count：合并推送最低条数（后台「次要大V合并推送最低条数」），
+        积压条数不足时不推、保留继续攒，够数才推。
+        """
         if not self._secondary_buffer:
             return
         now = datetime.now()
@@ -2035,6 +2045,8 @@ class Scheduler:
             posts = self._secondary_buffer.get(user_id) or []
             if not posts:
                 continue
+            if len(posts) < min_count:
+                continue  # 积压不足最低条数：继续攒，下个周期再判断
             user = self.db.get_user(user_id)
             if user is None:
                 self._secondary_buffer.pop(user_id, None)

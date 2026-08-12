@@ -2651,6 +2651,10 @@ async function loadAdminStats() {
                 <span>推送周期<span class="cfg-unit">秒</span></span>
                 <input id="pc-sd" type="number" class="form-control" min="0" max="86400" value="${s.polling_config.secondary_digest_interval_seconds}">
               </label>
+              <label class="cfg-field" title="合并推送最低条数：周期内积压不足此数则不推送、继续攒，够数才推">
+                <span>最低条数<span class="cfg-unit">条</span></span>
+                <input id="pc-sd-min" type="number" class="form-control" min="1" max="100" value="${s.polling_config.secondary_min_digest_count ?? 1}">
+              </label>
             </div>
           </div>
           <div class="cfg-group">
@@ -2844,6 +2848,7 @@ async function savePollingConfig() {
     secondary_interval_seconds: Number($("#pc-si").value),
     secondary_idle_cap_seconds: Number($("#pc-sc").value),
     secondary_digest_interval_seconds: Number($("#pc-sd").value),
+    secondary_min_digest_count: Number($("#pc-sd-min").value),
   };
   try {
     await api("/api/admin/polling-config", { method: "PUT", body: JSON.stringify(body) });

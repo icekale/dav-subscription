@@ -286,6 +286,7 @@ class PollingConfigIn(BaseModel):
     secondary_interval_seconds: int | None = None
     secondary_idle_cap_seconds: int | None = None
     secondary_digest_interval_seconds: int | None = None
+    secondary_min_digest_count: int | None = None
 
 
 class CookieIn(BaseModel):
@@ -746,6 +747,13 @@ def create_api_router(
             "config_secondary_digest_interval_seconds",
             0,
             86400,
+        ),
+        (
+            "secondary_min_digest_count",
+            "config_secondary_min_digest_count",
+            "config_secondary_min_digest_count",
+            1,
+            100,
         ),
     ]
 

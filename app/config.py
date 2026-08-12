@@ -102,6 +102,7 @@ class PollingConfig:
     secondary_interval_seconds: int = 900
     secondary_idle_cap_seconds: int = 3600
     secondary_digest_interval_seconds: int = 3600
+    secondary_min_digest_count: int = 1
     source_probe_interval_seconds: int = 600
     cookie_keepalive_interval_seconds: int = 21600
     daily_report_hour: int = 20
@@ -167,6 +168,7 @@ _ENV_MAP = {
     "POLLING_SECONDARY_INTERVAL_SECONDS": ("polling", "secondary_interval_seconds"),
     "POLLING_SECONDARY_IDLE_CAP_SECONDS": ("polling", "secondary_idle_cap_seconds"),
     "POLLING_SECONDARY_DIGEST_INTERVAL_SECONDS": ("polling", "secondary_digest_interval_seconds"),
+    "POLLING_SECONDARY_MIN_DIGEST_COUNT": ("polling", "secondary_min_digest_count"),
     "POLLING_SOURCE_PROBE_INTERVAL_SECONDS": ("polling", "source_probe_interval_seconds"),
     "POLLING_COOKIE_KEEPALIVE_INTERVAL_SECONDS": ("polling", "cookie_keepalive_interval_seconds"),
     "POLLING_DAILY_REPORT_HOUR": ("polling", "daily_report_hour"),
@@ -213,6 +215,7 @@ def _validate(config: Config) -> None:
         ("polling.secondary_interval_seconds", config.polling, "secondary_interval_seconds", int),
         ("polling.secondary_idle_cap_seconds", config.polling, "secondary_idle_cap_seconds", int),
         ("polling.secondary_digest_interval_seconds", config.polling, "secondary_digest_interval_seconds", int),
+        ("polling.secondary_min_digest_count", config.polling, "secondary_min_digest_count", int),
         ("polling.source_probe_interval_seconds", config.polling, "source_probe_interval_seconds", int),
         ("polling.cookie_keepalive_interval_seconds", config.polling, "cookie_keepalive_interval_seconds", int),
         ("polling.daily_report_hour", config.polling, "daily_report_hour", int),

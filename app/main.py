@@ -106,6 +106,7 @@ def create_app(config=None, db_path: str | Path | None = None) -> FastAPI:
         ("config_secondary_base_seconds", config.polling.secondary_interval_seconds),
         ("config_secondary_idle_cap_seconds", config.polling.secondary_idle_cap_seconds),
         ("config_secondary_digest_interval_seconds", config.polling.secondary_digest_interval_seconds),
+        ("config_secondary_min_digest_count", config.polling.secondary_min_digest_count),
     ):
         if db.get_setting(key) is None:
             db.set_setting(key, str(value))
