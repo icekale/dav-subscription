@@ -1643,7 +1643,11 @@ def create_api_router(
 
     @router.post("/kols/batch", dependencies=[Depends(require_admin)])
     def batch_add_kols(body: KolBatchIn, admin: dict = Depends(require_admin)):
-        """批量导入：每行一个「昵称 链接/UID」或「链接/UID」，支持雪球主页链接。"""
+        """批量导入：每行一个「昵称 链接/UID」或「链接/UID」。
+
+        按链接自动识别平台（雪球主页/雪球组合页/微博主页/X主页），
+        纯 UID 等无法识别的行使用 body.platform 作为默认平台。
+        """
         if body.platform not in ALLOWED_PLATFORMS:
             raise HTTPException(status_code=400, detail=f"不支持的平台: {body.platform}")
         if body.category_id is not None and db.get_category(body.category_id) is None:
@@ -1655,18 +1659,27 @@ def create_api_router(
                 continue
             external_id = ""
             nickname = ""
+            platform = ""  # 链接识别出的平台，识别不到时回退默认平台
             for token in line.split():
                 xueqiu_match = re.search(r"xueqiu\.com/(?:u/)?(\d+)", token)
                 combination_match = re.search(r"xueqiu\.com/P/(ZH\d+)", token)
                 weibo_match = re.search(r"weibo\.com/u/(\d+)", token)
+                twitter_match = re.search(r"(?:x|twitter)\.com/[A-Za-z0-9_]{1,15}", token)
                 if xueqiu_match:
                     external_id = xueqiu_match.group(1)
+                    platform = "xueqiu"
                 elif combination_match:
                     external_id = combination_match.group(1)
+                    platform = "combination"
                 elif re.fullmatch(r"ZH\d+", token):
                     external_id = token
+                    platform = "combination"
                 elif weibo_match:
                     external_id = weibo_match.group(1)
+                    platform = "weibo"
+                elif twitter_match:
+                    external_id = token  # 整条链接存为外部ID，下游 extract_screen_name 会解析
+                    platform = "twitter"
                 elif token.startswith(("http://", "https://")) and not external_id:
                     external_id = token  # X/RSS 等直接用源地址
                 elif token.isdigit() and not external_id:
@@ -1676,34 +1689,35 @@ def create_api_router(
             if not external_id:
                 results.append({"ok": False, "line": line[:80], "error": "未识别到链接或ID"})
                 continue
-            name = nickname or f"{body.platform}_{external_id}"
+            platform = platform or body.platform
+            name = nickname or f"{platform}_{external_id}"
             avatar_url = ""
-            if not nickname and body.platform == "xueqiu" and external_id.isdigit():
+            if not nickname and platform == "xueqiu" and external_id.isdigit():
                 # 没填昵称时自动查雪球昵称与头像（失败则退回 xueqiu_uid）
                 cookie = db.get_setting(XUEQIU_COOKIE_KEY) or os.environ.get("XUEQIU_COOKIE", "")
                 profile = resolve_profile(external_id, cookie)
                 if profile.get("screen_name"):
                     name = profile["screen_name"]
                 avatar_url = profile.get("avatar_url") or ""
-            elif body.platform == "xueqiu" and external_id.isdigit():
+            elif platform == "xueqiu" and external_id.isdigit():
                 # 已填昵称也补头像（与微博批量行为一致）
                 cookie = db.get_setting(XUEQIU_COOKIE_KEY) or os.environ.get("XUEQIU_COOKIE", "")
                 profile = resolve_profile(external_id, cookie)
                 avatar_url = profile.get("avatar_url") or ""
-            elif body.platform == "combination":
+            elif platform == "combination":
                 # 自动查组合名称（没填昵称时）与主理人头像
                 cookie = db.get_setting(XUEQIU_COOKIE_KEY) or os.environ.get("XUEQIU_COOKIE", "")
                 profile = resolve_combination_profile(external_id, cookie)
                 if not nickname and profile.get("name"):
                     name = profile["name"]
                 avatar_url = profile.get("avatar_url") or ""
-            elif body.platform == "twitter":
+            elif platform == "twitter":
                 # 自动查 X 显示名（没填昵称时）与头像（需 TWITTER_COOKIE）
                 profile = resolve_x_profile(external_id)
                 if not nickname and profile.get("name"):
                     name = profile["name"]
                 avatar_url = profile.get("avatar_url") or ""
-            elif body.platform == "weibo":
+            elif platform == "weibo":
                 # 微博批量导入始终拉取头像（填了昵称也查）；昵称为空时顺带补昵称
                 profile = resolve_weibo_profile(
                     external_id,
@@ -1714,7 +1728,7 @@ def create_api_router(
                 avatar_url = profile.get("avatar_url") or ""
             try:
                 kid = db.add_kol(
-                    body.platform,
+                    platform,
                     name,
                     external_id,
                     category_id=body.category_id,

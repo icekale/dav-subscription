@@ -253,6 +253,39 @@ def test_batch_import_x_kol_auto_resolves_name(monkeypatch):
     assert any(k["name"] == "elonmusk" for k in kols)
 
 
+def test_batch_import_auto_detects_platform_per_line(monkeypatch):
+    """批量导入按链接自动识别平台，纯 UID 回退默认平台。"""
+    from app import api as api_mod
+
+    monkeypatch.setattr(api_mod, "resolve_weibo_profile", lambda external_id, cookie="": {"name": "微博用户", "avatar_url": ""})
+    monkeypatch.setattr(api_mod, "resolve_x_profile", lambda external_id, cookie="": {"name": "X用户", "avatar_url": ""})
+    client = make_client()
+    headers = auth_headers(client)
+    resp = client.post(
+        "/api/kols/batch",
+        headers=headers,
+        json={
+            "platform": "xueqiu",  # 默认平台：仅对无法识别的行生效
+            "lines": "\n".join([
+                "雪球大V https://xueqiu.com/u/10001",
+                "https://xueqiu.com/P/ZH100002",
+                "微博大V https://weibo.com/u/1642591402",
+                "https://x.com/elonmusk",
+                "纯数字ID 20005",
+            ]),
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.json()["ok"] == 5, resp.json()
+    kols = client.get("/api/kols", headers=headers).json()
+    by_ext = {k["external_id"]: k for k in kols}
+    assert by_ext["10001"]["platform"] == "xueqiu"
+    assert by_ext["ZH100002"]["platform"] == "combination"
+    assert by_ext["1642591402"]["platform"] == "weibo"
+    assert by_ext["https://x.com/elonmusk"]["platform"] == "twitter"
+    assert by_ext["20005"]["platform"] == "xueqiu"  # 纯 UID 回退默认平台
+
+
 def test_batch_import_weibo_with_nickname_fetches_avatar(monkeypatch):
     from app import api as api_mod
 

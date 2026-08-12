@@ -910,11 +910,10 @@ async function renderTimeline(seq) {
       </div>
     </div>
     ${tlActiveChipsHtml()}
-    <div class="tl-new-badge" id="tl-new-badge">
-      <button class="tl-new-badge-btn" onclick="refreshTimeline()">显示 <span id="tl-new-count">0</span> 帖子</button>
-    </div>
-    <p class="section-meta" id="tl-meta" style="margin:0 0 10px">已加载 ${_tlPosts.length} 条动态</p>
-    <section class="section-panel">
+    <section class="section-panel tl-feed-panel">
+      <div class="tl-new-badge" id="tl-new-badge">
+        <button class="tl-new-badge-btn" onclick="refreshTimeline()">显示 <span id="tl-new-count">0</span> 帖子</button>
+      </div>
       <div id="feed">${reuse ? "" : TL_SKELETON}</div>
     </section>`;
   if (reuse) {
@@ -985,8 +984,6 @@ async function refreshTimeline() {
     _tlLatestId = _tlPendingLatestId;
     _tlPendingNew = [];
     _tlPendingLatestId = 0;
-    const meta = $("#tl-meta");
-    if (meta) meta.textContent = `已加载 ${_tlPosts.length} 条动态`;
     renderTimelineFeed();
     window.scrollTo({ top: 0, behavior: "smooth" });
     return;
@@ -1135,8 +1132,6 @@ async function loadTimeline(reset = true, routeSeq) {
       const badge = $("#tl-new-badge");
       if (badge) badge.classList.remove("show");
     }
-    const meta = $("#tl-meta");
-    if (meta) meta.textContent = `已加载 ${_tlPosts.length} 条动态`;
     renderTimelineFeed();
   } finally {
     if (!reset) _tlLoadingMore = false;
@@ -1158,9 +1153,9 @@ function renderTimelineFeed() {
     if (!grouped.has(bucket)) grouped.set(bucket, []);
     grouped.get(bucket).push(p);
   }
-  const html = [...grouped.entries()].map(([bucket, list]) => `
+  const html = [...grouped.entries()].map(([bucket, list], gi) => `
     <div class="tl-group">
-      <div class="tl-group-head">${escapeHtml(bucket)}</div>
+      <div class="tl-group-head"><span>${escapeHtml(bucket)}</span>${gi === 0 ? `<span class="tl-group-count">已加载 ${_tlPosts.length} 条动态</span>` : ""}</div>
       ${list.map(postCard).join("")}
     </div>`).join("");
   const footer = _tlHasMore
@@ -3134,10 +3129,11 @@ async function loadAdminKols() {
     <section class="section-panel">
       <header class="section-head">
         <div><h3 class="section-title">批量导入大V</h3>
-        <p class="section-meta">每行一个：昵称 + 雪球主页链接/UID（昵称可省略），如：<code>段永平 https://xueqiu.com/u/12345</code></p></div>
+        <p class="section-meta">每行一个：昵称 + 主页链接/UID（昵称可省略）。自动识别平台：雪球主页→雪球、雪球组合页→雪球组合、微博主页→微博、X 主页→X；纯 UID 等无法识别的行使用下方默认平台。如：<code>段永平 https://xueqiu.com/u/12345</code></p></div>
       </header>
-      <textarea id="ad-batch-lines" class="form-control" rows="8" style="font-family:monospace;min-height:180px;resize:vertical" placeholder="https://xueqiu.com/u/12345&#10;段永平 12345&#10;https://xueqiu.com/67890"></textarea>
+      <textarea id="ad-batch-lines" class="form-control" rows="8" style="font-family:monospace;min-height:180px;resize:vertical" placeholder="https://xueqiu.com/u/12345&#10;段永平 12345&#10;https://weibo.com/u/1642591402&#10;https://x.com/elonmusk&#10;https://xueqiu.com/P/ZH123456"></textarea>
       <div class="toolbar" style="margin-top:12px">
+        <label class="muted" for="ad-batch-platform">默认平台（未识别的行）</label>
         <select id="ad-batch-platform" class="form-control" style="margin:0;width:auto" onchange="adminPlatformDefaultCat(this, '#ad-batch-category')">
           <option value="xueqiu">雪球</option>
           <option value="combination">雪球组合</option>
