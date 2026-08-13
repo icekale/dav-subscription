@@ -817,6 +817,7 @@ let _tlLoadedFilter = null; // 缓存列表对应的筛选条件快照
 let _tlSavedScrollY = 0;    // 离开动态页时的滚动位置，切回时恢复
 let _tlPendingNew = [];     // 轮询拉到的新帖（点提示条时直接插到列表顶部）
 let _tlPendingLatestId = 0; // 已拉取的新帖中最新 id，轮询去重
+let _tlRefreshing = false;  // 刷新锁：防止连点/并发 poll 重复插入新帖
 let _tlPollTimer = null;    // 新帖轮询定时器
 
 function tlFilterKey() {
@@ -912,7 +913,7 @@ async function renderTimeline(seq) {
       </div>
     </div>
     ${tlActiveChipsHtml()}
-    <section class="section-panel tl-feed-panel">
+    <section class="section-panel tl-feed-panel" id="tl-feed-panel">
       <div class="tl-new-badge" id="tl-new-badge">
         <button class="tl-new-badge-btn" onclick="refreshTimeline()">
           <span class="tl-badge-avatars" id="tl-new-avatars"></span>
@@ -970,57 +971,73 @@ async function pollNewPosts() {
     if (!routeStillActive(seq) || !$("#feed")) return;
     const newer = posts.filter((p) => p.id > _tlPendingLatestId);
     if (!newer.length) return;
-    _tlPendingNew.push(...newer);
-    _tlPendingLatestId = newer[0].id;
+    // 并发轮询/点击补拉可能重叠：pending 按 id 去重后再累加
+    const have = new Set(_tlPendingNew.map((p) => p.id));
+    for (const p of newer) {
+      if (!have.has(p.id)) {
+        have.add(p.id);
+        _tlPendingNew.push(p);
+      }
+    }
+    _tlPendingLatestId = Math.max(_tlPendingLatestId, ...newer.map((p) => p.id));
     const count = $("#tl-new-count");
     if (count) count.textContent = String(_tlPendingNew.length);
     const avatars = $("#tl-new-avatars");
     if (avatars) avatars.innerHTML = tlBadgeAvatarsHtml(_tlPendingNew);
     const badge = $("#tl-new-badge");
     if (badge) badge.classList.add("show");
+    $("#tl-feed-panel")?.classList.add("has-new");
   } catch { /* 新帖检测失败静默 */ }
 }
 
-// 新帖胶囊头像：去重取前 3 个头像（无头像用首字色块），超出部分以 +N 计数
+// 新帖胶囊头像：去重取前 3 个头像（无头像用首字色块），超出部分按作者数以 +N 计数
 function tlBadgeAvatarsHtml(posts, max = 3) {
   const seen = new Set();
   const avs = [];
   for (const p of posts) {
-    if (avs.length >= max) break;
-    const key = p.avatar_url || p.kol_name;
+    const key = p.kol_id || p.kol_name;
     if (seen.has(key)) continue;
     seen.add(key);
-    avs.push(p.avatar_url
-      ? `<img src="${escapeHtml(p.avatar_url)}" alt="" onerror="this.remove()">`
-      : `<span class="ph">${escapeHtml(avatarText(p.kol_name))}</span>`);
+    if (avs.length < max) {
+      avs.push(p.avatar_url
+        ? `<img src="${escapeHtml(p.avatar_url)}" alt="" onerror="this.remove()">`
+        : `<span class="ph">${escapeHtml(avatarText(p.kol_name))}</span>`);
+    }
   }
-  const extra = posts.length - avs.length;
+  const extra = seen.size - avs.length;
   return avs.join("") + (extra > 0 ? `<span class="tl-badge-more">+${extra}</span>` : "");
 }
 
 async function refreshTimeline() {
-  if (!_tlPendingNew.length) {
-    // 兜底：无缓存新帖时全量刷新
-    await loadTimeline(true, routeRenderSeq);
+  if (_tlRefreshing) return; // 连点/并发：已有刷新在飞则忽略
+  _tlRefreshing = true;
+  try {
+    if (!_tlPendingNew.length) {
+      // 兜底：无缓存新帖时全量刷新
+      await loadTimeline(true, routeRenderSeq);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+    // 先补拉一次最新：覆盖「提示条出现后又有新帖」的窗口，点击即刷新到真正最新状态
+    await pollNewPosts();
+    const badge = $("#tl-new-badge");
+    // 与已渲染列表按 id 去重后插入：多批轮询累积（含并发重叠）统一按 id 倒序
+    const seen = new Set(_tlPosts.map((p) => p.id));
+    const incoming = _tlPendingNew.filter((p) => !seen.has(p.id)).sort((a, b) => b.id - a.id);
+    if (incoming.length) {
+      _tlPosts.unshift(...incoming);
+      _tlOffset += incoming.length; // 新帖进了 DB 顶部，offset 分页要同步后移
+      _tlLatestId = Math.max(_tlLatestId, _tlPendingLatestId);
+      _tlPendingNew = [];
+      _tlPendingLatestId = 0;
+      renderTimelineFeed();
+    }
+    if (badge) badge.classList.remove("show");
+    $("#tl-feed-panel")?.classList.remove("has-new");
     window.scrollTo({ top: 0, behavior: "smooth" });
-    return;
+  } finally {
+    _tlRefreshing = false;
   }
-  // 先补拉一次最新：覆盖「提示条出现后又有新帖」的窗口，点击即刷新到真正最新状态
-  await pollNewPosts();
-  const badge = $("#tl-new-badge");
-  if (_tlPendingNew.length) {
-    // X 式：把已拉到的新帖直接插到列表顶部，不整页重载。
-    // 多批轮询累积（含点击时补拉）可能乱序，插入前统一按 id 倒序。
-    _tlPendingNew.sort((a, b) => b.id - a.id);
-    _tlPosts.unshift(..._tlPendingNew);
-    _tlOffset += _tlPendingNew.length; // 新帖进了 DB 顶部，offset 分页要同步后移
-    _tlLatestId = _tlPendingLatestId;
-    _tlPendingNew = [];
-    _tlPendingLatestId = 0;
-    renderTimelineFeed();
-  }
-  if (badge) badge.classList.remove("show");
-  window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 function tlPillsHtml() {
@@ -1162,6 +1179,7 @@ async function loadTimeline(reset = true, routeSeq) {
       _tlPendingLatestId = 0;
       const badge = $("#tl-new-badge");
       if (badge) badge.classList.remove("show");
+      $("#tl-feed-panel")?.classList.remove("has-new");
     }
     renderTimelineFeed();
   } finally {

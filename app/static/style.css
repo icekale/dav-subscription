@@ -702,8 +702,8 @@ textarea.form-control {
 .post-item:last-child { border-bottom: none; }
 .post-item .p-header { display: flex; align-items: center; gap: 12px; }
 .post-item .p-header .kol-avatar { width: 38px; height: 38px; font-size: var(--text-body); }
-.post-item .p-name-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.post-item .p-name { font-size: var(--text-md); font-weight: var(--font-weight-semibold); color: var(--color-text-strong); text-decoration: none; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.post-item .p-name-line { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1; overflow: hidden; }
+.post-item .p-name { display: block; font-size: var(--text-md); font-weight: var(--font-weight-semibold); color: var(--color-text-strong); text-decoration: none; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .post-item .p-name:hover { color: var(--color-accent-text); text-decoration: underline; }
 .post-item .p-time { font-size: var(--text-xs); color: var(--color-text-muted); white-space: nowrap; flex-shrink: 0; }
 .post-item .p-time::before { content: "·"; margin-right: 6px; color: var(--color-text-muted); }
@@ -835,6 +835,7 @@ body.lightbox-open { overflow: hidden; }
 .tl-chip-x:hover { background: var(--color-surface-hover); }
 .tl-chip-x .x-icon { width: 12px; height: 12px; }
 .tl-feed-panel { position: relative; margin-top: 16px; } /* 新帖胶囊的定位锚点：悬浮在面板顶边；上边距给胶囊留出吸顶筛选栏以下的完整空间，避免顶部被裁切 */
+.tl-feed-panel.has-new { padding-top: 36px; } /* 胶囊占位：胶囊露出时面板让出高度，避免盖住分组标题/首条卡片 */
 .tl-new-badge {
   position: absolute; top: -16px; left: 50%; transform: translateX(-50%);
   display: none; z-index: 5;
@@ -1216,6 +1217,7 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
   .sub-type-switch { min-height: 44px; }
   .post-item { padding: 14px 4px; }
   .post-item a { min-height: 44px; display: inline-flex; align-items: center; }
+  .post-item .p-name { display: block; min-height: 44px; } /* 覆盖上一行：名字链接保持块级，省略号不因 inline-flex 失效 */
   .btn-sm { min-height: 44px; }
   .lightbox-close { width: 44px; height: 44px; }
   .topbar-logout { min-width: 44px; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; }
