@@ -498,6 +498,18 @@ def test_error_db_handler_captures_warnings():
     assert not any("普通信息" in c[2] for c in captured)
 
 
+def test_frontend_fallback_version_matches_backend():
+    """接口失败/离线时，侧栏兜底版本不能落后于后端发布版本。"""
+    import re
+    from pathlib import Path
+
+    from app.version import APP_VERSION
+
+    app_js = Path("app/static/app.js").read_text(encoding="utf-8")
+    match = re.search(r'^const APP_VERSION = "([^"]+)";', app_js, re.MULTILINE)
+    assert match and match.group(1) == APP_VERSION
+
+
 def test_version_api(monkeypatch):
     from app.version import APP_VERSION
 

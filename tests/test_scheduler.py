@@ -393,7 +393,8 @@ def test_source_health_alert_skips_healthy_and_no_kol():
     assert notifier.texts == []
 
 
-def test_poll_once_fetches_platforms_concurrently():
+def test_poll_once_fetches_platforms_concurrently(monkeypatch):
+    monkeypatch.setattr("app.scheduler.random.uniform", lambda _a, _b: 0)
     db = make_db()
     kids = {}
     for platform in ("xueqiu", "weibo", "twitter"):
