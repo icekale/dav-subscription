@@ -200,3 +200,16 @@ def test_update_post_tags_empty_list_marks_post_processed(tmp_path):
     assert row is not None
     assert row["tags"] == "[]"
     assert db.tag_stats()["pending"] == 0
+
+
+def test_insert_post_ignore_does_not_leave_open_txn(tmp_path):
+    """IGNORE 命中唯一约束后不能留下悬空事务（否则下一个 BEGIN 报 nested transaction）。"""
+    db = DB(str(tmp_path / "t.db"))
+    kid = db.add_kol("xueqiu", "A", "txn-ignore")
+    assert db.insert_post("xueqiu", kid, "p1", "t", "c", "u", "") is not None
+    assert db.insert_post("xueqiu", kid, "p1", "t", "c", "u", "") is None  # IGNORE 命中
+    assert db.insert_post("xueqiu", kid, "p2", "t", "c", "u", "") is not None
+    # 悬空事务会在这里抛 sqlite3.OperationalError: cannot start a transaction within a transaction
+    db._conn.execute("BEGIN")
+    db._conn.execute("SELECT 1")
+    db._conn.commit()
