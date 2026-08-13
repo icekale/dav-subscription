@@ -109,6 +109,48 @@ def _normalize_kol_request_input(platform: str, raw: str) -> tuple[str, str | No
     return "", f"不支持的平台: {platform}"
 
 
+def _parse_batch_kol_line(line: str, default_platform: str) -> tuple[str, str, str, str | None]:
+    """批量导入单行解析：返回 (platform, external_id, nickname, error)。
+
+    error 非空时本行失败。链接能识别出平台（雪球主页/组合/微博/X）则按识别结果
+    归一化；无法识别的 URL 或纯数字 UID 回退 default_platform；X 统一存 screen name。
+    """
+    nickname = ""
+    external_id = ""
+    platform = ""
+    parse_error = None
+    for token in line.split():
+        detected = _detect_platform_from_link(token)
+        if detected:
+            ext, err = _normalize_kol_request_input(detected, token)
+            if err:
+                parse_error = err
+                continue
+            platform, external_id, parse_error = detected, ext, None
+            continue
+        if token.startswith(("http://", "https://")):
+            if not external_id:
+                external_id = token  # 无法识别的源地址，回退默认平台
+            continue
+        if token.isdigit() and not external_id:
+            external_id = token
+            continue
+        nickname = f"{nickname} {token}".strip()
+    if not external_id:
+        return default_platform, "", nickname, parse_error or "未识别到链接或ID"
+    platform = platform or default_platform
+    # RSSHub 等源地址（不含 x.com/twitter.com）原样保留，RSS 兜底抓取器直接消费；
+    # 其余走归一化（X 主页链接存 screen name，系统页/推文链接报错）
+    if external_id.startswith(("http://", "https://")) and not re.search(
+        r"(?:x|twitter)\.com", external_id
+    ):
+        return platform, external_id, nickname, None
+    ext, err = _normalize_kol_request_input(platform, external_id)
+    if err:
+        return platform, "", nickname, err
+    return platform, ext, nickname, None
+
+
 def _account_key(username: str) -> str:
     """账号锁定/失败计数的统一键：去空白 + casefold。
 
@@ -1590,6 +1632,16 @@ def create_api_router(
         elif body.platform == "weibo":
             # 支持直接粘贴微博主页链接，自动提取 UID
             external_id = _normalize_weibo_id(external_id)
+        elif body.platform == "twitter":
+            # 与申请/批量导入同一归一化：主页链接存 screen name，推文/系统页拒绝；
+            # RSSHub 等源地址（不含 x.com/twitter.com）原样保留（RSS 兜底抓取器直接消费）
+            if not external_id.startswith(("http://", "https://")) or re.search(
+                r"(?:x|twitter)\.com", external_id
+            ):
+                ext, err = _normalize_kol_request_input("twitter", external_id)
+                if err:
+                    raise HTTPException(status_code=400, detail=err)
+                external_id = ext
         if not external_id:
             raise HTTPException(status_code=400, detail="昵称与外部ID不能为空")
         if not name:
@@ -1657,39 +1709,10 @@ def create_api_router(
             line = raw.strip()
             if not line:
                 continue
-            external_id = ""
-            nickname = ""
-            platform = ""  # 链接识别出的平台，识别不到时回退默认平台
-            for token in line.split():
-                xueqiu_match = re.search(r"xueqiu\.com/(?:u/)?(\d+)", token)
-                combination_match = re.search(r"xueqiu\.com/P/(ZH\d+)", token)
-                weibo_match = re.search(r"weibo\.com/u/(\d+)", token)
-                twitter_match = re.search(r"(?:x|twitter)\.com/[A-Za-z0-9_]{1,15}", token)
-                if xueqiu_match:
-                    external_id = xueqiu_match.group(1)
-                    platform = "xueqiu"
-                elif combination_match:
-                    external_id = combination_match.group(1)
-                    platform = "combination"
-                elif re.fullmatch(r"ZH\d+", token):
-                    external_id = token
-                    platform = "combination"
-                elif weibo_match:
-                    external_id = weibo_match.group(1)
-                    platform = "weibo"
-                elif twitter_match:
-                    external_id = token  # 整条链接存为外部ID，下游 extract_screen_name 会解析
-                    platform = "twitter"
-                elif token.startswith(("http://", "https://")) and not external_id:
-                    external_id = token  # X/RSS 等直接用源地址
-                elif token.isdigit() and not external_id:
-                    external_id = token
-                else:
-                    nickname = f"{nickname} {token}".strip()
-            if not external_id:
-                results.append({"ok": False, "line": line[:80], "error": "未识别到链接或ID"})
+            platform, external_id, nickname, err = _parse_batch_kol_line(line, body.platform)
+            if err:
+                results.append({"ok": False, "line": line[:80], "error": err})
                 continue
-            platform = platform or body.platform
             name = nickname or f"{platform}_{external_id}"
             avatar_url = ""
             if not nickname and platform == "xueqiu" and external_id.isdigit():

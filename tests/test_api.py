@@ -282,8 +282,55 @@ def test_batch_import_auto_detects_platform_per_line(monkeypatch):
     assert by_ext["10001"]["platform"] == "xueqiu"
     assert by_ext["ZH100002"]["platform"] == "combination"
     assert by_ext["1642591402"]["platform"] == "weibo"
-    assert by_ext["https://x.com/elonmusk"]["platform"] == "twitter"
+    assert by_ext["elonmusk"]["platform"] == "twitter"  # X 存 screen name 而非完整 URL
+    assert "https://x.com/elonmusk" not in by_ext
     assert by_ext["20005"]["platform"] == "xueqiu"  # 纯 UID 回退默认平台
+
+
+def test_batch_import_normalizes_weibo_mobile_and_rejects_tweet_url(monkeypatch):
+    """m.weibo.cn 链接识别为微博；X 推文/系统页链接整行失败。"""
+    from app import api as api_mod
+
+    monkeypatch.setattr(
+        api_mod, "resolve_weibo_profile", lambda external_id, cookie="": {"name": "微博用户", "avatar_url": ""}
+    )
+    client = make_client()
+    headers = auth_headers(client)
+    resp = client.post(
+        "/api/kols/batch",
+        headers=headers,
+        json={
+            "platform": "xueqiu",
+            "lines": "\n".join([
+                "https://m.weibo.cn/u/1642591402",
+                "https://x.com/elonmusk/status/123",
+                "https://x.com/home",
+            ]),
+        },
+    )
+    body = resp.json()
+    assert body["ok"] == 1, body
+    assert len(body["failed"]) == 2  # 两条 X 系统/推文链接失败
+    kols = {k["external_id"]: k for k in client.get("/api/kols", headers=headers).json()}
+    assert kols["1642591402"]["platform"] == "weibo"
+
+
+def test_add_x_kol_stores_screen_name(monkeypatch):
+    """单条添加 X 主页链接时，外部 ID 存 screen name 而非完整 URL。"""
+    from app import api as api_mod
+
+    monkeypatch.setattr(
+        api_mod, "resolve_x_profile", lambda external_id, cookie="": {"name": "Semi", "avatar_url": ""}
+    )
+    client = make_client()
+    headers = auth_headers(client)
+    resp = client.post(
+        "/api/kols",
+        headers=headers,
+        json={"platform": "twitter", "name": "", "external_id": "https://x.com/SemiAnalysis_"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["external_id"] == "SemiAnalysis_"
 
 
 def test_batch_import_weibo_with_nickname_fetches_avatar(monkeypatch):
