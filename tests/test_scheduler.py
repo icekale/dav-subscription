@@ -133,6 +133,64 @@ def seed_baseline_post(db, kid):
     """预置一条基线帖，使该大V不再是「首次抓取」（首轮仅建基线不推送）。"""
     # external_id 需按大V唯一：posts 唯一约束在 (platform, external_id)
     db.insert_post("xueqiu", kid, f"baseline-{kid}", "t", "c", "u", "")
+    db.mark_kol_baseline(kid)
+
+
+def test_empty_first_fetch_then_new_post_is_pushed(monkeypatch):
+    """首轮成功但空列表：已打基线；下一轮新帖要推，不能再当历史吃掉。"""
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.add_subscription(uid, kid)
+    sent = []
+
+    class FakeTG:
+        def __init__(self, config, chat_id=None, client=None, **kwargs):
+            self.client = SimpleNamespace(close=lambda: None)
+
+        def notify(self, post):
+            sent.append(post.external_id)
+
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FakeTG)
+    ncfg = SimpleNamespace(
+        telegram=SimpleNamespace(bot_token="t", chat_id=""),
+        feishu=SimpleNamespace(),
+        wecom=SimpleNamespace(),
+    )
+    # 首轮成功但空列表：建基线，无推送
+    poll_once(db, {"xueqiu": FakeFetcher([])}, [], notifiers_config=ncfg)
+    assert sent == []
+    assert db.get_kol(kid)["baseline_ready"] == 1
+
+    # 第二轮：首个新帖必须推送（不能再被当成历史基线）
+    poll_once(db, {"xueqiu": FakeFetcher([make_post(kid)])}, [], notifiers_config=ncfg)
+    assert sent == ["p1"]
+
+
+def test_existing_kol_baseline_ready_defaults_to_pushed(monkeypatch):
+    """存量大V（升级后 baseline_ready 默认 1）：新帖照常推送，不被静默。"""
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    db.mark_kol_baseline(kid)
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.add_subscription(uid, kid)
+    sent = []
+
+    class FakeTG:
+        def __init__(self, config, chat_id=None, client=None, **kwargs):
+            self.client = SimpleNamespace(close=lambda: None)
+
+        def notify(self, post):
+            sent.append(post.external_id)
+
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FakeTG)
+    ncfg = SimpleNamespace(
+        telegram=SimpleNamespace(bot_token="t", chat_id=""),
+        feishu=SimpleNamespace(),
+        wecom=SimpleNamespace(),
+    )
+    poll_once(db, {"xueqiu": FakeFetcher([make_post(kid)])}, [], notifiers_config=ncfg)
+    assert sent == ["p1"]
 
 
 def test_first_fetch_establishes_baseline_without_push(monkeypatch):

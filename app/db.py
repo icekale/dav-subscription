@@ -419,6 +419,11 @@ class DB:
             self._conn.execute("ALTER TABLE kols ADD COLUMN avatar_source TEXT NOT NULL DEFAULT ''")
         if "original_only" not in kol_cols:
             self._conn.execute("ALTER TABLE kols ADD COLUMN original_only INTEGER NOT NULL DEFAULT 0")
+        if "baseline_ready" not in kol_cols:
+            # 1=已建首次抓取基线（存量默认 1，升级后新帖照常推送）；0=新大V待首轮建基线
+            self._conn.execute(
+                "ALTER TABLE kols ADD COLUMN baseline_ready INTEGER NOT NULL DEFAULT 1"
+            )
         ev_cols = {row["name"] for row in self._rows("PRAGMA table_info(source_events)")}
         if "ok_count" not in ev_cols:
             self._conn.execute(
@@ -577,8 +582,8 @@ class DB:
             secondary = False  # 互斥：priority 优先（与 update_kol 行为一致）
         try:
             return self._execute(
-                "INSERT INTO kols (platform, name, external_id, category_id, priority, secondary, original_only) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO kols (platform, name, external_id, category_id, priority, secondary, original_only, baseline_ready) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, 0)",
                 (
                     platform,
                     name,
@@ -1479,9 +1484,9 @@ class DB:
         )
         return rows[0]["id"] if rows else None
 
-    def kol_has_posts(self, kol_id: int) -> bool:
-        """该大V是否已入库过帖子（首次抓取基线判定）。"""
-        return bool(self._rows("SELECT 1 FROM posts WHERE kol_id = ? LIMIT 1", (kol_id,)))
+    def mark_kol_baseline(self, kol_id: int) -> None:
+        """标记该大V已建立首次抓取基线（首次成功 fetch 后调用，含空列表）。"""
+        self._execute("UPDATE kols SET baseline_ready = 1 WHERE id = ?", (kol_id,))
 
     def get_post(self, post_id: int) -> dict | None:
         rows = self._rows(
