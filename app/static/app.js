@@ -1288,14 +1288,12 @@ function postCard(post) {
     <div class="post-item">
       <div class="p-header">
         ${avatarHtml(post.kol_name, post.avatar_url)}
-        <div>
-          <div class="p-name-line">
-            <a class="p-name" href="#/kol/${post.kol_id}">${escapeHtml(post.kol_name)}</a>
-            <span class="p-platform" data-platform="${escapeHtml(post.platform)}" title="${escapeHtml(PLATFORM_LABELS[post.platform] || post.platform)}">
-              ${PLATFORM_ICONS[post.platform] || ""}
-            </span>
-          </div>
-          <div class="p-time" title="${escapeHtml(post.published_at)}">${fmtPublished(post.published_at)}</div>
+        <div class="p-name-line">
+          <a class="p-name" href="#/kol/${post.kol_id}" title="${escapeHtml(post.kol_name)}">${escapeHtml(post.kol_name)}</a>
+          <span class="p-platform" data-platform="${escapeHtml(post.platform)}" title="${escapeHtml(PLATFORM_LABELS[post.platform] || post.platform)}">
+            ${PLATFORM_ICONS[post.platform] || ""}
+          </span>
+          <span class="p-time" title="${escapeHtml(post.published_at)}">${fmtPublished(post.published_at)}</span>
         </div>
       </div>
       ${!titleDup && post.title ? `<div class="p-title">${escapeHtml(post.title)}</div>` : ""}

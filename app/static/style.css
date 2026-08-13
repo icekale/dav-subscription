@@ -703,9 +703,10 @@ textarea.form-control {
 .post-item .p-header { display: flex; align-items: center; gap: 12px; }
 .post-item .p-header .kol-avatar { width: 38px; height: 38px; font-size: var(--text-body); }
 .post-item .p-name-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.post-item .p-name { font-size: var(--text-md); font-weight: var(--font-weight-semibold); color: var(--color-text-strong); text-decoration: none; }
+.post-item .p-name { font-size: var(--text-md); font-weight: var(--font-weight-semibold); color: var(--color-text-strong); text-decoration: none; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .post-item .p-name:hover { color: var(--color-accent-text); text-decoration: underline; }
-.post-item .p-time { font-size: var(--text-xs); color: var(--color-text-muted); margin-top: 2px; }
+.post-item .p-time { font-size: var(--text-xs); color: var(--color-text-muted); white-space: nowrap; flex-shrink: 0; }
+.post-item .p-time::before { content: "·"; margin-right: 6px; color: var(--color-text-muted); }
 .post-item .p-title { font-size: var(--text-body); font-weight: var(--font-weight-bold); margin-top: 12px; color: var(--color-text); }
 /* 正文限行宽：外壳铺满后保持舒适阅读行长（65-75ch），超宽屏不整行读不动 */
 .post-item .p-content { color: var(--color-text); margin-top: 8px; line-height: 1.7; word-break: break-all; font-size: var(--text-md); max-width: 75ch; white-space: pre-line; }
