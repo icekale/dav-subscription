@@ -393,9 +393,72 @@ function emptyState(text, actionHtml = "") {
   return `<div class="empty">${escapeHtml(text)}${actionHtml}</div>`;
 }
 
+function homeHasFilters() {
+  return !!(state.homeQ || state.platform || state.homeCategory);
+}
+
+function homeMobilePlatformsHtml() {
+  return TL_PLATFORMS.map(([p, label]) => `
+    <button class="home-mobile-platform ${state.platform === p ? "selected" : ""}"
+      data-platform="${p}"
+      aria-label="平台：${label}"
+      title="${label}"
+      aria-pressed="${state.platform === p}"
+      onclick="homePickMobilePlatform('${p}')">
+      ${PLATFORM_ICONS[p] || ""}
+    </button>`).join("");
+}
+
+function homeActiveChipsHtml() {
+  const chips = [];
+  if (state.homeQ) chips.push(`关键词：${escapeHtml(state.homeQ)}`);
+  if (state.platform) chips.push(`平台：${escapeHtml(PLATFORM_LABELS[state.platform] || state.platform)}`);
+  if (state.homeCategory) chips.push(`分类：${escapeHtml(state.homeCategory)}`);
+  return chips.length
+    ? `<div class="home-active-chips">${chips.map((label) => `<span class="home-active-chip">${label}</span>`).join("")}</div>`
+    : "";
+}
+
+function homeFilterPanel() {
+  const panel = $("#home-filter-panel");
+  const button = $("#home-filter-toggle");
+  if (!panel || !button) return;
+  const open = panel.classList.toggle("open");
+  button.setAttribute("aria-expanded", String(open));
+}
+
+async function homePickMobilePlatform(platform) {
+  state.platform = platform;
+  const platforms = $("#home-mobile-platforms");
+  if (platforms) platforms.innerHTML = homeMobilePlatformsHtml();
+  const panel = $("#home-filter-panel");
+  if (panel) panel.classList.remove("open");
+  const button = $("#home-filter-toggle");
+  if (button) {
+    button.classList.toggle("has-filter", homeHasFilters());
+    button.setAttribute("aria-expanded", "false");
+  }
+  await loadHomeKols(routeRenderSeq);
+}
+
+async function homeResetFilters() {
+  const platformChanged = !!state.platform;
+  state.homeQ = "";
+  state.homeCategory = "";
+  state.platform = "";
+  const search = $("#home-search");
+  if (search) search.value = "";
+  const platforms = $("#home-mobile-platforms");
+  if (platforms) platforms.innerHTML = homeMobilePlatformsHtml();
+  if (platformChanged) await loadHomeKols(routeRenderSeq);
+  else renderHomeList();
+}
+
 // ---------- 订阅广场 ----------
 async function renderHome(seq) {
   setPageTitle("订阅广场");
+  state.platform = "";
+  const mobileHome = isMobileTimelineFilter();
   let onboardingHtml = "";
   if (state.user && !state.user.subscription_count) {
     try {
@@ -433,20 +496,38 @@ async function renderHome(seq) {
   if (!routeStillActive(seq)) return; // 已切走：不写旧首页的 DOM
   $("#main").innerHTML = `
     ${onboardingHtml}
-    <section class="section-panel">
-      <header class="section-head">
-        <div>
-          <h3 class="section-title">全部大V</h3>
-          <p class="section-meta" id="catalog-meta">加载中…</p>
-        </div>
-        <div class="toolbar" style="margin-top:12px">
-          <div class="search-bar" style="flex:1;min-width:220px">
-            ${SEARCH_ICON}
-            <input id="home-search" placeholder="搜索昵称或 ID，即时过滤" oninput="homeSearch(this.value)">
+    <section class="section-panel home-panel">
+      <header class="section-head home-head">
+        <div class="home-head-row">
+          <div>
+            <h3 class="section-title">全部大V</h3>
+            <p class="section-meta" id="catalog-meta">加载中…</p>
           </div>
-          <div class="platform-tabs" id="platform-tabs"></div>
+          ${mobileHome ? `<button id="home-filter-toggle" class="fav-toggle" aria-expanded="false" aria-controls="home-filter-panel" onclick="homeFilterPanel()">${FILTER_ICON}筛选</button>` : ""}
         </div>
-        <div class="home-cats" id="home-cats"></div>
+        ${mobileHome ? `
+          <div id="home-active-chips">${homeActiveChipsHtml()}</div>
+          <div class="home-filter-panel" id="home-filter-panel">
+            <div class="search-bar home-search-bar">
+              ${SEARCH_ICON}
+              <input id="home-search" placeholder="搜索昵称或 ID" value="${escapeHtml(state.homeQ || "")}" oninput="homeSearch(this.value)">
+            </div>
+            <div class="home-mobile-platforms" id="home-mobile-platforms">
+              ${homeMobilePlatformsHtml()}
+            </div>
+            <div class="home-cats" id="home-cats"></div>
+            <div class="home-filter-actions">
+              <button class="btn-ghost" onclick="homeResetFilters()">清除筛选</button>
+            </div>
+          </div>` : `
+          <div class="toolbar" style="margin-top:12px">
+            <div class="search-bar" style="flex:1;min-width:220px">
+              ${SEARCH_ICON}
+              <input id="home-search" placeholder="搜索昵称或 ID，即时过滤" oninput="homeSearch(this.value)">
+            </div>
+            <div class="platform-tabs" id="platform-tabs"></div>
+          </div>
+          <div class="home-cats" id="home-cats"></div>`}
       </header>
       ${state.user?.is_admin ? "" : `
         <div class="request-banner">
@@ -459,13 +540,13 @@ async function renderHome(seq) {
         </div>`}
       <div id="kol-list" class="kol-grid"></div>
     </section>`;
-  state.platform = "";
   renderPlatformTabs();
   await loadHomeKols(seq);
 }
 
 function renderPlatformTabs() {
-  $("#platform-tabs").innerHTML = PLATFORM_TABS.map((p) => platformTabHTML(p, state.platform, "switchPlatform")).join("");
+  const tabs = $("#platform-tabs");
+  if (tabs) tabs.innerHTML = PLATFORM_TABS.map((p) => platformTabHTML(p, state.platform, "switchPlatform")).join("");
 }
 
 function categoryChipsHtml() {
@@ -494,6 +575,10 @@ function homeFilteredKols() {
 }
 
 function renderHomeList() {
+  const active = $("#home-active-chips");
+  if (active) active.innerHTML = homeActiveChipsHtml();
+  const filterButton = $("#home-filter-toggle");
+  if (filterButton) filterButton.classList.toggle("has-filter", homeHasFilters());
   const cats = $("#home-cats");
   if (cats) cats.innerHTML = categoryChipsHtml();
   const meta = $("#catalog-meta");
