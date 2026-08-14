@@ -11,6 +11,7 @@ import re
 from pathlib import Path
 
 APP_JS = Path(__file__).parent.parent / "app" / "static" / "app.js"
+STYLE_CSS = APP_JS.with_name("style.css")
 
 
 def _fn_body(name: str) -> str:
@@ -113,3 +114,54 @@ def test_post_tags_filter_timeline_without_inline_user_string():
     assert "tlPickTag(this.dataset.tag)" in post_card
     assert "state.timelineTag = tag" in pick_tag
     assert "loadTimeline(true, routeRenderSeq)" in pick_tag
+
+
+def test_mobile_timeline_filter_renders_existing_platform_icons_only():
+    """移动筛选只渲染现有平台图标；桌面完整表单仍保留。"""
+    render = _fn_body("renderTimeline")
+    mobile_html = _fn_body("tlMobilePlatformsHtml")
+
+    assert "isMobileTimelineFilter()" in render
+    assert 'id="tl-mobile-platforms"' in render
+    assert "PLATFORM_ICONS[p]" in mobile_html
+    assert 'aria-label="平台：${label}"' in mobile_html
+    assert 'aria-pressed="${state.timelinePlatform === p}"' in mobile_html
+    assert "tlPickMobilePlatform('${p}')" in mobile_html
+    assert "<span>${label}</span>" not in mobile_html
+
+    # desktop branch must remain feature-complete
+    for marker in ('id="tl-q"', 'id="tl-platform"', 'id="tl-category"',
+                   'id="tl-tag"', "tlApplyFilter()"):
+        assert marker in render
+
+
+def test_mobile_platform_filter_clears_hidden_state_and_applies_immediately():
+    """移动端不允许不可见的关键词/分类/标签继续影响结果。"""
+    clear_hidden = _fn_body("tlClearMobileHiddenFilters")
+    pick_mobile = _fn_body("tlPickMobilePlatform")
+    toggle_panel = _fn_body("tlFilterPanel")
+
+    for assignment in (
+        'state.timelineQ = ""',
+        'state.timelineCategory = ""',
+        'state.timelineTag = ""',
+    ):
+        assert assignment in clear_hidden
+    assert "tlClearMobileHiddenFilters()" in toggle_panel
+    assert "isMobileTimelineFilter()" in toggle_panel
+    assert "state.timelinePlatform = p" in pick_mobile
+    assert 'classList.remove("open")' in pick_mobile
+    assert 'setAttribute("aria-expanded", "false")' in pick_mobile
+    assert "tlSyncActiveChips()" in pick_mobile
+    assert "loadTimeline(true, routeRenderSeq)" in pick_mobile
+
+
+def test_mobile_platform_filter_is_five_equal_44px_targets():
+    """390px 移动端必须容纳五个等宽、至少 44px 的平台角标。"""
+    css = STYLE_CSS.read_text()
+    grid = re.search(r"\.tl-mobile-platforms\s*\{([^}]*)\}", css, re.DOTALL)
+    button = re.search(r"\.tl-mobile-platform\s*\{([^}]*)\}", css, re.DOTALL)
+    assert grid and "repeat(5, minmax(0, 1fr))" in grid.group(1)
+    assert button and ("height: 44px" in button.group(1) or "min-height: 44px" in button.group(1))
+    assert "width: 100%" in button.group(1)
+    assert ".tl-mobile-platform.selected" in css

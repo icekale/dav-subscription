@@ -1224,7 +1224,40 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
   .tl-group .post-images { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
   .tl-group .post-images img { width: 100%; height: auto; aspect-ratio: 1; }
   .tl-filterbar-top { flex-direction: column; align-items: stretch; }
-  .tl-pills { display: none; } /* 平台筛选并入折叠面板：移动端只留一行三列等宽操作条（DESIGN Signature），吸顶区从两行变一行 */
+  .tl-pills { display: none; } /* 桌面平台胶囊隐藏；移动端平台角标在轻量筛选面板中按需展开 */
+  .tl-mobile-platforms {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 8px;
+    width: 100%;
+  }
+  .tl-mobile-platform {
+    width: 100%;
+    min-width: 0;
+    height: 44px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: var(--border-strong);
+    border-radius: var(--radius-control);
+    background: var(--color-surface);
+    color: var(--color-text-muted);
+  }
+  .tl-mobile-platform .pt-icon { width: 20px; height: 20px; }
+  .tl-mobile-platform[data-platform="xueqiu"]:not(.selected) { color: var(--color-brand-xueqiu); }
+  .tl-mobile-platform[data-platform="combination"]:not(.selected) { color: var(--color-accent-text); }
+  .tl-mobile-platform[data-platform="weibo"]:not(.selected) { color: var(--color-brand-weibo); }
+  .tl-mobile-platform[data-platform="twitter"]:not(.selected) { color: var(--color-brand-twitter); }
+  .tl-mobile-platform.selected {
+    border-color: var(--color-accent);
+    background: var(--color-accent);
+    color: var(--color-white);
+  }
+  .tl-mobile-platform:focus-visible {
+    outline: var(--outline-focus);
+    outline-offset: 2px;
+  }
   .tl-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; width: 100%; }
   .tl-actions button { width: 100%; justify-content: center; white-space: nowrap; }
   .btn-normal, .btn-ghost, .channel-btn { min-height: 44px; }

@@ -885,10 +885,27 @@ const TL_PLATFORMS = [
   ["twitter", "X"],
 ];
 
+function isMobileTimelineFilter() {
+  return window.matchMedia("(max-width: 768px)").matches;
+}
+
+function tlMobilePlatformsHtml() {
+  return TL_PLATFORMS.map(([p, label]) => `
+    <button class="tl-mobile-platform ${state.timelinePlatform === p ? "selected" : ""}"
+      data-platform="${p}"
+      aria-label="平台：${label}"
+      title="${label}"
+      aria-pressed="${state.timelinePlatform === p}"
+      onclick="tlPickMobilePlatform('${p}')">
+      ${PLATFORM_ICONS[p] || ""}
+    </button>`).join("");
+}
+
 async function renderTimeline(seq) {
   setPageTitle("最新动态");
   // 离开期间筛选条件未变且有缓存 → 直接恢复列表并检测新帖，不重新加载（保留阅读位置）
   const reuse = _tlPosts.length && _tlLoadedFilter === tlFilterKey();
+  const mobileFilter = isMobileTimelineFilter();
   $("#main").innerHTML = `
     <div class="tl-filterbar" id="tl-filterbar">
       <div class="tl-filterbar-top">
@@ -900,19 +917,23 @@ async function renderTimeline(seq) {
         </div>
       </div>
       <div class="tl-filter-panel" id="tl-filter-panel">
-        <input id="tl-q" class="form-control" placeholder="搜索标题/内容关键词" value="${escapeHtml(state.timelineQ || "")}" onkeydown="if(event.key==='Enter')tlApplyFilter()">
-        <div class="tl-filter-row">
-          <select id="tl-platform" class="form-control" onchange="tlApplyFilter()">${tlPlatformOptions()}</select>
-          <select id="tl-category" class="form-control" onchange="tlApplyFilter()"><option value="">全部分类</option></select>
-          <select id="tl-tag" class="form-control" onchange="tlApplyFilter()"><option value="">全部标签</option></select>
-        </div>
-        <div class="tl-filter-actions">
-          <button class="btn-ghost" onclick="tlResetFilters()">清除筛选</button>
-          <button class="btn-normal" onclick="tlApplyFilter()">完成</button>
-        </div>
+        ${mobileFilter ? `
+          <div class="tl-mobile-platforms" id="tl-mobile-platforms">
+            ${tlMobilePlatformsHtml()}
+          </div>` : `
+          <input id="tl-q" class="form-control" placeholder="搜索标题/内容关键词" value="${escapeHtml(state.timelineQ || "")}" onkeydown="if(event.key==='Enter')tlApplyFilter()">
+          <div class="tl-filter-row">
+            <select id="tl-platform" class="form-control" onchange="tlApplyFilter()">${tlPlatformOptions()}</select>
+            <select id="tl-category" class="form-control" onchange="tlApplyFilter()"><option value="">全部分类</option></select>
+            <select id="tl-tag" class="form-control" onchange="tlApplyFilter()"><option value="">全部标签</option></select>
+          </div>
+          <div class="tl-filter-actions">
+            <button class="btn-ghost" onclick="tlResetFilters()">清除筛选</button>
+            <button class="btn-normal" onclick="tlApplyFilter()">完成</button>
+          </div>`}
       </div>
     </div>
-    ${tlActiveChipsHtml()}
+    <div id="tl-active-chips-wrap">${tlActiveChipsHtml()}</div>
     <section class="section-panel tl-feed-panel" id="tl-feed-panel">
       <div class="tl-new-badge" id="tl-new-badge">
         <button class="tl-new-badge-btn" onclick="refreshTimeline()">
@@ -934,8 +955,10 @@ async function renderTimeline(seq) {
   _tlHasMore = true;
   _tlLatestId = 0;
   try {
-    await loadTimelineCategories().catch(() => { _tlCategories = []; }); // 分类下拉失败降级，不阻塞 feed
-    await loadTimelineTags().catch(() => { _tlTags = []; }); // 标签下拉失败降级，不阻塞 feed
+    if (!mobileFilter) {
+      await loadTimelineCategories().catch(() => { _tlCategories = []; }); // 分类下拉失败降级，不阻塞 feed
+      await loadTimelineTags().catch(() => { _tlTags = []; }); // 标签下拉失败降级，不阻塞 feed
+    }
     await loadTimeline(true, seq);
     startTimelinePoll();
     pollNewPosts(); // 首屏就绪后立即查一次新帖
@@ -1062,13 +1085,53 @@ function tlPlatformOptions() {
   ).join("");
 }
 
+function tlSyncActiveChips() {
+  const wrap = $("#tl-active-chips-wrap");
+  if (wrap) wrap.innerHTML = tlActiveChipsHtml();
+}
+
+function tlClearMobileHiddenFilters() {
+  const changed = !!(state.timelineQ || state.timelineCategory || state.timelineTag);
+  state.timelineQ = "";
+  state.timelineCategory = "";
+  state.timelineTag = "";
+  return changed;
+}
+
+function tlPickMobilePlatform(p) {
+  tlClearMobileHiddenFilters();
+  state.timelinePlatform = p;
+  const platforms = $("#tl-mobile-platforms");
+  if (platforms) platforms.innerHTML = tlMobilePlatformsHtml();
+  const bar = $("#tl-filterbar");
+  if (bar) bar.classList.remove("open");
+  const btn = $("#tl-filter-toggle");
+  if (btn) {
+    btn.classList.toggle("has-filter", !!p);
+    btn.setAttribute("aria-expanded", "false");
+  }
+  tlSyncActiveChips();
+  loadTimeline(true, routeRenderSeq);
+}
+
 function tlFilterPanel() {
   const bar = $("#tl-filterbar");
   if (!bar) return;
+  const opening = !bar.classList.contains("open");
+  const mobile = isMobileTimelineFilter();
+  if (opening && mobile) {
+    const hiddenChanged = tlClearMobileHiddenFilters();
+    const platforms = $("#tl-mobile-platforms");
+    if (platforms) platforms.innerHTML = tlMobilePlatformsHtml();
+    const btn = $("#tl-filter-toggle");
+    if (btn) btn.classList.toggle("has-filter", !!state.timelinePlatform);
+    tlSyncActiveChips();
+    if (hiddenChanged) loadTimeline(true, routeRenderSeq);
+  }
   const open = bar.classList.toggle("open");
   const btn = $("#tl-filter-toggle");
   if (btn) btn.setAttribute("aria-expanded", String(open));
-  if (open) $("#tl-q").focus();
+  if (open && !mobile) $("#tl-q")?.focus();
 }
 
 function tlApplyFilter() {
