@@ -165,3 +165,36 @@ def test_mobile_platform_filter_is_five_equal_44px_targets():
     assert button and ("height: 44px" in button.group(1) or "min-height: 44px" in button.group(1))
     assert "width: 100%" in button.group(1)
     assert ".tl-mobile-platform.selected" in css
+
+
+def test_mobile_mysubs_filter_renders_icon_badges_keeps_desktop_toolbar():
+    """订阅页移动端：平台+特别关注全部变为一行角标；桌面保留文字胶囊+按钮。"""
+    render = _fn_body("renderMySubs")
+    tabs = _fn_body("renderMySubsTabs")
+    mobile_html = _fn_body("mysubsMobileFiltersHtml")
+
+    assert "isMobileTimelineFilter()" in render
+    assert '"tl-mobile-platforms cols-6"' in render
+    assert 'id="mysubs-tabs"' in render
+    # 桌面分支必须保留完整工具栏
+    assert 'id="mysubs-fav-toggle"' in render
+    assert '"platform-tabs"' in render
+    # 移动角标：无文字标签，平台+星标都走角标
+    assert "PLATFORM_ICONS[p]" in mobile_html
+    assert "switchMySubsPlatform('${p}')" in mobile_html
+    assert "toggleMySubsFav()" in mobile_html
+    assert "STAR_SVG" in mobile_html
+    assert "<span>${label}</span>" not in mobile_html
+    # 星标点击后需重绘角标选中态
+    assert "renderMySubsTabs()" in _fn_body("toggleMySubsFav")
+    # 双分支渲染：移动角标 / 桌面文字胶囊
+    assert "mysubsMobileFiltersHtml()" in tabs
+    assert 'platformTabHTML(p, state.mysubsPlatform' in tabs
+
+
+def test_mobile_mysubs_filter_is_six_equal_44px_targets():
+    """订阅页一行六角标（全部+4平台+特别关注），等宽且至少 44px。"""
+    css = STYLE_CSS.read_text()
+    cols6 = re.search(r"\.tl-mobile-platforms\.cols-6\s*\{([^}]*)\}", css)
+    assert cols6 and "repeat(6, minmax(0, 1fr))" in cols6.group(1)
+    assert ".tl-mobile-platform .star-icon" in css

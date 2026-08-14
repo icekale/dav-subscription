@@ -714,6 +714,7 @@ async function setSubscribeType(kolId, input) {
 // ---------- 我的订阅 / 动态 ----------
 async function renderMySubs(seq) {
   setPageTitle("我的订阅");
+  const mobileFilter = isMobileTimelineFilter();
   $("#main").innerHTML = `
     <section class="section-panel">
       <header class="section-head">
@@ -722,8 +723,8 @@ async function renderMySubs(seq) {
         </div>
       </header>
       <div class="toolbar" style="margin:12px 0 16px">
-        <div class="platform-tabs" id="mysubs-tabs"></div>
-        <button id="mysubs-fav-toggle" class="fav-toggle ${state.mysubsFavorite ? "fav-on" : ""}" onclick="toggleMySubsFav()">${STAR_SVG} 特别关注</button>
+        <div class="${mobileFilter ? "tl-mobile-platforms cols-6" : "platform-tabs"}" id="mysubs-tabs"></div>
+        ${mobileFilter ? "" : `<button id="mysubs-fav-toggle" class="fav-toggle ${state.mysubsFavorite ? "fav-on" : ""}" onclick="toggleMySubsFav()">${STAR_SVG} 特别关注</button>`}
       </div>
       <div id="mysubs-list" class="kol-grid"></div>
     </section>`;
@@ -739,8 +740,28 @@ async function renderMySubs(seq) {
   }
 }
 
+function mysubsMobileFiltersHtml() {
+  const platforms = TL_PLATFORMS.map(([p, label]) => `
+    <button class="tl-mobile-platform ${state.mysubsPlatform === p ? "selected" : ""}"
+      data-platform="${p}"
+      aria-label="平台：${label}"
+      title="${label}"
+      aria-pressed="${state.mysubsPlatform === p}"
+      onclick="switchMySubsPlatform('${p}')">
+      ${PLATFORM_ICONS[p] || ""}
+    </button>`).join("");
+  return platforms + `
+    <button class="tl-mobile-platform ${state.mysubsFavorite ? "selected" : ""}"
+      aria-label="特别关注"
+      title="特别关注"
+      aria-pressed="${state.mysubsFavorite}"
+      onclick="toggleMySubsFav()">${STAR_SVG}</button>`;
+}
+
 function renderMySubsTabs() {
-  $("#mysubs-tabs").innerHTML = PLATFORM_TABS.map((p) => platformTabHTML(p, state.mysubsPlatform, "switchMySubsPlatform")).join("");
+  $("#mysubs-tabs").innerHTML = isMobileTimelineFilter()
+    ? mysubsMobileFiltersHtml()
+    : PLATFORM_TABS.map((p) => platformTabHTML(p, state.mysubsPlatform, "switchMySubsPlatform")).join("");
 }
 
 function switchMySubsPlatform(platform) {
@@ -769,6 +790,7 @@ function toggleMySubsFav() {
   state.mysubsFavorite = !state.mysubsFavorite;
   const btn = $("#mysubs-fav-toggle");
   if (btn) btn.classList.toggle("fav-on", state.mysubsFavorite);
+  renderMySubsTabs(); // 移动端星标角标在 #mysubs-tabs 内，需重绘
   renderMySubsList();
 }
 

@@ -1231,6 +1231,8 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
     gap: 8px;
     width: 100%;
   }
+  .tl-mobile-platforms.cols-6 { grid-template-columns: repeat(6, minmax(0, 1fr)); } /* 订阅页：全部+4平台+特别关注 */
+  .tl-mobile-platform .star-icon { width: 20px; height: 20px; }
   .tl-mobile-platform {
     width: 100%;
     min-width: 0;
