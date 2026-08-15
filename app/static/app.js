@@ -3736,15 +3736,6 @@ function codeStatusClass(status) {
   return { available: "status-ok", used: "status-fail", revoked: "status-fail", expired: "status-warn" }[status] || "";
 }
 
-function batchExpiresDays(codes) {
-  const c = codes[0];
-  if (!c || !c.expires_at) return null;
-  const a = parseDbUtcMs(c.created_at);
-  const b = parseDbUtcMs(c.expires_at);
-  if (a == null || b == null) return null;
-  return Math.round((b - a) / 86400000);
-}
-
 function formatInviteCopy(codeList, expiresDays, note) {
   const head = expiresDays
     ? `V Push 邀请码（一次性，${expiresDays}天内有效）`
@@ -3752,6 +3743,19 @@ function formatInviteCopy(codeList, expiresDays, note) {
   const lines = [head, ...codeList];
   if (note) lines.push(`备注：${note}`);
   return lines.join("\n");
+}
+
+function formatInviteCopyUntil(codeList, expiresAt, note) {
+  const head = expiresAt
+    ? `V Push 邀请码（一次性，有效期至 ${fmtDbTime(expiresAt)})`
+    : "V Push 邀请码（一次性）";
+  const lines = [head, ...codeList];
+  if (note) lines.push(`备注：${note}`);
+  return lines.join("\n");
+}
+
+function copyDataAttr(text) {
+  return encodeURIComponent(String(text ?? "")).replace(/'/g, "%27");
 }
 
 function copyText(text, okMsg) {
@@ -3775,12 +3779,6 @@ function saveCodesForm() {
   if (count) _codesUi.count = Number(count.value) || 5;
   if (exp) _codesUi.expires = exp.value === "" ? null : Number(exp.value);
   if (q) _codesUi.q = q.value.trim();
-}
-
-function copyOnclick(text, msg) {
-  const payload = encodeURIComponent(String(text ?? "")).replace(/'/g, "%27");
-  const safeMsg = encodeURIComponent(String(msg ?? "已复制")).replace(/'/g, "%27");
-  return `copyText(decodeURIComponent('${payload}'), decodeURIComponent('${safeMsg}'))`;
 }
 
 async function loadAdminCodes(refetch = true) {
@@ -3867,7 +3865,7 @@ function renderCodesResult(result) {
     <div class="rc-result-head">
       <strong>已生成 ${result.codes.length} 个</strong>
       <div class="rc-result-actions">
-        <button class="btn-sm" onclick="${copyOnclick(copy, "已复制本批邀请码")}">复制全部</button>
+        <button class="btn-sm" data-copy="${copyDataAttr(copy)}" onclick="copyText(decodeURIComponent(this.getAttribute('data-copy')), '已复制本批邀请码')">复制全部</button>
         <button class="btn-sm danger" onclick="adminRevokeBatch('${escapeHtml(result.batch_id)}', true)">作废本批未用</button>
         <button class="btn-sm" onclick="_codesUi.result=null;loadAdminCodes()">关闭</button>
       </div>
@@ -3895,12 +3893,11 @@ function renderCodeGroups(groups, filter) {
     const available = all.filter((c) => codeStatus(c) === "available");
     const usedN = all.filter((c) => codeStatus(c) === "used").length;
     const unusedOpen = all.filter((c) => !c.used_by && !c.revoked_at);
-    const days = batchExpiresDays(all);
     const expLabel = all[0].expires_at ? `过期 ${escapeHtml(fmtDbTime(all[0].expires_at))}` : "永不过期";
     const creator = all[0].created_by_name ? ` · ${escapeHtml(all[0].created_by_name)}` : "";
     const copyCodes = available.map((c) => c.code);
     const copyNote = notes.length === 1 ? notes[0] : "";
-    const copy = formatInviteCopy(copyCodes, days, copyNote);
+    const copy = formatInviteCopyUntil(copyCodes, all[0].expires_at, copyNote);
     return `<div class="rc-batch">
       <div class="rc-batch-head">
         <div>
@@ -3908,7 +3905,7 @@ function renderCodeGroups(groups, filter) {
           <span class="muted"> · ${escapeHtml(fmtDbTime(all[0].created_at))} · ${expLabel}${creator} · ${available.length} 可用 / ${usedN} 已用</span>
         </div>
         <div class="rc-batch-actions">
-          <button class="btn-sm" ${copyCodes.length ? "" : "disabled"} onclick="${copyOnclick(copy, "已复制未用码")}">复制未用</button>
+          <button class="btn-sm" ${copyCodes.length ? "" : "disabled"} data-copy="${copyDataAttr(copy)}" onclick="copyText(decodeURIComponent(this.getAttribute('data-copy')), '已复制未用码')">复制未用</button>
           <button class="btn-sm danger" ${unusedOpen.length ? "" : "disabled"} onclick="adminRevokeBatch('${escapeHtml(g.id)}')">作废未用</button>
         </div>
       </div>
