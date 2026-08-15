@@ -191,6 +191,9 @@ textarea.form-control {
 }
 .btn-ghost:hover { border-color: var(--color-text-muted); }
 .btn-ghost:active { background: var(--color-surface-button-active); }
+.btn-ghost:disabled { opacity: 0.65; cursor: default; }
+.btn-ghost.danger { color: var(--color-danger); border-color: var(--color-line-danger); }
+.btn-ghost.danger:hover { border-color: var(--color-danger); color: var(--color-danger-strong); }
 
 /* 特别关注 ⭐ */
 .fav-btn {
@@ -506,6 +509,43 @@ textarea.form-control {
   font-weight: normal;
 }
 .cfg-save-row { display: flex; align-items: center; gap: 12px; margin-top: 18px; }
+
+/* 备份页：路径占满剩余宽度，时刻/份数按内容定宽，避免三列均分把数字框拉得过宽 */
+.backup-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 14px 16px;
+  align-items: end;
+  margin: 0 0 4px;
+}
+.backup-grid .form-label { margin-bottom: 0; }
+.backup-grid .form-control {
+  margin-bottom: 0;
+  width: 100%;
+  font-variant-numeric: tabular-nums;
+}
+.backup-num .form-control { width: 5.5rem; }
+.backup-status { margin: 12px 0 0; }
+.backup-page .cfg-save-row { margin-top: 14px; }
+.backup-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.backup-stack .form-label { margin-bottom: 0; }
+.backup-file-input {
+  align-self: start;
+  max-width: 100%;
+  font-size: var(--text-sm);
+  color: var(--color-text);
+}
+@media (max-width: 640px) {
+  .backup-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .backup-path { grid-column: 1 / -1; }
+  .backup-num .form-control { width: 100%; }
+}
 
 /* 平台筛选 */
 .platform-tabs { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -1321,7 +1361,6 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
   .rc-table td { display: block; }
   .rc-table td .btn-sm, .rc-batch-actions .btn-sm, .rc-result-actions .btn-sm { min-height: 44px; }
   .rc-note-input { width: 100%; min-height: 44px; }
-  .backup-actions .btn-sm { min-height: 44px; }
 }
 
 /* ---------- 全景概览 ---------- */

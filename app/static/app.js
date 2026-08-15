@@ -4503,9 +4503,9 @@ function backupStatusHtml(s) {
   if (s.last_remote_name) parts.push(`远端 ${escapeHtml(s.last_remote_name)}`);
   if (s.next_run_at) parts.push(`下次 ${escapeHtml(s.next_run_at)}`);
   if (!parts.length) {
-    return `<p class="section-meta" id="backup-status">尚未执行过定时备份</p>`;
+    return `<p class="section-meta backup-status" id="backup-status">尚未执行过定时备份</p>`;
   }
-  return `<p class="section-meta" id="backup-status">${parts.join(" · ")}</p>`;
+  return `<p class="section-meta backup-status" id="backup-status">${parts.join(" · ")}</p>`;
 }
 
 function backupWebDAVBody() {
@@ -4525,7 +4525,7 @@ async function loadAdminBackup() {
   const s = await api("/api/admin/backup");
   if (!routeStillActive(_adminRenderSeq)) return;
   $("#admin-body").innerHTML = `
-    <section class="section-panel">
+    <section class="section-panel backup-page">
       <header class="section-head">
         <div>
           <h3 class="section-title">本机备份</h3>
@@ -4536,7 +4536,7 @@ async function loadAdminBackup() {
         <button class="btn-ghost" onclick="backupDownload()">下载当前数据库</button>
       </div>
     </section>
-    <section class="section-panel">
+    <section class="section-panel backup-page">
       <header class="section-head">
         <div>
           <h3 class="section-title">WebDAV 定时</h3>
@@ -4552,38 +4552,40 @@ async function loadAdminBackup() {
       <label class="form-label">密码
         <input id="bk-pass" class="form-control" type="password" autocomplete="new-password" placeholder="${s.password_set ? "已设置" : "WebDAV 密码"}">
       </label>
-      <div class="cfg-fields">
-        <label class="cfg-field">远端目录
+      <div class="backup-grid">
+        <label class="form-label backup-path">远端目录
           <input id="bk-path" class="form-control" autocomplete="off" placeholder="/vpush-backups" value="${escapeHtml(s.path || "/vpush-backups")}">
         </label>
-        <label class="cfg-field">每天几点<span class="cfg-unit">时</span>
+        <label class="form-label backup-num">每天几点
           <input id="bk-hour" class="form-control" type="number" min="0" max="23" value="${s.hour ?? 3}">
         </label>
-        <label class="cfg-field">保留份数
+        <label class="form-label backup-num">保留份数
           <input id="bk-keep" class="form-control" type="number" min="1" max="90" value="${s.keep ?? 14}">
         </label>
       </div>
       ${backupStatusHtml(s)}
-      <div class="toolbar backup-actions" style="margin-top:12px">
+      <div class="cfg-save-row backup-actions">
         <button class="btn-normal" onclick="saveBackupWebDAV()">保存</button>
         <button class="btn-ghost" onclick="testBackupWebDAV()">测试连接</button>
       </div>
     </section>
-    <section class="section-panel">
+    <section class="section-panel backup-page">
       <header class="section-head">
         <div>
           <h3 class="section-title">恢复</h3>
           <p class="section-meta">会覆盖当前账号、订阅和帖子。恢复失败时现库不变。</p>
         </div>
       </header>
-      <div class="toolbar backup-actions">
-        <button id="bk-restore-webdav" class="btn-sm danger" onclick="backupRestoreWebDAV()">从 WebDAV 恢复最新一份</button>
-      </div>
-      <label class="form-label" style="margin-top:16px">本地 .db 文件
-        <input id="bk-file" class="form-control" type="file" accept=".db">
-      </label>
-      <div class="toolbar backup-actions">
-        <button id="bk-restore-upload" class="btn-sm danger" onclick="backupRestoreUpload()">用本地备份恢复</button>
+      <div class="backup-stack">
+        <div class="toolbar backup-actions">
+          <button id="bk-restore-webdav" class="btn-ghost danger" onclick="backupRestoreWebDAV()">从 WebDAV 恢复最新一份</button>
+        </div>
+        <label class="form-label">本地 .db 文件
+          <input id="bk-file" class="backup-file-input" type="file" accept=".db">
+        </label>
+        <div class="toolbar backup-actions">
+          <button id="bk-restore-upload" class="btn-ghost danger" onclick="backupRestoreUpload()">用本地备份恢复</button>
+        </div>
       </div>
     </section>`;
 }

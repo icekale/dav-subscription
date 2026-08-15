@@ -278,3 +278,6 @@ def test_admin_backup_page_three_panels_download_skips_webdav():
     restore = _fn_body("backupRestoreWebDAV")
     assert "confirm(" in restore
     assert "/api/admin/backup/restore/webdav" in restore
+    assert "cfg-unit" not in body
+    assert "backup-grid" in body
+    assert 'class="backup-file-input"' in body
