@@ -245,3 +245,67 @@ def test_register_codes_migrate_batch_columns(tmp_path):
     assert all(r["expires_at"] in (None, "") for r in rows)
     assert all(r["revoked_at"] in (None, "") for r in rows)
     db.close()
+
+
+def test_add_and_list_register_code_batch_fields(tmp_path):
+    db = DB(str(tmp_path / "t.db"))
+    admin_id = db.add_user("admin01", "h", is_admin=True)
+    db.add_register_code(
+        "ABCD2345",
+        note="朋友",
+        batch_id="batch01",
+        expires_at="2030-01-01 00:00:00",
+        created_by=admin_id,
+    )
+    db.add_register_code("EFGH6789", note="朋友", batch_id="batch01")
+    rows = [r for r in db.list_register_codes() if r["batch_id"] == "batch01"]
+    assert {r["code"] for r in rows} == {"ABCD2345", "EFGH6789"}
+    one = next(r for r in rows if r["code"] == "ABCD2345")
+    assert one["created_by_name"] == "admin01"
+    assert one["expires_at"] == "2030-01-01 00:00:00"
+    db.close()
+
+
+def test_register_with_code_rejects_revoked_and_expired(tmp_path):
+    db = DB(str(tmp_path / "t.db"))
+    db.add_register_code("AVAIL001")
+    uid = db.register_with_code("AVAIL001", "user01", "hash")
+    assert uid > 0
+    with pytest.raises(ValueError, match="无效或已被使用"):
+        db.register_with_code("AVAIL001", "user02", "hash")
+
+    db.add_register_code("REVOKED1")
+    assert db.revoke_register_code("REVOKED1")
+    with pytest.raises(ValueError, match="已作废"):
+        db.register_with_code("REVOKED1", "user03", "hash")
+
+    db.add_register_code("EXPIRED1")
+    db._execute(
+        "UPDATE register_codes SET expires_at = datetime('now', '-1 day') WHERE code = 'EXPIRED1'"
+    )
+    with pytest.raises(ValueError, match="已过期"):
+        db.register_with_code("EXPIRED1", "user04", "hash")
+    assert db.get_user_by_username_ci("user03") is None
+    assert db.get_user_by_username_ci("user04") is None
+    db.close()
+
+
+def test_revoke_and_update_register_code_note(tmp_path):
+    db = DB(str(tmp_path / "t.db"))
+    db.add_register_code("NOTE0001", note="朋友", batch_id="b1")
+    db.add_register_code("NOTE0002", note="朋友", batch_id="b1")
+    db.register_with_code("NOTE0001", "used01", "hash")
+    assert db.revoke_register_code("NOTE0001") is False
+    assert db.revoke_register_code("NOTE0002") is True
+    row = db.get_register_code("NOTE0002")
+    assert row["revoked_at"]
+    assert db.revoke_unused_in_batch("b1") == 0
+    db.add_register_code("NOTE0003", note="x", batch_id="b2")
+    db.add_register_code("NOTE0004", note="x", batch_id="b2")
+    db.register_with_code("NOTE0003", "used02", "hash")
+    assert db.revoke_unused_in_batch("b2") == 1
+    assert db.get_register_code("NOTE0003")["revoked_at"] in (None, "")
+    assert db.get_register_code("NOTE0004")["revoked_at"]
+    db.update_register_code_note("NOTE0003", "给张三")
+    assert db.get_register_code("NOTE0003")["note"] == "给张三"
+    db.close()

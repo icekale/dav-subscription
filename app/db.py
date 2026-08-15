@@ -1075,19 +1075,36 @@ class DB:
             (limit,),
         )
 
-    def add_register_code(self, code: str, note: str = "") -> None:
+    def add_register_code(
+        self,
+        code: str,
+        note: str = "",
+        batch_id: str | None = None,
+        expires_at: str | None = None,
+        created_by: int | None = None,
+    ) -> None:
         try:
             self._execute(
-                "INSERT INTO register_codes (code, note) VALUES (?, ?)",
-                (code.strip().upper(), note.strip()),
+                "INSERT INTO register_codes (code, note, batch_id, expires_at, created_by) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (
+                    code.strip().upper(),
+                    note.strip(),
+                    (batch_id or secrets.token_hex(8)).strip(),
+                    expires_at or None,
+                    created_by,
+                ),
             )
         except sqlite3.IntegrityError:
             raise ValueError(f"注册码已存在: {code}") from None
 
     def list_register_codes(self) -> list[dict]:
         return self._rows(
-            "SELECT rc.*, u.username AS used_by_name FROM register_codes rc "
-            "LEFT JOIN users u ON u.id = rc.used_by ORDER BY rc.created_at DESC"
+            "SELECT rc.*, u.username AS used_by_name, c.username AS created_by_name "
+            "FROM register_codes rc "
+            "LEFT JOIN users u ON u.id = rc.used_by "
+            "LEFT JOIN users c ON c.id = rc.created_by "
+            "ORDER BY rc.created_at DESC"
         )
 
     def get_register_code(self, code: str) -> dict | None:
@@ -1096,28 +1113,62 @@ class DB:
         )
         return rows[0] if rows else None
 
-    def delete_register_code(self, code: str) -> bool:
-        """删除一个未使用的注册码；已使用的不可删除。"""
+    def revoke_register_code(self, code: str) -> bool:
+        """软作废未使用的码；已使用返回 False。"""
         with self._lock:
             cur = self._conn.execute(
-                "DELETE FROM register_codes WHERE code = ? AND used_by IS NULL",
+                "UPDATE register_codes SET revoked_at = datetime('now') "
+                "WHERE code = ? AND used_by IS NULL AND revoked_at IS NULL",
                 (code.strip().upper(),),
             )
             self._conn.commit()
             return cur.rowcount > 0
 
+    def delete_register_code(self, code: str) -> bool:
+        """兼容旧名：软作废。"""
+        return self.revoke_register_code(code)
+
+    def revoke_unused_in_batch(self, batch_id: str) -> int:
+        with self._lock:
+            cur = self._conn.execute(
+                "UPDATE register_codes SET revoked_at = datetime('now') "
+                "WHERE batch_id = ? AND used_by IS NULL AND revoked_at IS NULL",
+                (batch_id,),
+            )
+            self._conn.commit()
+            return cur.rowcount
+
+    def update_register_code_note(self, code: str, note: str) -> bool:
+        with self._lock:
+            cur = self._conn.execute(
+                "UPDATE register_codes SET note = ? WHERE code = ?",
+                (note.strip(), code.strip().upper()),
+            )
+            self._conn.commit()
+            return cur.rowcount > 0
+
     def register_with_code(self, code: str, username: str, password_hash: str) -> int:
-        """凭注册码注册：原子消费注册码 + 创建用户，任一失败整体回滚。"""
+        """凭注册码注册：原子消费可用码 + 创建用户，任一失败整体回滚。"""
+        code = code.strip().upper()
         with self._lock:
             try:
                 self._conn.execute("BEGIN")
                 cur = self._conn.execute(
                     "UPDATE register_codes SET used_at = datetime('now') "
-                    "WHERE code = ? AND used_by IS NULL",
-                    (code.strip().upper(),),
+                    "WHERE code = ? AND used_by IS NULL AND revoked_at IS NULL "
+                    "AND (expires_at IS NULL OR expires_at > datetime('now'))",
+                    (code,),
                 )
                 if cur.rowcount == 0:
-                    raise ValueError("注册码无效或已被使用")
+                    row = self._conn.execute(
+                        "SELECT used_by, revoked_at, expires_at FROM register_codes WHERE code = ?",
+                        (code,),
+                    ).fetchone()
+                    if row is None or row["used_by"] is not None:
+                        raise ValueError("邀请码无效或已被使用")
+                    if row["revoked_at"]:
+                        raise ValueError("邀请码已作废，请向管理员索取新的")
+                    raise ValueError("邀请码已过期，请向管理员索取新的")
                 if self._conn.execute(
                     "SELECT id FROM users WHERE username = ? COLLATE NOCASE",
                     (username,),
@@ -1133,7 +1184,7 @@ class DB:
                 uid = insert.lastrowid
                 self._conn.execute(
                     "UPDATE register_codes SET used_by = ? WHERE code = ?",
-                    (uid, code.strip().upper()),
+                    (uid, code),
                 )
                 self._conn.commit()
                 return uid
