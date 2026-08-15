@@ -425,7 +425,7 @@ IMAGE_PROXY_HOSTS = frozenset({
 })
 
 
-def admin_user_summary(user: dict, invite: dict | None = None) -> dict:
+def admin_user_summary(user: dict, invite: dict | None = None, *, feishu_personal_active: bool = False) -> dict:
     """管理员用户列表摘要：只暴露管理所需字段，不含 feed_token/bark_key/wecom_webhook/llm_api_key 等凭证。"""
     invite = invite or {}
     return {
@@ -437,7 +437,7 @@ def admin_user_summary(user: dict, invite: dict | None = None) -> dict:
         "daily_report_enabled": bool(user.get("daily_report")),
         "push_channels": user.get("push_channels") or "",
         "telegram_bound": bool(user.get("telegram_chat_id")),
-        "feishu_bound": bool(user.get("feishu_open_id") or user.get("feishu_chat_id")),
+        "feishu_bound": bool(user.get("feishu_open_id") or user.get("feishu_chat_id") or feishu_personal_active),
         "wecom_bound": bool(user.get("wecom_webhook")),
         "bark_bound": bool(user.get("bark_key")),
         "custom_telegram_bot": bool(user.get("telegram_bot_token")),
@@ -537,6 +537,7 @@ def _do_approve_kol_request(db: DB, request_id: int, admin: dict, notifiers_conf
     except Exception:  # noqa: BLE001 - 自动订阅失败不阻塞审批
         logger.warning("审批后自动订阅失败 request=%s", request_id, exc_info=True)
     if notifiers_config is not None:
+        from .channels import channel_bound
         from .notifiers.feishu import FeishuNotifier
         from .notifiers.telegram import TelegramNotifier
         from .notifiers.wecom import WeComNotifier
@@ -557,13 +558,19 @@ def _do_approve_kol_request(db: DB, request_id: int, admin: dict, notifiers_conf
             finally:
                 if notifier is not None:
                     notifier.client.close()
-        if requester and (requester.get("feishu_open_id") or requester.get("feishu_chat_id")):
+        if requester and channel_bound(requester, "feishu", notifiers_config, db):
+            from .feishu_personal import build_personal_feishu_kwargs
+
             notifier = None
             try:
+                kwargs = build_personal_feishu_kwargs(db, notifiers_config.feishu, requester)
                 notifier = FeishuNotifier(
                     notifiers_config.feishu,
-                    open_id=requester["feishu_open_id"] if not requester.get("feishu_chat_id") else None,
-                    chat_id=requester.get("feishu_chat_id") or None,
+                    open_id=kwargs["open_id"],
+                    chat_id=kwargs["chat_id"],
+                    app_id=kwargs["app_id"],
+                    app_secret=kwargs["app_secret"],
+                    interactive_buttons=not bool(kwargs["app_id"]),
                 )
                 notifier.send_text(message)
             except Exception:  # noqa: BLE001
@@ -718,7 +725,7 @@ def create_api_router(
                 # TG 是唯一带审批按钮的渠道：已绑 TG 的管理员只发 TG，避免多渠道重复推送；
                 # TG 发送失败时回退其他渠道，避免管理员收不到通知
                 tg_ok = False
-                if channel_bound(user, "telegram", notifiers_config):
+                if channel_bound(user, "telegram", notifiers_config, db):
                     try:
                         notifier = build_channel_notifier(
                             "telegram", user, notifiers_config, client=client, db=db
@@ -730,7 +737,7 @@ def create_api_router(
                 if tg_ok:
                     continue
                 for channel in CHANNELS:
-                    if channel == "telegram" or not channel_bound(user, channel, notifiers_config):
+                    if channel == "telegram" or not channel_bound(user, channel, notifiers_config, db):
                         continue
                     try:
                         notifier = build_channel_notifier(channel, user, notifiers_config, client=client, db=db)
@@ -2220,7 +2227,13 @@ def create_api_router(
     @router.get("/users", dependencies=[Depends(require_admin)])
     def list_users():
         invites = _invite_by_user_id()
-        return [admin_user_summary(u, invites.get(u["id"])) for u in db.list_users()]
+        personal = db.active_feishu_personal_user_ids()
+        return [
+            admin_user_summary(
+                u, invites.get(u["id"]), feishu_personal_active=u["id"] in personal
+            )
+            for u in db.list_users()
+        ]
 
     @router.get("/stats", dependencies=[Depends(require_admin)])
     def stats():
@@ -2369,7 +2382,12 @@ def create_api_router(
             f"is_admin={body.is_admin} password={'*' if body.password else ''} username={body.username}",
         )
         user_row = db.get_user(user_id)
-        return admin_user_summary(user_row, _invite_by_user_id().get(user_id))
+        bot = db.get_feishu_personal_bot(user_id)
+        return admin_user_summary(
+            user_row,
+            _invite_by_user_id().get(user_id),
+            feishu_personal_active=bool(bot and bot["status"] == "active" and bot.get("chat_id")),
+        )
 
     @router.delete("/users/{user_id}", dependencies=[Depends(require_admin)])
     def delete_user(user_id: int, admin: dict = Depends(require_admin)):
@@ -2393,7 +2411,7 @@ def create_api_router(
 
         results = []
         for channel in CHANNELS:
-            if not channel_bound(user, channel, notifiers_config):
+            if not channel_bound(user, channel, notifiers_config, db):
                 continue
             notifier = build_channel_notifier(channel, user, notifiers_config, db=db)
             try:

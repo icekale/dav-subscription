@@ -8,6 +8,7 @@ import httpx
 import pytest
 from cryptography.fernet import Fernet
 
+from app.channels import channel_bound
 from app.config import Config, FeishuConfig
 from app.db import DB
 from app.feishu_personal import (
@@ -274,6 +275,22 @@ def make_user(**overrides):
     }
     user.update(overrides)
     return user
+
+
+def test_channel_bound_personal_bot_without_shared_fields():
+    """个人机器人 active 即视为飞书已绑定；degraded / 无 db 则否。"""
+    db = make_db()
+    uid = db.add_user("lili", "h")
+    user = db.get_user(uid)
+    cfg = FeishuConfig(credential_key=KEY)
+    assert not channel_bound(user, "feishu", cfg)
+    assert not channel_bound(user, "feishu", cfg, db)
+    db.save_feishu_personal_bot(uid, "cli_p", encrypt_secret(KEY, "s"), "feishu", "active", chat_id="oc_p")
+    user = db.get_user(uid)
+    assert not channel_bound(user, "feishu", cfg)  # 无 db 看不到个人表
+    assert channel_bound(user, "feishu", cfg, db)
+    db.update_feishu_personal_bot(uid, status="degraded")
+    assert not channel_bound(user, "feishu", cfg, db)
 
 
 def test_resolve_personal_target_requires_active():

@@ -33,11 +33,13 @@ def channel_enabled(user: dict, channel: str) -> bool:
     return channel in {c.strip() for c in selected.split(",") if c.strip()}
 
 
-def channel_bound(user: dict, channel: str, notifiers_config=None) -> bool:
+def channel_bound(user: dict, channel: str, notifiers_config=None, db=None) -> bool:
     """用户绑定关系是否成立（未做 push_channels 过滤）。
 
     telegram 额外要求有可用机器人（全局共享 bot token 或用户自建 token），
     否则有会话也发不出消息。
+    飞书：共享 open_id/chat_id，或个人机器人 active（身份在 feishu_personal_bots，
+    不写 users 共享字段）。传 db 才能看到个人机器人。
     """
     if channel == "telegram":
         if not user.get("telegram_chat_id"):
@@ -49,7 +51,12 @@ def channel_bound(user: dict, channel: str, notifiers_config=None) -> bool:
         )
         return bool(user.get("telegram_bot_token") or global_bot)
     if channel == "feishu":
-        return bool(user.get("feishu_open_id") or user.get("feishu_chat_id"))
+        if user.get("feishu_open_id") or user.get("feishu_chat_id"):
+            return True
+        if db is None:
+            return False
+        bot = db.get_feishu_personal_bot(user["id"])
+        return bool(bot and bot["status"] == "active" and bot.get("chat_id"))
     if channel == "wecom":
         return bool(user.get("wecom_webhook"))
     if channel == "bark":

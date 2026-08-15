@@ -1734,6 +1734,10 @@ function stopSettingsPoll() {
   }
 }
 
+function feishuChannelBound(user) {
+  return !!(user.feishu_open_id || user.feishu_chat_id || user.feishu_personal?.status === "active");
+}
+
 function channelStatusHtml(user) {
   const tg = user.telegram_chat_id;
   const tgCustom = user.custom_telegram_bot;
@@ -1939,7 +1943,7 @@ async function renderSettings(seq) {
         </header>
         <div id="push-status">${channelStatusHtml(state.user)}</div>
         <div class="channel-picks" id="push-channels-box" style="margin-top:18px;padding-top:18px;border-top:var(--border-default)">${pushChannelsHtml(state.user)}</div>
-        ${(state.user.telegram_chat_id || state.user.feishu_open_id || state.user.feishu_chat_id || state.user.wecom_webhook || state.user.bark_key)
+        ${(state.user.telegram_chat_id || feishuChannelBound(state.user) || state.user.wecom_webhook || state.user.bark_key)
           ? `<div class="toolbar" style="margin-top:14px">
                <button class="btn-normal" onclick="savePushChannels()">保存推送通道</button>
                <span id="push-channels-result" class="muted"></span>
@@ -2354,7 +2358,7 @@ function openBindGuide(sectionId) {
 function pushChannelsHtml(user) {
   const opts = [];
   if (user.telegram_chat_id) opts.push(["telegram", "Telegram"]);
-  if (user.feishu_open_id || user.feishu_chat_id) opts.push(["feishu", "飞书"]);
+  if (feishuChannelBound(user)) opts.push(["feishu", "飞书"]);
   if (user.wecom_webhook) opts.push(["wecom", "企业微信"]);
   if (user.bark_key) opts.push(["bark", "Bark"]);
   if (!opts.length) return `<p class="muted">还没有绑定推送渠道，先完成上方任一渠道绑定后即可选择。</p>`;

@@ -11,7 +11,7 @@ function pushChannelOptions(user) {
   if (user.telegram_chat_id) {
     opts.push({ value: "telegram", label: "Telegram", checked: isChecked("telegram") });
   }
-  if (user.feishu_open_id || user.feishu_chat_id) {
+  if (user.feishu_open_id || user.feishu_chat_id || (user.feishu_personal && user.feishu_personal.status === "active")) {
     opts.push({ value: "feishu", label: "飞书", checked: isChecked("feishu") });
   }
   if (user.wecom_webhook) {
@@ -98,8 +98,8 @@ Page({
         tgBound: !!user.telegram_chat_id,
         tgCustom: !!user.custom_telegram_bot,
         fsOpen: user.feishu_open_id,
-        fsBound: !!(user.feishu_open_id && user.feishu_chat_id),
-        fsIncomplete: !!user.feishu_open_id && !user.feishu_chat_id,
+        fsBound: !!(user.feishu_open_id && user.feishu_chat_id) || !!(user.feishu_personal && user.feishu_personal.status === "active"),
+        fsIncomplete: !!user.feishu_open_id && !user.feishu_chat_id && !(user.feishu_personal && user.feishu_personal.status === "active"),
         wecom: user.wecom_webhook,
         wecomBound: !!user.wecom_webhook,
         barkKey: user.bark_key || "",

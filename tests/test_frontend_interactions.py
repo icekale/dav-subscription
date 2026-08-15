@@ -263,6 +263,12 @@ def test_post_header_does_not_clip_platform_or_time():
     assert 'class="p-platform"' in post_card
 
 
+def test_push_channels_html_treats_personal_feishu_as_bound():
+    """渠道勾选不能只看 users.feishu_*，否则个人机器人用户会看到「还没有绑定」。"""
+    assert "feishu_personal" in _fn_body("feishuChannelBound")
+    assert "feishuChannelBound(user)" in _fn_body("pushChannelsHtml")
+
+
 def test_admin_backup_page_three_panels_download_skips_webdav():
     """备份页：侧栏入口、三块标题；本机下载不得走 WebDAV 上传。"""
     src = APP_JS.read_text()

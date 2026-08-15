@@ -14,7 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
 from .backup import run_scheduled
-from .channels import channel_enabled
+from .channels import channel_bound, channel_enabled
 from .db import ALLOWED_PLATFORMS, DB
 from .fetchers.base import Fetcher, Post
 from .notifiers.base import Notifier
@@ -386,7 +386,7 @@ def _can_still_push(user: dict, channel: str, post: Post, db: DB) -> bool:
         return False
     if channel == "telegram" and not user.get("telegram_chat_id"):
         return False
-    if channel == "feishu" and not (user.get("feishu_open_id") or user.get("feishu_chat_id")):
+    if channel == "feishu" and not channel_bound(user, "feishu", db=db):
         return False
     if channel == "wecom" and not user.get("wecom_webhook"):
         return False
@@ -727,7 +727,7 @@ def notify_subscribers(
                 secondary_buffer.setdefault(user["id"], []).append(post)
                 continue
             for channel in CHANNELS:
-                if not channel_enabled(user, channel) or not channel_bound(user, channel, notifiers_config):
+                if not channel_enabled(user, channel) or not channel_bound(user, channel, notifiers_config, db):
                     continue
                 deliver_post(
                     db,
@@ -1184,9 +1184,7 @@ def notify_digest_subscribers(
                             str(exc),
                             user_id=user["id"],
                         )
-            if _channel_enabled(user, "feishu") and (
-                user.get("feishu_open_id") or user.get("feishu_chat_id")
-            ):
+            if _channel_enabled(user, "feishu") and channel_bound(user, "feishu", notifiers_config, db):
                 from .feishu_personal import build_personal_feishu_kwargs
 
                 fs_kwargs = build_personal_feishu_kwargs(db, notifiers_config.feishu, user)
@@ -1701,7 +1699,7 @@ class Scheduler:
                         sent_any = True
                     except Exception as exc:  # noqa: BLE001
                         logger.warning("启动提示 TG 发送失败 user=%s err=%s", user["username"], exc)
-                if (user.get("feishu_open_id") or user.get("feishu_chat_id")) and _channel_enabled(
+                if channel_bound(user, "feishu", self.notifiers_config, self.db) and _channel_enabled(
                     user, "feishu"
                 ):
                     from .feishu_personal import build_personal_feishu_kwargs
@@ -2144,7 +2142,7 @@ class Scheduler:
         client = httpx.Client(timeout=15)
         try:
             for channel in CHANNELS:
-                if not channel_enabled(user, channel) or not channel_bound(user, channel, self.notifiers_config):
+                if not channel_enabled(user, channel) or not channel_bound(user, channel, self.notifiers_config, self.db):
                     continue
                 try:
                     notifier = build_channel_notifier(channel, user, self.notifiers_config, client=client, db=self.db)
@@ -2194,7 +2192,7 @@ class Scheduler:
         user = self.db.get_user(user_id)
         if user is None:
             raise RuntimeError("用户不存在")
-        if not channel_bound(user, channel, self.notifiers_config):
+        if not channel_bound(user, channel, self.notifiers_config, self.db):
             raise RuntimeError(f"用户未绑定 {CHANNEL_LABELS.get(channel, channel)}")
         return build_channel_notifier(
             channel,
@@ -2462,7 +2460,7 @@ class Scheduler:
                 "feishu",
                 bool(
                     _channel_enabled(user, "feishu")
-                    and (user.get("feishu_open_id") or user.get("feishu_chat_id"))
+                    and channel_bound(user, "feishu", self.notifiers_config, self.db)
                 ),
                 lambda u=user: FeishuNotifier(
                     self.notifiers_config.feishu,

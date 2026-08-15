@@ -39,6 +39,18 @@ def _to_bool(value) -> int:
     return 1 if value else 0
 
 
+def _user_has_channel_sql(alias: str = "") -> str:
+    """用户已绑定任一推送渠道（含飞书个人机器人 active + chat_id）。"""
+    p = f"{alias}." if alias else ""
+    uid = f"{alias}.id" if alias else "id"
+    return (
+        f"({p}telegram_chat_id != '' OR {p}feishu_open_id != '' OR {p}feishu_chat_id != '' "
+        f"OR {p}wecom_webhook != '' OR {p}bark_key != '' "
+        f"OR EXISTS (SELECT 1 FROM feishu_personal_bots b "
+        f"WHERE b.user_id = {uid} AND b.status = 'active' AND b.chat_id != ''))"
+    )
+
+
 def _normalize_post_images(rows: list[dict]) -> list[dict]:
     """posts 行的 images 是 JSON 文本，API 场景统一解析为数组。"""
     for row in rows:
@@ -1296,7 +1308,9 @@ class DB:
             "admins": scalar("SELECT COUNT(*) AS v FROM users WHERE is_admin = 1"),
             "bound": scalar(
                 "SELECT COUNT(*) AS v FROM users WHERE telegram_chat_id != '' OR "
-                "feishu_open_id != '' OR feishu_chat_id != '' OR wecom_webhook != ''"
+                "feishu_open_id != '' OR feishu_chat_id != '' OR wecom_webhook != '' "
+                "OR EXISTS (SELECT 1 FROM feishu_personal_bots b "
+                "WHERE b.user_id = users.id AND b.status = 'active' AND b.chat_id != '')"
             ),
             "new_7d": scalar(
                 "SELECT COUNT(*) AS v FROM users WHERE created_at >= datetime('now', '-7 days')"
@@ -1413,8 +1427,7 @@ class DB:
             "JOIN users u ON u.id = s.user_id "
             "JOIN kols k ON k.id = s.kol_id "
             "WHERE s.kol_id = ? AND u.notify_enabled = 1 "
-            "AND (u.telegram_chat_id != '' OR u.feishu_open_id != '' OR u.feishu_chat_id != '' "
-            "OR u.wecom_webhook != '' OR u.bark_key != '') "
+            f"AND {_user_has_channel_sql('u')} "
             "AND (k.is_private = 0 OR EXISTS "
             "(SELECT 1 FROM kol_acl a WHERE a.kol_id = k.id AND a.user_id = u.id))",
             (kol_id,),
@@ -1870,9 +1883,17 @@ class DB:
         """开启每日精选、启用通知且绑定过渠道的用户。"""
         return self._rows(
             "SELECT * FROM users WHERE notify_enabled = 1 AND daily_report = 1 "
-            "AND (telegram_chat_id != '' OR feishu_open_id != '' OR feishu_chat_id != '' "
-            "OR wecom_webhook != '' OR bark_key != '')"
+            f"AND {_user_has_channel_sql()}"
         )
+
+    def active_feishu_personal_user_ids(self) -> set[int]:
+        return {
+            row["user_id"]
+            for row in self._rows(
+                "SELECT user_id FROM feishu_personal_bots "
+                "WHERE status = 'active' AND chat_id != ''"
+            )
+        }
 
     # ---- Push log ----
     def add_push_log(self, post_id: int, channel: str, status: str, error: str = "", user_id: int | None = None) -> int:

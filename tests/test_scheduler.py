@@ -566,6 +566,28 @@ def test_subscribers_include_feishu_chat_only():
     assert [u["id"] for u in db.daily_report_users()] == [uid]
 
 
+def test_subscribers_include_feishu_personal_only():
+    """只绑飞书个人机器人、users.feishu_* 为空的用户也要进推送名单。"""
+    from cryptography.fernet import Fernet
+
+    from app.feishu_personal import encrypt_secret
+
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    uid = db.add_user("lili", "h")
+    db.add_subscription(uid, kid)
+    assert db.subscribers_of_kol(kid) == []
+    key = Fernet.generate_key().decode()
+    db.save_feishu_personal_bot(
+        uid, "cli_p", encrypt_secret(key, "s"), "feishu", "active", chat_id="oc_p"
+    )
+    assert [u["id"] for u in db.subscribers_of_kol(kid)] == [uid]
+    db.update_user(uid, daily_report=1)
+    assert [u["id"] for u in db.daily_report_users()] == [uid]
+    db.update_feishu_personal_bot(uid, status="degraded")
+    assert db.subscribers_of_kol(kid) == []
+
+
 def test_notify_subscribers_feishu_chat_only(monkeypatch):
     db = make_db()
     kid = db.add_kol("xueqiu", "A", "1")
@@ -592,6 +614,46 @@ def test_notify_subscribers_feishu_chat_only(monkeypatch):
     monkeypatch.setattr("app.notifiers.feishu.FeishuNotifier", FakeFS)
     notify_subscribers(db, 1, post, notifiers_config, notifiers=[], retry_queue=None)
     assert sent["ok"] is True
+
+
+def test_notify_subscribers_feishu_personal_only(monkeypatch):
+    """个人机器人 active、共享飞书字段为空 → 新帖仍应推到个人 chat_id。"""
+    from cryptography.fernet import Fernet
+
+    from app.feishu_personal import encrypt_secret
+
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    uid = db.add_user("lili", "h")
+    key = Fernet.generate_key().decode()
+    db.save_feishu_personal_bot(
+        uid, "cli_p", encrypt_secret(key, "s"), "feishu", "active", chat_id="oc_p"
+    )
+    db.add_subscription(uid, kid)
+    post = Post(
+        platform="xueqiu", kol_id=kid, kol_name="A",
+        external_id="p1", title="t", content="c", url="u", published_at="",
+    )
+    sent = {}
+
+    class FakeFS:
+        def __init__(self, *args, **kwargs):
+            sent.update(kwargs)
+            self.client = SimpleNamespace(close=lambda: None)
+            self.channel = "feishu"
+
+        def notify(self, post):
+            sent["ok"] = True
+
+    notifiers_config = SimpleNamespace(
+        telegram=SimpleNamespace(bot_token="", chat_id=""),
+        feishu=FeishuConfig(credential_key=key),
+    )
+    monkeypatch.setattr("app.notifiers.feishu.FeishuNotifier", FakeFS)
+    notify_subscribers(db, 1, post, notifiers_config, notifiers=[], retry_queue=None)
+    assert sent.get("ok") is True
+    assert sent.get("chat_id") == "oc_p"
+    assert sent.get("app_id") == "cli_p"
 
 
 def test_notify_subscribers_wecom_webhook_only(monkeypatch):
@@ -2199,6 +2261,43 @@ def test_daily_report_users_includes_bark():
     db.update_user(uid, bark_key="AaBbCcDdEeFf1234567890")
     db.update_user(uid, daily_report=True)
     assert [u["id"] for u in db.daily_report_users()] == [uid]
+
+
+def test_daily_report_feishu_personal_only(monkeypatch):
+    """只绑飞书个人机器人的用户应收到每日精选。"""
+    from cryptography.fernet import Fernet
+
+    from app.feishu_personal import encrypt_secret
+
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    db.insert_post("xueqiu", kid, "p1", "t", "今日内容", "u", "")
+    uid = db.add_user("lili", "h")
+    key = Fernet.generate_key().decode()
+    db.save_feishu_personal_bot(
+        uid, "cli_p", encrypt_secret(key, "s"), "feishu", "active", chat_id="oc_p"
+    )
+    db.update_user(uid, daily_report=True)
+    db.add_subscription(uid, kid)
+
+    fake = FakeDailyNotifier()
+    fake.channel = "feishu"
+    monkeypatch.setattr("app.notifiers.feishu.FeishuNotifier", lambda *a, **k: fake)
+    scheduler = Scheduler(
+        db,
+        {},
+        [],
+        SimpleNamespace(daily_report_hour=20),
+        notifiers_config=SimpleNamespace(
+            telegram=SimpleNamespace(bot_token="", chat_id=""),
+            feishu=FeishuConfig(credential_key=key),
+        ),
+        xueqiu_config=SimpleNamespace(cookie=""),
+        weibo_config=SimpleNamespace(cookie="", username="", password=""),
+    )
+    scheduler._send_daily_report()
+    assert len(fake.daily) == 1
+    assert len(db.list_push_logs(channel="feishu")) == 1
 
 
 def test_daily_report_bark_user(monkeypatch):
