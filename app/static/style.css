@@ -1337,7 +1337,8 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
 .dnd-sep { font-size: 13px; color: var(--color-text-muted); }
 .dnd-range-field.is-off { opacity: 0.55; }
 .dnd-range-field.is-off input { pointer-events: none; }
-.dnd-actions { display: flex; align-items: center; gap: 12px; justify-content: flex-end; }
+.dnd-actions { display: flex; align-items: center; gap: 12px; justify-content: flex-start; }
+.dnd-actions > span:empty { display: none; } /* 空结果提示不占位，保存按钮与表单项左对齐 */
 
 /* 渠道绑定卡片内的渠道分块：块间细分隔线 */
 .channel-bind-block + .channel-bind-block {

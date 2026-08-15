@@ -219,6 +219,24 @@ def test_mobile_home_filter_reuses_native_and_shared_controls():
     assert "loadHomeKols(routeRenderSeq)" in pick
 
 
+# ---- 设置页保存按钮对齐 ----
+
+def test_dnd_save_button_aligns_left_with_other_settings_buttons():
+    """免打扰保存按钮必须左对齐（与关键词提醒等模块一致），不得右对齐错开。"""
+    css = STYLE_CSS.read_text()
+    actions = re.search(r"\.dnd-actions\s*\{([^}]*)\}", css)
+    assert actions, "缺少 .dnd-actions 样式"
+    assert "justify-content: flex-end" not in actions.group(1), (
+        "免打扰保存按钮右对齐会与左侧表单项、下方模块错开"
+    )
+    # 结果提示必须位于保存按钮之后，否则空 span 会把按钮顶开 12px 错位
+    settings = APP_JS.read_text()
+    dnd_block = settings[settings.index('class="dnd-actions"'):]
+    save_idx = dnd_block.index("saveDnd()")
+    result_idx = dnd_block.index("dnd-result")
+    assert result_idx > save_idx, "dnd-result 应在保存按钮之后，避免空提示把按钮顶开"
+
+
 def test_post_header_does_not_clip_platform_or_time():
     """卡片头「名字 · 平台 · 时间」同行时，名字省略不得裁掉平台图标和时间。
 

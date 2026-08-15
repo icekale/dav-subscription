@@ -1903,8 +1903,8 @@ async function renderSettings(seq) {
             <span>特别关注可穿透免打扰</span>
           </label>
           <div class="dnd-actions">
-            <span id="dnd-result" class="muted"></span>
             <button class="btn-normal" onclick="saveDnd()">保存</button>
+            <span id="dnd-result" class="muted"></span>
           </div>
         </div>
       </section>
