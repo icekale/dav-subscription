@@ -3873,7 +3873,7 @@ function renderCodesResult(result) {
       </div>
     </div>
     <ul class="rc-result-codes">${result.codes.map((code) =>
-      `<li><code>${escapeHtml(code)}</code> <button class="btn-sm" onclick="${copyOnclick(code, "已复制")}">复制</button></li>`
+      `<li><code>${escapeHtml(code)}</code> <button class="btn-sm" data-code="${escapeHtml(code)}" onclick="copyText(this.dataset.code, '已复制')">复制</button></li>`
     ).join("")}</ul>
   </div>`;
 }
@@ -3927,7 +3927,7 @@ function renderCodeRow(c) {
   const when = c.used_at ? fmtDbTime(c.used_at) : c.revoked_at ? fmtDbTime(c.revoked_at) : c.expires_at ? fmtDbTime(c.expires_at) : fmtDbTime(c.created_at);
   const canRevoke = st === "available" || st === "expired";
   return `<tr>
-    <td><code>${escapeHtml(c.code)}</code> <button class="btn-sm" onclick="${copyOnclick(c.code, "已复制")}">复制</button></td>
+    <td><code>${escapeHtml(c.code)}</code> <button class="btn-sm" data-code="${escapeHtml(c.code)}" onclick="copyText(this.dataset.code, '已复制')">复制</button></td>
     <td><input class="form-control rc-note-input" data-code="${escapeHtml(c.code)}" value="${escapeHtml(c.note || "")}" maxlength="40" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}" onblur="adminSaveCodeNote(this)"></td>
     <td class="${codeStatusClass(st)}">${codeStatusLabel(st)}</td>
     <td>${escapeHtml(c.used_by_name || "")}</td>
