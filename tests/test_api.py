@@ -1708,11 +1708,54 @@ def test_revoke_register_code():
     resp = client.delete(f"/api/admin/register-codes/{codes[0]}", headers=admin_headers)
     assert resp.status_code == 200
     remaining = client.get("/api/admin/register-codes", headers=admin_headers).json()
-    assert all(c["code"] != codes[0] for c in remaining)
-    assert client.delete(f"/api/admin/register-codes/{codes[0]}", headers=admin_headers).status_code == 404
-    # 已使用的注册码不能作废
+    row0 = next(c for c in remaining if c["code"] == codes[0])
+    assert row0["revoked_at"]
+    assert not row0["used_by"]
+    post_resp = client.post(
+        f"/api/admin/register-codes/{codes[0]}/revoke", headers=admin_headers
+    )
+    assert post_resp.status_code == 400
     register(client, "usedit", code=codes[1])
     assert client.delete(f"/api/admin/register-codes/{codes[1]}", headers=admin_headers).status_code == 400
+
+
+def test_revoke_unused_in_batch_and_patch_note():
+    client = make_client()
+    admin_headers = auth_headers(client)
+    body = client.post(
+        "/api/admin/register-codes",
+        headers=admin_headers,
+        json={"count": 3, "note": "批"},
+    ).json()
+    register(client, "batchu1", code=body["codes"][0])
+    resp = client.post(
+        f"/api/admin/register-code-batches/{body['batch_id']}/revoke-unused",
+        headers=admin_headers,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["count"] == 2
+    rows = {
+        r["code"]: r
+        for r in client.get("/api/admin/register-codes", headers=admin_headers).json()
+        if r["code"] in body["codes"]
+    }
+    assert not rows[body["codes"][0]]["revoked_at"]
+    assert rows[body["codes"][0]]["used_by"]
+    assert rows[body["codes"][1]]["revoked_at"]
+    assert rows[body["codes"][2]]["revoked_at"]
+    patch = client.patch(
+        f"/api/admin/register-codes/{body['codes'][0]}",
+        headers=admin_headers,
+        json={"note": "给张三"},
+    )
+    assert patch.status_code == 200
+    assert patch.json()["note"] == "给张三"
+    too_long = client.patch(
+        f"/api/admin/register-codes/{body['codes'][0]}",
+        headers=admin_headers,
+        json={"note": "x" * 41},
+    )
+    assert too_long.status_code == 400
 
 
 def test_catalog_sorted_by_priority_and_activity():

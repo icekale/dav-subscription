@@ -314,6 +314,10 @@ class RegisterCodeGenIn(BaseModel):
     expires_in_days: int | None = 7
 
 
+class RegisterCodeNoteIn(BaseModel):
+    note: str = ""
+
+
 class PollingConfigIn(BaseModel):
     interval_seconds: int | None = None
     priority_interval_seconds: int | None = None
@@ -1539,16 +1543,47 @@ def create_api_router(
         _audit(admin, "set_xueqiu_cookie", "", f"len={len(cookie)}")
         return {"ok": True}
 
-    @router.delete("/admin/register-codes/{code}", dependencies=[Depends(require_admin)])
-    def revoke_register_code(code: str, admin: dict = Depends(require_admin)):
+    def _revoke_one(code: str, admin: dict) -> dict:
         row = db.get_register_code(code)
         if row is None:
             raise HTTPException(status_code=404, detail="注册码不存在")
         if row["used_by"]:
             raise HTTPException(status_code=400, detail="该注册码已被使用，不能删除")
-        db.delete_register_code(code)
+        if row["revoked_at"]:
+            raise HTTPException(status_code=400, detail="该注册码已作废")
+        db.revoke_register_code(code)
         _audit(admin, "revoke_register_code", code)
         return {"ok": True}
+
+    @router.delete("/admin/register-codes/{code}", dependencies=[Depends(require_admin)])
+    def revoke_register_code(code: str, admin: dict = Depends(require_admin)):
+        return _revoke_one(code, admin)
+
+    @router.post("/admin/register-codes/{code}/revoke", dependencies=[Depends(require_admin)])
+    def revoke_register_code_post(code: str, admin: dict = Depends(require_admin)):
+        return _revoke_one(code, admin)
+
+    @router.post(
+        "/admin/register-code-batches/{batch_id}/revoke-unused",
+        dependencies=[Depends(require_admin)],
+    )
+    def revoke_unused_register_codes(batch_id: str, admin: dict = Depends(require_admin)):
+        n = db.revoke_unused_in_batch(batch_id)
+        _audit(admin, "revoke_register_code_batch", batch_id, f"count={n}")
+        return {"ok": True, "count": n}
+
+    @router.patch("/admin/register-codes/{code}", dependencies=[Depends(require_admin)])
+    def patch_register_code(
+        code: str, body: RegisterCodeNoteIn, admin: dict = Depends(require_admin)
+    ):
+        row = db.get_register_code(code)
+        if row is None:
+            raise HTTPException(status_code=404, detail="注册码不存在")
+        note = (body.note or "").strip()
+        if len(note) > REGISTER_NOTE_MAX:
+            raise HTTPException(status_code=400, detail=f"备注最长{REGISTER_NOTE_MAX}字")
+        db.update_register_code_note(code, note)
+        return db.get_register_code(code)
 
     @router.get("/admin/logs", dependencies=[Depends(require_admin)])
     def list_audit_logs(limit: int = 100):
