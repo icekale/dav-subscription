@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import secrets
+import shutil
 import sqlite3
 import threading
 import time
@@ -310,19 +311,60 @@ class DB:
     def __init__(self, path: str | Path):
         self.path = str(path)
         Path(self.path).parent.mkdir(parents=True, exist_ok=True)
+        self._lock = threading.Lock()
+        self._open_unlocked()
+        self._migrate()
+        self._conn.commit()
+
+    def _open_unlocked(self) -> None:
+        """建立连接。调用方须已持有 _lock，或处于 __init__ 的单线程窗口。"""
         self._conn = sqlite3.connect(self.path, check_same_thread=False, timeout=0)
         if self.path != ":memory:":
             Path(self.path).chmod(0o600)
         self._conn.row_factory = sqlite3.Row
-        self._lock = threading.Lock()
         # 并发写（多 worker/健康检查脚本）时等待而非直接报错
         self._conn.execute("PRAGMA busy_timeout = 5000")
         # Docker 里 /data 是 virtiofs 挂载，WAL 的共享内存映射不可靠（会出现
         # wal/shm 被删除后写入丢失的问题），统一用回滚日志模式，跨进程读写一致。
         self._conn.execute("PRAGMA journal_mode=DELETE")
         self._conn.executescript(SCHEMA)
+
+    def online_backup(self, target: str | Path) -> None:
+        Path(target).parent.mkdir(parents=True, exist_ok=True)
+        with self._lock:
+            dst = sqlite3.connect(str(target))
+            try:
+                with dst:
+                    self._conn.backup(dst)
+            finally:
+                dst.close()
+
+    def reopen(self) -> None:
+        with self._lock:
+            try:
+                self._conn.close()
+            except sqlite3.Error:
+                pass
+            self._open_unlocked()
         self._migrate()
-        self._conn.commit()
+        with self._lock:
+            self._conn.commit()
+
+    def replace_database(self, candidate: str | Path) -> None:
+        """关闭连接，用 candidate 覆盖库文件后重新打开。调用方负责失败回滚。"""
+        path = Path(self.path)
+        with self._lock:
+            try:
+                self._conn.close()
+            except sqlite3.Error:
+                pass
+            shutil.copy2(candidate, path)
+            Path(str(path) + "-wal").unlink(missing_ok=True)
+            Path(str(path) + "-shm").unlink(missing_ok=True)
+            self._open_unlocked()
+        self._migrate()
+        with self._lock:
+            self._conn.commit()
 
     def _migrate(self):
         post_cols = {row["name"] for row in self._rows("PRAGMA table_info(posts)")}

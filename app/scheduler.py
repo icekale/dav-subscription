@@ -13,6 +13,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
+from .backup import run_scheduled
 from .channels import channel_enabled
 from .db import ALLOWED_PLATFORMS, DB
 from .fetchers.base import Fetcher, Post
@@ -22,6 +23,7 @@ logger = logging.getLogger(__name__)
 
 WEIBO_WARNING_KEY = "weibo_warning_date"
 XUEQIU_WARNING_KEY = "xueqiu_warning_date"
+BACKUP_ALERT_KEY = "backup_alert_date"
 PUSH_ALERT_KEY = "push_alert_last_at"
 PUSH_ALERT_INTERVAL = 3600
 SOURCE_ALERT_INTERVAL = 6 * 3600
@@ -581,6 +583,22 @@ def maybe_warn_xueqiu_cookie(db: DB, notifiers: list[Notifier], detail: str) -> 
             notifier.send_text(message)
         except Exception as exc:  # noqa: BLE001
             logger.warning("雪球告警发送失败 channel=%s err=%s", notifier.channel, exc)
+
+
+def maybe_alert_backup_failure(db: DB, notifiers: list[Notifier], detail: str) -> None:
+    """定时备份失败时向管理员告警，每天最多一次。"""
+    if not _alerts_enabled():
+        return
+    today = time.strftime("%Y-%m-%d")
+    if db.get_setting(BACKUP_ALERT_KEY) == today:
+        return
+    db.set_setting(BACKUP_ALERT_KEY, today)
+    message = f"⚠️ 定时备份失败：{detail[:200]}"
+    for notifier in notifiers:
+        try:
+            notifier.send_text(message)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("备份告警发送失败 channel=%s err=%s", notifier.channel, exc)
 
 
 def maybe_alert_push_failure(db: DB, notifiers: list[Notifier], detail: str) -> None:
@@ -1869,6 +1887,21 @@ class Scheduler:
                     report_ok = False
                 if report_ok:
                     self.db.set_setting("daily_report_last_date", time.strftime("%Y-%m-%d"))
+            # 定时 WebDAV 备份：到点后当天未成功则跑，失败可在后续循环重试
+            try:
+                backup_ok = await asyncio.to_thread(run_scheduled, self.db)
+            except Exception:  # noqa: BLE001
+                logger.exception("定时备份异常")
+                backup_ok = False
+            if backup_ok is False:
+                try:
+                    maybe_alert_backup_failure(
+                        self.db,
+                        self.notifiers,
+                        self.db.get_setting("backup_last_error") or "定时备份失败",
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.exception("备份失败告警异常")
             # 平台级健康阈值检查（每 10 分钟一次，轻量 SQL）：成功率过低/整体静默告警
             if now_mono - self._last_health_check >= SOURCE_HEALTH_CHECK_INTERVAL:
                 self._last_health_check = now_mono

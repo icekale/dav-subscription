@@ -261,3 +261,20 @@ def test_post_header_does_not_clip_platform_or_time():
     assert 'class="p-time"' in post_card
     assert "fmtPublished(post.published_at)" in post_card
     assert 'class="p-platform"' in post_card
+
+
+def test_admin_backup_page_three_panels_download_skips_webdav():
+    """备份页：侧栏入口、三块标题；本机下载不得走 WebDAV 上传。"""
+    src = APP_JS.read_text()
+    assert 'route: "admin/backup"' in src
+    body = _fn_body("loadAdminBackup")
+    assert "本机备份" in body
+    assert "WebDAV 定时" in body
+    assert "恢复" in body
+    download = _fn_body("backupDownload")
+    assert "/api/admin/backup/download" in download
+    assert "/api/admin/backup/webdav" not in download
+    assert "restore" not in download
+    restore = _fn_body("backupRestoreWebDAV")
+    assert "confirm(" in restore
+    assert "/api/admin/backup/restore/webdav" in restore

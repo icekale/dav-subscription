@@ -1321,6 +1321,7 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
   .rc-table td { display: block; }
   .rc-table td .btn-sm, .rc-batch-actions .btn-sm, .rc-result-actions .btn-sm { min-height: 44px; }
   .rc-note-input { width: 100%; min-height: 44px; }
+  .backup-actions .btn-sm { min-height: 44px; }
 }
 
 /* ---------- 全景概览 ---------- */

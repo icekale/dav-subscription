@@ -41,6 +41,7 @@ const USER_PLUS_ICON = `<svg class="nav-svg" viewBox="0 0 24 24" fill="none" str
 const FILE_TEXT_ICON = `<svg class="nav-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8M16 17H8"/></svg>`;
 const SEND_ICON = `<svg class="nav-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/></svg>`;
 const HISTORY_ICON = `<svg class="nav-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>`;
+const DATABASE_ICON = `<svg class="nav-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/><path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"/></svg>`;
 const USERS_ICON = `<svg class="nav-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>`;
 const KEY_ICON = `<svg class="nav-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>`;
 const PLUS_ICON = `<svg class="nav-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>`;
@@ -280,6 +281,7 @@ const NAV = [
       { route: "admin/posts", icon: FILE_TEXT_ICON, label: "帖子" },
       { route: "admin/logs", icon: SEND_ICON, label: "推送记录" },
       { route: "admin/audit", icon: HISTORY_ICON, label: "操作日志" },
+      { route: "admin/backup", icon: DATABASE_ICON, label: "备份" },
     ]},
     { label: "用户与注册", items: [
       { route: "admin/users", icon: USERS_ICON, label: "用户" },
@@ -2663,7 +2665,7 @@ async function renderAdmin(tab, seq) {
         <div class="admin-sk-table-row"><div class="admin-sk-line"></div><div class="admin-sk-line"></div><div class="admin-sk-line"></div></div>
       </div>`).join("")}
     </div>`;
-  const loaders = { dashboard: loadAdminDashboard, stats: loadAdminStats, kols: loadAdminKols, requests: loadAdminRequests, codes: loadAdminCodes, vocab: loadAdminVocab, posts: loadAdminPosts, logs: loadAdminLogs, audit: loadAdminAudit, users: loadAdminUsers };
+  const loaders = { dashboard: loadAdminDashboard, stats: loadAdminStats, kols: loadAdminKols, requests: loadAdminRequests, codes: loadAdminCodes, vocab: loadAdminVocab, posts: loadAdminPosts, logs: loadAdminLogs, audit: loadAdminAudit, backup: loadAdminBackup, users: loadAdminUsers };
   try {
     await loaders[tab]();
   } catch (err) {
@@ -4488,6 +4490,200 @@ async function adminFilterLogs() {
   state.adminLogsChannel = channel;
   state.adminLogsStatus = status;
   loadAdminLogs();
+}
+
+function backupStatusHtml(s) {
+  const parts = [];
+  if (s.last_ok_at) {
+    parts.push(`上次<span class="status-ok">成功</span> ${escapeHtml(s.last_ok_at)}`);
+  }
+  if (s.last_error) {
+    parts.push(`上次<span class="status-fail">失败</span> ${escapeHtml(s.last_error)}`);
+  }
+  if (s.last_remote_name) parts.push(`远端 ${escapeHtml(s.last_remote_name)}`);
+  if (s.next_run_at) parts.push(`下次 ${escapeHtml(s.next_run_at)}`);
+  if (!parts.length) {
+    return `<p class="section-meta" id="backup-status">尚未执行过定时备份</p>`;
+  }
+  return `<p class="section-meta" id="backup-status">${parts.join(" · ")}</p>`;
+}
+
+function backupWebDAVBody() {
+  const body = {
+    url: $("#bk-url").value.trim(),
+    username: $("#bk-user").value.trim(),
+    path: $("#bk-path").value.trim() || "/vpush-backups",
+    hour: Number($("#bk-hour").value),
+    keep: Number($("#bk-keep").value),
+  };
+  const password = $("#bk-pass").value;
+  if (password) body.password = password;
+  return body;
+}
+
+async function loadAdminBackup() {
+  const s = await api("/api/admin/backup");
+  if (!routeStillActive(_adminRenderSeq)) return;
+  $("#admin-body").innerHTML = `
+    <section class="section-panel">
+      <header class="section-head">
+        <div>
+          <h3 class="section-title">本机备份</h3>
+          <p class="section-meta">下载当前数据库，不经过 WebDAV。</p>
+        </div>
+      </header>
+      <div class="toolbar backup-actions">
+        <button class="btn-ghost" onclick="backupDownload()">下载当前数据库</button>
+      </div>
+    </section>
+    <section class="section-panel">
+      <header class="section-head">
+        <div>
+          <h3 class="section-title">WebDAV 定时</h3>
+          <p class="section-meta">填好后由调度每天自动上传；密码只写不回显。</p>
+        </div>
+      </header>
+      <label class="form-label">地址
+        <input id="bk-url" class="form-control" type="url" autocomplete="off" placeholder="https://example.com/webdav" value="${escapeHtml(s.url || "")}">
+      </label>
+      <label class="form-label">用户名
+        <input id="bk-user" class="form-control" autocomplete="off" value="${escapeHtml(s.username || "")}">
+      </label>
+      <label class="form-label">密码
+        <input id="bk-pass" class="form-control" type="password" autocomplete="new-password" placeholder="${s.password_set ? "已设置" : "WebDAV 密码"}">
+      </label>
+      <div class="cfg-fields">
+        <label class="cfg-field">远端目录
+          <input id="bk-path" class="form-control" autocomplete="off" placeholder="/vpush-backups" value="${escapeHtml(s.path || "/vpush-backups")}">
+        </label>
+        <label class="cfg-field">每天几点<span class="cfg-unit">时</span>
+          <input id="bk-hour" class="form-control" type="number" min="0" max="23" value="${s.hour ?? 3}">
+        </label>
+        <label class="cfg-field">保留份数
+          <input id="bk-keep" class="form-control" type="number" min="1" max="90" value="${s.keep ?? 14}">
+        </label>
+      </div>
+      ${backupStatusHtml(s)}
+      <div class="toolbar backup-actions" style="margin-top:12px">
+        <button class="btn-normal" onclick="saveBackupWebDAV()">保存</button>
+        <button class="btn-ghost" onclick="testBackupWebDAV()">测试连接</button>
+      </div>
+    </section>
+    <section class="section-panel">
+      <header class="section-head">
+        <div>
+          <h3 class="section-title">恢复</h3>
+          <p class="section-meta">会覆盖当前账号、订阅和帖子。恢复失败时现库不变。</p>
+        </div>
+      </header>
+      <div class="toolbar backup-actions">
+        <button id="bk-restore-webdav" class="btn-sm danger" onclick="backupRestoreWebDAV()">从 WebDAV 恢复最新一份</button>
+      </div>
+      <label class="form-label" style="margin-top:16px">本地 .db 文件
+        <input id="bk-file" class="form-control" type="file" accept=".db">
+      </label>
+      <div class="toolbar backup-actions">
+        <button id="bk-restore-upload" class="btn-sm danger" onclick="backupRestoreUpload()">用本地备份恢复</button>
+      </div>
+    </section>`;
+}
+
+async function saveBackupWebDAV() {
+  try {
+    await api("/api/admin/backup/webdav", {
+      method: "PUT",
+      body: JSON.stringify(backupWebDAVBody()),
+    });
+    flash("WebDAV 配置已保存");
+    $("#bk-pass").value = "";
+    await loadAdminBackup();
+  } catch (err) {
+    flash(err.message, "error");
+  }
+}
+
+async function testBackupWebDAV() {
+  try {
+    await api("/api/admin/backup/webdav/test", {
+      method: "POST",
+      body: JSON.stringify(backupWebDAVBody()),
+    });
+    flash("WebDAV 连接正常");
+  } catch (err) {
+    flash(err.message, "error");
+  }
+}
+
+async function backupDownload() {
+  const resp = await fetch("/api/admin/backup/download", {
+    headers: { Authorization: `Bearer ${state.token}` },
+  });
+  if (resp.status === 401) {
+    logout();
+    return;
+  }
+  if (!resp.ok) {
+    const data = await resp.json().catch(() => ({}));
+    flash(typeof data.detail === "string" ? data.detail : "下载失败", "error");
+    return;
+  }
+  const blob = await resp.blob();
+  const match = /filename="?([^";]+)"?/.exec(resp.headers.get("content-disposition") || "");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = match ? match[1] : "dav-backup.db";
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+async function backupRestoreWebDAV() {
+  if (!confirm("确认用备份覆盖当前数据库？当前账号、订阅和帖子都会被替换。")) return;
+  const btn = $("#bk-restore-webdav");
+  if (btn) btn.disabled = true;
+  try {
+    await api("/api/admin/backup/restore/webdav", { method: "POST" });
+    flash("已从 WebDAV 恢复");
+    await loadAdminBackup();
+  } catch (err) {
+    flash(err.message, "error");
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function backupRestoreUpload() {
+  if (!confirm("确认用备份覆盖当前数据库？当前账号、订阅和帖子都会被替换。")) return;
+  const input = $("#bk-file");
+  if (!input?.files?.[0]) {
+    flash("请选择 .db 备份文件", "error");
+    return;
+  }
+  const btn = $("#bk-restore-upload");
+  if (btn) btn.disabled = true;
+  try {
+    const fd = new FormData();
+    fd.append("file", input.files[0]);
+    const resp = await fetch("/api/admin/backup/restore/upload", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${state.token}` },
+      body: fd,
+    });
+    if (resp.status === 401) {
+      logout();
+      return;
+    }
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      flash(typeof data.detail === "string" ? data.detail : "恢复失败", "error");
+      return;
+    }
+    flash("已从本地备份恢复");
+    await loadAdminBackup();
+  } catch (err) {
+    flash(err.message, "error");
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 async function loadAdminUsers() {

@@ -11,7 +11,17 @@ from typing import Literal
 
 logger = logging.getLogger(__name__)
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Header,
+    HTTPException,
+    Request,
+    Response,
+    UploadFile,
+)
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from . import auth, wechat
@@ -341,6 +351,15 @@ class PollingConfigIn(BaseModel):
 
 class CookieIn(BaseModel):
     cookie: str
+
+
+class BackupWebDAVIn(BaseModel):
+    url: str | None = None
+    username: str | None = None
+    password: str | None = None
+    path: str | None = None
+    hour: int | None = None
+    keep: int | None = None
 
 
 class SubscriptionIn(BaseModel):
@@ -1606,6 +1625,87 @@ def create_api_router(
     @router.get("/admin/logs", dependencies=[Depends(require_admin)])
     def list_audit_logs(limit: int = 100):
         return db.list_admin_logs(limit=bounded_limit(limit))
+
+    def _backup_http(exc):
+        raise HTTPException(status_code=exc.status, detail=exc.message) from exc
+
+    @router.get("/admin/backup", dependencies=[Depends(require_admin)])
+    def backup_status():
+        from .backup import public_status
+
+        return public_status(db)
+
+    @router.put("/admin/backup/webdav", dependencies=[Depends(require_admin)])
+    def backup_save_webdav(body: BackupWebDAVIn, admin: dict = Depends(require_admin)):
+        from .backup import BackupError, public_status, save_config
+
+        try:
+            save_config(db, body.model_dump())
+        except BackupError as exc:
+            _backup_http(exc)
+        _audit(admin, "backup_webdav_save", body.url or "")
+        return public_status(db)
+
+    @router.post("/admin/backup/webdav/test", dependencies=[Depends(require_admin)])
+    def backup_test_webdav(body: BackupWebDAVIn | None = None):
+        from .backup import BackupError, test_connection
+
+        try:
+            test_connection(db, None if body is None else body.model_dump())
+        except BackupError as exc:
+            _backup_http(exc)
+        return {"ok": True}
+
+    @router.get("/admin/backup/download", dependencies=[Depends(require_admin)])
+    def backup_download():
+        from .backup import BackupError, snapshot, with_lock
+
+        try:
+            path = with_lock(lambda: snapshot(db))
+        except BackupError as exc:
+            _backup_http(exc)
+        return FileResponse(
+            path,
+            filename=path.name,
+            media_type="application/octet-stream",
+        )
+
+    @router.post("/admin/backup/restore/webdav", dependencies=[Depends(require_admin)])
+    def backup_restore_webdav(admin: dict = Depends(require_admin)):
+        from .backup import BackupError, restore_from_webdav, with_lock
+
+        try:
+            with_lock(lambda: restore_from_webdav(db))
+        except BackupError as exc:
+            _backup_http(exc)
+        _audit(admin, "backup_restore", "webdav")
+        return {"ok": True}
+
+    @router.post("/admin/backup/restore/upload", dependencies=[Depends(require_admin)])
+    def backup_restore_upload(
+        admin: dict = Depends(require_admin),
+        file: UploadFile = File(...),
+    ):
+        from .backup import (
+            MSG_BAD_UPLOAD,
+            UPLOAD_MAX,
+            BackupError,
+            restore_from_bytes,
+            with_lock,
+        )
+
+        name = file.filename or ""
+        if not name.lower().endswith(".db"):
+            raise HTTPException(status_code=400, detail=MSG_BAD_UPLOAD)
+        data = file.file.read(UPLOAD_MAX + 1)
+        if not data or len(data) > UPLOAD_MAX:
+            raise HTTPException(status_code=400, detail=MSG_BAD_UPLOAD)
+        try:
+            with_lock(lambda: restore_from_bytes(db, data))
+        except BackupError as exc:
+            _backup_http(exc)
+        _audit(admin, "backup_restore", "upload", name)
+        return {"ok": True}
 
     @router.get("/admin/dashboard", dependencies=[Depends(require_admin)])
     def dashboard():
