@@ -3756,10 +3756,14 @@ function formatInviteCopy(codeList, expiresDays, note) {
 
 function copyText(text, okMsg) {
   if (!text) return;
-  navigator.clipboard?.writeText(text).then(
-    () => flash(okMsg || "已复制"),
-    () => alert("请手动复制：\n" + text),
-  );
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(text).then(
+      () => flash(okMsg || "已复制"),
+      () => alert("请手动复制：\n" + text),
+    );
+  } else {
+    alert("请手动复制：\n" + text);
+  }
 }
 
 function saveCodesForm() {
@@ -3774,7 +3778,9 @@ function saveCodesForm() {
 }
 
 function copyOnclick(text, msg) {
-  return `copyText(decodeURIComponent('${encodeURIComponent(text)}'), '${msg}')`;
+  const payload = encodeURIComponent(String(text ?? "")).replace(/'/g, "%27");
+  const safeMsg = encodeURIComponent(String(msg ?? "已复制")).replace(/'/g, "%27");
+  return `copyText(decodeURIComponent('${payload}'), decodeURIComponent('${safeMsg}'))`;
 }
 
 async function loadAdminCodes(refetch = true) {
@@ -3786,7 +3792,7 @@ async function loadAdminCodes(refetch = true) {
   const expVal = _codesUi.expires == null ? "" : String(_codesUi.expires);
   const result = _codesUi.result;
   const filterBtn = (key, label) =>
-    `<button class="settings-tab ${filter === key ? "active" : ""}" data-filter="${key}" onclick="_codesUi.filter='${key}';loadAdminCodes(false)">${label}</button>`;
+    `<button class="settings-tab ${filter === key ? "active" : ""}" data-filter="${key}" onclick="saveCodesForm();_codesUi.filter='${key}';loadAdminCodes(false)">${label}</button>`;
 
   $("#admin-body").innerHTML = `
     <section class="section-panel">
@@ -3965,8 +3971,13 @@ async function adminSaveCodeNote(input) {
       method: "PATCH",
       body: JSON.stringify({ note }),
     });
+    const row = (state.adminCodes || []).find((c) => c.code === code);
+    if (row) row.note = note;
+    renderCodesList();
   } catch (err) {
     alert("保存备注失败: " + err.message);
+    const row = (state.adminCodes || []).find((c) => c.code === code);
+    if (row) input.value = row.note || "";
   }
 }
 
