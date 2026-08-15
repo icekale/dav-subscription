@@ -1551,7 +1551,15 @@ def create_api_router(
             raise HTTPException(status_code=400, detail="该注册码已被使用，不能删除")
         if row["revoked_at"]:
             raise HTTPException(status_code=400, detail="该注册码已作废")
-        db.revoke_register_code(code)
+        if not db.revoke_register_code(code):
+            row = db.get_register_code(code)
+            if row is None:
+                raise HTTPException(status_code=404, detail="注册码不存在")
+            if row["used_by"]:
+                raise HTTPException(status_code=400, detail="该注册码已被使用，不能删除")
+            if row["revoked_at"]:
+                raise HTTPException(status_code=400, detail="该注册码已作废")
+            raise HTTPException(status_code=400, detail="该注册码已被使用，不能删除")
         _audit(admin, "revoke_register_code", code)
         return {"ok": True}
 

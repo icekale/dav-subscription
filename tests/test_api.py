@@ -1717,6 +1717,39 @@ def test_revoke_register_code():
     assert post_resp.status_code == 400
     register(client, "usedit", code=codes[1])
     assert client.delete(f"/api/admin/register-codes/{codes[1]}", headers=admin_headers).status_code == 400
+    assert client.post(
+        f"/api/admin/register-codes/{codes[1]}/revoke", headers=admin_headers
+    ).status_code == 400
+
+
+def test_revoke_register_code_rejects_failed_update():
+    client = make_client()
+    admin_headers = auth_headers(client)
+    codes = client.post(
+        "/api/admin/register-codes",
+        headers=admin_headers,
+        json={"count": 1, "note": "race"},
+    ).json()["codes"]
+    db = client.app.state.db
+
+    def lose_race(code):
+        db._execute(
+            "UPDATE register_codes SET used_by = 1 WHERE code = ?",
+            (code.strip().upper(),),
+        )
+        return False
+
+    db.revoke_register_code = lose_race
+    resp = client.post(
+        f"/api/admin/register-codes/{codes[0]}/revoke", headers=admin_headers
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "该注册码已被使用，不能删除"
+    logs = db.list_admin_logs()
+    assert not any(
+        log["action"] == "revoke_register_code" and log["target"] == codes[0]
+        for log in logs
+    )
 
 
 def test_revoke_unused_in_batch_and_patch_note():
