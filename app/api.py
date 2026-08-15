@@ -406,8 +406,9 @@ IMAGE_PROXY_HOSTS = frozenset({
 })
 
 
-def admin_user_summary(user: dict) -> dict:
+def admin_user_summary(user: dict, invite: dict | None = None) -> dict:
     """管理员用户列表摘要：只暴露管理所需字段，不含 feed_token/bark_key/wecom_webhook/llm_api_key 等凭证。"""
+    invite = invite or {}
     return {
         "id": user["id"],
         "username": user["username"],
@@ -421,6 +422,8 @@ def admin_user_summary(user: dict) -> dict:
         "wecom_bound": bool(user.get("wecom_webhook")),
         "bark_bound": bool(user.get("bark_key")),
         "custom_telegram_bot": bool(user.get("telegram_bot_token")),
+        "register_code": invite.get("code") or "",
+        "register_note": invite.get("note") or "",
     }
 
 
@@ -660,6 +663,13 @@ def create_api_router(
 
     def _audit(admin: dict, action: str, target: str = "", detail: str = "") -> None:
         db.log_admin_action(admin["id"], action, target, detail)
+
+    def _invite_by_user_id() -> dict[int, dict]:
+        out: dict[int, dict] = {}
+        for row in db.list_register_codes():
+            if row.get("used_by"):
+                out[row["used_by"]] = row
+        return out
 
     def _notify_admins_new_request(platform: str, ref: str, requester: dict, request_id: int) -> None:
         """新的大V添加申请：优先 TG 带审批按钮；未绑 TG 的管理员走其他渠道。"""
@@ -2109,7 +2119,8 @@ def create_api_router(
 
     @router.get("/users", dependencies=[Depends(require_admin)])
     def list_users():
-        return [admin_user_summary(u) for u in db.list_users()]
+        invites = _invite_by_user_id()
+        return [admin_user_summary(u, invites.get(u["id"])) for u in db.list_users()]
 
     @router.get("/stats", dependencies=[Depends(require_admin)])
     def stats():
@@ -2257,7 +2268,8 @@ def create_api_router(
             str(user_id),
             f"is_admin={body.is_admin} password={'*' if body.password else ''} username={body.username}",
         )
-        return admin_user_summary(db.get_user(user_id))
+        user_row = db.get_user(user_id)
+        return admin_user_summary(user_row, _invite_by_user_id().get(user_id))
 
     @router.delete("/users/{user_id}", dependencies=[Depends(require_admin)])
     def delete_user(user_id: int, admin: dict = Depends(require_admin)):

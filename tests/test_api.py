@@ -3724,3 +3724,23 @@ def test_partial_update_preserves_priority_and_secondary():
     r = client.put(f"/api/kols/{kid}", headers=headers, json={"enabled": True})
     assert r.status_code == 200
     assert r.json()["priority"] == 1, "priority 被部分更新清除"
+
+
+def test_admin_user_list_includes_register_source():
+    client = make_client()
+    admin_headers = auth_headers(client)
+    codes = client.post(
+        "/api/admin/register-codes",
+        headers=admin_headers,
+        json={"count": 1, "note": "内部"},
+    ).json()["codes"]
+    register(client, "invitee", code=codes[0])
+    rows = client.get("/api/users", headers=admin_headers).json()
+    invitee = next(u for u in rows if u["username"] == "invitee")
+    assert invitee["register_code"] == codes[0]
+    assert invitee["register_note"] == "内部"
+    uid = client.app.state.db.add_user("seeded1", "h")
+    rows = client.get("/api/users", headers=admin_headers).json()
+    seeded = next(u for u in rows if u["id"] == uid)
+    assert seeded["register_code"] == ""
+    assert seeded["register_note"] == ""
