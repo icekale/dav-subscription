@@ -1442,7 +1442,7 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
 .dnd-range-field { display: flex; flex-direction: column; gap: 6px; }
 .dnd-range-label { font-size: 12px; color: var(--color-text-muted); }
 .dnd-range { display: flex; align-items: center; gap: 10px; }
-.dnd-range input[type="time"] { margin: 0; min-width: 138px; }
+.dnd-range input[type="time"] { margin: 0; flex: 1 1 138px; min-width: 0; max-width: 200px; }
 .dnd-sep { font-size: 13px; color: var(--color-text-muted); }
 .dnd-range-field.is-off { opacity: 0.55; }
 .dnd-range-field.is-off input { pointer-events: none; }
