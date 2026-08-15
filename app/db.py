@@ -220,7 +220,11 @@ CREATE TABLE IF NOT EXISTS register_codes (
     note TEXT NOT NULL DEFAULT '',
     used_by INTEGER,
     used_at TEXT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    batch_id TEXT NOT NULL DEFAULT '',
+    expires_at TEXT,
+    revoked_at TEXT,
+    created_by INTEGER
 );
 CREATE TABLE IF NOT EXISTS admin_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -432,6 +436,22 @@ class DB:
         if "fail_count" not in ev_cols:
             self._conn.execute(
                 "ALTER TABLE source_events ADD COLUMN fail_count INTEGER NOT NULL DEFAULT 0"
+            )
+        rc_cols = {row["name"] for row in self._rows("PRAGMA table_info(register_codes)")}
+        if "batch_id" not in rc_cols:
+            self._conn.execute(
+                "ALTER TABLE register_codes ADD COLUMN batch_id TEXT NOT NULL DEFAULT ''"
+            )
+        if "expires_at" not in rc_cols:
+            self._conn.execute("ALTER TABLE register_codes ADD COLUMN expires_at TEXT")
+        if "revoked_at" not in rc_cols:
+            self._conn.execute("ALTER TABLE register_codes ADD COLUMN revoked_at TEXT")
+        if "created_by" not in rc_cols:
+            self._conn.execute("ALTER TABLE register_codes ADD COLUMN created_by INTEGER")
+        for row in self._rows("SELECT code FROM register_codes WHERE batch_id = ''"):
+            self._conn.execute(
+                "UPDATE register_codes SET batch_id = ? WHERE code = ?",
+                (secrets.token_hex(8), row["code"]),
             )
         # 并发创建的历史重复项先合并/收口，再由数据库唯一索引兜底。
         duplicates = self._rows(

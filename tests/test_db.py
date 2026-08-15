@@ -213,3 +213,35 @@ def test_insert_post_ignore_does_not_leave_open_txn(tmp_path):
     db._conn.execute("BEGIN")
     db._conn.execute("SELECT 1")
     db._conn.commit()
+
+
+def test_register_codes_migrate_batch_columns(tmp_path):
+    path = tmp_path / "old.db"
+    conn = sqlite3.connect(path)
+    conn.executescript(
+        """
+        CREATE TABLE register_codes (
+            code TEXT PRIMARY KEY,
+            note TEXT NOT NULL DEFAULT '',
+            used_by INTEGER,
+            used_at TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        """
+    )
+    conn.execute(
+        "INSERT INTO register_codes (code, note) VALUES ('OLDCODE1', '朋友'), ('OLDCODE2', '内部')"
+    )
+    conn.commit()
+    conn.close()
+
+    db = DB(str(path))
+    cols = {r["name"] for r in db._rows("PRAGMA table_info(register_codes)")}
+    assert {"batch_id", "expires_at", "revoked_at", "created_by"} <= cols
+    rows = db.list_register_codes()
+    assert len(rows) == 2
+    assert all(r["batch_id"] for r in rows)
+    assert rows[0]["batch_id"] != rows[1]["batch_id"]
+    assert all(r["expires_at"] in (None, "") for r in rows)
+    assert all(r["revoked_at"] in (None, "") for r in rows)
+    db.close()
