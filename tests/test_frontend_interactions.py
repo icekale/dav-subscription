@@ -202,35 +202,18 @@ def test_mobile_mysubs_filter_is_six_equal_44px_targets():
 
 # ---- 订阅广场移动端头部密度 ----
 
-def test_mobile_home_filter_collapses_header_but_keeps_desktop_controls():
-    """订阅广场移动端默认只显示紧凑头部；桌面筛选控件仍完整保留。"""
+def test_mobile_home_filter_reuses_native_and_shared_controls():
+    """移动端用原生折叠和共享角标；桌面筛选保持完整。"""
     render = _fn_body("renderHome")
     mobile_platforms = _fn_body("homeMobilePlatformsHtml")
-    toggle = _fn_body("homeFilterPanel")
-
-    assert "isMobileTimelineFilter()" in render
-    assert 'id="home-filter-toggle"' in render
-    assert 'id="home-filter-panel"' in render
-    assert 'id="home-active-chips"' in render
-    assert 'id="home-search"' in render
-    assert 'id="platform-tabs"' in render
-    assert 'id="home-cats"' in render
-    assert "TL_PLATFORMS.map" in mobile_platforms
-    assert "classList.toggle(\"open\")" in toggle
-    assert "aria-expanded" in toggle
-
-
-def test_mobile_home_filter_uses_five_44px_platform_targets_and_applies_immediately():
-    """移动端广场平台角标复用现有图标，点击后关闭面板并刷新目录。"""
-    mobile_platforms = _fn_body("homeMobilePlatformsHtml")
     pick = _fn_body("homePickMobilePlatform")
-    css = STYLE_CSS.read_text()
 
+    for marker in ('<details class="home-filter"', '<summary id="home-filter-toggle"',
+                   'id="home-search"', 'id="platform-tabs"', 'id="home-cats"'):
+        assert marker in render
+    assert 'class="tl-mobile-platform ' in mobile_platforms
     assert "PLATFORM_ICONS[p]" in mobile_platforms
-    assert "aria-label=\"平台：${label}\"" in mobile_platforms
     assert "homePickMobilePlatform('${p}')" in mobile_platforms
-    assert "state.platform = p" in pick
-    assert 'classList.remove("open")' in pick
+    assert "state.platform = platform" in pick
+    assert "panel.open = false" in pick
     assert "loadHomeKols(routeRenderSeq)" in pick
-    assert 'repeat(5, minmax(0, 1fr))' in re.search(r"\.home-mobile-platforms\s*\{([^}]*)\}", css, re.DOTALL).group(1)
-    assert "min-height: 44px" in re.search(r"\.home-mobile-platform\s*\{([^}]*)\}", css, re.DOTALL).group(1)

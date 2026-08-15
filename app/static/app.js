@@ -16,6 +16,7 @@ const CHANNEL_ICONS = {
 };
 const APP_VERSION = "1.12.8";
 const PLATFORM_TABS = ["", "xueqiu", "combination", "weibo", "twitter"];
+const TL_PLATFORMS = PLATFORM_TABS.map((p) => [p, p ? PLATFORM_LABELS[p] : "全部"]);
 const STAR_SVG = `<svg class="star-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5l2.95 5.98 6.6.96-4.78 4.66 1.13 6.58L12 17.6l-5.9 3.1 1.13-6.58L2.45 9.44l6.6-.96L12 2.5z"/></svg>`;
 // 次要（降频）铃铛图标：线性风格，与 TRASH_ICON 一致（stroke=currentColor）
 const BELL_ICON = `<svg class="bell-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>`;
@@ -399,32 +400,12 @@ function homeHasFilters() {
 
 function homeMobilePlatformsHtml() {
   return TL_PLATFORMS.map(([p, label]) => `
-    <button class="home-mobile-platform ${state.platform === p ? "selected" : ""}"
-      data-platform="${p}"
-      aria-label="平台：${label}"
-      title="${label}"
+    <button class="tl-mobile-platform ${state.platform === p ? "selected" : ""}"
+      data-platform="${p}" aria-label="平台：${label}" title="${label}"
       aria-pressed="${state.platform === p}"
       onclick="homePickMobilePlatform('${p}')">
       ${PLATFORM_ICONS[p] || ""}
     </button>`).join("");
-}
-
-function homeActiveChipsHtml() {
-  const chips = [];
-  if (state.homeQ) chips.push(`关键词：${escapeHtml(state.homeQ)}`);
-  if (state.platform) chips.push(`平台：${escapeHtml(PLATFORM_LABELS[state.platform] || state.platform)}`);
-  if (state.homeCategory) chips.push(`分类：${escapeHtml(state.homeCategory)}`);
-  return chips.length
-    ? `<div class="home-active-chips">${chips.map((label) => `<span class="home-active-chip">${label}</span>`).join("")}</div>`
-    : "";
-}
-
-function homeFilterPanel() {
-  const panel = $("#home-filter-panel");
-  const button = $("#home-filter-toggle");
-  if (!panel || !button) return;
-  const open = panel.classList.toggle("open");
-  button.setAttribute("aria-expanded", String(open));
 }
 
 async function homePickMobilePlatform(platform) {
@@ -432,26 +413,13 @@ async function homePickMobilePlatform(platform) {
   const platforms = $("#home-mobile-platforms");
   if (platforms) platforms.innerHTML = homeMobilePlatformsHtml();
   const panel = $("#home-filter-panel");
-  if (panel) panel.classList.remove("open");
-  const button = $("#home-filter-toggle");
-  if (button) {
-    button.classList.toggle("has-filter", homeHasFilters());
-    button.setAttribute("aria-expanded", "false");
-  }
+  if (panel) panel.open = false;
   await loadHomeKols(routeRenderSeq);
 }
 
 async function homeResetFilters() {
-  const platformChanged = !!state.platform;
-  state.homeQ = "";
-  state.homeCategory = "";
-  state.platform = "";
-  const search = $("#home-search");
-  if (search) search.value = "";
-  const platforms = $("#home-mobile-platforms");
-  if (platforms) platforms.innerHTML = homeMobilePlatformsHtml();
-  if (platformChanged) await loadHomeKols(routeRenderSeq);
-  else renderHomeList();
+  state.homeQ = state.homeCategory = state.platform = "";
+  await renderHome(routeRenderSeq);
 }
 
 // ---------- 订阅广场 ----------
@@ -498,28 +466,27 @@ async function renderHome(seq) {
     ${onboardingHtml}
     <section class="section-panel home-panel">
       <header class="section-head home-head">
-        <div class="home-head-row">
-          <div>
-            <h3 class="section-title">全部大V</h3>
-            <p class="section-meta" id="catalog-meta">加载中…</p>
-          </div>
-          ${mobileHome ? `<button id="home-filter-toggle" class="fav-toggle" aria-expanded="false" aria-controls="home-filter-panel" onclick="homeFilterPanel()">${FILTER_ICON}筛选</button>` : ""}
+        <div>
+          <h3 class="section-title">全部大V</h3>
+          <p class="section-meta" id="catalog-meta">加载中…</p>
         </div>
         ${mobileHome ? `
-          <div id="home-active-chips">${homeActiveChipsHtml()}</div>
-          <div class="home-filter-panel" id="home-filter-panel">
-            <div class="search-bar home-search-bar">
-              ${SEARCH_ICON}
-              <input id="home-search" placeholder="搜索昵称或 ID" value="${escapeHtml(state.homeQ || "")}" oninput="homeSearch(this.value)">
+          <details class="home-filter" id="home-filter-panel">
+            <summary id="home-filter-toggle" class="fav-toggle ${homeHasFilters() ? "has-filter" : ""}">${FILTER_ICON}筛选</summary>
+            <div class="home-filter-content">
+              <div class="search-bar home-search-bar">
+                ${SEARCH_ICON}
+                <input id="home-search" placeholder="搜索昵称或 ID" value="${escapeHtml(state.homeQ || "")}" oninput="homeSearch(this.value)">
+              </div>
+              <div class="tl-mobile-platforms" id="home-mobile-platforms">
+                ${homeMobilePlatformsHtml()}
+              </div>
+              <div class="home-cats" id="home-cats"></div>
+              <div class="home-filter-actions">
+                <button class="btn-ghost" onclick="homeResetFilters()">清除筛选</button>
+              </div>
             </div>
-            <div class="home-mobile-platforms" id="home-mobile-platforms">
-              ${homeMobilePlatformsHtml()}
-            </div>
-            <div class="home-cats" id="home-cats"></div>
-            <div class="home-filter-actions">
-              <button class="btn-ghost" onclick="homeResetFilters()">清除筛选</button>
-            </div>
-          </div>` : `
+          </details>` : `
           <div class="toolbar" style="margin-top:12px">
             <div class="search-bar" style="flex:1;min-width:220px">
               ${SEARCH_ICON}
@@ -575,10 +542,7 @@ function homeFilteredKols() {
 }
 
 function renderHomeList() {
-  const active = $("#home-active-chips");
-  if (active) active.innerHTML = homeActiveChipsHtml();
-  const filterButton = $("#home-filter-toggle");
-  if (filterButton) filterButton.classList.toggle("has-filter", homeHasFilters());
+  $("#home-filter-toggle")?.classList.toggle("has-filter", homeHasFilters());
   const cats = $("#home-cats");
   if (cats) cats.innerHTML = categoryChipsHtml();
   const meta = $("#catalog-meta");
@@ -984,13 +948,6 @@ const TL_SKELETON = `<div class="tl-skeleton">${Array(4).fill(`
     </div>`).join("")}
   </div>`;
 
-const TL_PLATFORMS = [
-  ["", "全部"],
-  ["xueqiu", "雪球"],
-  ["combination", "雪球组合"],
-  ["weibo", "微博"],
-  ["twitter", "X"],
-];
 
 function isMobileTimelineFilter() {
   return window.matchMedia("(max-width: 768px)").matches;
