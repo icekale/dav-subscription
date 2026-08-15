@@ -1742,7 +1742,7 @@ def create_api_router(
         level: str | None = None,
         q: str | None = None,
     ):
-        """返回内存环形缓冲里的最近日志行，可按级别与关键词过滤（用于网页/Agent 调试）。"""
+        """返回内存环形缓冲里的最近日志行（新→旧），可按级别与关键词过滤（用于网页/Agent 调试）。"""
         from .logging_setup import recent_logs
 
         if level and level.upper() not in ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"):

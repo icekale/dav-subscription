@@ -25,6 +25,17 @@ def test_ring_buffer_limits():
     assert any("line 49" in line for line in lines)
 
 
+def test_recent_logs_newest_first():
+    with logging_setup._ring_lock:
+        logging_setup._ring.clear()
+        logging_setup._ring.append("2026-08-16 00:00:00.000 INFO app.a [t] old")
+        logging_setup._ring.append("2026-08-16 00:00:01.000 INFO app.a [t] mid")
+        logging_setup._ring.append("2026-08-16 00:00:02.000 INFO app.a [t] new")
+    lines = logging_setup.recent_logs(limit=10)
+    assert "new" in lines[0]
+    assert "old" in lines[-1]
+
+
 def test_recent_logs_filter_by_level_and_keyword():
     logging_setup.setup_logging("DEBUG")
     logger = logging.getLogger("app.test_filter")

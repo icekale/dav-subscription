@@ -55,7 +55,7 @@ class ErrorDbHandler(logging.Handler):
 
 
 def recent_logs(limit: int = 200, level: str | None = None, q: str | None = None) -> list[str]:
-    """返回内存环形缓冲里的最近日志行，可按级别（含更高级别）与关键词过滤。
+    """返回内存环形缓冲里的最近日志行（新→旧），可按级别（含更高级别）与关键词过滤。
 
     DEBUG 为精确匹配（只显示 DEBUG 行）；其余级别为「及以上」（ERROR+ 含 ERROR/CRITICAL）。
     """
@@ -73,7 +73,7 @@ def recent_logs(limit: int = 200, level: str | None = None, q: str | None = None
     if q:
         needle = q.lower()
         lines = [line for line in lines if needle in line.lower()]
-    return lines[-limit:]
+    return list(reversed(lines[-limit:]))
 
 
 def _line_rank(line: str) -> int | None:
