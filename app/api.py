@@ -6,6 +6,7 @@ import os
 import re
 import secrets
 import time
+from datetime import datetime, timedelta, timezone
 from typing import Literal
 
 logger = logging.getLogger(__name__)
@@ -33,6 +34,8 @@ from .weibo_qr import create_qr, poll_qr
 # 关键词提醒规则上限（每个用户）与单关键词长度上限
 KEYWORDS_MAX_COUNT = 20
 KEYWORDS_MAX_LENGTH = 50
+REGISTER_NOTE_MAX = 40
+REGISTER_EXPIRE_DAYS = frozenset({1, 7, 30})
 
 
 def _normalize_weibo_id(external_id: str) -> str:
@@ -308,6 +311,11 @@ class KolRequestIn(BaseModel):
 class RegisterCodeGenIn(BaseModel):
     count: int = 5
     note: str = ""
+    expires_in_days: int | None = 7
+
+
+class RegisterCodeNoteIn(BaseModel):
+    note: str = ""
 
 
 class PollingConfigIn(BaseModel):
@@ -398,8 +406,9 @@ IMAGE_PROXY_HOSTS = frozenset({
 })
 
 
-def admin_user_summary(user: dict) -> dict:
+def admin_user_summary(user: dict, invite: dict | None = None) -> dict:
     """管理员用户列表摘要：只暴露管理所需字段，不含 feed_token/bark_key/wecom_webhook/llm_api_key 等凭证。"""
+    invite = invite or {}
     return {
         "id": user["id"],
         "username": user["username"],
@@ -413,6 +422,8 @@ def admin_user_summary(user: dict) -> dict:
         "wecom_bound": bool(user.get("wecom_webhook")),
         "bark_bound": bool(user.get("bark_key")),
         "custom_telegram_bot": bool(user.get("telegram_bot_token")),
+        "register_code": invite.get("code") or "",
+        "register_note": invite.get("note") or "",
     }
 
 
@@ -652,6 +663,13 @@ def create_api_router(
 
     def _audit(admin: dict, action: str, target: str = "", detail: str = "") -> None:
         db.log_admin_action(admin["id"], action, target, detail)
+
+    def _invite_by_user_id() -> dict[int, dict]:
+        out: dict[int, dict] = {}
+        for row in db.list_register_codes():
+            if row.get("used_by"):
+                out[row["used_by"]] = row
+        return out
 
     def _notify_admins_new_request(platform: str, ref: str, requester: dict, request_id: int) -> None:
         """新的大V添加申请：优先 TG 带审批按钮；未绑 TG 的管理员走其他渠道。"""
@@ -1443,18 +1461,46 @@ def create_api_router(
     def generate_register_codes(body: RegisterCodeGenIn, admin: dict = Depends(require_admin)):
         """批量生成一次性注册码。"""
         count = max(1, min(body.count, 100))
+        note = (body.note or "").strip()
+        if len(note) > REGISTER_NOTE_MAX:
+            raise HTTPException(status_code=400, detail=f"备注最长{REGISTER_NOTE_MAX}字")
+        if body.expires_in_days is not None and body.expires_in_days not in REGISTER_EXPIRE_DAYS:
+            raise HTTPException(status_code=400, detail="有效期需为 1、7、30 天或永不过期")
+        expires_at = None
+        if body.expires_in_days is not None:
+            expires_at = (
+                datetime.now(timezone.utc) + timedelta(days=body.expires_in_days)
+            ).strftime("%Y-%m-%d %H:%M:%S")
         alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
         existing = {r["code"] for r in db.list_register_codes()}
+        batch_id = secrets.token_hex(8)
         codes = []
         while len(codes) < count:
             code = "".join(secrets.choice(alphabet) for _ in range(8))
             if code in existing:
                 continue
             existing.add(code)
-            db.add_register_code(code, note=body.note)
+            db.add_register_code(
+                code,
+                note=note,
+                batch_id=batch_id,
+                expires_at=expires_at,
+                created_by=admin["id"],
+            )
             codes.append(code)
-        _audit(admin, "generate_register_codes", "", f"count={len(codes)} note={body.note}")
-        return {"codes": codes, "count": len(codes)}
+        _audit(
+            admin,
+            "generate_register_codes",
+            batch_id,
+            f"count={len(codes)} note={note} expires_in_days={body.expires_in_days}",
+        )
+        return {
+            "codes": codes,
+            "count": len(codes),
+            "batch_id": batch_id,
+            "expires_at": expires_at or "",
+            "note": note,
+        }
 
     @router.get("/admin/register-codes", dependencies=[Depends(require_admin)])
     def list_register_codes():
@@ -1507,16 +1553,55 @@ def create_api_router(
         _audit(admin, "set_xueqiu_cookie", "", f"len={len(cookie)}")
         return {"ok": True}
 
-    @router.delete("/admin/register-codes/{code}", dependencies=[Depends(require_admin)])
-    def revoke_register_code(code: str, admin: dict = Depends(require_admin)):
+    def _revoke_one(code: str, admin: dict) -> dict:
         row = db.get_register_code(code)
         if row is None:
             raise HTTPException(status_code=404, detail="注册码不存在")
         if row["used_by"]:
             raise HTTPException(status_code=400, detail="该注册码已被使用，不能删除")
-        db.delete_register_code(code)
+        if row["revoked_at"]:
+            raise HTTPException(status_code=400, detail="该注册码已作废")
+        if not db.revoke_register_code(code):
+            row = db.get_register_code(code)
+            if row is None:
+                raise HTTPException(status_code=404, detail="注册码不存在")
+            if row["used_by"]:
+                raise HTTPException(status_code=400, detail="该注册码已被使用，不能删除")
+            if row["revoked_at"]:
+                raise HTTPException(status_code=400, detail="该注册码已作废")
+            raise HTTPException(status_code=400, detail="该注册码已被使用，不能删除")
         _audit(admin, "revoke_register_code", code)
         return {"ok": True}
+
+    @router.delete("/admin/register-codes/{code}", dependencies=[Depends(require_admin)])
+    def revoke_register_code(code: str, admin: dict = Depends(require_admin)):
+        return _revoke_one(code, admin)
+
+    @router.post("/admin/register-codes/{code}/revoke", dependencies=[Depends(require_admin)])
+    def revoke_register_code_post(code: str, admin: dict = Depends(require_admin)):
+        return _revoke_one(code, admin)
+
+    @router.post(
+        "/admin/register-code-batches/{batch_id}/revoke-unused",
+        dependencies=[Depends(require_admin)],
+    )
+    def revoke_unused_register_codes(batch_id: str, admin: dict = Depends(require_admin)):
+        n = db.revoke_unused_in_batch(batch_id)
+        _audit(admin, "revoke_register_code_batch", batch_id, f"count={n}")
+        return {"ok": True, "count": n}
+
+    @router.patch("/admin/register-codes/{code}", dependencies=[Depends(require_admin)])
+    def patch_register_code(
+        code: str, body: RegisterCodeNoteIn, admin: dict = Depends(require_admin)
+    ):
+        row = db.get_register_code(code)
+        if row is None:
+            raise HTTPException(status_code=404, detail="注册码不存在")
+        note = (body.note or "").strip()
+        if len(note) > REGISTER_NOTE_MAX:
+            raise HTTPException(status_code=400, detail=f"备注最长{REGISTER_NOTE_MAX}字")
+        db.update_register_code_note(code, note)
+        return db.get_register_code(code)
 
     @router.get("/admin/logs", dependencies=[Depends(require_admin)])
     def list_audit_logs(limit: int = 100):
@@ -2034,7 +2119,8 @@ def create_api_router(
 
     @router.get("/users", dependencies=[Depends(require_admin)])
     def list_users():
-        return [admin_user_summary(u) for u in db.list_users()]
+        invites = _invite_by_user_id()
+        return [admin_user_summary(u, invites.get(u["id"])) for u in db.list_users()]
 
     @router.get("/stats", dependencies=[Depends(require_admin)])
     def stats():
@@ -2182,7 +2268,8 @@ def create_api_router(
             str(user_id),
             f"is_admin={body.is_admin} password={'*' if body.password else ''} username={body.username}",
         )
-        return admin_user_summary(db.get_user(user_id))
+        user_row = db.get_user(user_id)
+        return admin_user_summary(user_row, _invite_by_user_id().get(user_id))
 
     @router.delete("/users/{user_id}", dependencies=[Depends(require_admin)])
     def delete_user(user_id: int, admin: dict = Depends(require_admin)):

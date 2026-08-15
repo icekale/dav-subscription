@@ -1588,6 +1588,79 @@ def test_register_requires_invite_code():
     assert resp.status_code == 400 and "无效或已被使用" in resp.json()["detail"]
 
 
+def test_generate_register_codes_sets_batch_and_expiry():
+    client = make_client()
+    admin_headers = auth_headers(client)
+    resp = client.post(
+        "/api/admin/register-codes",
+        headers=admin_headers,
+        json={"count": 2, "note": "朋友", "expires_in_days": 7},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["count"] == 2 and len(body["codes"]) == 2
+    assert body["note"] == "朋友"
+    assert body["batch_id"]
+    assert body["expires_at"]
+    rows = [
+        r
+        for r in client.get("/api/admin/register-codes", headers=admin_headers).json()
+        if r["code"] in body["codes"]
+    ]
+    assert len(rows) == 2
+    assert rows[0]["batch_id"] == rows[1]["batch_id"] == body["batch_id"]
+    assert all(r["expires_at"] == body["expires_at"] for r in rows)
+    assert all(r["created_by_name"] == "testadmin" for r in rows)
+
+    never = client.post(
+        "/api/admin/register-codes",
+        headers=admin_headers,
+        json={"count": 1, "expires_in_days": None},
+    ).json()
+    never_row = next(
+        r
+        for r in client.get("/api/admin/register-codes", headers=admin_headers).json()
+        if r["code"] == never["codes"][0]
+    )
+    assert never["expires_at"] in (None, "")
+    assert never_row["expires_at"] in (None, "")
+
+    bad = client.post(
+        "/api/admin/register-codes",
+        headers=admin_headers,
+        json={"count": 1, "note": "x" * 41},
+    )
+    assert bad.status_code == 400
+    bad_days = client.post(
+        "/api/admin/register-codes",
+        headers=admin_headers,
+        json={"count": 1, "expires_in_days": 14},
+    )
+    assert bad_days.status_code == 400
+
+
+def test_register_expired_and_revoked_codes_have_distinct_errors():
+    client = make_client()
+    db = client.app.state.db
+    db.add_register_code("EXPIRED1")
+    db._execute(
+        "UPDATE register_codes SET expires_at = datetime('now', '-1 day') WHERE code = 'EXPIRED1'"
+    )
+    resp = client.post(
+        "/api/auth/register",
+        json={"username": "expire1", "password": "secret123", "code": "EXPIRED1"},
+    )
+    assert resp.status_code == 400 and "已过期" in resp.json()["detail"]
+
+    db.add_register_code("REVOKED1")
+    db.revoke_register_code("REVOKED1")
+    resp = client.post(
+        "/api/auth/register",
+        json={"username": "revoke1", "password": "secret123", "code": "REVOKED1"},
+    )
+    assert resp.status_code == 400 and "已作废" in resp.json()["detail"]
+
+
 def test_me_includes_push_guide():
     cfg = Config()
     cfg.notifiers.telegram.bot_username = "dav_bot"
@@ -1635,11 +1708,87 @@ def test_revoke_register_code():
     resp = client.delete(f"/api/admin/register-codes/{codes[0]}", headers=admin_headers)
     assert resp.status_code == 200
     remaining = client.get("/api/admin/register-codes", headers=admin_headers).json()
-    assert all(c["code"] != codes[0] for c in remaining)
-    assert client.delete(f"/api/admin/register-codes/{codes[0]}", headers=admin_headers).status_code == 404
-    # 已使用的注册码不能作废
+    row0 = next(c for c in remaining if c["code"] == codes[0])
+    assert row0["revoked_at"]
+    assert not row0["used_by"]
+    post_resp = client.post(
+        f"/api/admin/register-codes/{codes[0]}/revoke", headers=admin_headers
+    )
+    assert post_resp.status_code == 400
     register(client, "usedit", code=codes[1])
     assert client.delete(f"/api/admin/register-codes/{codes[1]}", headers=admin_headers).status_code == 400
+    assert client.post(
+        f"/api/admin/register-codes/{codes[1]}/revoke", headers=admin_headers
+    ).status_code == 400
+
+
+def test_revoke_register_code_rejects_failed_update():
+    client = make_client()
+    admin_headers = auth_headers(client)
+    codes = client.post(
+        "/api/admin/register-codes",
+        headers=admin_headers,
+        json={"count": 1, "note": "race"},
+    ).json()["codes"]
+    db = client.app.state.db
+
+    def lose_race(code):
+        db._execute(
+            "UPDATE register_codes SET used_by = 1 WHERE code = ?",
+            (code.strip().upper(),),
+        )
+        return False
+
+    db.revoke_register_code = lose_race
+    resp = client.post(
+        f"/api/admin/register-codes/{codes[0]}/revoke", headers=admin_headers
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "该注册码已被使用，不能删除"
+    logs = db.list_admin_logs()
+    assert not any(
+        log["action"] == "revoke_register_code" and log["target"] == codes[0]
+        for log in logs
+    )
+
+
+def test_revoke_unused_in_batch_and_patch_note():
+    client = make_client()
+    admin_headers = auth_headers(client)
+    body = client.post(
+        "/api/admin/register-codes",
+        headers=admin_headers,
+        json={"count": 3, "note": "批"},
+    ).json()
+    register(client, "batchu1", code=body["codes"][0])
+    resp = client.post(
+        f"/api/admin/register-code-batches/{body['batch_id']}/revoke-unused",
+        headers=admin_headers,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["count"] == 2
+    rows = {
+        r["code"]: r
+        for r in client.get("/api/admin/register-codes", headers=admin_headers).json()
+        if r["code"] in body["codes"]
+    }
+    assert not rows[body["codes"][0]]["revoked_at"]
+    assert rows[body["codes"][0]]["used_by"]
+    assert rows[body["codes"][1]]["revoked_at"]
+    assert rows[body["codes"][2]]["revoked_at"]
+    patch = client.patch(
+        f"/api/admin/register-codes/{body['codes'][0]}",
+        headers=admin_headers,
+        json={"note": "给张三"},
+    )
+    assert patch.status_code == 200
+    assert patch.json()["note"] == "给张三"
+    too_long = client.patch(
+        f"/api/admin/register-codes/{body['codes'][0]}",
+        headers=admin_headers,
+        json={"note": "x" * 41},
+    )
+    assert too_long.status_code == 400
 
 
 def test_catalog_sorted_by_priority_and_activity():
@@ -3575,3 +3724,23 @@ def test_partial_update_preserves_priority_and_secondary():
     r = client.put(f"/api/kols/{kid}", headers=headers, json={"enabled": True})
     assert r.status_code == 200
     assert r.json()["priority"] == 1, "priority 被部分更新清除"
+
+
+def test_admin_user_list_includes_register_source():
+    client = make_client()
+    admin_headers = auth_headers(client)
+    codes = client.post(
+        "/api/admin/register-codes",
+        headers=admin_headers,
+        json={"count": 1, "note": "内部"},
+    ).json()["codes"]
+    register(client, "invitee", code=codes[0])
+    rows = client.get("/api/users", headers=admin_headers).json()
+    invitee = next(u for u in rows if u["username"] == "invitee")
+    assert invitee["register_code"] == codes[0]
+    assert invitee["register_note"] == "内部"
+    uid = client.app.state.db.add_user("seeded1", "h")
+    rows = client.get("/api/users", headers=admin_headers).json()
+    seeded = next(u for u in rows if u["id"] == uid)
+    assert seeded["register_code"] == ""
+    assert seeded["register_note"] == ""
