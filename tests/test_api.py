@@ -2102,11 +2102,13 @@ def test_auth_flow():
 
     # 管理员在后台指定另一个用户为管理员
     admin_headers = auth_headers(client, "boss01", "secret123")
-    target_id = client.get("/api/users", headers=admin_headers).json()[0]["id"]
+    self_id = client.get("/api/me", headers=admin_headers).json()["id"]
+    target_id = next(
+        u["id"] for u in client.get("/api/users", headers=admin_headers).json() if u["id"] != self_id
+    )
     resp = client.put(f"/api/users/{target_id}", headers=admin_headers, json={"is_admin": True})
     assert resp.status_code == 200 and resp.json()["is_admin"] is True
     # 不能取消自己的管理员权限
-    self_id = client.get("/api/me", headers=admin_headers).json()["id"]
     assert client.put(f"/api/users/{self_id}", headers=admin_headers, json={"is_admin": False}).status_code == 400
 
 
@@ -3744,3 +3746,28 @@ def test_admin_user_list_includes_register_source():
     seeded = next(u for u in rows if u["id"] == uid)
     assert seeded["register_code"] == ""
     assert seeded["register_note"] == ""
+
+
+def test_admin_user_list_newest_first_and_subscription_count():
+    client = make_client()
+    admin_headers = auth_headers(client)
+    register(client, "olderu1")
+    newer = register(client, "neweru1")
+    uid = newer.json()["user"]["id"]
+    kid = client.post(
+        "/api/kols",
+        headers=admin_headers,
+        json={"platform": "xueqiu", "name": "A", "external_id": "1"},
+    ).json()["id"]
+    client.post(
+        "/api/subscriptions",
+        headers={"Authorization": f"Bearer {newer.json()['token']}"},
+        json={"kol_id": kid},
+    )
+    rows = client.get("/api/users", headers=admin_headers).json()
+    assert rows[0]["username"] == "neweru1"
+    row = next(u for u in rows if u["id"] == uid)
+    assert row["subscription_count"] == 1
+    assert row["dnd_enabled"] is False
+    older = next(u for u in rows if u["username"] == "olderu1")
+    assert older["subscription_count"] == 0

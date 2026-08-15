@@ -308,3 +308,27 @@ def test_admin_backup_page_three_panels_download_skips_webdav():
     assert "cfg-unit" not in body
     assert "backup-grid" in body
     assert 'class="backup-file-input"' in body
+
+
+def test_admin_users_page_uses_modal_not_prompt():
+    """用户管理：搜索/筛选/管理面板，不再用 prompt/alert 改名、重置密码、测试推送。"""
+    src = APP_JS.read_text()
+    start = src.index("async function loadAdminUsers")
+    end = src.index("// ---------- 主题")
+    body = src[start:end]
+    assert "prompt(" not in body
+    assert "alert(" not in body
+    assert "adminOpenUser" in body
+    assert "renderAdminUsers" in body
+    assert "adminUsersApplyFilter" in body
+    assert "userChannelIconsHtml" in body
+    open_user = _fn_body("adminOpenUser")
+    assert "modal-mask" in open_user
+    assert "um-name" in open_user
+    assert "um-pass" in open_user
+    assert "um-push-msg" in open_user
+    for name in ("adminSaveUsername", "adminSavePassword", "adminSendTestPush", "adminDeleteUser", "adminToggleAdmin"):
+        fn = _fn_body(name)
+        assert "flash(" in fn, f"{name} 应使用 flash toast"
+        assert "prompt(" not in fn
+        assert "alert(" not in fn

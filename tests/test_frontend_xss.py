@@ -26,7 +26,7 @@ SAFE_CONTEXTS = [
     # 硬编码标签/图标表索引
     r"PLATFORM_LABELS\[|PLATFORM_ICONS\[|CHANNEL_ICONS\[|statusPill\(|PLATFORM_TABS",
     # 安全渲染辅助函数（内部已转义或为纯数字）
-    r"avatarHtml\(|avatarText\(|emptyState\(|format_published_at\(|fmtDbTime\(|fmtTs\(|rateBar\(",
+    r"avatarHtml\(|avatarText\(|emptyState\(|format_published_at\(|fmtDbTime\(|fmtTs\(|rateBar\(|userChannelIconsHtml\(",
     # URL 编码 / 数值转换
     r"encodeURIComponent\(|Number\(|parseInt\(",
     # 内部筛选状态（来自硬编码 PLATFORM_TABS，非用户数据）
@@ -37,8 +37,9 @@ SAFE_CONTEXTS = [
     r"confirm\(|alert\(|prompt\(|flash\(|textContent",
     # 批量导入失败的错误行拼接（进 alert 的 JS 字符串）
     r"f\.line|f\.error|r\.error|r\.ok|r\.detail",
-    # adminTestPush 的 prompt 文案（JS 字符串上下文）
+    # 管理用户弹窗/确认框里的用户名（JS 字符串或已转义 HTML）
     r"user\s*\?\s*user\.username",
+    r"CHANNEL_LABELS\[",
     # 编辑模态框的 innerHTML 输入 value（escapeHtml 已在同表达式）
     r"ek-name",
 ]

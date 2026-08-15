@@ -1113,7 +1113,13 @@ class DB:
         )
 
     def list_users(self) -> list[dict]:
-        return self._rows("SELECT * FROM users ORDER BY id")
+        return self._rows("SELECT * FROM users ORDER BY id DESC")
+
+    def subscription_counts(self) -> dict[int, int]:
+        return {
+            r["user_id"]: r["n"]
+            for r in self._rows("SELECT user_id, COUNT(*) AS n FROM subscriptions GROUP BY user_id")
+        }
 
     # ---- 注册码 ----
     def log_admin_action(self, user_id: int | None, action: str, target: str = "", detail: str = "") -> None:

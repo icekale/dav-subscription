@@ -425,7 +425,13 @@ IMAGE_PROXY_HOSTS = frozenset({
 })
 
 
-def admin_user_summary(user: dict, invite: dict | None = None, *, feishu_personal_active: bool = False) -> dict:
+def admin_user_summary(
+    user: dict,
+    invite: dict | None = None,
+    *,
+    feishu_personal_active: bool = False,
+    subscription_count: int = 0,
+) -> dict:
     """管理员用户列表摘要：只暴露管理所需字段，不含 feed_token/bark_key/wecom_webhook/llm_api_key 等凭证。"""
     invite = invite or {}
     return {
@@ -435,7 +441,9 @@ def admin_user_summary(user: dict, invite: dict | None = None, *, feishu_persona
         "created_at": user["created_at"],
         "notify_enabled": bool(user["notify_enabled"]),
         "daily_report_enabled": bool(user.get("daily_report")),
+        "dnd_enabled": bool(user.get("dnd_start")),
         "push_channels": user.get("push_channels") or "",
+        "subscription_count": int(subscription_count or 0),
         "telegram_bound": bool(user.get("telegram_chat_id")),
         "feishu_bound": bool(user.get("feishu_open_id") or user.get("feishu_chat_id") or feishu_personal_active),
         "wecom_bound": bool(user.get("wecom_webhook")),
@@ -2228,9 +2236,13 @@ def create_api_router(
     def list_users():
         invites = _invite_by_user_id()
         personal = db.active_feishu_personal_user_ids()
+        counts = db.subscription_counts()
         return [
             admin_user_summary(
-                u, invites.get(u["id"]), feishu_personal_active=u["id"] in personal
+                u,
+                invites.get(u["id"]),
+                feishu_personal_active=u["id"] in personal,
+                subscription_count=counts.get(u["id"], 0),
             )
             for u in db.list_users()
         ]
@@ -2387,6 +2399,7 @@ def create_api_router(
             user_row,
             _invite_by_user_id().get(user_id),
             feishu_personal_active=bool(bot and bot["status"] == "active" and bot.get("chat_id")),
+            subscription_count=db.count_subscriptions(user_id),
         )
 
     @router.delete("/users/{user_id}", dependencies=[Depends(require_admin)])

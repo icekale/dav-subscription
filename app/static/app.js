@@ -14,6 +14,8 @@ const CHANNEL_ICONS = {
   wecom: `<svg class="ch-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 4c-4.42 0-8 3.02-8 6.75 0 2.13 1.22 4.02 3.12 5.26L6.2 19.5l3.66-1.83c.68.15 1.4.24 2.14.24 4.42 0 8-3.02 8-6.75S16.42 4 12 4z"/></svg>`,
   bark: `<svg class="ch-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg>`,
 };
+const CHANNEL_LABELS = { telegram: "Telegram", feishu: "飞书", wecom: "企业微信", bark: "Bark" };
+const USER_CHANNEL_KEYS = ["telegram", "feishu", "wecom", "bark"];
 const APP_VERSION = "1.12.8";
 const PLATFORM_TABS = ["", "xueqiu", "combination", "weibo", "twitter"];
 const TL_PLATFORMS = PLATFORM_TABS.map((p) => [p, p ? PLATFORM_LABELS[p] : "全部"]);
@@ -66,6 +68,9 @@ const state = {
   adminKolsStatus: "",
   adminKolsPage: 0,
   adminKolsTotal: 0,
+  adminUsers: [],
+  adminUsersQ: "",
+  adminUsersFilter: "all",
   homeQ: "",
   homeCategory: "",
   timelineFavorite: false,
@@ -4687,72 +4692,215 @@ async function backupRestoreUpload() {
   }
 }
 
+function userHasBoundChannel(u) {
+  return !!(u.telegram_bound || u.feishu_bound || u.wecom_bound || u.bark_bound);
+}
+
+function userChannelIconsHtml(u) {
+  const bound = {
+    telegram: !!u.telegram_bound,
+    feishu: !!u.feishu_bound,
+    wecom: !!u.wecom_bound,
+    bark: !!u.bark_bound,
+  };
+  const names = USER_CHANNEL_KEYS.filter((ch) => bound[ch]).map((ch) => CHANNEL_LABELS[ch]);
+  const aria = names.length ? `已绑定 ${names.join("、")}` : "未绑定推送渠道";
+  return `<span class="user-channels" title="${escapeHtml(aria)}" aria-label="${escapeHtml(aria)}">${
+    USER_CHANNEL_KEYS.map((ch) =>
+      `<span class="user-ch ${bound[ch] ? "on" : "off"}" data-channel="${ch}">${CHANNEL_ICONS[ch]}</span>`
+    ).join("")
+  }</span>`;
+}
+
+function adminUsersFiltered() {
+  const q = (state.adminUsersQ || "").trim().toLowerCase();
+  const filter = state.adminUsersFilter || "all";
+  return (state.adminUsers || []).filter((u) => {
+    if (filter === "admin" && !u.is_admin) return false;
+    if (filter === "unbound" && userHasBoundChannel(u)) return false;
+    if (filter === "push-off" && u.notify_enabled) return false;
+    if (!q) return true;
+    return [u.username, u.register_code, u.register_note].some(
+      (s) => String(s || "").toLowerCase().includes(q)
+    );
+  });
+}
+
 async function loadAdminUsers() {
-  const users = await api("/api/users");
+  let users;
+  try {
+    users = await api("/api/users");
+  } catch (err) {
+    if (!routeStillActive(_adminRenderSeq)) return;
+    $("#admin-body").innerHTML = emptyState("加载失败: " + err.message);
+    return;
+  }
   state.adminUsers = users;
+  renderAdminUsers();
+}
+
+function adminUsersApplyFilter(filter) {
+  const q = $("#au-q");
+  if (q) state.adminUsersQ = q.value.trim();
+  if (filter) state.adminUsersFilter = filter;
+  renderAdminUsers();
+}
+
+function renderAdminUsers() {
   if (!routeStillActive(_adminRenderSeq)) return;
-  $("#admin-body").innerHTML = `
+  const body = $("#admin-body");
+  if (!body) return;
+  const users = state.adminUsers || [];
+  const filter = state.adminUsersFilter || "all";
+  const filtered = adminUsersFiltered();
+  const boundN = users.filter(userHasBoundChannel).length;
+  const adminN = users.filter((u) => u.is_admin).length;
+  const counts = {
+    all: users.length,
+    admin: adminN,
+    unbound: users.filter((u) => !userHasBoundChannel(u)).length,
+    "push-off": users.filter((u) => !u.notify_enabled).length,
+  };
+  const tab = (key, label) =>
+    `<button class="settings-tab ${filter === key ? "active" : ""}" role="tab" aria-selected="${filter === key}" onclick="adminUsersApplyFilter('${key}')">${label} ${counts[key]}</button>`;
+  const emptyMsg = users.length
+    ? "没有匹配的用户"
+    : "还没有注册用户";
+  const rows = filtered.map((u) => {
+    const self = state.user && u.id === state.user.id;
+    const pills = `${u.is_admin ? `<span class="user-pill">管理员</span>` : ""}${self ? `<span class="user-pill muted">本人</span>` : ""}`;
+    const push = u.notify_enabled
+      ? `<span class="status-ok">开启</span>${u.dnd_enabled ? `<span class="muted"> · 免打扰</span>` : ""}`
+      : `<span class="status-fail">关闭</span>`;
+    return `<tr>
+      <td>
+        <div class="user-name">
+          <strong>${escapeHtml(u.username)}</strong>
+          ${pills}
+        </div>
+      </td>
+      <td>${escapeHtml(u.register_note || u.register_code || "—")}</td>
+      <td>${userChannelIconsHtml(u)}</td>
+      <td>${Number(u.subscription_count) || 0}</td>
+      <td>${push}</td>
+      <td>${escapeHtml(fmtDbTime(u.created_at))}</td>
+      <td>
+        <button class="btn-sm" onclick="adminOpenUser(${u.id})">管理</button>
+        <button class="btn-sm" onclick="adminOpenUser(${u.id}, 'push')">测试推送</button>
+      </td>
+    </tr>`;
+  }).join("");
+  body.innerHTML = `
     <section class="section-panel">
-      <header class="section-head"><div><h3 class="section-title">注册用户</h3></div></header>
+      <header class="section-head au-head">
+        <div>
+          <h3 class="section-title">用户管理</h3>
+          <p class="section-meta">${users.length} 人 · ${adminN} 管理员 · ${boundN} 已绑定渠道</p>
+        </div>
+        <div class="search-bar au-search">
+          ${SEARCH_ICON}
+          <input id="au-q" type="search" placeholder="搜索用户名 / 邀请码 / 备注，回车" value="${escapeHtml(state.adminUsersQ || "")}" onkeydown="if(event.key==='Enter')adminUsersApplyFilter()">
+        </div>
+      </header>
+      <div class="settings-tabs" role="tablist" aria-label="用户筛选">
+        ${tab("all", "全部")}
+        ${tab("admin", "管理员")}
+        ${tab("unbound", "未绑定")}
+        ${tab("push-off", "推送关闭")}
+      </div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th scope="col">ID</th><th scope="col">用户名</th><th scope="col">来源</th><th scope="col">角色</th><th scope="col">Telegram</th><th scope="col">飞书</th><th scope="col">企业微信</th><th scope="col">Bark</th><th scope="col">推送</th><th scope="col">注册时间</th><th scope="col">操作</th></tr></thead>
-          <tbody>${users.map((u) => `
-            <tr>
-              <td>${u.id}</td><td>${escapeHtml(u.username)}</td>
-              <td>${escapeHtml(u.register_note || u.register_code || "—")}</td>
-              <td>${u.is_admin ? "管理员" : "用户"}</td>
-              <td>${u.telegram_bound ? "已绑定" : "-"}</td>
-              <td>${u.feishu_bound ? "已绑定" : "-"}</td>
-              <td>${u.wecom_bound ? "已绑定" : "-"}</td>
-              <td>${u.bark_bound ? "已绑定" : "-"}</td>
-              <td>${u.notify_enabled ? "开启" : "关闭"}</td>
-              <td>${escapeHtml(fmtDbTime(u.created_at))}</td>
-              <td>
-                ${u.id === state.user.id
-                  ? `<span class="muted">本人</span>
-                     <button class="btn-sm" onclick="adminTestPush(${u.id})">测试推送</button>`
-                  : `<button class="btn-sm" onclick="adminRenameUser(${u.id})">改用户名</button>
-                     <button class="btn-sm" onclick="adminToggleAdmin(${u.id}, ${!u.is_admin})">${u.is_admin ? "取消管理员" : "设为管理员"}</button>
-                     <button class="btn-sm" onclick="adminResetPassword(${u.id})">重置密码</button>
-                     <button class="btn-sm danger" onclick="adminDeleteUser(${u.id})">删除</button>
-                     <button class="btn-sm" onclick="adminTestPush(${u.id})">测试推送</button>`}
-              </td>
-            </tr>`).join("")}</tbody>
+          <thead><tr>
+            <th scope="col">用户</th>
+            <th scope="col">来源</th>
+            <th scope="col">渠道</th>
+            <th scope="col">订阅</th>
+            <th scope="col">推送</th>
+            <th scope="col">注册</th>
+            <th scope="col">操作</th>
+          </tr></thead>
+          <tbody>${rows || `<tr><td colspan="7" class="muted">${emptyMsg}</td></tr>`}</tbody>
         </table>
       </div>
     </section>`;
+  const qEl = $("#au-q");
+  if (qEl) qEl.value = state.adminUsersQ || "";
 }
 
-async function adminTestPush(userId) {
-  const user = (state.adminUsers || []).find((u) => u.id === userId);
-  const msg = prompt(
-    `给「${user ? user.username : userId}」发一条测试推送：`,
-    "这是一条测试推送 ✅"
-  );
-  if (msg === null) return;
-  try {
-    const data = await api("/api/admin/test-push", {
-      method: "POST",
-      body: JSON.stringify({ user_id: userId, message: msg }),
-    });
-    const lines = data.results.map((r) => {
-      const label = r.channel === "telegram" ? "Telegram" : r.channel === "wecom" ? "企业微信" : "飞书";
-      return `${label}：${r.ok ? "✅ 成功" : "❌ 失败：" + r.error}`;
-    });
-    alert(lines.join("\n"));
-  } catch (err) {
-    alert("测试失败: " + err.message);
+function closeAdminModal() {
+  document.querySelectorAll(".modal-mask").forEach((el) => el.remove());
+}
+
+function adminOpenUser(userId, focus) {
+  const u = (state.adminUsers || []).find((row) => row.id === userId);
+  if (!u) {
+    flash("用户不存在或列表已过期", "error");
+    return;
   }
+  const self = state.user && u.id === state.user.id;
+  closeAdminModal();
+  const mask = document.createElement("div");
+  mask.className = "modal-mask";
+  mask.innerHTML = `
+    <div class="modal-card user-modal" role="dialog" aria-modal="true" aria-labelledby="um-title">
+      <h3 id="um-title">管理用户 · ${escapeHtml(u.username)}</h3>
+      <p class="muted um-meta">ID ${u.id} · 订阅 ${Number(u.subscription_count) || 0} · 注册 ${escapeHtml(fmtDbTime(u.created_at))}</p>
+      <label class="form-label">用户名
+        <div class="row">
+          <input id="um-name" class="form-control" maxlength="30" value="${escapeHtml(u.username)}" autocomplete="username">
+          <button class="btn-sm" onclick="adminSaveUsername(${u.id})">保存</button>
+        </div>
+      </label>
+      <label class="form-label">新密码
+        <div class="row">
+          <input id="um-pass" class="form-control" type="password" minlength="6" placeholder="至少 6 位" autocomplete="new-password">
+          <button class="btn-sm" onclick="adminSavePassword(${u.id})">重置</button>
+        </div>
+      </label>
+      ${self ? "" : `<div class="form-label">管理员
+        <div class="toolbar">
+          <button class="btn-sm" onclick="adminToggleAdmin(${u.id}, ${!u.is_admin})">${u.is_admin ? "取消管理员" : "设为管理员"}</button>
+        </div>
+      </div>`}
+      <label class="form-label">测试推送
+        <textarea id="um-push-msg" class="form-control" rows="2">这是一条测试推送</textarea>
+      </label>
+      <div class="toolbar">
+        <button class="btn-sm" id="um-push-send" onclick="adminSendTestPush(${u.id})">发送测试</button>
+      </div>
+      <p id="um-push-result" class="muted um-push-result" hidden></p>
+      ${self ? "" : `<div class="user-modal-danger">
+        <p class="muted">删除后订阅一并清除，不可恢复。</p>
+        <button class="btn-sm danger" onclick="adminDeleteUser(${u.id})">删除用户</button>
+      </div>`}
+      <div class="toolbar" style="margin-top:16px">
+        <button class="btn-sm" onclick="closeAdminModal()">关闭</button>
+      </div>
+    </div>`;
+  mask.addEventListener("click", (e) => {
+    if (e.target === mask) mask.remove();
+  });
+  mask.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") mask.remove();
+  });
+  document.body.appendChild(mask);
+  const trigger = document.activeElement;
+  const first = focus === "push" ? $("#um-push-msg") : $("#um-name");
+  if (first) first.focus();
+  const observer = new MutationObserver(() => {
+    if (!document.body.contains(mask)) {
+      observer.disconnect();
+      if (trigger && trigger.isConnected) trigger.focus();
+    }
+  });
+  observer.observe(document.body, { childList: true });
 }
 
-async function adminRenameUser(userId) {
-  const user = (state.adminUsers || []).find((u) => u.id === userId);
-  const name = prompt(`把「${user ? user.username : userId}」改名为：`, user ? user.username : "");
-  if (name === null) return;
-  const trimmed = name.trim();
+async function adminSaveUsername(userId) {
+  const input = $("#um-name");
+  const trimmed = (input ? input.value : "").trim();
   if (trimmed.length < 6 || trimmed.length > 30) {
-    alert("用户名需 6-30 位");
+    flash("用户名需 6-30 位", "error");
     return;
   }
   try {
@@ -4760,24 +4908,24 @@ async function adminRenameUser(userId) {
       method: "PUT",
       body: JSON.stringify({ username: trimmed }),
     });
-    if (userId === state.user.id) {
+    if (state.user && userId === state.user.id) {
       state.user.username = trimmed;
       renderSidebar(state.user);
       renderTopbar(state.user);
     }
+    closeAdminModal();
     flash(`已重命名用户「${trimmed}」`);
     loadAdminUsers();
   } catch (err) {
-    alert("操作失败: " + err.message);
+    flash(err.message, "error");
   }
 }
 
-async function adminResetPassword(userId) {
-  const user = (state.adminUsers || []).find((u) => u.id === userId);
-  const pw = prompt(`为「${user ? user.username : userId}」设置新密码（至少 6 位）：`);
-  if (pw === null) return;
+async function adminSavePassword(userId) {
+  const input = $("#um-pass");
+  const pw = input ? input.value : "";
   if (pw.length < 6) {
-    alert("密码至少 6 位");
+    flash("密码至少 6 位", "error");
     return;
   }
   try {
@@ -4785,10 +4933,43 @@ async function adminResetPassword(userId) {
       method: "PUT",
       body: JSON.stringify({ password: pw }),
     });
-    alert("密码已重置");
+    closeAdminModal();
+    flash("密码已重置");
     loadAdminUsers();
   } catch (err) {
-    alert("操作失败: " + err.message);
+    flash(err.message, "error");
+  }
+}
+
+async function adminSendTestPush(userId) {
+  const btn = $("#um-push-send");
+  const msgEl = $("#um-push-msg");
+  const resultEl = $("#um-push-result");
+  const msg = ((msgEl && msgEl.value) || "").trim() || "这是一条测试推送";
+  if (btn) btn.disabled = true;
+  try {
+    const data = await api("/api/admin/test-push", {
+      method: "POST",
+      body: JSON.stringify({ user_id: userId, message: msg }),
+    });
+    const lines = (data.results || []).map((r) => {
+      const label = CHANNEL_LABELS[r.channel] || r.channel;
+      return r.ok ? `${label}：成功` : `${label}：失败：${r.error || ""}`;
+    });
+    if (resultEl) {
+      resultEl.hidden = false;
+      resultEl.textContent = lines.join("\n") || "没有返回渠道结果";
+    }
+    const failed = (data.results || []).some((r) => !r.ok);
+    flash(failed ? "测试推送部分失败" : "测试推送已发送", failed ? "error" : "success");
+  } catch (err) {
+    flash(err.message, "error");
+    if (resultEl) {
+      resultEl.hidden = false;
+      resultEl.textContent = err.message;
+    }
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 
@@ -4797,22 +4978,28 @@ async function adminDeleteUser(userId) {
   if (!confirm(`确认删除用户「${user ? user.username : userId}」？其订阅关系将一并删除，不可恢复。`)) return;
   try {
     await api(`/api/users/${userId}`, { method: "DELETE" });
+    closeAdminModal();
     flash(`已删除用户「${user ? user.username : userId}」`);
     loadAdminUsers();
   } catch (err) {
-    alert("删除失败: " + err.message);
+    flash(err.message, "error");
   }
 }
 
 async function adminToggleAdmin(userId, makeAdmin) {
+  const user = (state.adminUsers || []).find((u) => u.id === userId);
+  const name = user ? user.username : String(userId);
+  if (!confirm(makeAdmin ? `确认把「${name}」设为管理员？` : `确认取消「${name}」的管理员权限？`)) return;
   try {
     await api(`/api/users/${userId}`, {
       method: "PUT",
       body: JSON.stringify({ is_admin: makeAdmin }),
     });
+    closeAdminModal();
+    flash(makeAdmin ? `已将「${name}」设为管理员` : `已取消「${name}」的管理员权限`);
     loadAdminUsers();
   } catch (err) {
-    alert("操作失败: " + err.message);
+    flash(err.message, "error");
   }
 }
 
