@@ -1,15 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="V Push">
-  <!-- PWA 应用图标：品牌渐变背景 + 白色 V 勾 + 品牌蓝点（与 topbar 融合符号同源） -->
-  <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#2a86ff"/>
-      <stop offset="0.55" stop-color="#1463ff"/>
-      <stop offset="1" stop-color="#6d28d9"/>
-    </linearGradient>
-  </defs>
-  <rect x="0" y="0" width="512" height="512" rx="108" fill="url(#bg)"/>
-  <path d="M145 170 L256 352 L367 170" fill="none" stroke="#ffffff" stroke-width="56"
+  <!-- PWA light: white field; mark matches logo-mark (ink V + accent ping), inset for maskable safe zone -->
+  <rect width="512" height="512" fill="#ffffff"/>
+  <path d="M168 188 L256 334 L344 188" fill="none" stroke="#222c3c" stroke-width="52"
         stroke-linecap="round" stroke-linejoin="round"/>
-  <circle cx="396" cy="118" r="42" fill="#ffffff"/>
-  <circle cx="396" cy="118" r="30" fill="none" stroke="#4a9aff" stroke-width="24"/>
+  <circle cx="372" cy="142" r="22" fill="#1668e0"/>
 </svg>

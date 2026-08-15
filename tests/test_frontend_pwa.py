@@ -41,3 +41,35 @@ def test_shell_assets_and_registration_present():
     # 前端注册 Service Worker 的入口仍在
     app_js = (SW_JS.parent / "app.js").read_text()
     assert 'navigator.serviceWorker.register("/sw.js")' in app_js
+
+
+STATIC = Path(__file__).parent.parent / "app" / "static"
+
+
+def test_pwa_icons_have_light_and_dark_sets():
+    """安装图标需同时提供亮/暗两套 PNG，并在 manifest / HTML / SW 里接上。"""
+    for name in (
+        "icon-mark.svg",
+        "icon-mark-dark.svg",
+        "icon-192.png",
+        "icon-512.png",
+        "icon-192-dark.png",
+        "icon-512-dark.png",
+    ):
+        path = STATIC / name
+        assert path.is_file() and path.stat().st_size > 0, f"缺少 PWA 图标 {name}"
+
+    manifest = (STATIC / "manifest.webmanifest").read_text()
+    assert '"/icon-192.png"' in manifest
+    assert '"/icon-512.png"' in manifest
+    assert "maskable" in manifest
+
+    html = (STATIC / "index.html").read_text()
+    assert 'href="/icon-192.png"' in html
+    assert 'href="/icon-192-dark.png"' in html
+    assert 'media="(prefers-color-scheme: dark)"' in html
+    assert 'href="/splash-ios-dark.png"' in html
+
+    sw = SW_JS.read_text()
+    assert "/icon-192-dark.png" in sw
+    assert "/icon-512-dark.png" in sw

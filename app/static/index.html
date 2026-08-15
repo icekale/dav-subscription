@@ -11,8 +11,14 @@
   <title>V Push</title>
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="apple-touch-icon" href="/icon-192.png">
+  <link rel="apple-touch-icon" href="/icon-192.png" media="(prefers-color-scheme: light)">
+  <link rel="apple-touch-icon" href="/icon-192-dark.png" media="(prefers-color-scheme: dark)">
   <link rel="apple-touch-startup-image" href="/splash-ios.png">
-  <link rel="icon" type="image/svg+xml" href="/logo-mark.svg">
+  <link rel="apple-touch-startup-image" href="/splash-ios.png" media="(prefers-color-scheme: light)">
+  <link rel="apple-touch-startup-image" href="/splash-ios-dark.png" media="(prefers-color-scheme: dark)">
+  <link rel="icon" type="image/svg+xml" href="/logo-mark.svg" media="(prefers-color-scheme: light)">
+  <link rel="icon" type="image/svg+xml" href="/logo-mark-dark.svg" media="(prefers-color-scheme: dark)">
+  <link id="favicon" rel="icon" type="image/svg+xml" href="/logo-mark.svg">
   <script>
     // 主题防闪：首帧前按 localStorage 或系统偏好设置 html.theme-dark（app.js 里 setTheme 管理同一逻辑）
     (function () {
@@ -20,6 +26,8 @@
         var m = localStorage.getItem("theme") || "auto";
         var dark = m === "dark" || (m === "auto" && window.matchMedia("(prefers-color-scheme: dark)").matches);
         if (dark) document.documentElement.classList.add("theme-dark");
+        var fav = document.getElementById("favicon");
+        if (fav) fav.setAttribute("href", dark ? "/logo-mark-dark.svg" : "/logo-mark.svg");
       } catch (e) { /* localStorage 不可用时静默 */ }
     })();
   </script>

@@ -4423,6 +4423,8 @@ function applyTheme() {
   if (sidebarLogo) sidebarLogo.src = dark ? "/logo-mark-dark.svg" : "/logo-mark.svg";
   const loginLogo = document.querySelector("#login-logo");
   if (loginLogo) loginLogo.src = dark ? "/logo-mark-dark.svg" : "/logo-mark.svg";
+  const favicon = document.getElementById("favicon");
+  if (favicon) favicon.setAttribute("href", dark ? "/logo-mark-dark.svg" : "/logo-mark.svg");
   return dark;
 }
 
