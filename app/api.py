@@ -6,6 +6,7 @@ import os
 import re
 import secrets
 import time
+from datetime import datetime, timedelta, timezone
 from typing import Literal
 
 logger = logging.getLogger(__name__)
@@ -33,6 +34,8 @@ from .weibo_qr import create_qr, poll_qr
 # 关键词提醒规则上限（每个用户）与单关键词长度上限
 KEYWORDS_MAX_COUNT = 20
 KEYWORDS_MAX_LENGTH = 50
+REGISTER_NOTE_MAX = 40
+REGISTER_EXPIRE_DAYS = frozenset({1, 7, 30})
 
 
 def _normalize_weibo_id(external_id: str) -> str:
@@ -308,6 +311,7 @@ class KolRequestIn(BaseModel):
 class RegisterCodeGenIn(BaseModel):
     count: int = 5
     note: str = ""
+    expires_in_days: int | None = 7
 
 
 class PollingConfigIn(BaseModel):
@@ -1443,18 +1447,46 @@ def create_api_router(
     def generate_register_codes(body: RegisterCodeGenIn, admin: dict = Depends(require_admin)):
         """批量生成一次性注册码。"""
         count = max(1, min(body.count, 100))
+        note = (body.note or "").strip()
+        if len(note) > REGISTER_NOTE_MAX:
+            raise HTTPException(status_code=400, detail=f"备注最长{REGISTER_NOTE_MAX}字")
+        if body.expires_in_days is not None and body.expires_in_days not in REGISTER_EXPIRE_DAYS:
+            raise HTTPException(status_code=400, detail="有效期需为 1、7、30 天或永不过期")
+        expires_at = None
+        if body.expires_in_days is not None:
+            expires_at = (
+                datetime.now(timezone.utc) + timedelta(days=body.expires_in_days)
+            ).strftime("%Y-%m-%d %H:%M:%S")
         alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
         existing = {r["code"] for r in db.list_register_codes()}
+        batch_id = secrets.token_hex(8)
         codes = []
         while len(codes) < count:
             code = "".join(secrets.choice(alphabet) for _ in range(8))
             if code in existing:
                 continue
             existing.add(code)
-            db.add_register_code(code, note=body.note)
+            db.add_register_code(
+                code,
+                note=note,
+                batch_id=batch_id,
+                expires_at=expires_at,
+                created_by=admin["id"],
+            )
             codes.append(code)
-        _audit(admin, "generate_register_codes", "", f"count={len(codes)} note={body.note}")
-        return {"codes": codes, "count": len(codes)}
+        _audit(
+            admin,
+            "generate_register_codes",
+            batch_id,
+            f"count={len(codes)} note={note} expires_in_days={body.expires_in_days}",
+        )
+        return {
+            "codes": codes,
+            "count": len(codes),
+            "batch_id": batch_id,
+            "expires_at": expires_at or "",
+            "note": note,
+        }
 
     @router.get("/admin/register-codes", dependencies=[Depends(require_admin)])
     def list_register_codes():

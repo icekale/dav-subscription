@@ -1588,6 +1588,79 @@ def test_register_requires_invite_code():
     assert resp.status_code == 400 and "无效或已被使用" in resp.json()["detail"]
 
 
+def test_generate_register_codes_sets_batch_and_expiry():
+    client = make_client()
+    admin_headers = auth_headers(client)
+    resp = client.post(
+        "/api/admin/register-codes",
+        headers=admin_headers,
+        json={"count": 2, "note": "朋友", "expires_in_days": 7},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["count"] == 2 and len(body["codes"]) == 2
+    assert body["note"] == "朋友"
+    assert body["batch_id"]
+    assert body["expires_at"]
+    rows = [
+        r
+        for r in client.get("/api/admin/register-codes", headers=admin_headers).json()
+        if r["code"] in body["codes"]
+    ]
+    assert len(rows) == 2
+    assert rows[0]["batch_id"] == rows[1]["batch_id"] == body["batch_id"]
+    assert all(r["expires_at"] == body["expires_at"] for r in rows)
+    assert all(r["created_by_name"] == "testadmin" for r in rows)
+
+    never = client.post(
+        "/api/admin/register-codes",
+        headers=admin_headers,
+        json={"count": 1, "expires_in_days": None},
+    ).json()
+    never_row = next(
+        r
+        for r in client.get("/api/admin/register-codes", headers=admin_headers).json()
+        if r["code"] == never["codes"][0]
+    )
+    assert never["expires_at"] in (None, "")
+    assert never_row["expires_at"] in (None, "")
+
+    bad = client.post(
+        "/api/admin/register-codes",
+        headers=admin_headers,
+        json={"count": 1, "note": "x" * 41},
+    )
+    assert bad.status_code == 400
+    bad_days = client.post(
+        "/api/admin/register-codes",
+        headers=admin_headers,
+        json={"count": 1, "expires_in_days": 14},
+    )
+    assert bad_days.status_code == 400
+
+
+def test_register_expired_and_revoked_codes_have_distinct_errors():
+    client = make_client()
+    db = client.app.state.db
+    db.add_register_code("EXPIRED1")
+    db._execute(
+        "UPDATE register_codes SET expires_at = datetime('now', '-1 day') WHERE code = 'EXPIRED1'"
+    )
+    resp = client.post(
+        "/api/auth/register",
+        json={"username": "expire1", "password": "secret123", "code": "EXPIRED1"},
+    )
+    assert resp.status_code == 400 and "已过期" in resp.json()["detail"]
+
+    db.add_register_code("REVOKED1")
+    db.revoke_register_code("REVOKED1")
+    resp = client.post(
+        "/api/auth/register",
+        json={"username": "revoke1", "password": "secret123", "code": "REVOKED1"},
+    )
+    assert resp.status_code == 400 and "已作废" in resp.json()["detail"]
+
+
 def test_me_includes_push_guide():
     cfg = Config()
     cfg.notifiers.telegram.bot_username = "dav_bot"
