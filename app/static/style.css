@@ -703,10 +703,10 @@ textarea.form-control {
 /* 帖子 */
 .post-item { padding: 16px 4px; border-bottom: var(--border-soft); }
 .post-item:last-child { border-bottom: none; }
-.post-item .p-header { display: flex; align-items: center; gap: 12px; }
+.post-item .p-header { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .post-item .p-header .kol-avatar { width: 38px; height: 38px; font-size: var(--text-body); }
-.post-item .p-name-line { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1; overflow: hidden; }
-.post-item .p-name { display: block; font-size: var(--text-md); font-weight: var(--font-weight-semibold); color: var(--color-text-strong); text-decoration: none; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.post-item .p-name-line { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1; }
+.post-item .p-name { display: block; font-size: var(--text-md); font-weight: var(--font-weight-semibold); color: var(--color-text-strong); text-decoration: none; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .post-item .p-name:hover { color: var(--color-accent-text); text-decoration: underline; }
 .post-item .p-time { font-size: var(--text-xs); color: var(--color-text-muted); white-space: nowrap; flex-shrink: 0; }
 .post-item .p-time::before { content: "·"; margin-right: 6px; color: var(--color-text-muted); }

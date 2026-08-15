@@ -217,3 +217,29 @@ def test_mobile_home_filter_reuses_native_and_shared_controls():
     assert "state.platform = platform" in pick
     assert "panel.open = false" in pick
     assert "loadHomeKols(routeRenderSeq)" in pick
+
+
+def test_post_header_does_not_clip_platform_or_time():
+    """卡片头「名字 · 平台 · 时间」同行时，名字省略不得裁掉平台图标和时间。
+
+    回归：.p-name-line overflow:hidden + .p-name flex:1 会让短名也把
+    后面的平台圆标和发布时间裁出可视区（VPS 手机端时间线「时间消失」）。
+    """
+    css = STYLE_CSS.read_text()
+    name_line = re.search(r"\.post-item \.p-name-line\s*\{([^}]*)\}", css)
+    name = re.search(r"\.post-item \.p-name\s*\{([^}]*)\}", css)
+    time = re.search(r"\.post-item \.p-time\s*\{([^}]*)\}", css)
+    platform = re.search(r"\.post-item \.p-name-line \.p-platform\s*\{([^}]*)\}", css)
+    assert name_line, "缺少 .p-name-line 规则"
+    assert name, "缺少 .p-name 规则"
+    assert time, "缺少 .p-time 规则"
+    assert platform, "缺少 .p-platform 规则"
+    assert "overflow: hidden" not in name_line.group(1)
+    assert re.search(r"flex:\s*1(?!\s*1\s*0)", name.group(1)) is None
+    assert "flex-shrink: 0" in time.group(1)
+    assert "flex-shrink: 0" in platform.group(1)
+
+    post_card = _fn_body("postCard")
+    assert 'class="p-time"' in post_card
+    assert "fmtPublished(post.published_at)" in post_card
+    assert 'class="p-platform"' in post_card
