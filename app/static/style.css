@@ -974,6 +974,26 @@ td .btn-sm { margin-right: 6px; }
 .status-fail { color: var(--color-danger); }
 .status-warn { color: var(--color-warning, #d97706); }
 
+.rc-generate { flex-wrap: wrap; align-items: center; gap: 8px; }
+.rc-result {
+  margin-top: 12px;
+  padding: 12px;
+  background: var(--color-surface-muted);
+  border: var(--border-default);
+  border-radius: var(--radius-control);
+}
+.rc-result-head, .rc-batch-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.rc-result-codes { margin: 8px 0 0; padding-left: 18px; }
+.rc-result-codes li { margin: 4px 0; }
+.rc-batch + .rc-batch { margin-top: 16px; padding-top: 16px; border-top: var(--border-default); }
+.rc-note-input { margin: 0; width: 140px; }
+
 .rate-bar {
   position: relative;
   min-width: 110px;
@@ -1294,6 +1314,13 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
   .btn-normal, .btn-ghost, .channel-btn { min-height: 44px; }
   .btn-add { min-height: 44px; }
   .form-control { min-height: 44px; }
+  .rc-generate { flex-direction: column; align-items: stretch; }
+  .rc-generate .form-control, .rc-generate .btn-normal, .rc-generate .cat-chip { width: 100%; min-height: 44px; }
+  .rc-table thead { display: none; }
+  .rc-table tr { display: grid; gap: 6px; padding: 12px 0; border-bottom: var(--border-default); }
+  .rc-table td { display: block; }
+  .rc-table td .btn-sm, .rc-batch-actions .btn-sm, .rc-result-actions .btn-sm { min-height: 44px; }
+  .rc-note-input { width: 100%; min-height: 44px; }
 }
 
 /* ---------- 全景概览 ---------- */

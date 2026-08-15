@@ -3704,51 +3704,236 @@ async function adminRejectRequest(id) {
   }
 }
 
-async function loadAdminCodes() {
-  const codes = await api("/api/admin/register-codes");
-  const used = codes.filter((c) => c.used_by).length;
+const _codesUi = {
+  note: "",
+  count: 5,
+  expires: 7,
+  filter: "available",
+  q: "",
+  result: null,
+};
+
+function parseDbUtcMs(s) {
+  if (!s) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/.exec(String(s));
+  if (!m) return null;
+  return Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]);
+}
+
+function codeStatus(c) {
+  if (c.used_by) return "used";
+  if (c.revoked_at) return "revoked";
+  const exp = parseDbUtcMs(c.expires_at);
+  if (exp != null && exp <= Date.now()) return "expired";
+  return "available";
+}
+
+function codeStatusLabel(status) {
+  return { available: "可用", used: "已用", revoked: "已作废", expired: "已过期" }[status] || status;
+}
+
+function codeStatusClass(status) {
+  return { available: "status-ok", used: "status-fail", revoked: "status-fail", expired: "status-warn" }[status] || "";
+}
+
+function batchExpiresDays(codes) {
+  const c = codes[0];
+  if (!c || !c.expires_at) return null;
+  const a = parseDbUtcMs(c.created_at);
+  const b = parseDbUtcMs(c.expires_at);
+  if (a == null || b == null) return null;
+  return Math.round((b - a) / 86400000);
+}
+
+function formatInviteCopy(codeList, expiresDays, note) {
+  const head = expiresDays
+    ? `V Push 邀请码（一次性，${expiresDays}天内有效）`
+    : "V Push 邀请码（一次性）";
+  const lines = [head, ...codeList];
+  if (note) lines.push(`备注：${note}`);
+  return lines.join("\n");
+}
+
+function copyText(text, okMsg) {
+  if (!text) return;
+  navigator.clipboard?.writeText(text).then(
+    () => flash(okMsg || "已复制"),
+    () => alert("请手动复制：\n" + text),
+  );
+}
+
+function saveCodesForm() {
+  const note = $("#rc-note");
+  const count = $("#rc-count");
+  const exp = $("#rc-expires");
+  const q = $("#rc-q");
+  if (note) _codesUi.note = note.value;
+  if (count) _codesUi.count = Number(count.value) || 5;
+  if (exp) _codesUi.expires = exp.value === "" ? null : Number(exp.value);
+  if (q) _codesUi.q = q.value.trim();
+}
+
+function copyOnclick(text, msg) {
+  return `copyText(decodeURIComponent('${encodeURIComponent(text)}'), '${msg}')`;
+}
+
+async function loadAdminCodes(refetch = true) {
+  if (refetch || !state.adminCodes) {
+    state.adminCodes = await api("/api/admin/register-codes");
+  }
   if (!routeStillActive(_adminRenderSeq)) return;
+  const filter = _codesUi.filter;
+  const expVal = _codesUi.expires == null ? "" : String(_codesUi.expires);
+  const result = _codesUi.result;
+  const filterBtn = (key, label) =>
+    `<button class="settings-tab ${filter === key ? "active" : ""}" data-filter="${key}" onclick="_codesUi.filter='${key}';loadAdminCodes(false)">${label}</button>`;
+
   $("#admin-body").innerHTML = `
     <section class="section-panel">
       <header class="section-head">
         <div><h3 class="section-title">生成注册邀请码</h3>
-        <p class="section-meta">一次性注册码，用户注册后自动作废；共 ${codes.length} 个，已用 ${used} 个。</p></div>
+        <p class="section-meta">一次性邀请码，按批生成；用过即废，可设有效期。</p></div>
       </header>
-      <div class="toolbar" style="margin-top:12px">
-        <select id="rc-note" class="form-control" style="margin:0;width:auto">
-          <option value="">无备注</option>
-          <option value="内部">内部</option>
-          <option value="朋友">朋友</option>
+      <div class="toolbar rc-generate" style="margin-top:12px">
+        <input id="rc-note" class="form-control" style="margin:0;min-width:160px;flex:1" maxlength="40" placeholder="给谁、什么场合" value="${escapeHtml(_codesUi.note)}">
+        <button type="button" class="cat-chip" onclick="document.getElementById('rc-note').value='内部'">内部</button>
+        <button type="button" class="cat-chip" onclick="document.getElementById('rc-note').value='朋友'">朋友</button>
+        <input id="rc-count" class="form-control" style="margin:0;width:80px" type="number" min="1" max="100" value="${escapeHtml(String(_codesUi.count))}">
+        <select id="rc-expires" class="form-control" style="margin:0;width:auto">
+          <option value="1" ${expVal === "1" ? "selected" : ""}>1天</option>
+          <option value="7" ${expVal === "7" ? "selected" : ""}>7天</option>
+          <option value="30" ${expVal === "30" ? "selected" : ""}>30天</option>
+          <option value="" ${expVal === "" ? "selected" : ""}>永不过期</option>
         </select>
-        <input id="rc-count" class="form-control" style="margin:0;width:80px" type="number" min="1" max="100" value="5">
         <button class="btn-normal" onclick="adminGenerateCodes()">生成</button>
-        <span id="rc-result" class="muted"></span>
       </div>
+      ${result ? renderCodesResult(result) : ""}
     </section>
     <section class="section-panel">
-      <header class="section-head"><div><h3 class="section-title">注册码列表</h3></div></header>
+      <header class="section-head">
+        <div><h3 class="section-title">注册码列表</h3></div>
+      </header>
+      <div class="settings-tabs" role="tablist" aria-label="注册码状态">
+        ${filterBtn("available", "可用")}
+        ${filterBtn("used", "已用")}
+        ${filterBtn("revoked", "已作废")}
+        ${filterBtn("expired", "已过期")}
+        ${filterBtn("all", "全部")}
+      </div>
+      <div class="search-bar" style="margin:0 0 12px">
+        <input id="rc-q" class="form-control" placeholder="搜索码或备注" value="${escapeHtml(_codesUi.q)}" oninput="_codesUi.q=this.value;renderCodesList()">
+      </div>
+      <div id="rc-list"></div>
+    </section>`;
+  renderCodesList();
+}
+
+function renderCodesList() {
+  const codes = state.adminCodes || [];
+  const filter = _codesUi.filter;
+  const q = (_codesUi.q || "").trim().toLowerCase();
+  const filtered = codes.filter((c) => {
+    if (filter !== "all" && codeStatus(c) !== filter) return false;
+    if (!q) return true;
+    return String(c.code).toLowerCase().includes(q) || String(c.note || "").toLowerCase().includes(q);
+  });
+  const groups = [];
+  const byBatch = new Map();
+  for (const c of codes) {
+    const id = c.batch_id || c.code;
+    if (!byBatch.has(id)) byBatch.set(id, []);
+    byBatch.get(id).push(c);
+  }
+  const visibleIds = new Set(filtered.map((c) => c.batch_id || c.code));
+  for (const [id, rows] of byBatch) {
+    if (!visibleIds.has(id)) continue;
+    groups.push({ id, rows, visible: rows.filter((c) => filtered.includes(c)) });
+  }
+  groups.sort((a, b) => String(b.rows[0].created_at).localeCompare(String(a.rows[0].created_at)));
+  const el = $("#rc-list");
+  if (el) el.innerHTML = renderCodeGroups(groups, filter);
+}
+
+function renderCodesResult(result) {
+  const days = result.expires_in_days;
+  const copy = formatInviteCopy(result.codes, days, result.note);
+  return `<div class="rc-result">
+    <div class="rc-result-head">
+      <strong>已生成 ${result.codes.length} 个</strong>
+      <div class="rc-result-actions">
+        <button class="btn-sm" onclick="${copyOnclick(copy, "已复制本批邀请码")}">复制全部</button>
+        <button class="btn-sm danger" onclick="adminRevokeBatch('${escapeHtml(result.batch_id)}', true)">作废本批未用</button>
+        <button class="btn-sm" onclick="_codesUi.result=null;loadAdminCodes()">关闭</button>
+      </div>
+    </div>
+    <ul class="rc-result-codes">${result.codes.map((code) =>
+      `<li><code>${escapeHtml(code)}</code> <button class="btn-sm" onclick="${copyOnclick(code, "已复制")}">复制</button></li>`
+    ).join("")}</ul>
+  </div>`;
+}
+
+function renderCodeGroups(groups, filter) {
+  if (groups.length === 0) {
+    const empty =
+      filter === "available"
+        ? "没有可用注册码。在上方生成一批，复制后发给对方。"
+        : filter === "used"
+          ? "还没有人用过邀请码。"
+          : "没有符合条件的注册码。";
+    return `<p class="muted">${empty}</p>`;
+  }
+  return groups.map((g) => {
+    const all = g.rows;
+    const notes = [...new Set(all.map((c) => c.note || ""))];
+    const noteLabel = notes.length === 1 ? (notes[0] || "无备注") : "备注不一";
+    const available = all.filter((c) => codeStatus(c) === "available");
+    const usedN = all.filter((c) => codeStatus(c) === "used").length;
+    const unusedOpen = all.filter((c) => !c.used_by && !c.revoked_at);
+    const days = batchExpiresDays(all);
+    const expLabel = all[0].expires_at ? `过期 ${escapeHtml(fmtDbTime(all[0].expires_at))}` : "永不过期";
+    const creator = all[0].created_by_name ? ` · ${escapeHtml(all[0].created_by_name)}` : "";
+    const copyCodes = available.map((c) => c.code);
+    const copyNote = notes.length === 1 ? notes[0] : "";
+    const copy = formatInviteCopy(copyCodes, days, copyNote);
+    return `<div class="rc-batch">
+      <div class="rc-batch-head">
+        <div>
+          <strong>${escapeHtml(noteLabel)}</strong>
+          <span class="muted"> · ${escapeHtml(fmtDbTime(all[0].created_at))} · ${expLabel}${creator} · ${available.length} 可用 / ${usedN} 已用</span>
+        </div>
+        <div class="rc-batch-actions">
+          <button class="btn-sm" ${copyCodes.length ? "" : "disabled"} onclick="${copyOnclick(copy, "已复制未用码")}">复制未用</button>
+          <button class="btn-sm danger" ${unusedOpen.length ? "" : "disabled"} onclick="adminRevokeBatch('${escapeHtml(g.id)}')">作废未用</button>
+        </div>
+      </div>
       <div class="table-wrap">
-        <table>
-          <thead><tr><th scope="col">邀请码</th><th scope="col">备注</th><th scope="col">状态</th><th scope="col">使用者</th><th scope="col">生成时间</th><th scope="col">使用时间</th><th scope="col">操作</th></tr></thead>
-          <tbody>${codes.length === 0 ? `<tr><td colspan="7" class="muted">暂无注册码</td></tr>` : codes.map((c) => `
-            <tr>
-              <td><code>${escapeHtml(c.code)}</code></td>
-              <td>${escapeHtml(c.note || "")}</td>
-              <td class="${c.used_by ? "status-fail" : "status-ok"}">${c.used_by ? "已使用" : "可用"}</td>
-              <td>${escapeHtml(c.used_by_name || "")}</td>
-              <td>${escapeHtml(fmtDbTime(c.created_at))}</td>
-              <td>${escapeHtml(fmtDbTime(c.used_at))}</td>
-              <td>${c.used_by ? "" : `<button class="btn-sm danger" data-code="${escapeHtml(c.code)}" onclick="adminRevokeCode(this.dataset.code)">作废</button>`}</td>
-            </tr>`).join("")}</tbody>
+        <table class="rc-table">
+          <thead><tr><th scope="col">邀请码</th><th scope="col">备注</th><th scope="col">状态</th><th scope="col">使用者</th><th scope="col">时间</th><th scope="col">操作</th></tr></thead>
+          <tbody>${g.visible.map((c) => renderCodeRow(c)).join("")}</tbody>
         </table>
       </div>
-    </section>`;
+    </div>`;
+  }).join("");
+}
+
+function renderCodeRow(c) {
+  const st = codeStatus(c);
+  const when = c.used_at ? fmtDbTime(c.used_at) : c.revoked_at ? fmtDbTime(c.revoked_at) : c.expires_at ? fmtDbTime(c.expires_at) : fmtDbTime(c.created_at);
+  const canRevoke = st === "available" || st === "expired";
+  return `<tr>
+    <td><code>${escapeHtml(c.code)}</code> <button class="btn-sm" onclick="${copyOnclick(c.code, "已复制")}">复制</button></td>
+    <td><input class="form-control rc-note-input" data-code="${escapeHtml(c.code)}" value="${escapeHtml(c.note || "")}" maxlength="40" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}" onblur="adminSaveCodeNote(this)"></td>
+    <td class="${codeStatusClass(st)}">${codeStatusLabel(st)}</td>
+    <td>${escapeHtml(c.used_by_name || "")}</td>
+    <td>${escapeHtml(when)}</td>
+    <td>${canRevoke ? `<button class="btn-sm danger" data-code="${escapeHtml(c.code)}" onclick="adminRevokeCode(this.dataset.code)">作废</button>` : ""}</td>
+  </tr>`;
 }
 
 async function adminRevokeCode(code) {
   if (!confirm(`确认作废注册码 ${code}？作废后无法再使用。`)) return;
   try {
-    await api(`/api/admin/register-codes/${encodeURIComponent(code)}`, { method: "DELETE" });
+    await api(`/api/admin/register-codes/${encodeURIComponent(code)}/revoke`, { method: "POST" });
     flash(`已作废邀请码 ${code}`);
     loadAdminCodes();
   } catch (err) {
@@ -3756,19 +3941,52 @@ async function adminRevokeCode(code) {
   }
 }
 
-async function adminGenerateCodes() {
+async function adminRevokeBatch(batchId, fromResult) {
+  if (!confirm("将作废本批所有未使用的邀请码，确认？")) return;
   try {
+    await api(`/api/admin/register-code-batches/${encodeURIComponent(batchId)}/revoke-unused`, { method: "POST" });
+    flash("已作废本批未用码");
+    if (fromResult) _codesUi.result = null;
+    loadAdminCodes();
+  } catch (err) {
+    alert("作废失败: " + err.message);
+  }
+}
+
+async function adminSaveCodeNote(input) {
+  const code = input.dataset.code;
+  const note = input.value.trim();
+  if (note.length > 40) {
+    alert("备注最长40字");
+    return;
+  }
+  try {
+    await api(`/api/admin/register-codes/${encodeURIComponent(code)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ note }),
+    });
+  } catch (err) {
+    alert("保存备注失败: " + err.message);
+  }
+}
+
+async function adminGenerateCodes() {
+  saveCodesForm();
+  try {
+    const expiresRaw = $("#rc-expires").value;
+    const expires_in_days = expiresRaw === "" ? null : Number(expiresRaw);
     const data = await api("/api/admin/register-codes", {
       method: "POST",
       body: JSON.stringify({
         count: Number($("#rc-count").value) || 5,
-        note: $("#rc-note").value,
+        note: $("#rc-note").value.trim(),
+        expires_in_days,
       }),
     });
-    await loadAdminCodes();
-    const el = $("#rc-result");
-    if (el) el.textContent = `已生成 ${data.count} 个：${data.codes.join("  ")}`;
+    _codesUi.result = { ...data, expires_in_days };
+    _codesUi.filter = "available";
     flash(`已生成 ${data.count} 个邀请码`);
+    loadAdminCodes();
   } catch (err) {
     alert("生成失败: " + err.message);
   }
@@ -4273,10 +4491,11 @@ async function loadAdminUsers() {
       <header class="section-head"><div><h3 class="section-title">注册用户</h3></div></header>
       <div class="table-wrap">
         <table>
-          <thead><tr><th scope="col">ID</th><th scope="col">用户名</th><th scope="col">角色</th><th scope="col">Telegram</th><th scope="col">飞书</th><th scope="col">企业微信</th><th scope="col">Bark</th><th scope="col">推送</th><th scope="col">注册时间</th><th scope="col">操作</th></tr></thead>
+          <thead><tr><th scope="col">ID</th><th scope="col">用户名</th><th scope="col">来源</th><th scope="col">角色</th><th scope="col">Telegram</th><th scope="col">飞书</th><th scope="col">企业微信</th><th scope="col">Bark</th><th scope="col">推送</th><th scope="col">注册时间</th><th scope="col">操作</th></tr></thead>
           <tbody>${users.map((u) => `
             <tr>
               <td>${u.id}</td><td>${escapeHtml(u.username)}</td>
+              <td>${escapeHtml(u.register_note || u.register_code || "—")}</td>
               <td>${u.is_admin ? "管理员" : "用户"}</td>
               <td>${u.telegram_bound ? "已绑定" : "-"}</td>
               <td>${u.feishu_bound ? "已绑定" : "-"}</td>
