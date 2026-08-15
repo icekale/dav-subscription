@@ -197,6 +197,7 @@ function closeLightbox() {
 }
 
 let _toastTimer = null;
+// 操作反馈统一走 toast：成功 flash(msg)，失败 flash(msg, "error")。绑定码等需停留的内容仍写在页面上。
 function flash(message, type = "success") {
   let el = $("#toast");
   if (!el) {
@@ -1734,6 +1735,11 @@ function stopSettingsPoll() {
   }
 }
 
+async function reloadSettings() {
+  stopSettingsPoll();
+  await renderSettings(routeRenderSeq);
+}
+
 function feishuChannelBound(user) {
   return !!(user.feishu_open_id || user.feishu_chat_id || user.feishu_personal?.status === "active");
 }
@@ -1843,6 +1849,7 @@ async function renderSettings(seq) {
   try {
     state.user = await api("/api/me");
     if (!routeStillActive(seq)) return; // 已切走：不覆盖新路由的 state.user
+    stopSettingsPoll();
     const guide = state.user.push_guide || {};
     const tgBot = guide.telegram_bot_username || "";
     const fsBot = guide.feishu_bot_name || "";
@@ -1910,7 +1917,6 @@ async function renderSettings(seq) {
           </label>
           <div class="dnd-actions">
             <button class="btn-normal" onclick="saveDnd()">保存</button>
-            <span id="dnd-result" class="muted"></span>
           </div>
         </div>
       </section>
@@ -1928,7 +1934,6 @@ async function renderSettings(seq) {
         </div>
         <div class="toolbar" style="margin-top:10px">
           <button class="btn-normal" onclick="saveKeywords()">保存关键词</button>
-          <span id="keywords-result" class="muted"></span>
         </div>
         <p class="muted">适用场景：只关心某个大V聊的特定话题（如「只想要 ETF 相关的」）；命中即实时送达，不受免打扰影响。</p>
       </section>
@@ -1946,7 +1951,6 @@ async function renderSettings(seq) {
         ${(state.user.telegram_chat_id || feishuChannelBound(state.user) || state.user.wecom_webhook || state.user.bark_key)
           ? `<div class="toolbar" style="margin-top:14px">
                <button class="btn-normal" onclick="savePushChannels()">保存推送通道</button>
-               <span id="push-channels-result" class="muted"></span>
              </div>` : ""}
       </section>
       <section class="section-panel">
@@ -1970,7 +1974,6 @@ async function renderSettings(seq) {
               <input id="set-custom-tg" class="form-control" style="flex:1;min-width:220px" type="password" placeholder="123456:ABC-DEF...">
               <button class="btn-normal" onclick="saveCustomTgBot()">保存</button>
             </div>
-            <p id="custom-tg-result" class="muted"></p>
           </div>
           <div class="channel-bind-block" style="padding-top:8px">
             <h4 class="section-title">飞书个人机器人（扫码自动创建）</h4>
@@ -2072,7 +2075,6 @@ async function renderSettings(seq) {
         </div>
         <div class="toolbar" style="margin-top:10px">
           <button class="btn-normal" onclick="saveLlm()">保存</button>
-          <span id="llm-result" class="muted"></span>
         </div>
         <p class="muted">🔒 配置仅对当前账号生效，费用由你自己的 API 账号承担；生成失败会自动回退为普通摘要，不影响推送。</p>
       </section>
@@ -2229,7 +2231,6 @@ function fsPersonalStateHtml() {
     </div>` : `
     <p class="muted">⏳ 等待扫码…（扫完码会自动进入下一步）</p>
     <button class="btn-ghost btn-sm" onclick="cancelFeishuPersonal()">取消</button>`}
-    <p id="fs-personal-error" class="muted"></p>
   </div>`;
 }
 
@@ -2243,7 +2244,7 @@ async function startFeishuPersonal() {
     fsPersonalRender();
     startFeishuPersonalPoll(data.session_id);
   } catch (err) {
-    alert("发起个人机器人注册失败: " + err.message);
+    flash("发起个人机器人注册失败: " + err.message, "error");
   }
 }
 
@@ -2273,12 +2274,12 @@ function startFeishuPersonalPoll(sessionId) {
         stopFeishuPersonalPoll();
         fsPersonalState.sessionId = "";
         fsPersonalRender();
-        alert("个人机器人绑定成功 ✅ 之后推送会通过你的个人机器人发送");
+        flash("个人机器人已绑定");
       } else if (["expired", "cancelled", "degraded"].includes(data.status)) {
         stopFeishuPersonalPoll();
         fsPersonalState.sessionId = "";
         fsPersonalRender();
-        if (data.status === "degraded") alert("个人机器人绑定失败：" + (data.last_error || "未知错误"));
+        if (data.status === "degraded") flash("个人机器人绑定失败：" + (data.last_error || "未知错误"), "error");
       } else {
         // pending / credentials_created：局部刷新等待扫码区域
         fsPersonalRender();
@@ -2329,7 +2330,7 @@ async function refreshFeishuBindCode() {
     fsPersonalRender();
     startFeishuBindCountdown();
   } catch (err) {
-    $("#fs-personal-error").textContent = "刷新失败：" + err.message;
+    flash(err.message, "error");
   }
 }
 
@@ -2378,15 +2379,15 @@ async function savePushChannels() {
   if (!boxes.length) return;
   const channels = boxes.filter((b) => b.checked).map((b) => b.value);
   if (!channels.length) {
-    alert("请至少保留一个推送通道；全部不想要可以关闭「新帖推送开关」");
+    flash("请至少保留一个推送通道；全部不想要可以关闭「新帖推送开关」", "error");
     return;
   }
   try {
     await api("/api/me", { method: "PUT", body: JSON.stringify({ push_channels: channels.join(",") }) });
     state.user.push_channels = channels.join(",");
-    $("#push-channels-result").textContent = "已保存 ✅";
+    flash("已保存");
   } catch (err) {
-    alert("保存失败: " + err.message);
+    flash(err.message, "error");
   }
 }
 
@@ -2396,8 +2397,9 @@ async function saveNotify() {
       method: "PUT",
       body: JSON.stringify({ notify_enabled: $("#set-notify").value === "1" }),
     });
+    flash("已保存");
   } catch (err) {
-    alert("保存失败: " + err.message);
+    flash(err.message, "error");
   }
 }
 
@@ -2407,8 +2409,9 @@ async function saveDailyReport() {
       method: "PUT",
       body: JSON.stringify({ daily_report_enabled: $("#set-daily").value === "1" }),
     });
+    flash("已保存");
   } catch (err) {
-    alert("保存失败: " + err.message);
+    flash(err.message, "error");
   }
 }
 
@@ -2427,7 +2430,7 @@ async function saveDnd() {
   const end = $("#dnd-end").value;
   const allowFav = $("#dnd-fav").checked;
   if (enabled && (!start || !end || start === end)) {
-    alert("请设置不同的开始与结束时间");
+    flash("请设置不同的开始与结束时间", "error");
     return;
   }
   try {
@@ -2442,9 +2445,9 @@ async function saveDnd() {
     state.user.dnd_start = enabled ? start : "";
     state.user.dnd_end = enabled ? end : "";
     state.user.dnd_allow_favorite = allowFav;
-    $("#dnd-result").textContent = "已保存 ✅ 时段内新帖会汇总到结束后一次推送";
+    flash("已保存");
   } catch (err) {
-    alert("保存失败: " + err.message);
+    flash(err.message, "error");
   }
 }
 
@@ -2478,22 +2481,22 @@ async function bindChannel(channel) {
     };
     renderBindResult(channel, data.code);
   } catch (err) {
-    alert("生成绑定码失败: " + err.message);
+    flash(err.message, "error");
   }
 }
 
 async function saveCustomTgBot() {
   const token = ($("#set-custom-tg").value || "").trim();
   if (!token) {
-    alert("请先粘贴你的 bot token");
+    flash("请先粘贴你的 bot token", "error");
     return;
   }
   try {
     await api("/api/me", { method: "PUT", body: JSON.stringify({ telegram_bot_token: token }) });
-    renderSettings();
-    alert("自建机器人绑定成功 ✅ 之后推送会通过你的机器人发送");
+    flash("自建机器人已绑定");
+    await reloadSettings();
   } catch (err) {
-    $("#custom-tg-result").textContent = "绑定失败：" + err.message;
+    flash(err.message, "error");
   }
 }
 
@@ -2509,8 +2512,8 @@ async function unbindChannel(channel) {
       stopFeishuPersonalPoll();
       fsPersonalState.sessionId = "";
       await api("/api/me/feishu-personal", { method: "DELETE" });
-      state.user.feishu_personal = { available: state.user.feishu_personal?.available, status: "", app_id_masked: "" };
-      fsPersonalRender();
+      flash(`已解绑 ${label}`);
+      await reloadSettings();
       return;
     }
     const body = channel === "feishu"
@@ -2523,16 +2526,17 @@ async function unbindChannel(channel) {
           ? { telegram_bot_token: "", telegram_chat_id: "" }
         : { telegram_chat_id: "" };
     await api("/api/me", { method: "PUT", body: JSON.stringify(body) });
-    renderSettings();
+    flash(`已解绑 ${label}`);
+    await reloadSettings();
   } catch (err) {
-    alert("解绑失败: " + err.message);
+    flash(err.message, "error");
   }
 }
 
 async function saveWecomWebhook() {
   const webhook = ($("#set-wecom-webhook").value || "").trim();
   if (webhook && !/^https:\/\/qyapi\.weixin\.qq\.com\/cgi-bin\/webhook\/send\?key=/.test(webhook)) {
-    alert("webhook 地址无效，应为 https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=... 格式");
+    flash("webhook 地址无效，应为 https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=... 格式", "error");
     return;
   }
   try {
@@ -2540,10 +2544,10 @@ async function saveWecomWebhook() {
       method: "PUT",
       body: JSON.stringify({ wecom_webhook: webhook }),
     });
-    renderSettings();
-    if (webhook) alert("企业微信绑定成功 ✅");
+    flash(webhook ? "企业微信已绑定" : "企业微信已解绑");
+    await reloadSettings();
   } catch (err) {
-    alert("保存失败: " + err.message);
+    flash(err.message, "error");
   }
 }
 
@@ -2554,10 +2558,10 @@ async function saveBarkKey() {
       method: "PUT",
       body: JSON.stringify({ bark_key: key }),
     });
-    renderSettings();
-    if (key) alert("Bark 绑定成功 ✅ 去 iPhone 上确认能收到推送");
+    flash(key ? "Bark 已绑定" : "Bark 已解绑");
+    await reloadSettings();
   } catch (err) {
-    alert("保存失败: " + err.message);
+    flash(err.message, "error");
   }
 }
 
@@ -2571,10 +2575,9 @@ async function saveKeywords() {
       method: "PUT",
       body: JSON.stringify({ keywords }),
     });
-    const el = $("#keywords-result");
-    if (el) el.textContent = `已保存 ${keywords.length} 个关键词 ✅`;
+    flash(`已保存 ${keywords.length} 个关键词`);
   } catch (err) {
-    alert("保存失败: " + err.message);
+    flash(err.message, "error");
   }
 }
 
@@ -2586,24 +2589,17 @@ async function saveLlm() {
   };
   try {
     await api("/api/me", { method: "PUT", body: JSON.stringify(payload) });
-    state.user = await api("/api/me");
-    renderSettings();
-    const el = $("#llm-result");
-    if (el) el.textContent = payload.llm_api_key ? "已保存 ✅" : "已关闭 AI 摘要 ✅";
+    flash(payload.llm_api_key ? "已保存" : "AI 摘要已关闭");
+    await reloadSettings();
   } catch (err) {
-    alert("保存失败: " + err.message);
+    flash(err.message, "error");
   }
 }
 
 function copyFeedUrl() {
   const input = $("#set-feed-url");
   if (!input || !input.value) return;
-  input.select();
-  input.setSelectionRange(0, 99999);
-  navigator.clipboard
-    ?.writeText(input.value)
-    .then(() => alert("订阅源地址已复制 ✅"))
-    .catch(() => alert("请手动复制：" + input.value));
+  copyText(input.value, "订阅源地址已复制");
 }
 
 async function regenerateFeedToken() {
@@ -2611,10 +2607,10 @@ async function regenerateFeedToken() {
   try {
     const res = await api("/api/me/feed-token/regenerate", { method: "POST" });
     state.user.feed_token = res.feed_token;
-    renderSettings();
-    alert("订阅源地址已重新生成 ✅");
+    flash("订阅源地址已重新生成");
+    await reloadSettings();
   } catch (err) {
-    alert("操作失败: " + err.message);
+    flash(err.message, "error");
   }
 }
 
@@ -2623,11 +2619,11 @@ async function savePassword() {
   const newPw = $("#pw-new").value;
   const confirmPw = $("#pw-confirm").value;
   if (!oldPw || newPw.length < 6) {
-    alert("请填写原密码，新密码至少 6 位");
+    flash("请填写原密码，新密码至少 6 位", "error");
     return;
   }
   if (newPw !== confirmPw) {
-    alert("两次输入的新密码不一致");
+    flash("两次输入的新密码不一致", "error");
     return;
   }
   try {
@@ -2636,9 +2632,9 @@ async function savePassword() {
       body: JSON.stringify({ old_password: oldPw, new_password: newPw }),
     });
     $("#pw-old").value = $("#pw-new").value = $("#pw-confirm").value = "";
-    alert("密码已修改");
+    flash("密码已修改");
   } catch (err) {
-    alert("修改失败: " + err.message);
+    flash(err.message, "error");
   }
 }
 
@@ -2650,7 +2646,7 @@ async function genBindCode() {
       `（${Math.floor(data.expires_in_seconds / 60)} 分钟内有效）<br>` +
       `发给机器人：<code>/bind ${escapeHtml(data.code)}</code>`;
   } catch (err) {
-    alert("生成失败: " + err.message);
+    flash(err.message, "error");
   }
 }
 
@@ -3030,14 +3026,14 @@ async function savePollingConfig() {
     // 标准操作反馈 toast；不重建页面（loadAdminStats 会整页重建并跳回监控总览）
     flash("抓取设置已保存，即时生效");
   } catch (err) {
-    alert("保存失败: " + err.message);
+    flash(err.message, "error");
   }
 }
 
 async function saveXueqiuCookie() {
   const cookie = $("#xq-cookie").value.trim();
   if (!cookie) {
-    alert("请先粘贴雪球 cookie");
+    flash("请先粘贴雪球 cookie", "error");
     return;
   }
   try {
@@ -3045,10 +3041,9 @@ async function saveXueqiuCookie() {
       method: "POST",
       body: JSON.stringify({ cookie }),
     });
-    // 标准操作反馈 toast；不重建页面（同 savePollingConfig 的跳回总览问题）
     flash("雪球 Cookie 已保存");
   } catch (err) {
-    alert("保存失败: " + err.message);
+    flash(err.message, "error");
   }
 }
 
@@ -3065,7 +3060,7 @@ async function startWeiboQr() {
     if (wbQrTimer) clearInterval(wbQrTimer);
     wbQrTimer = setInterval(() => pollWeiboQr(data.qrid), 2000);
   } catch (err) {
-    alert("获取二维码失败: " + err.message);
+    flash(err.message, "error");
   }
 }
 
@@ -3083,8 +3078,8 @@ async function pollWeiboQr(qrid) {
       statusEl.textContent = "已扫描，请在手机上确认登录";
     } else if (data.status === "ok") {
       if (wbQrTimer) clearInterval(wbQrTimer);
-      statusEl.textContent = "✅ 登录成功，微博 Cookie 已自动保存";
-      alert("微博登录成功，Cookie 已保存，可直接添加微博大V了");
+      statusEl.textContent = "登录成功，微博 Cookie 已自动保存";
+      flash("微博 Cookie 已保存");
     }
   } catch (err) {
     if (wbQrTimer) clearInterval(wbQrTimer);

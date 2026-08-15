@@ -229,12 +229,33 @@ def test_dnd_save_button_aligns_left_with_other_settings_buttons():
     assert "justify-content: flex-end" not in actions.group(1), (
         "免打扰保存按钮右对齐会与左侧表单项、下方模块错开"
     )
-    # 结果提示必须位于保存按钮之后，否则空 span 会把按钮顶开 12px 错位
     settings = APP_JS.read_text()
     dnd_block = settings[settings.index('class="dnd-actions"'):]
-    save_idx = dnd_block.index("saveDnd()")
-    result_idx = dnd_block.index("dnd-result")
-    assert result_idx > save_idx, "dnd-result 应在保存按钮之后，避免空提示把按钮顶开"
+    assert "saveDnd()" in dnd_block
+    assert "dnd-result" not in dnd_block[:400], "保存反馈应走 toast，不要在按钮旁放结果 span"
+
+
+def test_settings_save_feedback_uses_flash():
+    """推送设置保存/失败统一走 flash toast，不再用 alert 或行内「已保存 ✅」。"""
+    src = APP_JS.read_text()
+    start = src.index("// ---------- 推送设置 ----------")
+    end = src.index("// ---------- 管理后台")
+    settings = src[start:end]
+    assert "已保存 ✅" not in settings
+    assert "alert(" not in settings
+    for span_id in ("dnd-result", "keywords-result", "push-channels-result", "llm-result", "custom-tg-result"):
+        assert span_id not in settings
+    for name in (
+        "saveNotify", "saveDailyReport", "saveDnd", "saveKeywords",
+        "savePushChannels", "saveLlm", "savePassword", "saveCustomTgBot",
+        "saveWecomWebhook", "saveBarkKey",
+    ):
+        body = _fn_body(name)
+        assert "flash(" in body, f"{name} 应使用 flash toast"
+        assert "alert(" not in body, f"{name} 不应再用 alert"
+    assert "flash(" in _fn_body("savePollingConfig")
+    assert "alert(" not in _fn_body("savePollingConfig")
+    assert "alert(" not in _fn_body("saveXueqiuCookie")
 
 
 def test_post_header_does_not_clip_platform_or_time():

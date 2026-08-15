@@ -204,7 +204,7 @@ Page({
           dnd_allow_favorite: this.data.dndAllowFavorite,
         },
       });
-      wx.showToast({ title: enabled ? "免打扰已开启" : "免打扰已关闭", icon: "success" });
+      wx.showToast({ title: "已保存", icon: "success" });
     } catch (err) {
       wx.showToast({ title: err.message, icon: "none" });
     }
@@ -221,7 +221,7 @@ Page({
         method: "PUT",
         data: { telegram_bot_token: token },
       });
-      wx.showToast({ title: "自建机器人绑定成功", icon: "success" });
+      wx.showToast({ title: "自建机器人已绑定", icon: "success" });
       this.setData({ customTgToken: "" });
       this.load();
     } catch (err) {
@@ -240,7 +240,7 @@ Page({
         method: "PUT",
         data: { wecom_webhook: webhook },
       });
-      wx.showToast({ title: webhook ? "企业微信绑定成功" : "已解绑企业微信", icon: "success" });
+      wx.showToast({ title: webhook ? "企业微信已绑定" : "企业微信已解绑", icon: "success" });
       this.wecomDirty = false;
       this.load();
     } catch (err) {
@@ -255,7 +255,7 @@ Page({
         method: "PUT",
         data: { bark_key: key },
       });
-      wx.showToast({ title: key ? "Bark 绑定成功" : "已解绑 Bark", icon: "success" });
+      wx.showToast({ title: key ? "Bark 已绑定" : "Bark 已解绑", icon: "success" });
       this.load();
     } catch (err) {
       wx.showToast({ title: err.message, icon: "none" });
@@ -298,7 +298,7 @@ Page({
     try {
       const res = await request("/api/me/feed-token/regenerate", { method: "POST" });
       this.setData({ feedToken: res.feed_token });
-      wx.showToast({ title: "已重新生成", icon: "success" });
+      wx.showToast({ title: "订阅源地址已重新生成", icon: "success" });
     } catch (err) {
       wx.showToast({ title: err.message, icon: "none" });
     }
@@ -329,6 +329,7 @@ Page({
     try {
       await request("/api/me", { method: "PUT", data: payloads[channel] });
       if (channel === "wecom") this.wecomDirty = false;
+      wx.showToast({ title: `已解绑 ${label}`, icon: "success" });
       this.load();
     } catch (err) {
       wx.showToast({ title: err.message, icon: "none" });
