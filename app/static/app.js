@@ -4851,6 +4851,10 @@ async function loadAdminUsers() {
     return;
   }
   state.adminUsers = users;
+  const known = new Set(users.map((u) => u.id));
+  for (const id of [..._adminUsersSelected]) {
+    if (!known.has(id)) _adminUsersSelected.delete(id);
+  }
   renderAdminUsers();
 }
 
