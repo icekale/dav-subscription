@@ -211,6 +211,7 @@ CREATE TABLE IF NOT EXISTS users (
     dnd_end TEXT NOT NULL DEFAULT '',
     dnd_allow_favorite INTEGER NOT NULL DEFAULT 0,
     token_version INTEGER NOT NULL DEFAULT 0,
+    last_login_at TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE TABLE IF NOT EXISTS subscriptions (
@@ -450,6 +451,8 @@ class DB:
             self._conn.execute("ALTER TABLE users ADD COLUMN llm_model TEXT NOT NULL DEFAULT ''")
         if "token_version" not in user_cols:
             self._conn.execute("ALTER TABLE users ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0")
+        if "last_login_at" not in user_cols:
+            self._conn.execute("ALTER TABLE users ADD COLUMN last_login_at TEXT")
         self._conn.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_users_feed_token "
             "ON users(feed_token) WHERE feed_token != ''"
@@ -1043,6 +1046,12 @@ class DB:
         except sqlite3.IntegrityError:
             raise ValueError(f"用户名已存在: {username}") from None
 
+    def touch_last_login(self, user_id: int) -> None:
+        self._execute(
+            "UPDATE users SET last_login_at = datetime('now') WHERE id = ?",
+            (user_id,),
+        )
+
     # update_user 允许写入的字段白名单：拦截任意 key 拼接进 SQL（防注入脚枪）
     _UPDATE_USER_COLUMNS = frozenset({
         "username", "password_hash", "is_admin", "wechat_openid",
@@ -1050,7 +1059,7 @@ class DB:
         "feishu_chat_id", "wecom_webhook", "notify_enabled", "daily_report",
         "push_channels", "dnd_start", "dnd_end", "dnd_allow_favorite",
         "feed_token", "bark_key", "llm_api_base", "llm_api_key", "llm_model",
-        "token_version",
+        "token_version", "last_login_at",
     })
 
     def update_user(self, user_id: int, **kwargs) -> None:

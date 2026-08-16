@@ -2338,6 +2338,7 @@ def test_wechat_login(monkeypatch):
     # 再次登录返回同一用户
     resp2 = client.post("/api/auth/wechat", json={"code": "c2"})
     assert resp2.json()["user"]["id"] == data["user"]["id"]
+    assert client.app.state.db.get_user(data["user"]["id"])["last_login_at"]
 
 
 def test_add_combination_kol_auto_fills_name(monkeypatch):
@@ -3876,3 +3877,21 @@ def test_admin_register_codes_batch_revoke_and_purge():
         headers=uh,
         json={"codes": [fresh], "action": "revoke"},
     ).status_code == 403
+
+
+def test_login_sets_last_login_at_register_does_not():
+    client = make_client()
+    admin_headers = auth_headers(client)
+    code = client.post(
+        "/api/admin/register-codes", headers=admin_headers, json={"count": 1, "note": "inact"}
+    ).json()["codes"][0]
+    reg = register(client, "neverlogin", password="pass123456", code=code)
+    uid = reg.json()["user"]["id"]
+    db = client.app.state.db
+    row = db.get_user(uid)
+    assert not row.get("last_login_at")
+    assert client.post(
+        "/api/auth/login", json={"username": "neverlogin", "password": "pass123456"}
+    ).status_code == 200
+    row = db.get_user(uid)
+    assert row["last_login_at"]

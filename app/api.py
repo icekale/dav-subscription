@@ -975,6 +975,7 @@ def create_api_router(
         login_attempts.pop(ip, None)  # 登录成功清零，避免历史失败锁住正常用户
         account_failures.pop(_account_key(username), None)
         account_locked_until.pop(_account_key(username), None)
+        db.touch_last_login(user["id"])
         return {
             "token": auth.create_token(
                 user["id"], user["username"], secret, user.get("token_version") or 0
@@ -1004,6 +1005,7 @@ def create_api_router(
                 wechat_openid=openid,
             )
             user = db.get_user(uid)
+        db.touch_last_login(user["id"])
         return {
             "token": auth.create_token(
                 user["id"], user["username"], secret, user.get("token_version") or 0
