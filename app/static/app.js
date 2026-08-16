@@ -3787,6 +3787,25 @@ function saveCodesForm() {
   if (q) _codesUi.q = q.value.trim();
 }
 
+function adminCodesPreset(note) {
+  const el = $("#rc-note");
+  if (el) el.value = note;
+  _codesUi.note = note;
+  adminCodesSyncPresets();
+}
+
+function adminCodesNoteInput() {
+  const el = $("#rc-note");
+  _codesUi.note = el ? el.value : "";
+  adminCodesSyncPresets();
+}
+
+function adminCodesSyncPresets() {
+  document.querySelectorAll(".rc-preset").forEach((b) => {
+    b.classList.toggle("selected", b.dataset.note === _codesUi.note);
+  });
+}
+
 async function loadAdminCodes(refetch = true) {
   if (refetch || !state.adminCodes) {
     state.adminCodes = await api("/api/admin/register-codes");
@@ -3795,8 +3814,11 @@ async function loadAdminCodes(refetch = true) {
   const filter = _codesUi.filter;
   const expVal = _codesUi.expires == null ? "" : String(_codesUi.expires);
   const result = _codesUi.result;
+  const allCodes = state.adminCodes || [];
+  const tabCounts = { available: 0, used: 0, revoked: 0, expired: 0, all: allCodes.length };
+  for (const c of allCodes) tabCounts[codeStatus(c)] += 1;
   const filterBtn = (key, label) =>
-    `<button class="settings-tab ${filter === key ? "active" : ""}" data-filter="${key}" onclick="saveCodesForm();_codesUi.filter='${key}';loadAdminCodes(false)">${label}</button>`;
+    `<button type="button" class="settings-tab ${filter === key ? "active" : ""}" role="tab" aria-selected="${filter === key}" data-filter="${key}" onclick="saveCodesForm();_codesUi.filter='${key}';loadAdminCodes(false)">${label} ${tabCounts[key]}</button>`;
 
   $("#admin-body").innerHTML = `
     <section class="section-panel">
@@ -3804,34 +3826,54 @@ async function loadAdminCodes(refetch = true) {
         <div><h3 class="section-title">生成注册邀请码</h3>
         <p class="section-meta">一次性邀请码，按批生成；用过即废，可设有效期。</p></div>
       </header>
-      <div class="toolbar rc-generate" style="margin-top:12px">
-        <input id="rc-note" class="form-control" style="margin:0;min-width:160px;flex:1" maxlength="40" placeholder="给谁、什么场合" value="${escapeHtml(_codesUi.note)}">
-        <button type="button" class="cat-chip" onclick="document.getElementById('rc-note').value='内部'">内部</button>
-        <button type="button" class="cat-chip" onclick="document.getElementById('rc-note').value='朋友'">朋友</button>
-        <input id="rc-count" class="form-control" style="margin:0;width:80px" type="number" min="1" max="100" value="${escapeHtml(String(_codesUi.count))}">
-        <select id="rc-expires" class="form-control" style="margin:0;width:auto">
-          <option value="1" ${expVal === "1" ? "selected" : ""}>1天</option>
-          <option value="7" ${expVal === "7" ? "selected" : ""}>7天</option>
-          <option value="30" ${expVal === "30" ? "selected" : ""}>30天</option>
-          <option value="" ${expVal === "" ? "selected" : ""}>永不过期</option>
-        </select>
-        <button class="btn-normal" onclick="adminGenerateCodes()">生成</button>
+      <div class="rc-generate">
+        <label class="rc-field rc-field-note">
+          <span>备注</span>
+          <input id="rc-note" class="form-control" maxlength="40" placeholder="给谁、什么场合" value="${escapeHtml(_codesUi.note)}" oninput="adminCodesNoteInput()">
+        </label>
+        <div class="rc-field">
+          <span>常用</span>
+          <div class="rc-presets" role="group" aria-label="常用备注">
+            <button type="button" class="rc-preset${_codesUi.note === "内部" ? " selected" : ""}" data-note="内部" onclick="adminCodesPreset('内部')">内部</button>
+            <button type="button" class="rc-preset${_codesUi.note === "朋友" ? " selected" : ""}" data-note="朋友" onclick="adminCodesPreset('朋友')">朋友</button>
+          </div>
+        </div>
+        <label class="rc-field rc-field-count">
+          <span>数量</span>
+          <input id="rc-count" class="form-control" type="number" min="1" max="100" value="${escapeHtml(String(_codesUi.count))}">
+        </label>
+        <label class="rc-field rc-field-expires">
+          <span>有效期</span>
+          <select id="rc-expires" class="form-control">
+            <option value="1" ${expVal === "1" ? "selected" : ""}>1天</option>
+            <option value="7" ${expVal === "7" ? "selected" : ""}>7天</option>
+            <option value="30" ${expVal === "30" ? "selected" : ""}>30天</option>
+            <option value="" ${expVal === "" ? "selected" : ""}>永不过期</option>
+          </select>
+        </label>
+        <div class="rc-field-submit">
+          <button class="btn-normal" onclick="adminGenerateCodes()">生成</button>
+        </div>
       </div>
       ${result ? renderCodesResult(result) : ""}
     </section>
     <section class="section-panel">
-      <header class="section-head">
-        <div><h3 class="section-title">注册码列表</h3></div>
+      <header class="section-head rc-list-head">
+        <div>
+          <h3 class="section-title">注册码列表</h3>
+          <p class="section-meta">${tabCounts.all} 个 · ${tabCounts.available} 可用</p>
+        </div>
+        <div class="search-bar rc-search">
+          ${SEARCH_ICON}
+          <input id="rc-q" type="search" placeholder="搜索码或备注" value="${escapeHtml(_codesUi.q)}" oninput="_codesUi.q=this.value;renderCodesList()">
+        </div>
       </header>
-      <div class="settings-tabs" role="tablist" aria-label="注册码状态">
+      <div class="settings-tabs rc-tabs" role="tablist" aria-label="注册码状态">
         ${filterBtn("available", "可用")}
         ${filterBtn("used", "已用")}
         ${filterBtn("revoked", "已作废")}
         ${filterBtn("expired", "已过期")}
         ${filterBtn("all", "全部")}
-      </div>
-      <div class="search-bar" style="margin:0 0 12px">
-        <input id="rc-q" class="form-control" placeholder="搜索码或备注" value="${escapeHtml(_codesUi.q)}" oninput="_codesUi.q=this.value;renderCodesList()">
       </div>
       <div id="rc-list"></div>
     </section>`;
@@ -3876,9 +3918,9 @@ function renderCodesResult(result) {
         <button class="btn-sm" onclick="_codesUi.result=null;loadAdminCodes()">关闭</button>
       </div>
     </div>
-    <ul class="rc-result-codes">${result.codes.map((code) =>
-      `<li><code>${escapeHtml(code)}</code> <button class="btn-sm" data-code="${escapeHtml(code)}" onclick="copyText(this.dataset.code, '已复制')">复制</button></li>`
-    ).join("")}</ul>
+    <div class="rc-result-codes">${result.codes.map((code) =>
+      `<div class="rc-result-row"><code>${escapeHtml(code)}</code><button class="btn-sm" data-code="${escapeHtml(code)}" onclick="copyText(this.dataset.code, '已复制')">复制</button></div>`
+    ).join("")}</div>
   </div>`;
 }
 
@@ -3890,7 +3932,7 @@ function renderCodeGroups(groups, filter) {
         : filter === "used"
           ? "还没有人用过邀请码。"
           : "没有符合条件的注册码。";
-    return `<p class="muted">${empty}</p>`;
+    return `<p class="rc-empty muted">${empty}</p>`;
   }
   return groups.map((g) => {
     const all = g.rows;
@@ -3906,10 +3948,12 @@ function renderCodeGroups(groups, filter) {
     const copy = formatInviteCopyUntil(copyCodes, all[0].expires_at, copyNote);
     return `<div class="rc-batch">
       <div class="rc-batch-head">
-        <div>
-          <strong>${escapeHtml(noteLabel)}</strong>
-          <span class="muted"> · ${escapeHtml(fmtDbTime(all[0].created_at))} · ${expLabel}${creator}</span>
-          <span class="rc-counts">${available.length} 可用 / ${usedN} 已用</span>
+        <div class="rc-batch-info">
+          <div class="rc-batch-title">
+            <strong>${escapeHtml(noteLabel)}</strong>
+            <span class="rc-counts">${available.length} 可用 / ${usedN} 已用</span>
+          </div>
+          <p class="muted rc-batch-meta">${escapeHtml(fmtDbTime(all[0].created_at))} · ${expLabel}${creator}</p>
         </div>
         <div class="rc-batch-actions">
           <button class="btn-sm" ${copyCodes.length ? "" : "disabled"} data-copy="${copyDataAttr(copy)}" onclick="copyText(decodeURIComponent(this.getAttribute('data-copy')), '已复制未用码')">复制未用</button>
@@ -3931,7 +3975,7 @@ function renderCodeRow(c) {
   const when = c.used_at ? fmtDbTime(c.used_at) : c.revoked_at ? fmtDbTime(c.revoked_at) : c.expires_at ? fmtDbTime(c.expires_at) : fmtDbTime(c.created_at);
   const canRevoke = st === "available" || st === "expired";
   return `<tr>
-    <td data-label="邀请码"><code>${escapeHtml(c.code)}</code> <button class="btn-sm" data-code="${escapeHtml(c.code)}" onclick="copyText(this.dataset.code, '已复制')">复制</button></td>
+    <td data-label="邀请码"><span class="rc-code"><code>${escapeHtml(c.code)}</code><button class="btn-sm" data-code="${escapeHtml(c.code)}" onclick="copyText(this.dataset.code, '已复制')">复制</button></span></td>
     <td data-label="备注" class="rc-note-cell"><input class="form-control rc-note-input" data-code="${escapeHtml(c.code)}" value="${escapeHtml(c.note || "")}" maxlength="40" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}" onblur="adminSaveCodeNote(this)"></td>
     <td data-label="状态" class="${codeStatusClass(st)}">${codeStatusLabel(st)}</td>
     <td data-label="使用者">${escapeHtml(c.used_by_name || "")}</td>

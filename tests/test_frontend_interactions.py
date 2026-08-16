@@ -350,3 +350,23 @@ def test_register_codes_mobile_has_field_labels_and_compact_grid():
     assert "grid-column: 1 / -1" in css
     assert "repeat(2, minmax(0, 1fr))" in css  # 批次操作与表格均为两列等宽网格
     assert ".settings-tabs" in css and "flex-wrap: nowrap" in css  # 筛选一行横向滚动
+
+
+def test_register_codes_desktop_controls_share_one_grid():
+    """注册码页桌面：生成栏用标签网格对齐，搜索不再套一层 form-control。"""
+    body = _fn_body("loadAdminCodes")
+    css = STYLE_CSS.read_text()
+    assert 'class="rc-generate"' in body
+    assert "rc-field-note" in body
+    assert "rc-preset" in body
+    assert "常用" in body
+    assert "cat-chip" not in body
+    assert 'class="form-control"' not in body.split('id="rc-q"')[1][:80]
+    assert "rc-list-head" in body
+    assert "search-bar rc-search" in body
+    assert "max-width: 860px" in css
+    assert ".rc-preset" in css
+    assert "height: var(--control-height-2xl)" in css
+    groups = _fn_body("renderCodeGroups")
+    assert "rc-batch-title" in groups
+    assert "rc-batch-meta" in groups

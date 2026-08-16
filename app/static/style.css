@@ -1014,10 +1014,65 @@ td .btn-sm { margin-right: 6px; }
 .status-fail { color: var(--color-danger); }
 .status-warn { color: var(--color-warning, #d97706); }
 
-.rc-generate { flex-wrap: wrap; align-items: center; gap: 8px; }
+.rc-generate {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+  max-width: 860px;
+}
+.rc-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.rc-field > span {
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-strong);
+  line-height: 1.2;
+}
+.rc-field .form-control,
+.rc-generate .form-control {
+  margin: 0;
+  width: 100%;
+}
+.rc-field-note { flex: 1 1 220px; max-width: 360px; }
+.rc-field-count { width: 88px; flex: 0 0 88px; }
+.rc-field-expires { width: 148px; flex: 0 0 148px; }
+.rc-presets { display: flex; gap: 8px; flex-shrink: 0; }
+.rc-preset {
+  height: var(--control-height-2xl);
+  padding: 0 14px;
+  border: var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text-strong);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  transition: border-color var(--ease-standard), color var(--ease-standard), background var(--ease-standard);
+}
+.rc-preset:hover { border-color: var(--color-accent-text); color: var(--color-accent-text); }
+.rc-preset.selected {
+  background: var(--color-accent-soft);
+  border-color: var(--color-accent-text);
+  color: var(--color-accent-text);
+  font-weight: var(--font-weight-semibold);
+}
+.rc-field-submit { display: flex; align-items: stretch; }
+.rc-field-submit .btn-normal { height: var(--control-height-2xl); }
+.rc-list-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+.rc-search { width: min(280px, 100%); }
 .rc-result {
-  margin-top: 12px;
-  padding: 12px;
+  margin-top: 16px;
+  padding: 12px 14px;
   background: var(--color-surface-muted);
   border: var(--border-default);
   border-radius: var(--radius-control);
@@ -1025,15 +1080,64 @@ td .btn-sm { margin-right: 6px; }
 .rc-result-head, .rc-batch-head {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: center;
   gap: 12px;
+}
+.rc-result-actions, .rc-batch-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.rc-result-codes {
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.rc-result-row, .rc-code {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.rc-result-row { display: flex; }
+.rc-batch + .rc-batch { margin-top: 16px; padding-top: 16px; border-top: var(--border-default); }
+.rc-batch-head { margin-bottom: 8px; }
+.rc-batch-info { min-width: 0; }
+.rc-batch-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   flex-wrap: wrap;
 }
-.rc-result-codes { margin: 8px 0 0; padding-left: 18px; }
-.rc-result-codes li { margin: 4px 0; }
-.rc-batch + .rc-batch { margin-top: 16px; padding-top: 16px; border-top: var(--border-default); }
-.rc-note-input { margin: 0; width: 140px; }
-.rc-counts { font-size: var(--text-xs); color: var(--color-accent-text); background: var(--color-accent-soft); border-radius: var(--radius-pill); padding: 2px 10px; white-space: nowrap; }
+.rc-batch-meta { margin: 4px 0 0; }
+.rc-empty { padding: 24px 0; margin: 0; }
+.rc-table { table-layout: fixed; }
+.rc-table th:nth-child(1) { width: 22%; }
+.rc-table th:nth-child(2) { width: 18%; }
+.rc-table th:nth-child(3) { width: 10%; }
+.rc-table th:nth-child(4) { width: 12%; }
+.rc-table th:nth-child(5) { width: 26%; }
+.rc-table th:nth-child(6) { width: 12%; }
+.rc-table td { vertical-align: middle; }
+.rc-note-input {
+  margin: 0;
+  width: 160px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: var(--text-sm);
+}
+.rc-counts {
+  font-size: var(--text-xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-accent-text);
+  background: var(--color-accent-soft);
+  border-radius: var(--radius-pill);
+  padding: 2px 10px;
+  white-space: nowrap;
+}
 
 .rate-bar {
   position: relative;
@@ -1397,12 +1501,20 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
   .btn-normal, .btn-ghost, .channel-btn { min-height: 44px; }
   .btn-add { min-height: 44px; }
   .form-control { min-height: 44px; }
-  .rc-generate { flex-direction: column; align-items: stretch; }
-  .rc-generate .form-control, .rc-generate .btn-normal, .rc-generate .cat-chip { width: 100%; min-height: 44px; }
+  .rc-generate { max-width: none; }
+  .rc-field-note { flex: 1 1 100%; max-width: none; }
+  .rc-field-count, .rc-field-expires { flex: 1 1 calc(50% - 6px); width: auto; }
+  .rc-field-submit { flex: 1 1 100%; }
+  .rc-field-submit .btn-normal { width: 100%; }
+  .rc-presets { width: 100%; }
+  .rc-preset { flex: 1; height: 44px; min-height: 44px; }
+  .rc-generate .form-control, .rc-generate .btn-normal { width: 100%; min-height: 44px; }
+  .rc-search { width: 100%; }
   /* 注册码筛选：一行横向滚动，不再换行成两行（此处优先级低于文末基础规则，故在 .settings-tabs 定义后另设媒体块） */
   /* 批次头：信息纵向堆叠，操作按钮全宽两列 */
   .rc-batch-head { flex-direction: column; align-items: stretch; gap: 8px; }
-  .rc-batch-actions, .rc-result-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; width: 100%; }
+  .rc-batch-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; width: 100%; }
+  .rc-result-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; width: 100%; }
   .rc-batch-actions .btn-sm, .rc-result-actions .btn-sm { width: 100%; }
   /* 表格改标签网格：每格带字段名，备注独占整行 */
   .rc-table thead { display: none; }
@@ -1411,7 +1523,7 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
   .rc-table td::before { content: attr(data-label); font-size: 11px; color: var(--color-text-muted); }
   .rc-table td.rc-note-cell { grid-column: 1 / -1; }
   .rc-table td .btn-sm, .rc-batch-actions .btn-sm, .rc-result-actions .btn-sm { min-height: 44px; }
-  .rc-note-input { width: 100%; min-height: 44px; }
+  .rc-note-input { width: 100%; height: 44px; min-height: 44px; }
 }
 
 /* ---------- 全景概览 ---------- */
