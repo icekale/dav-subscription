@@ -16,7 +16,7 @@ const CHANNEL_ICONS = {
 };
 const CHANNEL_LABELS = { telegram: "Telegram", feishu: "飞书", wecom: "企业微信", bark: "Bark" };
 const USER_CHANNEL_KEYS = ["telegram", "feishu", "wecom", "bark"];
-const APP_VERSION = "1.12.8";
+const APP_VERSION = "1.12.9";
 const PLATFORM_TABS = ["", "xueqiu", "combination", "weibo", "twitter"];
 const TL_PLATFORMS = PLATFORM_TABS.map((p) => [p, p ? PLATFORM_LABELS[p] : "全部"]);
 const STAR_SVG = `<svg class="star-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5l2.95 5.98 6.6.96-4.78 4.66 1.13 6.58L12 17.6l-5.9 3.1 1.13-6.58L2.45 9.44l6.6-.96L12 2.5z"/></svg>`;
@@ -3908,7 +3908,8 @@ function renderCodeGroups(groups, filter) {
       <div class="rc-batch-head">
         <div>
           <strong>${escapeHtml(noteLabel)}</strong>
-          <span class="muted"> · ${escapeHtml(fmtDbTime(all[0].created_at))} · ${expLabel}${creator} · ${available.length} 可用 / ${usedN} 已用</span>
+          <span class="muted"> · ${escapeHtml(fmtDbTime(all[0].created_at))} · ${expLabel}${creator}</span>
+          <span class="rc-counts">${available.length} 可用 / ${usedN} 已用</span>
         </div>
         <div class="rc-batch-actions">
           <button class="btn-sm" ${copyCodes.length ? "" : "disabled"} data-copy="${copyDataAttr(copy)}" onclick="copyText(decodeURIComponent(this.getAttribute('data-copy')), '已复制未用码')">复制未用</button>
@@ -3930,12 +3931,12 @@ function renderCodeRow(c) {
   const when = c.used_at ? fmtDbTime(c.used_at) : c.revoked_at ? fmtDbTime(c.revoked_at) : c.expires_at ? fmtDbTime(c.expires_at) : fmtDbTime(c.created_at);
   const canRevoke = st === "available" || st === "expired";
   return `<tr>
-    <td><code>${escapeHtml(c.code)}</code> <button class="btn-sm" data-code="${escapeHtml(c.code)}" onclick="copyText(this.dataset.code, '已复制')">复制</button></td>
-    <td><input class="form-control rc-note-input" data-code="${escapeHtml(c.code)}" value="${escapeHtml(c.note || "")}" maxlength="40" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}" onblur="adminSaveCodeNote(this)"></td>
-    <td class="${codeStatusClass(st)}">${codeStatusLabel(st)}</td>
-    <td>${escapeHtml(c.used_by_name || "")}</td>
-    <td>${escapeHtml(when)}</td>
-    <td>${canRevoke ? `<button class="btn-sm danger" data-code="${escapeHtml(c.code)}" onclick="adminRevokeCode(this.dataset.code)">作废</button>` : ""}</td>
+    <td data-label="邀请码"><code>${escapeHtml(c.code)}</code> <button class="btn-sm" data-code="${escapeHtml(c.code)}" onclick="copyText(this.dataset.code, '已复制')">复制</button></td>
+    <td data-label="备注" class="rc-note-cell"><input class="form-control rc-note-input" data-code="${escapeHtml(c.code)}" value="${escapeHtml(c.note || "")}" maxlength="40" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}" onblur="adminSaveCodeNote(this)"></td>
+    <td data-label="状态" class="${codeStatusClass(st)}">${codeStatusLabel(st)}</td>
+    <td data-label="使用者">${escapeHtml(c.used_by_name || "")}</td>
+    <td data-label="时间">${escapeHtml(when)}</td>
+    <td data-label="操作">${canRevoke ? `<button class="btn-sm danger" data-code="${escapeHtml(c.code)}" onclick="adminRevokeCode(this.dataset.code)">作废</button>` : ""}</td>
   </tr>`;
 }
 

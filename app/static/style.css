@@ -1033,6 +1033,7 @@ td .btn-sm { margin-right: 6px; }
 .rc-result-codes li { margin: 4px 0; }
 .rc-batch + .rc-batch { margin-top: 16px; padding-top: 16px; border-top: var(--border-default); }
 .rc-note-input { margin: 0; width: 140px; }
+.rc-counts { font-size: var(--text-xs); color: var(--color-accent-text); background: var(--color-accent-soft); border-radius: var(--radius-pill); padding: 2px 10px; white-space: nowrap; }
 
 .rate-bar {
   position: relative;
@@ -1398,9 +1399,17 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
   .form-control { min-height: 44px; }
   .rc-generate { flex-direction: column; align-items: stretch; }
   .rc-generate .form-control, .rc-generate .btn-normal, .rc-generate .cat-chip { width: 100%; min-height: 44px; }
+  /* 注册码筛选：一行横向滚动，不再换行成两行（此处优先级低于文末基础规则，故在 .settings-tabs 定义后另设媒体块） */
+  /* 批次头：信息纵向堆叠，操作按钮全宽两列 */
+  .rc-batch-head { flex-direction: column; align-items: stretch; gap: 8px; }
+  .rc-batch-actions, .rc-result-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; width: 100%; }
+  .rc-batch-actions .btn-sm, .rc-result-actions .btn-sm { width: 100%; }
+  /* 表格改标签网格：每格带字段名，备注独占整行 */
   .rc-table thead { display: none; }
-  .rc-table tr { display: grid; gap: 6px; padding: 12px 0; border-bottom: var(--border-default); }
-  .rc-table td { display: block; }
+  .rc-table tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; padding: 12px 0; border-bottom: var(--border-default); }
+  .rc-table td { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+  .rc-table td::before { content: attr(data-label); font-size: 11px; color: var(--color-text-muted); }
+  .rc-table td.rc-note-cell { grid-column: 1 / -1; }
   .rc-table td .btn-sm, .rc-batch-actions .btn-sm, .rc-result-actions .btn-sm { min-height: 44px; }
   .rc-note-input { width: 100%; min-height: 44px; }
 }
@@ -1497,6 +1506,12 @@ details.bind-steps[open] > summary::before { content: "▾ "; }
   background: var(--color-accent);
   border-color: var(--color-accent-text);
   color: var(--color-white);
+}
+
+@media (max-width: 768px) {
+  /* 注册码筛选：一行横向滚动（须在基础 .settings-tabs 规则之后，否则被文末 wrap 覆盖） */
+  .settings-tabs { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 4px; margin-bottom: 12px; }
+  .settings-tab { flex-shrink: 0; min-height: 44px; }
 }
 
 /* ---- 组合详情：状态 / 持仓 / 净值曲线 ---- */

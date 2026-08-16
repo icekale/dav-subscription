@@ -332,3 +332,21 @@ def test_admin_users_page_uses_modal_not_prompt():
         assert "flash(" in fn, f"{name} 应使用 flash toast"
         assert "prompt(" not in fn
         assert "alert(" not in fn
+
+
+def test_register_codes_mobile_has_field_labels_and_compact_grid():
+    """注册码页移动端：每格带 data-label 字段名、备注独占整行、批次操作两列等宽。"""
+    row = _fn_body("renderCodeRow")
+    batch = _fn_body("renderCodeGroups")
+    css = STYLE_CSS.read_text()
+
+    for label in ("邀请码", "备注", "状态", "使用者", "时间", "操作"):
+        assert f'data-label="{label}"' in row
+    assert "rc-note-cell" in row
+    assert "rc-counts" in batch  # 可用/已用独立元素，不再混在长行里断行
+    assert ".rc-table td::before" in css
+    assert 'content: attr(data-label)' in css
+    assert "rc-note-cell" in css
+    assert "grid-column: 1 / -1" in css
+    assert "repeat(2, minmax(0, 1fr))" in css  # 批次操作与表格均为两列等宽网格
+    assert ".settings-tabs" in css and "flex-wrap: nowrap" in css  # 筛选一行横向滚动
