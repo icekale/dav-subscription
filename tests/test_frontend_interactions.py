@@ -334,6 +334,26 @@ def test_admin_users_page_uses_modal_not_prompt():
         assert "alert(" not in fn
 
 
+def test_admin_users_page_has_batch_bar():
+    """用户管理：勾选列 + 表上方批量条（开/关推送/删除）。"""
+    render = _fn_body("renderAdminUsers")
+    assert 'id="au-batch-bar"' in render
+    assert 'id="au-checkall"' in render
+    assert "au-check" in render
+    assert "adminUserToggleSelect" in render
+    assert "开启推送" in render
+    assert "关闭推送" in render
+    assert "adminUsersBatch(" in render
+    assert "/api/admin/users/batch" in _fn_body("adminUsersBatch")
+    src = APP_JS.read_text()
+    assert "let _adminUsersSelected" in src
+    delete_fn = _fn_body("adminUsersBatch")
+    assert "confirm(" in delete_fn
+    assert "enable_notify" in delete_fn
+    assert "disable_notify" in delete_fn
+    assert "delete" in delete_fn
+
+
 def test_register_codes_mobile_has_field_labels_and_compact_grid():
     """注册码页移动端：每格带 data-label 字段名、备注独占整行、批次操作两列等宽。"""
     row = _fn_body("renderCodeRow")

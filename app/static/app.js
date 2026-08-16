@@ -4771,6 +4771,76 @@ function adminUsersFiltered() {
   });
 }
 
+let _adminUsersSelected = new Set();
+
+function adminUsersSyncBar() {
+  const bar = $("#au-batch-bar");
+  if (!bar) return;
+  bar.style.display = _adminUsersSelected.size ? "flex" : "none";
+  const strong = bar.querySelector("strong");
+  if (strong) strong.textContent = `已选 ${_adminUsersSelected.size} 人`;
+}
+
+function adminUserToggleSelect(el) {
+  const id = Number(el.dataset.id);
+  if (el.checked) _adminUsersSelected.add(id);
+  else _adminUsersSelected.delete(id);
+  adminUsersSyncBar();
+  const checkall = $("#au-checkall");
+  const boxes = [...document.querySelectorAll(".au-check")];
+  if (checkall) {
+    checkall.checked = boxes.length > 0 && boxes.every((c) => c.checked);
+    checkall.indeterminate = boxes.some((c) => c.checked) && !checkall.checked;
+  }
+}
+
+function adminUserTogglePage(el) {
+  document.querySelectorAll(".au-check").forEach((c) => {
+    c.checked = el.checked;
+    const id = Number(c.dataset.id);
+    if (el.checked) _adminUsersSelected.add(id);
+    else _adminUsersSelected.delete(id);
+  });
+  el.indeterminate = false;
+  adminUsersSyncBar();
+}
+
+function adminUserClearSelect() {
+  _adminUsersSelected.clear();
+  document.querySelectorAll(".au-check").forEach((c) => { c.checked = false; });
+  const checkall = $("#au-checkall");
+  if (checkall) {
+    checkall.checked = false;
+    checkall.indeterminate = false;
+  }
+  adminUsersSyncBar();
+}
+
+async function adminUsersBatch(action) {
+  const ids = [..._adminUsersSelected];
+  if (!ids.length) return;
+  if (action === "delete" && !confirm(`确认删除选中的 ${ids.length} 个用户？其订阅关系将一并删除，不可恢复。`)) return;
+  try {
+    const data = await api("/api/admin/users/batch", {
+      method: "POST",
+      body: JSON.stringify({ ids, action }),
+    });
+    const n = data.count || 0;
+    const skipped = data.skipped || 0;
+    if (action === "delete") {
+      flash(skipped ? `已删除 ${n} 人，跳过本人` : `已删除 ${n} 人`);
+    } else if (action === "enable_notify") {
+      flash(`已开启 ${n} 人推送`);
+    } else if (action === "disable_notify") {
+      flash(`已关闭 ${n} 人推送`);
+    }
+    _adminUsersSelected.clear();
+    loadAdminUsers();
+  } catch (err) {
+    flash(err.message, "error");
+  }
+}
+
 async function loadAdminUsers() {
   let users;
   try {
@@ -4818,6 +4888,7 @@ function renderAdminUsers() {
       ? `<span class="status-ok">开启</span>${u.dnd_enabled ? `<span class="muted"> · 免打扰</span>` : ""}`
       : `<span class="status-fail">关闭</span>`;
     return `<tr>
+      <td><input type="checkbox" class="au-check" data-id="${u.id}" ${_adminUsersSelected.has(u.id) ? "checked" : ""} onchange="adminUserToggleSelect(this)" aria-label="选择用户"></td>
       <td>
         <div class="user-name">
           <strong>${escapeHtml(u.username)}</strong>
@@ -4853,9 +4924,17 @@ function renderAdminUsers() {
         ${tab("unbound", "未绑定")}
         ${tab("push-off", "推送关闭")}
       </div>
+      <div class="toolbar admin-batch-bar" id="au-batch-bar" style="margin-top:10px;display:${_adminUsersSelected.size ? "flex" : "none"};align-items:center;gap:8px;flex-wrap:wrap">
+        <strong>已选 ${_adminUsersSelected.size} 人</strong>
+        <button type="button" class="btn-sm" onclick="adminUsersBatch('enable_notify')">开启推送</button>
+        <button type="button" class="btn-sm" onclick="adminUsersBatch('disable_notify')">关闭推送</button>
+        <button type="button" class="btn-sm danger" onclick="adminUsersBatch('delete')">删除</button>
+        <button type="button" class="btn-sm" onclick="adminUserClearSelect()">取消选择</button>
+      </div>
       <div class="table-wrap">
         <table>
           <thead><tr>
+            <th scope="col" style="width:32px"><input type="checkbox" id="au-checkall" onchange="adminUserTogglePage(this)" aria-label="全选当前筛选"></th>
             <th scope="col">用户</th>
             <th scope="col">来源</th>
             <th scope="col">渠道</th>
@@ -4864,12 +4943,18 @@ function renderAdminUsers() {
             <th scope="col">注册</th>
             <th scope="col">操作</th>
           </tr></thead>
-          <tbody>${rows || `<tr><td colspan="7" class="muted">${emptyMsg}</td></tr>`}</tbody>
+          <tbody>${rows || `<tr><td colspan="8" class="muted">${emptyMsg}</td></tr>`}</tbody>
         </table>
       </div>
     </section>`;
   const qEl = $("#au-q");
   if (qEl) qEl.value = state.adminUsersQ || "";
+  const checkall = $("#au-checkall");
+  const boxes = [...document.querySelectorAll(".au-check")];
+  if (checkall) {
+    checkall.checked = boxes.length > 0 && boxes.every((c) => _adminUsersSelected.has(Number(c.dataset.id)));
+    checkall.indeterminate = boxes.some((c) => c.checked) && !checkall.checked;
+  }
 }
 
 function closeAdminModal() {
