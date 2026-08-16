@@ -443,6 +443,8 @@ def test_register_codes_mobile_has_field_labels_and_compact_grid():
     assert "grid-column: 1 / -1" in css
     assert "repeat(2, minmax(0, 1fr))" in css  # 批次操作与表格均为两列等宽网格
     assert ".settings-tabs" in css and "flex-wrap: nowrap" in css  # 筛选一行横向滚动
+    hide = re.search(r"([^{}]+)\{[^}]*scrollbar-width:\s*none", css)
+    assert hide and ".settings-tabs" in hide.group(1)  # 横向滑动时隐藏滚动条，避免移动端滑动框
 
 
 def test_register_codes_desktop_controls_share_one_grid():

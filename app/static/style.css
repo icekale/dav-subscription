@@ -548,9 +548,22 @@ textarea.form-control {
 
 /* 平台筛选 */
 .platform-tabs { display: flex; gap: 8px; flex-wrap: wrap; }
-/* 移动端横向滑动时隐藏滚动条（保留滑动能力） */
-.platform-tabs, .tl-pills { scrollbar-width: none; -ms-overflow-style: none; }
-.platform-tabs::-webkit-scrollbar, .tl-pills::-webkit-scrollbar { display: none; }
+/* 横向滑动胶囊行隐藏原生滚动条（保留滑动；设置/广场/分类共用，避免移动端出现滑动框） */
+.platform-tabs,
+.tl-pills,
+.settings-tabs,
+.home-filter-content .home-cats {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.platform-tabs::-webkit-scrollbar,
+.tl-pills::-webkit-scrollbar,
+.settings-tabs::-webkit-scrollbar,
+.home-filter-content .home-cats::-webkit-scrollbar {
+  display: none;
+  height: 0;
+  width: 0;
+}
 .platform-tab {
   border: var(--border-strong);
   border-radius: var(--radius-pill);
@@ -1466,7 +1479,7 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
     margin-top: 0;
     flex-wrap: nowrap;
     overflow-x: auto;
-    padding-bottom: 2px;
+    overflow-y: hidden;
   }
   .home-filter-content .cat-chip { flex-shrink: 0; }
   .home-filter-actions { display: flex; justify-content: flex-end; }
@@ -1479,7 +1492,7 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
   .topbar-logo { height: 32px; }
   .topbar-title h2 { display: none; }
   .page-main { padding: 16px 14px calc(74px + env(safe-area-inset-bottom)); --page-pad-x: 14px; }
-  .platform-tabs { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; }
+  .platform-tabs { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; }
   .platform-tab { flex-shrink: 0; width: auto; height: auto; min-height: 44px; padding: 0 14px; gap: 6px; border-radius: var(--radius-pill); }
   .platform-tab .pt-label { display: inline; font-size: var(--text-sm); }
   .tl-pill { min-height: 44px; }
@@ -1682,7 +1695,7 @@ details.bind-steps[open] > summary::before { content: "▾ "; }
 
 @media (max-width: 768px) {
   /* 注册码筛选：一行横向滚动（须在基础 .settings-tabs 规则之后，否则被文末 wrap 覆盖） */
-  .settings-tabs { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; margin-bottom: 12px; }
+  .settings-tabs { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; margin-bottom: 12px; }
   .settings-tab { flex-shrink: 0; min-height: 44px; }
 }
 
