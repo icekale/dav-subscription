@@ -354,6 +354,29 @@ def test_admin_users_page_has_batch_bar():
     assert "delete" in delete_fn
 
 
+def test_admin_codes_page_has_batch_bar():
+    """注册码：列表上方批量条 + 行勾选 + 批次标题全选。"""
+    load = _fn_body("loadAdminCodes")
+    assert 'id="rc-batch-bar"' in load
+    assert "复制" in load
+    assert "作废未用" in load
+    assert "清掉废码" in load
+    groups = _fn_body("renderCodeGroups")
+    assert "rc-batch-check" in groups
+    assert "adminCodesToggleBatch" in groups
+    row = _fn_body("renderCodeRow")
+    assert "rc-check" in row
+    assert "adminCodesToggle(this)" in row
+    assert "adminCodesBatch" in APP_JS.read_text()
+    batch = _fn_body("adminCodesBatch")
+    assert "/api/admin/register-codes/batch" in batch
+    assert "confirm(" in batch
+    assert "copyText(" in _fn_body("adminCodesCopySelected")
+    css = STYLE_CSS.read_text()
+    assert ".admin-batch-bar" in css
+    assert ".rc-check" in css
+
+
 def test_register_codes_mobile_has_field_labels_and_compact_grid():
     """注册码页移动端：每格带 data-label 字段名、备注独占整行、批次操作两列等宽。"""
     row = _fn_body("renderCodeRow")

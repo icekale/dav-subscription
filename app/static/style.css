@@ -1140,6 +1140,14 @@ td .btn-sm { margin-right: 6px; }
   padding: 2px 10px;
   white-space: nowrap;
 }
+.admin-batch-bar { align-items: center; }
+.rc-code .rc-check, .rc-batch-title .rc-batch-check {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  flex-shrink: 0;
+}
+.rc-batch-title { align-items: center; }
 
 .rate-bar {
   position: relative;
@@ -1527,6 +1535,8 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
   .rc-table td.rc-note-cell { grid-column: 1 / -1; }
   .rc-table td .btn-sm, .rc-batch-actions .btn-sm, .rc-result-actions .btn-sm { min-height: 44px; }
   .rc-note-input { width: 100%; height: 44px; min-height: 44px; }
+  .admin-batch-bar .btn-sm { min-height: 44px; }
+  .rc-code .rc-check, .rc-batch-title .rc-batch-check { width: 20px; height: 20px; }
 }
 
 /* ---------- 全景概览 ---------- */

@@ -3776,6 +3776,102 @@ function copyText(text, okMsg) {
   }
 }
 
+let _adminCodesSelected = new Set();
+
+function codeCanRevoke(c) {
+  return c && !c.used_by && !c.revoked_at;
+}
+
+function codeCanPurge(c) {
+  const st = codeStatus(c);
+  return st === "used" || st === "revoked" || st === "expired";
+}
+
+function adminCodesSelectedRows() {
+  const all = state.adminCodes || [];
+  return all.filter((c) => _adminCodesSelected.has(c.code));
+}
+
+function adminCodesSyncBar() {
+  const bar = $("#rc-batch-bar");
+  if (!bar) return;
+  const selected = adminCodesSelectedRows();
+  bar.style.display = _adminCodesSelected.size ? "flex" : "none";
+  const strong = bar.querySelector("strong");
+  if (strong) strong.textContent = `已选 ${_adminCodesSelected.size} 个`;
+  const revokeBtn = $("#rc-batch-revoke");
+  const purgeBtn = $("#rc-batch-purge");
+  if (revokeBtn) revokeBtn.disabled = !selected.some(codeCanRevoke);
+  if (purgeBtn) purgeBtn.disabled = !selected.some(codeCanPurge);
+}
+
+function adminCodesToggle(el) {
+  const code = el.dataset.code;
+  if (!code) return;
+  if (el.checked) _adminCodesSelected.add(code);
+  else _adminCodesSelected.delete(code);
+  adminCodesSyncBar();
+  adminCodesSyncBatchChecks();
+}
+
+function adminCodesToggleBatch(el) {
+  const batchId = el.dataset.batch;
+  document.querySelectorAll(`.rc-check[data-batch="${batchId}"]`).forEach((c) => {
+    c.checked = el.checked;
+    if (el.checked) _adminCodesSelected.add(c.dataset.code);
+    else _adminCodesSelected.delete(c.dataset.code);
+  });
+  el.indeterminate = false;
+  adminCodesSyncBar();
+}
+
+function adminCodesSyncBatchChecks() {
+  document.querySelectorAll(".rc-batch-check").forEach((el) => {
+    const boxes = [...document.querySelectorAll(`.rc-check[data-batch="${el.dataset.batch}"]`)];
+    el.checked = boxes.length > 0 && boxes.every((c) => c.checked);
+    el.indeterminate = boxes.some((c) => c.checked) && !el.checked;
+  });
+}
+
+function adminCodesClearSelect() {
+  _adminCodesSelected.clear();
+  document.querySelectorAll(".rc-check").forEach((c) => { c.checked = false; });
+  document.querySelectorAll(".rc-batch-check").forEach((c) => {
+    c.checked = false;
+    c.indeterminate = false;
+  });
+  adminCodesSyncBar();
+}
+
+function adminCodesCopySelected() {
+  const codes = [..._adminCodesSelected];
+  if (!codes.length) return;
+  copyText(codes.join("\n"), `已复制 ${codes.length} 个邀请码`);
+}
+
+async function adminCodesBatch(action) {
+  const selected = adminCodesSelectedRows();
+  const codes = action === "revoke"
+    ? selected.filter(codeCanRevoke).map((c) => c.code)
+    : selected.filter(codeCanPurge).map((c) => c.code);
+  if (!codes.length) return;
+  const ok = action === "revoke"
+    ? confirm(`将作废选中的 ${codes.length} 个未使用邀请码，确认？`)
+    : confirm(`将从列表删除选中的 ${codes.length} 个已用/已作废/已过期邀请码，不可恢复。确认？`);
+  if (!ok) return;
+  try {
+    const data = await api("/api/admin/register-codes/batch", {
+      method: "POST",
+      body: JSON.stringify({ codes, action }),
+    });
+    flash(action === "revoke" ? `已作废 ${data.count} 个邀请码` : `已删除 ${data.count} 个邀请码`);
+    _adminCodesSelected.clear();
+    loadAdminCodes();
+  } catch (err) {
+    flash(err.message, "error");
+  }
+}
+
 function saveCodesForm() {
   const note = $("#rc-note");
   const count = $("#rc-count");
@@ -3809,6 +3905,10 @@ function adminCodesSyncPresets() {
 async function loadAdminCodes(refetch = true) {
   if (refetch || !state.adminCodes) {
     state.adminCodes = await api("/api/admin/register-codes");
+  }
+  const known = new Set((state.adminCodes || []).map((c) => c.code));
+  for (const code of [..._adminCodesSelected]) {
+    if (!known.has(code)) _adminCodesSelected.delete(code);
   }
   if (!routeStillActive(_adminRenderSeq)) return;
   const filter = _codesUi.filter;
@@ -3875,9 +3975,17 @@ async function loadAdminCodes(refetch = true) {
         ${filterBtn("expired", "已过期")}
         ${filterBtn("all", "全部")}
       </div>
+      <div class="toolbar admin-batch-bar" id="rc-batch-bar" style="margin-top:10px;display:${_adminCodesSelected.size ? "flex" : "none"};align-items:center;gap:8px;flex-wrap:wrap">
+        <strong>已选 ${_adminCodesSelected.size} 个</strong>
+        <button type="button" class="btn-sm" onclick="adminCodesCopySelected()">复制</button>
+        <button type="button" class="btn-sm" id="rc-batch-revoke" onclick="adminCodesBatch('revoke')">作废未用</button>
+        <button type="button" class="btn-sm danger" id="rc-batch-purge" onclick="adminCodesBatch('delete')">清掉废码</button>
+        <button type="button" class="btn-sm" onclick="adminCodesClearSelect()">取消选择</button>
+      </div>
       <div id="rc-list"></div>
     </section>`;
   renderCodesList();
+  adminCodesSyncBar();
 }
 
 function renderCodesList() {
@@ -3904,6 +4012,8 @@ function renderCodesList() {
   groups.sort((a, b) => String(b.rows[0].created_at).localeCompare(String(a.rows[0].created_at)));
   const el = $("#rc-list");
   if (el) el.innerHTML = renderCodeGroups(groups, filter);
+  adminCodesSyncBatchChecks();
+  adminCodesSyncBar();
 }
 
 function renderCodesResult(result) {
@@ -3950,6 +4060,7 @@ function renderCodeGroups(groups, filter) {
       <div class="rc-batch-head">
         <div class="rc-batch-info">
           <div class="rc-batch-title">
+            <input type="checkbox" class="rc-batch-check" data-batch="${escapeHtml(g.id)}" onchange="adminCodesToggleBatch(this)" aria-label="全选本批">
             <strong>${escapeHtml(noteLabel)}</strong>
             <span class="rc-counts">${available.length} 可用 / ${usedN} 已用</span>
           </div>
@@ -3974,8 +4085,9 @@ function renderCodeRow(c) {
   const st = codeStatus(c);
   const when = c.used_at ? fmtDbTime(c.used_at) : c.revoked_at ? fmtDbTime(c.revoked_at) : c.expires_at ? fmtDbTime(c.expires_at) : fmtDbTime(c.created_at);
   const canRevoke = st === "available" || st === "expired";
+  const checked = _adminCodesSelected.has(c.code) ? "checked" : "";
   return `<tr>
-    <td data-label="邀请码"><span class="rc-code"><code>${escapeHtml(c.code)}</code><button class="btn-sm" data-code="${escapeHtml(c.code)}" onclick="copyText(this.dataset.code, '已复制')">复制</button></span></td>
+    <td data-label="邀请码"><span class="rc-code"><input type="checkbox" class="rc-check" data-code="${escapeHtml(c.code)}" data-batch="${escapeHtml(c.batch_id || c.code)}" ${checked} onchange="adminCodesToggle(this)" aria-label="选择邀请码"><code>${escapeHtml(c.code)}</code><button class="btn-sm" data-code="${escapeHtml(c.code)}" onclick="copyText(this.dataset.code, '已复制')">复制</button></span></td>
     <td data-label="备注" class="rc-note-cell"><input class="form-control rc-note-input" data-code="${escapeHtml(c.code)}" value="${escapeHtml(c.note || "")}" maxlength="40" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}" onblur="adminSaveCodeNote(this)"></td>
     <td data-label="状态" class="${codeStatusClass(st)}">${codeStatusLabel(st)}</td>
     <td data-label="使用者">${escapeHtml(c.used_by_name || "")}</td>
