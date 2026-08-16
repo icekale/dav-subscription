@@ -3771,3 +3771,47 @@ def test_admin_user_list_newest_first_and_subscription_count():
     assert row["dnd_enabled"] is False
     older = next(u for u in rows if u["username"] == "olderu1")
     assert older["subscription_count"] == 0
+
+
+def test_admin_users_batch_notify_and_delete():
+    client = make_client()
+    admin_headers = auth_headers(client)
+    admin = client.get("/api/me", headers=admin_headers).json()
+    a_headers = user_headers(client, "batchu_a")
+    b_headers = user_headers(client, "batchu_b")
+    users = client.get("/api/users", headers=admin_headers).json()
+    uid_a = next(u["id"] for u in users if u["username"] == "batchu_a")
+    uid_b = next(u["id"] for u in users if u["username"] == "batchu_b")
+
+    def batch(ids, action):
+        return client.post(
+            "/api/admin/users/batch",
+            headers=admin_headers,
+            json={"ids": ids, "action": action},
+        )
+
+    assert batch([], "disable_notify").status_code == 400
+    assert batch([uid_a], "nope").status_code == 400
+    assert batch([uid_a, uid_b], "disable_notify").status_code == 200
+    rows = {u["id"]: u for u in client.get("/api/users", headers=admin_headers).json()}
+    assert rows[uid_a]["notify_enabled"] is False
+    assert rows[uid_b]["notify_enabled"] is False
+    assert batch([uid_a], "enable_notify").json()["count"] == 1
+    assert next(u for u in client.get("/api/users", headers=admin_headers).json() if u["id"] == uid_a)["notify_enabled"] is True
+
+    deleted = batch([admin["id"], uid_a, 999999], "delete")
+    assert deleted.status_code == 200
+    body = deleted.json()
+    assert body["count"] == 1 and body["skipped"] == 2
+    names = {u["username"] for u in client.get("/api/users", headers=admin_headers).json()}
+    assert "batchu_a" not in names
+    assert "batchu_b" in names
+    assert admin["username"] in names
+    assert client.get("/api/me", headers=a_headers).status_code in (401, 403)
+
+    uh = user_headers(client, "batchu_norm")
+    assert client.post(
+        "/api/admin/users/batch",
+        headers=uh,
+        json={"ids": [uid_b], "action": "disable_notify"},
+    ).status_code == 403

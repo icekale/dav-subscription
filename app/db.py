@@ -1068,6 +1068,19 @@ class DB:
         params.append(user_id)
         self._execute(f"UPDATE users SET {', '.join(sets)} WHERE id = ?", params)
 
+    def set_users_notify(self, ids: list[int], enabled: bool) -> int:
+        ids = [int(i) for i in ids]
+        if not ids:
+            return 0
+        placeholders = ",".join("?" * len(ids))
+        with self._lock:
+            cur = self._conn.execute(
+                f"UPDATE users SET notify_enabled = ? WHERE id IN ({placeholders})",
+                (1 if enabled else 0, *ids),
+            )
+            self._conn.commit()
+            return cur.rowcount
+
     def update_user_atomic(
         self,
         user_id: int,

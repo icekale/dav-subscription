@@ -288,6 +288,11 @@ class KolBatchAction(BaseModel):
     value: bool | int | None = None
 
 
+class UserBatchAction(BaseModel):
+    ids: list[int]
+    action: str  # enable_notify|disable_notify|delete
+
+
 class CategoryIn(BaseModel):
     name: str
 
@@ -2246,6 +2251,29 @@ def create_api_router(
             )
             for u in db.list_users()
         ]
+
+    @router.post("/admin/users/batch", dependencies=[Depends(require_admin)])
+    def users_batch_action(body: UserBatchAction, admin: dict = Depends(require_admin)):
+        if not body.ids:
+            raise HTTPException(status_code=400, detail="请先选择用户")
+        action = body.action
+        if action in ("enable_notify", "disable_notify"):
+            n = db.set_users_notify(body.ids, action == "enable_notify")
+            skipped = max(0, len(body.ids) - n)
+            _audit(admin, f"batch_{action}", str(n), f"ids={body.ids[:20]}")
+            return {"ok": True, "count": n, "skipped": skipped}
+        if action == "delete":
+            count = 0
+            skipped = 0
+            for uid in body.ids:
+                if uid == admin["id"] or db.get_user(uid) is None:
+                    skipped += 1
+                    continue
+                db.delete_user(uid)
+                count += 1
+            _audit(admin, "batch_delete_users", str(count), f"ids={body.ids[:20]} skipped={skipped}")
+            return {"ok": True, "count": count, "skipped": skipped}
+        raise HTTPException(status_code=400, detail=f"不支持的操作: {action}")
 
     @router.get("/stats", dependencies=[Depends(require_admin)])
     def stats():
