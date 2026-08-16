@@ -360,15 +360,21 @@ def test_admin_users_page_has_inactive_policy():
     assert "非活跃" in render
     assert 'id="au-inactive-n"' in render
     assert 'id="au-inactive-m"' in render
+    assert 'id="au-inactive-save"' in render
+    assert "au-inactive-field" in render
+    assert "列为非活跃" in render
+    assert "之后删除" in render
     assert "adminSaveInactivePolicy" in render
-    assert "每天扫一次" in render
     src = APP_JS.read_text()
     assert "adminSaveInactivePolicy" in src
+    assert "adminInactivePolicySyncSave" in src
+    assert "每天扫一次" in _fn_body("inactivePolicyHint")
     assert "/api/admin/inactive-users-policy" in _fn_body("adminSaveInactivePolicy")
     assert "/api/admin/inactive-users-policy" in _fn_body("loadAdminUsers")
     filt = _fn_body("adminUsersFiltered")
     assert "inactive" in filt
     assert "days_until_purge" in render
+    assert "status-warn" in render
 
 
 def test_admin_codes_page_has_batch_bar():

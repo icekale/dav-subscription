@@ -1003,6 +1003,7 @@ tbody tr:hover { background: var(--color-surface-row-hover); }
   transition: border-color var(--ease-standard), color var(--ease-standard), background var(--ease-standard);
 }
 .btn-sm:hover { border-color: var(--color-text-muted); }
+.btn-sm:disabled { opacity: 0.55; cursor: default; }
 td .btn-sm { margin-right: 6px; }
 .btn-sm.danger { color: var(--color-danger); border-color: var(--color-line-danger); }
 .btn-sm.danger:hover { border-color: var(--color-danger); color: var(--color-danger-strong); }
@@ -1303,21 +1304,43 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
 .au-inactive-policy {
   display: flex;
   flex-wrap: wrap;
+  align-items: end;
   gap: 12px;
-  align-items: center;
-  margin: 0 0 12px;
-  color: var(--color-text);
-  font-size: var(--text-sm);
+  margin: 0 0 16px;
 }
-.au-inactive-policy label {
-  display: inline-flex;
-  align-items: center;
+.au-inactive-field {
+  display: flex;
+  flex-direction: column;
   gap: 6px;
   margin: 0;
+  width: 108px;
 }
-.au-inactive-policy .form-control {
-  width: 88px;
+.au-inactive-field > span {
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-strong);
+  line-height: 1.2;
+}
+.au-inactive-field .cfg-unit { color: var(--color-text-faint); font-weight: normal; }
+.au-inactive-field .form-control {
+  width: 100%;
+  height: var(--control-height-xl);
   margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+.au-inactive-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: var(--control-height-xl);
+}
+.au-inactive-actions .btn-sm {
+  height: var(--control-height-xl);
+  min-height: var(--control-height-xl);
+  padding: 0 16px;
+}
+.au-inactive-actions .muted {
+  font-size: var(--text-xs);
 }
 .user-name { display: flex; align-items: center; gap: 8px; }
 .user-name strong { font-weight: var(--font-weight-semibold); color: var(--color-text-strong); }
@@ -1487,6 +1510,10 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
   .cat-chip { height: 44px; padding: 0 16px; }
   .search-bar { min-height: 44px; }
   .au-search { width: 100%; }
+  .au-inactive-field { width: calc(50% - 6px); }
+  .au-inactive-field .form-control,
+  .au-inactive-actions .btn-sm { height: 44px; min-height: 44px; }
+  .au-inactive-actions { flex: 1 1 100%; min-height: 44px; }
   .toolbar { flex-wrap: wrap; }
   .fav-toggle { min-height: 44px; }
   .sub-type-switches { gap: 8px; }

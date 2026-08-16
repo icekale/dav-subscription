@@ -4905,6 +4905,48 @@ function adminUsersFiltered() {
 }
 
 let _adminUsersSelected = new Set();
+let _inactivePolicyDraft = null;
+let _inactivePolicySaving = false;
+
+function inactivePolicySaved() {
+  return state.inactivePolicy || { inactive_after_days: 90, inactive_purge_after_days: 30 };
+}
+
+function inactivePolicyDraft() {
+  return _inactivePolicyDraft || inactivePolicySaved();
+}
+
+function inactivePolicyHint(n, m) {
+  n = Number(n);
+  m = Number(m);
+  if (!Number.isFinite(n) || n <= 0) return "已关闭标记与删除";
+  if (!Number.isFinite(m) || m <= 0) return "只标记，不自动删除";
+  return `每天扫一次 · 满 ${n + m} 天删除`;
+}
+
+function adminInactivePolicySyncSave() {
+  const nEl = $("#au-inactive-n");
+  const mEl = $("#au-inactive-m");
+  const btn = $("#au-inactive-save");
+  const hint = $("#au-inactive-hint");
+  if (!nEl || !mEl) return;
+  _inactivePolicyDraft = {
+    inactive_after_days: nEl.value,
+    inactive_purge_after_days: mEl.value,
+  };
+  if (hint) hint.textContent = inactivePolicyHint(nEl.value, mEl.value);
+  const saved = inactivePolicySaved();
+  const dirty =
+    Number(nEl.value) !== Number(saved.inactive_after_days) ||
+    Number(mEl.value) !== Number(saved.inactive_purge_after_days);
+  if (btn) btn.disabled = !dirty || _inactivePolicySaving;
+}
+
+function adminInactivePolicyKeydown(event) {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  adminSaveInactivePolicy();
+}
 
 function adminUsersSyncBar() {
   const bar = $("#au-batch-bar");
@@ -5006,18 +5048,31 @@ function adminUsersApplyFilter(filter) {
 async function adminSaveInactivePolicy() {
   const nEl = $("#au-inactive-n");
   const mEl = $("#au-inactive-m");
-  if (!nEl || !mEl) return;
+  const btn = $("#au-inactive-save");
+  if (!nEl || !mEl || _inactivePolicySaving) return;
   const n = Number(nEl.value);
   const m = Number(mEl.value);
+  if (!Number.isInteger(n) || !Number.isInteger(m) || n < 0 || n > 3650 || m < 0 || m > 3650) {
+    flash("天数须在 0–3650", "error");
+    return;
+  }
+  const saved = inactivePolicySaved();
+  if (n === Number(saved.inactive_after_days) && m === Number(saved.inactive_purge_after_days)) return;
+  _inactivePolicySaving = true;
+  if (btn) btn.disabled = true;
   try {
     state.inactivePolicy = await api("/api/admin/inactive-users-policy", {
       method: "PUT",
       body: JSON.stringify({ inactive_after_days: n, inactive_purge_after_days: m }),
     });
+    _inactivePolicyDraft = null;
     flash("已保存非活跃规则");
-    loadAdminUsers();
+    await loadAdminUsers();
   } catch (err) {
     flash(err.message, "error");
+  } finally {
+    _inactivePolicySaving = false;
+    adminInactivePolicySyncSave();
   }
 }
 
@@ -5047,8 +5102,8 @@ function renderAdminUsers() {
     const pills = `${u.is_admin ? `<span class="user-pill">管理员</span>` : ""}${self ? `<span class="user-pill muted">本人</span>` : ""}`;
     const push = u.inactive
       ? (u.days_until_purge == null
-        ? `<span class="status-fail">非活跃</span>`
-        : `<span class="status-fail">非活跃</span><span class="muted"> · ${Number(u.days_until_purge)} 天后删除</span>`)
+        ? `<span class="status-warn">非活跃</span>`
+        : `<span class="status-warn">非活跃</span><span class="muted"> · ${Number(u.days_until_purge)} 天后删除</span>`)
       : u.notify_enabled
       ? `<span class="status-ok">开启</span>${u.dnd_enabled ? `<span class="muted"> · 免打扰</span>` : ""}`
       : `<span class="status-fail">关闭</span>`;
@@ -5076,7 +5131,7 @@ function renderAdminUsers() {
       <header class="section-head au-head">
         <div>
           <h3 class="section-title">用户管理</h3>
-          <p class="section-meta">${users.length} 人 · ${adminN} 管理员 · ${boundN} 已绑定渠道 · ${counts.inactive} 非活跃</p>
+          <p class="section-meta">${users.length} 人 · ${adminN} 管理员 · ${boundN} 已绑定渠道</p>
         </div>
         <div class="search-bar au-search">
           ${SEARCH_ICON}
@@ -5084,10 +5139,18 @@ function renderAdminUsers() {
         </div>
       </header>
       <div class="au-inactive-policy">
-        <label>满 <input id="au-inactive-n" class="form-control" type="number" min="0" max="3650" value="${Number((state.inactivePolicy || {}).inactive_after_days ?? 90)}"> 天列为非活跃</label>
-        <label>再 <input id="au-inactive-m" class="form-control" type="number" min="0" max="3650" value="${Number((state.inactivePolicy || {}).inactive_purge_after_days ?? 30)}"> 天自动删除</label>
-        <button type="button" class="btn-sm" onclick="adminSaveInactivePolicy()">保存</button>
-        <span class="muted">每天扫一次 · 0 为关闭</span>
+        <label class="au-inactive-field">
+          <span>列为非活跃 <span class="cfg-unit">天</span></span>
+          <input id="au-inactive-n" class="form-control" type="number" min="0" max="3650" inputmode="numeric" value="${escapeHtml(String(inactivePolicyDraft().inactive_after_days ?? 90))}" oninput="adminInactivePolicySyncSave()" onkeydown="adminInactivePolicyKeydown(event)" aria-describedby="au-inactive-hint">
+        </label>
+        <label class="au-inactive-field">
+          <span>之后删除 <span class="cfg-unit">天</span></span>
+          <input id="au-inactive-m" class="form-control" type="number" min="0" max="3650" inputmode="numeric" value="${escapeHtml(String(inactivePolicyDraft().inactive_purge_after_days ?? 30))}" oninput="adminInactivePolicySyncSave()" onkeydown="adminInactivePolicyKeydown(event)" aria-describedby="au-inactive-hint">
+        </label>
+        <div class="au-inactive-actions">
+          <button type="button" class="btn-sm" id="au-inactive-save" onclick="adminSaveInactivePolicy()">保存</button>
+          <span class="muted" id="au-inactive-hint">${escapeHtml(inactivePolicyHint(inactivePolicyDraft().inactive_after_days, inactivePolicyDraft().inactive_purge_after_days))}</span>
+        </div>
       </div>
       <div class="settings-tabs" role="tablist" aria-label="用户筛选">
         ${tab("all", "全部")}
@@ -5127,6 +5190,7 @@ function renderAdminUsers() {
     checkall.checked = boxes.length > 0 && boxes.every((c) => _adminUsersSelected.has(Number(c.dataset.id)));
     checkall.indeterminate = boxes.some((c) => c.checked) && !checkall.checked;
   }
+  adminInactivePolicySyncSave();
 }
 
 function closeAdminModal() {
