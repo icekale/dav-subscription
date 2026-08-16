@@ -3798,7 +3798,12 @@ function adminCodesSyncBar() {
   const selected = adminCodesSelectedRows();
   bar.style.display = _adminCodesSelected.size ? "flex" : "none";
   const strong = bar.querySelector("strong");
-  if (strong) strong.textContent = `已选 ${_adminCodesSelected.size} 个`;
+  if (strong) {
+    const visibleSelected = document.querySelectorAll(".rc-check:checked").length;
+    strong.textContent = visibleSelected < _adminCodesSelected.size
+      ? `已选 ${_adminCodesSelected.size} 个（当前显示 ${visibleSelected}）`
+      : `已选 ${_adminCodesSelected.size} 个`;
+  }
   const revokeBtn = $("#rc-batch-revoke");
   const purgeBtn = $("#rc-batch-purge");
   if (revokeBtn) revokeBtn.disabled = !selected.some(codeCanRevoke);
@@ -3812,6 +3817,26 @@ function adminCodesToggle(el) {
   else _adminCodesSelected.delete(code);
   adminCodesSyncBar();
   adminCodesSyncBatchChecks();
+  adminCodesSyncPageCheck();
+}
+
+function adminCodesTogglePage(el) {
+  document.querySelectorAll(".rc-check").forEach((c) => {
+    c.checked = el.checked;
+    if (el.checked) _adminCodesSelected.add(c.dataset.code);
+    else _adminCodesSelected.delete(c.dataset.code);
+  });
+  adminCodesSyncBatchChecks();
+  adminCodesSyncPageCheck();
+  adminCodesSyncBar();
+}
+
+function adminCodesSyncPageCheck() {
+  const el = $("#rc-checkall");
+  if (!el) return;
+  const boxes = [...document.querySelectorAll(".rc-check")];
+  el.checked = boxes.length > 0 && boxes.every((c) => c.checked);
+  el.indeterminate = boxes.some((c) => c.checked) && !el.checked;
 }
 
 function adminCodesToggleBatch(el) {
@@ -3822,6 +3847,8 @@ function adminCodesToggleBatch(el) {
     else _adminCodesSelected.delete(c.dataset.code);
   });
   el.indeterminate = false;
+  adminCodesSyncBatchChecks();
+  adminCodesSyncPageCheck();
   adminCodesSyncBar();
 }
 
@@ -3840,6 +3867,7 @@ function adminCodesClearSelect() {
     c.checked = false;
     c.indeterminate = false;
   });
+  adminCodesSyncPageCheck();
   adminCodesSyncBar();
 }
 
@@ -3855,16 +3883,22 @@ async function adminCodesBatch(action) {
     ? selected.filter(codeCanRevoke).map((c) => c.code)
     : selected.filter(codeCanPurge).map((c) => c.code);
   if (!codes.length) return;
+  const skipped = selected.length - codes.length;
+  const skipTip = skipped ? `（另有 ${skipped} 个${action === "revoke" ? "不可作废" : "不可删除"}，已跳过）` : "";
   const ok = action === "revoke"
-    ? confirm(`将作废选中的 ${codes.length} 个未使用邀请码，确认？`)
-    : confirm(`将从列表删除选中的 ${codes.length} 个已用/已作废/已过期邀请码，不可恢复。确认？`);
+    ? confirm(`将作废选中的 ${codes.length} 个未使用邀请码${skipTip}，确认？`)
+    : confirm(`将从列表删除选中的 ${codes.length} 个已用/已作废/已过期邀请码${skipTip}，不可恢复。确认？`);
   if (!ok) return;
   try {
     const data = await api("/api/admin/register-codes/batch", {
       method: "POST",
       body: JSON.stringify({ codes, action }),
     });
-    flash(action === "revoke" ? `已作废 ${data.count} 个邀请码` : `已删除 ${data.count} 个邀请码`);
+    const serverSkipped = data.skipped || 0;
+    const msg = action === "revoke"
+      ? (serverSkipped ? `已作废 ${data.count} 个，跳过 ${serverSkipped} 个` : `已作废 ${data.count} 个邀请码`)
+      : (serverSkipped ? `已删除 ${data.count} 个，跳过 ${serverSkipped} 个` : `已删除 ${data.count} 个邀请码`);
+    flash(msg);
     _adminCodesSelected.clear();
     loadAdminCodes();
   } catch (err) {
@@ -3982,6 +4016,12 @@ async function loadAdminCodes(refetch = true) {
         <button type="button" class="btn-sm danger" id="rc-batch-purge" onclick="adminCodesBatch('delete')">清掉废码</button>
         <button type="button" class="btn-sm" onclick="adminCodesClearSelect()">取消选择</button>
       </div>
+      <div class="rc-list-toolbar">
+        <label class="rc-checkall">
+          <input type="checkbox" id="rc-checkall" onchange="adminCodesTogglePage(this)" aria-label="全选当前筛选">
+          <span>全选当前筛选</span>
+        </label>
+      </div>
       <div id="rc-list"></div>
     </section>`;
   renderCodesList();
@@ -4013,6 +4053,7 @@ function renderCodesList() {
   const el = $("#rc-list");
   if (el) el.innerHTML = renderCodeGroups(groups, filter);
   adminCodesSyncBatchChecks();
+  adminCodesSyncPageCheck();
   adminCodesSyncBar();
 }
 
@@ -4060,7 +4101,7 @@ function renderCodeGroups(groups, filter) {
       <div class="rc-batch-head">
         <div class="rc-batch-info">
           <div class="rc-batch-title">
-            <input type="checkbox" class="rc-batch-check" data-batch="${escapeHtml(g.id)}" onchange="adminCodesToggleBatch(this)" aria-label="全选本批">
+            <input type="checkbox" class="rc-batch-check" data-batch="${escapeHtml(g.id)}" onchange="adminCodesToggleBatch(this)" aria-label="全选本批可见" title="全选本批当前可见的注册码">
             <strong>${escapeHtml(noteLabel)}</strong>
             <span class="rc-counts">${available.length} 可用 / ${usedN} 已用</span>
           </div>

@@ -1148,6 +1148,26 @@ td .btn-sm { margin-right: 6px; }
   flex-shrink: 0;
 }
 .rc-batch-title { align-items: center; }
+.rc-list-toolbar {
+  display: flex;
+  align-items: center;
+  margin: 10px 0 4px;
+}
+.rc-checkall {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+.rc-checkall input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  flex-shrink: 0;
+}
 
 .rate-bar {
   position: relative;
@@ -1536,7 +1556,7 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
   .rc-table td .btn-sm, .rc-batch-actions .btn-sm, .rc-result-actions .btn-sm { min-height: 44px; }
   .rc-note-input { width: 100%; height: 44px; min-height: 44px; }
   .admin-batch-bar .btn-sm { min-height: 44px; }
-  .rc-code .rc-check, .rc-batch-title .rc-batch-check { width: 20px; height: 20px; }
+  .rc-code .rc-check, .rc-batch-title .rc-batch-check, .rc-checkall input { width: 20px; height: 20px; }
 }
 
 /* ---------- 全景概览 ---------- */
