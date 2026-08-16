@@ -13,6 +13,8 @@ body {
 }
 button { font-family: inherit; cursor: pointer; }
 input, select { font-family: inherit; font-size: 14px; }
+/* iOS Safari：所有交互元素禁用双击缩放（pinch 缩放保留），点按立即响应 */
+button, a, input, select, textarea, label { touch-action: manipulation; }
 a { color: var(--color-accent-text); text-decoration: none; }
 .hidden { display: none !important; }
 button:focus-visible {
@@ -1500,6 +1502,8 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
   .btn-normal, .btn-ghost, .channel-btn { min-height: 44px; }
   .btn-add { min-height: 44px; }
   .form-control { min-height: 44px; }
+  /* iOS Safari：聚焦 <16px 的表单控件会整页自动缩放（input zoom），移动端统一 16px */
+  .form-control, input:not([type="checkbox"]):not([type="hidden"]):not([type="file"]), select, textarea { font-size: 16px; }
   .rc-generate { max-width: none; }
   .rc-field-note { flex: 1 1 100%; max-width: none; }
   .rc-field-count, .rc-field-expires { flex: 1 1 calc(50% - 6px); width: auto; }
