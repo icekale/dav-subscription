@@ -1421,7 +1421,6 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
     flex-wrap: nowrap;
     overflow-x: auto;
     padding-bottom: 2px;
-    -webkit-overflow-scrolling: touch;
   }
   .home-filter-content .cat-chip { flex-shrink: 0; }
   .home-filter-actions { display: flex; justify-content: flex-end; }
@@ -1434,7 +1433,7 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
   .topbar-logo { height: 32px; }
   .topbar-title h2 { display: none; }
   .page-main { padding: 16px 14px calc(74px + env(safe-area-inset-bottom)); }
-  .platform-tabs { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 4px; }
+  .platform-tabs { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; }
   .platform-tab { flex-shrink: 0; width: auto; height: auto; min-height: 44px; padding: 0 14px; gap: 6px; border-radius: var(--radius-pill); }
   .platform-tab .pt-label { display: inline; font-size: var(--text-sm); }
   .tl-pill { min-height: 44px; }
@@ -1601,6 +1600,11 @@ details.bind-steps > summary::before {
 }
 details.bind-steps[open] > summary::before { content: "▾ "; }
 
+/* iOS Safari 适配：横向可滚动胶囊行（平台/分类/设置分栏）点击会被手势吞掉。
+   touch-action: manipulation 让点按立即触发（去掉双击缩放延迟），同时保留横向滑动与页面纵向滚动；
+   -webkit-overflow-scrolling 已废弃（iOS 16+ 原生滚动），其旧的动量滚动层是 iOS 点击失效的根因之一。 */
+.settings-tabs, .platform-tabs, .home-filter-content .home-cats { touch-action: manipulation; }
+
 /* 设置页分段导航 */
 .settings-tabs { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
 .settings-tab {
@@ -1622,7 +1626,7 @@ details.bind-steps[open] > summary::before { content: "▾ "; }
 
 @media (max-width: 768px) {
   /* 注册码筛选：一行横向滚动（须在基础 .settings-tabs 规则之后，否则被文末 wrap 覆盖） */
-  .settings-tabs { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 4px; margin-bottom: 12px; }
+  .settings-tabs { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; margin-bottom: 12px; }
   .settings-tab { flex-shrink: 0; min-height: 44px; }
 }
 
