@@ -11,7 +11,7 @@ import time
 
 import httpx
 
-from .base import Fetcher, Post, format_published_at
+from .base import Fetcher, Post, ThreadLocalClient, format_published_at
 from .xueqiu import (
     XUEQIU_COOKIE_KEY,
     XUEQIU_COOKIE_TIME_KEY,
@@ -200,7 +200,19 @@ class CombinationFetcher(Fetcher):
     def __init__(self, source_config, db, client: httpx.Client | None = None):
         super().__init__(source_config)
         self.db = db
-        self.client = client or _cube_client(getattr(source_config, "cookie", ""))
+        cookie = getattr(source_config, "cookie", "")
+        self._http = ThreadLocalClient(
+            lambda: _cube_client(cookie),
+            injected=client,
+        )
+
+    @property
+    def client(self):
+        return self._http.get()
+
+    @client.setter
+    def client(self, value):
+        self._http.set(value)
 
     def _apply_cookie(self) -> None:
         cookie = self.db.get_setting(XUEQIU_COOKIE_KEY) or self.source_config.cookie

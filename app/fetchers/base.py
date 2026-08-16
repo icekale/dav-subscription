@@ -4,6 +4,7 @@ from __future__ import annotations
 import email.utils
 import html
 import re
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
@@ -78,6 +79,27 @@ def format_published_at(raw: str) -> str:
     if dt is None:
         return raw
     return dt.astimezone(CN_TZ).strftime("%Y-%m-%d %H:%M")
+
+
+class ThreadLocalClient:
+    """httpx.Client 非线程安全：poll_once 同平台最多 8 并发，每线程懒建一个。"""
+
+    def __init__(self, factory, injected=None):
+        self._factory = factory
+        self._injected = injected
+        self._local = threading.local()
+
+    def get(self):
+        if self._injected is not None:
+            return self._injected
+        client = getattr(self._local, "client", None)
+        if client is None:
+            client = self._factory()
+            self._local.client = client
+        return client
+
+    def set(self, client) -> None:
+        self._injected = client
 
 
 class Fetcher:

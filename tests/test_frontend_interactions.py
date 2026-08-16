@@ -448,3 +448,15 @@ def test_register_codes_desktop_controls_share_one_grid():
     groups = _fn_body("renderCodeGroups")
     assert "rc-batch-title" in groups
     assert "rc-batch-meta" in groups
+
+
+def test_logout_clears_timeline_and_bind_cache():
+    """登出必须清掉动态缓存和绑定码，避免下一账号看到上一账号的数据。"""
+    body = _fn_body("logout")
+    assert "clearSessionCaches()" in body
+    clear = _fn_body("clearSessionCaches")
+    assert "_tlPosts.length = 0" in clear
+    assert "_tlLoadedFilter = null" in clear
+    assert "pendingBind = null" in clear
+    assert "state.timelineFavorite = false" in clear
+    assert "state.timelineSecondary = false" in clear

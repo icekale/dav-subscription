@@ -28,6 +28,13 @@ WORKERS_ENV = "DAV_UI_ONLY"
 logger = logging.getLogger(__name__)
 
 
+def redact_access_path(path: str) -> str:
+    """RSS 路径里的 feed_token 是凭证，访问日志只保留路由形态。"""
+    if path.startswith("/api/feed/") and path.endswith(".xml"):
+        return "/api/feed/[redacted].xml"
+    return path
+
+
 def background_workers_enabled() -> bool:
     """调度器/机器人等后台任务是否启用（DAV_UI_ONLY=1 时关闭）。"""
     return os.environ.get(WORKERS_ENV, "0") != "1"
@@ -215,7 +222,7 @@ def create_app(config=None, db_path: str | Path | None = None) -> FastAPI:
             if payload:
                 user = payload.get("name") or ""
         line = (
-            f"{request.method} {request.url.path} -> {response.status_code} "
+            f"{request.method} {redact_access_path(request.url.path)} -> {response.status_code} "
             f"({duration_ms:.0f}ms) user={user}"
         )
         if duration_ms >= 1000:

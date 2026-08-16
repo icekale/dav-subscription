@@ -695,6 +695,7 @@ def notify_subscribers(
     client=None,
     dnd_buffer: dict[int, list[Post]] | None = None,
     secondary_buffer: dict[int, list[Post]] | None = None,
+    only_favorites: bool = False,
 ) -> None:
     """把新帖推送给订阅了该大V的用户（各自绑定的渠道）。"""
     if notifiers_config is None:
@@ -711,6 +712,8 @@ def notify_subscribers(
             if not _sub_type_matches(sub_type, post.post_type):
                 continue  # 订阅类型不覆盖该动态（帖子/回复分订）
             favorite = bool(user.get("favorite"))
+            if only_favorites and not favorite:
+                continue
             keywords = db.get_user_keywords(user["id"])
             keyword_hit = _keyword_hit(keywords, post)
             if (
@@ -1018,6 +1021,11 @@ def _fetch_kol_once(
                     # 次要大V：所有非特别关注订阅者进用户级合并缓冲，
                     # 跨大V按 secondary_digest_interval 周期统一推一条摘要
                     _buffer_secondary_subscribers(db, kol["id"], post, secondary_buffer)
+                    notify_subscribers(
+                        db, post_id, post, notifiers_config, notifiers, retry_queue,
+                        client=client, dnd_buffer=dnd_buffer, secondary_buffer=secondary_buffer,
+                        only_favorites=True,
+                    )
                 else:
                     # 次要合并禁用（secondary_digest_interval=0）时实时推送
                     notify_subscribers(
@@ -1087,6 +1095,54 @@ def _user_llm_config(user: dict, fallback=None):
     )
 
 
+def _send_digest_bundle(
+    notifier,
+    summary,
+    posts: list[Post],
+    kol: dict,
+    db: DB,
+    channel: str,
+    user: dict,
+    retry_queue: PushRetryQueue | None,
+    notifiers,
+) -> None:
+    """发 AI 要点 + 摘要卡片。已发出部分成功时不再把帖子逐条入重试队列。"""
+    sent_any = False
+    try:
+        if summary:
+            notifier.send_text(f"📊 AI 摘要\n\n{summary}")
+            sent_any = True
+        notifier.send_digest(posts, kol["name"], kol["platform"])
+        sent_any = True
+        for post in posts:
+            db.add_push_log(
+                db.get_post_id(post.platform, post.external_id),
+                channel,
+                "success",
+                user_id=user["id"],
+            )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("摘要推送失败 user=%s channel=%s err=%s", user["username"], channel, exc)
+        maybe_alert_push_failure(
+            db,
+            notifiers or [],
+            f"user={user['username']} channel={channel} digest err={exc}",
+        )
+        if sent_any:
+            return
+        if retry_queue is not None:
+            for post in posts:
+                retry_queue.add(post, channel, user["id"])
+        for post in posts:
+            db.add_push_log(
+                db.get_post_id(post.platform, post.external_id),
+                channel,
+                "failed",
+                str(exc),
+                user_id=user["id"],
+            )
+
+
 def notify_digest_subscribers(
     db: DB,
     posts: list[Post],
@@ -1124,14 +1180,23 @@ def notify_digest_subscribers(
             if bool(user.get("secondary")) and not favorite:
                 # 个人次要用户不参与 KOL 摘要：帖子已进用户级延迟缓冲，避免重复推送
                 continue
+            keywords = db.get_user_keywords(user["id"])
             if (
                 dnd_buffer is not None
                 and _in_dnd_window(user)
                 and not (favorite and _dnd_favorite_passthrough(user))
             ):
-                # 免打扰时段：摘要也进入免打扰缓冲，结束时统一补推
-                dnd_buffer.setdefault(user["id"], []).extend(matched)
-                continue
+                delayed, instant = [], []
+                for post in matched:
+                    if _keyword_hit(keywords, post):
+                        instant.append(post)
+                    else:
+                        delayed.append(post)
+                if delayed:
+                    dnd_buffer.setdefault(user["id"], []).extend(delayed)
+                if not instant:
+                    continue
+                matched = instant
             summary = None
             llm_cfg = _user_llm_config(user, llm_config)
             if llm_cfg is not None:
@@ -1155,35 +1220,9 @@ def notify_digest_subscribers(
                     favorite=favorite,
                     secondary=bool(user.get("secondary")),
                 )
-                try:
-                    if summary:
-                        notifier.send_text(f"📊 AI 摘要\n\n{summary}")
-                    notifier.send_digest(matched, kol["name"], kol["platform"])
-                    for post in matched:
-                        db.add_push_log(
-                            db.get_post_id(post.platform, post.external_id),
-                            "telegram",
-                            "success",
-                            user_id=user["id"],
-                        )
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning("摘要推送失败 user=%s channel=telegram err=%s", user["username"], exc)
-                    maybe_alert_push_failure(
-                        db,
-                        notifiers or [],
-                        f"user={user['username']} channel=telegram digest err={exc}",
-                    )
-                    if retry_queue is not None:
-                        for post in matched:
-                            retry_queue.add(post, "telegram", user["id"])
-                    for post in matched:
-                        db.add_push_log(
-                            db.get_post_id(post.platform, post.external_id),
-                            "telegram",
-                            "failed",
-                            str(exc),
-                            user_id=user["id"],
-                        )
+                _send_digest_bundle(
+                    notifier, summary, matched, kol, db, "telegram", user, retry_queue, notifiers
+                )
             if _channel_enabled(user, "feishu") and channel_bound(user, "feishu", notifiers_config, db):
                 from .feishu_personal import build_personal_feishu_kwargs
 
@@ -1200,35 +1239,9 @@ def notify_digest_subscribers(
                     app_secret=fs_kwargs["app_secret"],
                     interactive_buttons=not bool(fs_kwargs["app_id"]),
                 )
-                try:
-                    if summary:
-                        notifier.send_text(f"📊 AI 摘要\n\n{summary}")
-                    notifier.send_digest(matched, kol["name"], kol["platform"])
-                    for post in matched:
-                        db.add_push_log(
-                            db.get_post_id(post.platform, post.external_id),
-                            "feishu",
-                            "success",
-                            user_id=user["id"],
-                        )
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning("摘要推送失败 user=%s channel=feishu err=%s", user["username"], exc)
-                    maybe_alert_push_failure(
-                        db,
-                        notifiers or [],
-                        f"user={user['username']} channel=feishu digest err={exc}",
-                    )
-                    if retry_queue is not None:
-                        for post in matched:
-                            retry_queue.add(post, "feishu", user["id"])
-                    for post in matched:
-                        db.add_push_log(
-                            db.get_post_id(post.platform, post.external_id),
-                            "feishu",
-                            "failed",
-                            str(exc),
-                            user_id=user["id"],
-                        )
+                _send_digest_bundle(
+                    notifier, summary, matched, kol, db, "feishu", user, retry_queue, notifiers
+                )
             if user.get("wecom_webhook") and _channel_enabled(user, "wecom"):
                 notifier = WeComNotifier(
                     notifiers_config.wecom,
@@ -1236,35 +1249,9 @@ def notify_digest_subscribers(
                     webhook_url=user["wecom_webhook"],
                     favorite=favorite,
                 )
-                try:
-                    if summary:
-                        notifier.send_text(f"📊 AI 摘要\n\n{summary}")
-                    notifier.send_digest(matched, kol["name"], kol["platform"])
-                    for post in matched:
-                        db.add_push_log(
-                            db.get_post_id(post.platform, post.external_id),
-                            "wecom",
-                            "success",
-                            user_id=user["id"],
-                        )
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning("摘要推送失败 user=%s channel=wecom err=%s", user["username"], exc)
-                    maybe_alert_push_failure(
-                        db,
-                        notifiers or [],
-                        f"user={user['username']} channel=wecom digest err={exc}",
-                    )
-                    if retry_queue is not None:
-                        for post in matched:
-                            retry_queue.add(post, "wecom", user["id"])
-                    for post in matched:
-                        db.add_push_log(
-                            db.get_post_id(post.platform, post.external_id),
-                            "wecom",
-                            "failed",
-                            str(exc),
-                            user_id=user["id"],
-                        )
+                _send_digest_bundle(
+                    notifier, summary, matched, kol, db, "wecom", user, retry_queue, notifiers
+                )
             if user.get("bark_key") and _channel_enabled(user, "bark"):
                 notifier = BarkNotifier(
                     getattr(notifiers_config, "bark", None) if notifiers_config is not None else None,
@@ -1272,35 +1259,9 @@ def notify_digest_subscribers(
                     bark_key=user["bark_key"],
                     favorite=favorite,
                 )
-                try:
-                    if summary:
-                        notifier.send_text(f"📊 AI 摘要\n\n{summary}")
-                    notifier.send_digest(matched, kol["name"], kol["platform"])
-                    for post in matched:
-                        db.add_push_log(
-                            db.get_post_id(post.platform, post.external_id),
-                            "bark",
-                            "success",
-                            user_id=user["id"],
-                        )
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning("摘要推送失败 user=%s channel=bark err=%s", user["username"], exc)
-                    maybe_alert_push_failure(
-                        db,
-                        notifiers or [],
-                        f"user={user['username']} channel=bark digest err={exc}",
-                    )
-                    if retry_queue is not None:
-                        for post in matched:
-                            retry_queue.add(post, "bark", user["id"])
-                    for post in matched:
-                        db.add_push_log(
-                            db.get_post_id(post.platform, post.external_id),
-                            "bark",
-                            "failed",
-                            str(exc),
-                            user_id=user["id"],
-                        )
+                _send_digest_bundle(
+                    notifier, summary, matched, kol, db, "bark", user, retry_queue, notifiers
+                )
     finally:
         client.close()
 
@@ -2032,10 +1993,12 @@ class Scheduler:
             item["user_id"] is not None
             and post.kol_id in self.db.subscribed_favorite_ids(item["user_id"])
         )
+        keywords = self.db.get_user_keywords(user["id"]) if user is not None else []
         if (
             user is not None
             and _in_dnd_window(user)
             and not (favorite and _dnd_favorite_passthrough(user))
+            and not _keyword_hit(keywords, post)
         ):
             # 免打扰时段内的重试也进免打扰缓冲，避免深夜打扰
             self._dnd_buffer.setdefault(user["id"], []).append(post)
@@ -2150,14 +2113,17 @@ class Scheduler:
             for channel in CHANNELS:
                 if not channel_enabled(user, channel) or not channel_bound(user, channel, self.notifiers_config, self.db):
                     continue
+                sent_any = False
                 try:
                     notifier = build_channel_notifier(channel, user, self.notifiers_config, client=client, db=self.db)
                     if summary:
                         notifier.send_text(f"📊 AI 摘要\n\n{summary}")
+                        sent_any = True
                     if title is not None:
                         notifier.send_dnd_summary(posts, title=title)
                     else:
                         notifier.send_dnd_summary(posts)
+                    sent_any = True
                     for post in posts:
                         post_id = self.db.get_post_id(post.platform, post.external_id)
                         if post_id:
@@ -2169,6 +2135,8 @@ class Scheduler:
                         self.notifiers or [],
                         f"user={user['username']} channel={channel} dnd err={exc}",
                     )
+                    if sent_any:
+                        continue
                     # 失败渠道的帖子逐条写失败日志并入重试队列，避免免打扰缓冲静默丢失；
                     # 重试按单帖发送（_retry_push），不依赖内存中的摘要文本
                     for post in posts:

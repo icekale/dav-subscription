@@ -11,7 +11,7 @@ from pathlib import Path
 import httpx
 
 from ..avatar_cache import cache_avatar
-from .base import Fetcher, Post, format_published_at, strip_html
+from .base import Fetcher, Post, ThreadLocalClient, format_published_at, strip_html
 
 XUEQIU_COOKIE_KEY = "xueqiu_cookie"
 XUEQIU_COOKIE_TIME_KEY = "xueqiu_cookie_updated_at"
@@ -240,19 +240,31 @@ class XueqiuFetcher(Fetcher):
     def __init__(self, source_config, db, client: httpx.Client | None = None):
         super().__init__(source_config)
         self.db = db
-        self.client = client or httpx.Client(
-            timeout=20,
-            headers={
-                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X)",
-                "Accept": "application/json, text/plain, */*",
-                "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-                "Origin": "https://xueqiu.com",
-                "X-Requested-With": "XMLHttpRequest",
-                "Referer": "https://xueqiu.com/",
-            },
-        )
-        if self.source_config.cookie:
-            self.client.headers["Cookie"] = self.source_config.cookie
+        headers = {
+            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X)",
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+            "Origin": "https://xueqiu.com",
+            "X-Requested-With": "XMLHttpRequest",
+            "Referer": "https://xueqiu.com/",
+        }
+        cookie = getattr(self.source_config, "cookie", "") or ""
+
+        def _make_client():
+            c = httpx.Client(timeout=20, headers=headers)
+            if cookie:
+                c.headers["Cookie"] = cookie
+            return c
+
+        self._http = ThreadLocalClient(_make_client, injected=client)
+
+    @property
+    def client(self):
+        return self._http.get()
+
+    @client.setter
+    def client(self, value):
+        self._http.set(value)
 
     def _apply_cookie(self) -> None:
         """合并 cookie：登录态（DB/配置）打底，叠加 waf-bot 的通关 cookie（同名覆盖）。"""

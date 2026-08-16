@@ -13,7 +13,7 @@ import httpx
 import rsa
 
 from ..avatar_cache import cache_avatar
-from .base import Fetcher, Post, format_published_at, strip_html
+from .base import Fetcher, Post, ThreadLocalClient, format_published_at, strip_html
 
 logger = logging.getLogger(__name__)
 
@@ -153,19 +153,34 @@ class WeiboFetcher(Fetcher):
     def __init__(self, source_config, db, client: httpx.Client | None = None):
         super().__init__(source_config)
         self.db = db
-        self.client = client or httpx.Client(
-            timeout=20,
-            follow_redirects=True,
-            headers={
-                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
-                "Referer": "https://weibo.com/",
-            },
-        )
-        if self.source_config.cookie:
-            self.client.headers["Cookie"] = self.source_config.cookie
-        if self.source_config.token:
-            self.client.headers["X-XSRF-TOKEN"] = self.source_config.token
+        cookie = self.source_config.cookie
+        token = self.source_config.token
+
+        def _make_client():
+            c = httpx.Client(
+                timeout=20,
+                follow_redirects=True,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+                    "Referer": "https://weibo.com/",
+                },
+            )
+            if cookie:
+                c.headers["Cookie"] = cookie
+            if token:
+                c.headers["X-XSRF-TOKEN"] = token
+            return c
+
+        self._http = ThreadLocalClient(_make_client, injected=client)
+
+    @property
+    def client(self):
+        return self._http.get()
+
+    @client.setter
+    def client(self, value):
+        self._http.set(value)
 
     def _apply_cookie(self) -> None:
         """优先使用自动登录得到的 cookie，否则用配置里的初始值。"""

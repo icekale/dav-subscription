@@ -240,10 +240,31 @@ async function api(path, options = {}) {
   return data;
 }
 
+function clearSessionCaches() {
+  if (typeof stopTimelinePoll === "function") stopTimelinePoll();
+  _tlPosts.length = 0;
+  _tlOffset = 0;
+  _tlHasMore = true;
+  _tlExpanded.clear();
+  _tlLatestId = 0;
+  _tlLoadedFilter = null;
+  _tlSavedScrollY = 0;
+  _tlPendingNew.length = 0;
+  _tlPendingLatestId = 0;
+  pendingBind = null;
+  state.timelineQ = "";
+  state.timelineCategory = "";
+  state.timelineTag = "";
+  state.timelinePlatform = "";
+  state.timelineFavorite = false;
+  state.timelineSecondary = false;
+}
+
 function logout() {
   state.token = "";
   state.user = null;
   localStorage.removeItem("dav_token");
+  clearSessionCaches();
   location.hash = "#/timeline";
   $("#app-view").classList.add("hidden");
   $("#auth-view").classList.remove("hidden");

@@ -1126,6 +1126,8 @@ class DB:
         revoke_tokens: bool = False,
     ) -> None:
         """一次提交用户字段与关键词；密码变更可同时撤销既有 token。"""
+        if "password_hash" in updates and "feed_token" not in updates:
+            updates = {**updates, "feed_token": secrets.token_urlsafe(32)}
         sets, params = [], []
         for key, value in updates.items():
             if key not in self._UPDATE_USER_COLUMNS:
@@ -1182,7 +1184,8 @@ class DB:
         return self._rows(
             "SELECT * FROM users WHERE is_admin = 0 AND last_login_at IS NULL "
             f"AND created_at <= datetime('now', ?) AND NOT {_user_has_channel_sql()} "
-            "AND NOT EXISTS (SELECT 1 FROM push_logs p WHERE p.user_id = users.id)",
+            "AND NOT EXISTS (SELECT 1 FROM push_logs p WHERE p.user_id = users.id) "
+            "AND NOT EXISTS (SELECT 1 FROM subscriptions s WHERE s.user_id = users.id)",
             (f"-{int(after_days)} days",),
         )
 
@@ -1195,7 +1198,8 @@ class DB:
             for r in self._rows(
                 "SELECT id FROM users WHERE is_admin = 0 AND last_login_at IS NULL "
                 f"AND created_at <= datetime('now', ?) AND NOT {_user_has_channel_sql()} "
-                "AND NOT EXISTS (SELECT 1 FROM push_logs p WHERE p.user_id = users.id)",
+                "AND NOT EXISTS (SELECT 1 FROM push_logs p WHERE p.user_id = users.id) "
+                "AND NOT EXISTS (SELECT 1 FROM subscriptions s WHERE s.user_id = users.id)",
                 (f"-{total} days",),
             )
         ]

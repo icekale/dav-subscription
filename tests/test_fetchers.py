@@ -1,5 +1,6 @@
 import json
 import re
+import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -1217,3 +1218,28 @@ def test_normalize_xueqiu_id():
     assert normalize_xueqiu_id("https://xueqiu.com/Syedc") == "https://xueqiu.com/Syedc"
     assert normalize_xueqiu_id("") == ""
     assert normalize_xueqiu_id(None) == ""
+
+
+def test_shared_fetchers_use_thread_local_http_clients():
+    """同平台并发 worker 不得共享一个 httpx.Client。"""
+    from app.fetchers.weibo import WeiboFetcher
+
+    cfg = SimpleNamespace(cookie="", token="")
+    fetchers = [
+        XueqiuFetcher(XueqiuConfig(), db=None),
+        WeiboFetcher(cfg, db=None),
+        CombinationFetcher(cfg, db=None),
+    ]
+    for fetcher in fetchers:
+        ids = []
+
+        def grab(f=fetcher):
+            ids.append(id(f.client))
+
+        t1 = threading.Thread(target=grab)
+        t2 = threading.Thread(target=grab)
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+        assert len(set(ids)) == 2, type(fetcher).__name__

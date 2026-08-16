@@ -1,4 +1,5 @@
 """RSS 订阅源导出：build_rss_xml 渲染 + /api/feed/<token>.xml 路由。"""
+import logging
 import tempfile
 from pathlib import Path
 
@@ -130,6 +131,17 @@ def test_feed_token_regenerate_invalidates_old():
 
     assert client.get(f"/api/feed/{old}.xml").status_code == 404
     assert client.get(f"/api/feed/{new}.xml").status_code == 200
+
+
+def test_feed_token_redacted_in_access_log(caplog):
+    client = make_client()
+    headers, _ = _seed_user_and_sub(client)
+    token = client.get("/api/me", headers=headers).json()["feed_token"]
+    with caplog.at_level(logging.DEBUG, logger="app.access"):
+        assert client.get(f"/api/feed/{token}.xml").status_code == 200
+    joined = "\n".join(caplog.messages)
+    assert token not in joined
+    assert "/api/feed/" in joined
 
 
 def test_feed_route_empty_subscriptions():

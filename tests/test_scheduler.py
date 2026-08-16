@@ -3282,6 +3282,30 @@ def test_retry_push_sends_when_still_subscribed(monkeypatch):
     assert len(_retry_tg_instances[0].sent) == 1
 
 
+def test_retry_push_dnd_keyword_penetration(monkeypatch):
+    """免打扰时段重试：关键词命中仍立即发送，不得改进行缓冲。"""
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.add_subscription(uid, kid)
+    db.set_user_keywords(uid, ["ETF"])
+    post = Post(
+        platform="xueqiu", kol_id=kid, kol_name="A",
+        external_id="p1", title="ETF 大涨", content="内容", url="u", published_at="",
+    )
+    db.insert_post("xueqiu", kid, post.external_id, post.title, post.content, post.url, post.published_at)
+    monkeypatch.setattr("app.scheduler._in_dnd_window", lambda user, now=None: True)
+    scheduler = _retry_scheduler(db, monkeypatch)
+    _retry_tg_instances.clear()
+    scheduler.retry_queue.add(post, "telegram", uid)
+    item = next(iter(scheduler.retry_queue._items.values()))
+    scheduler._retry_push(item)
+    assert scheduler.retry_queue.pending() == 0
+    assert uid not in scheduler._dnd_buffer
+    assert len(_retry_tg_instances) == 1
+    assert len(_retry_tg_instances[0].sent) == 1
+
+
 def test_retry_push_drops_when_unsubscribed(monkeypatch):
     db = make_db()
     kid = db.add_kol("xueqiu", "A", "1")
@@ -3506,6 +3530,84 @@ def test_notify_subscribers_dnd_keyword_penetration(monkeypatch):
     notify_subscribers(db, 2, normal, ncfg, notifiers=[], retry_queue=None, dnd_buffer=dnd_buffer)
     assert sent == []  # 未命中 → 缓冲
     assert uid in dnd_buffer
+
+
+def test_notify_digest_dnd_keyword_penetration(monkeypatch):
+    """摘要路径：免打扰时关键词命中仍实时发摘要，未命中进缓冲。"""
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.add_subscription(uid, kid)
+    db.set_user_keywords(uid, ["ETF"])
+    monkeypatch.setattr("app.scheduler._in_dnd_window", lambda user, now=None: True)
+    hit = Post(
+        platform="xueqiu", kol_id=kid, kol_name="A",
+        external_id="p1", title="ETF 大涨", content="内容", url="u", published_at="",
+    )
+    normal = Post(
+        platform="xueqiu", kol_id=kid, kol_name="A",
+        external_id="p2", title="普通动态", content="内容", url="u", published_at="",
+    )
+    for p in (hit, normal):
+        db.insert_post(p.platform, kid, p.external_id, p.title, p.content, p.url, p.published_at)
+    sent = []
+    dnd_buffer: dict[int, list] = {}
+
+    class FakeTG:
+        def __init__(self, *args, **kwargs):
+            self.client = SimpleNamespace(close=lambda: None)
+
+        def send_digest(self, posts, kol_name, platform):
+            sent.extend(p.external_id for p in posts)
+
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FakeTG)
+    ncfg = SimpleNamespace(
+        telegram=SimpleNamespace(bot_token="t", chat_id=""),
+        feishu=SimpleNamespace(),
+        wecom=SimpleNamespace(),
+        bark=SimpleNamespace(bark_server="", bark_key=""),
+    )
+    notify_digest_subscribers(
+        db, [hit, normal], db.get_kol(kid), ncfg, notifiers=[], dnd_buffer=dnd_buffer
+    )
+    assert sent == ["p1"]
+    assert [p.external_id for p in dnd_buffer.get(uid, [])] == ["p2"]
+
+
+def test_digest_partial_success_does_not_retry_posts(monkeypatch):
+    """AI 摘要已发出、digest 卡片失败时，不得把帖子逐条入重试队列。"""
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.add_subscription(uid, kid)
+    post = make_post(kid)
+    db.insert_post(post.platform, kid, post.external_id, post.title, post.content, post.url, post.published_at)
+    retry_queue = SimpleNamespace(add=lambda post, channel, uid: retry_queue.calls.append((channel, uid)))
+    retry_queue.calls = []
+
+    class FakeTG:
+        def __init__(self, *args, **kwargs):
+            self.client = SimpleNamespace(close=lambda: None)
+
+        def send_text(self, text):
+            pass
+
+        def send_digest(self, posts, kol_name, platform):
+            raise RuntimeError("digest boom")
+
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FakeTG)
+    monkeypatch.setattr("app.llm.summarize_posts", lambda *a, **k: "要点")
+    ncfg = SimpleNamespace(
+        telegram=SimpleNamespace(bot_token="t", chat_id=""),
+        feishu=SimpleNamespace(),
+        wecom=SimpleNamespace(),
+        bark=SimpleNamespace(bark_server="", bark_key=""),
+    )
+    llm_cfg = SimpleNamespace(api_key="sk", api_base="https://api.deepseek.com", model="x")
+    notify_digest_subscribers(
+        db, [post], db.get_kol(kid), ncfg, notifiers=[], retry_queue=retry_queue, llm_config=llm_cfg
+    )
+    assert retry_queue.calls == []
 
 
 def test_notify_subscribers_bark_channel(monkeypatch):
@@ -3989,6 +4091,45 @@ def test_secondary_kol_buffered_into_user_buffer_not_kol_digest(monkeypatch):
     assert scheduler._secondary_buffer == {}
 
 
+def test_secondary_kol_favorite_gets_realtime_push(monkeypatch):
+    """全局次要大V：特别关注订阅者实时推送，不得既不缓冲也不推送。"""
+    db = make_db()
+    kid = db.add_kol("xueqiu", "S", "1", secondary=True)
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.add_subscription(uid, kid)
+    db.set_subscription_favorite(uid, kid, True)
+    seed_baseline_post(db, kid)
+    digest: dict[int, list] = {}
+    secondary_buffer: dict[int, list] = {}
+    sent = []
+
+    class FakeTG:
+        def __init__(self, config, chat_id=None, client=None, **kwargs):
+            self.client = SimpleNamespace(close=lambda: None)
+
+        def notify(self, post):
+            sent.append(post.external_id)
+
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FakeTG)
+    ncfg = SimpleNamespace(
+        telegram=SimpleNamespace(bot_token="t", chat_id=""),
+        feishu=SimpleNamespace(),
+        wecom=SimpleNamespace(),
+    )
+    poll_once(
+        db,
+        {"xueqiu": FakeFetcher([make_post(kid)])},
+        [],
+        interval_seconds=0,
+        digest=digest,
+        secondary_buffer=secondary_buffer,
+        notifiers_config=ncfg,
+    )
+    assert sent == ["p1"]
+    assert digest == {}
+    assert secondary_buffer == {}
+
+
 def test_secondary_kols_merge_cross_kol_in_one_summary(monkeypatch):
     """多个次要大V的新帖合并到同一用户缓冲，flush 只发一条摘要（跨大V合并）。"""
     db = make_db()
@@ -4099,8 +4240,13 @@ def test_purge_inactive_users_deletes_old_ghosts():
     db.touch_last_login(logged)
     db.update_user(bound, telegram_chat_id="tg-bound")
     db.add_push_log(0, "telegram", "success", user_id=pushed)
+    subscribed = db.add_user("subg", "h")
+    kid = db.add_kol("xueqiu", "S", "sub1")
+    db.add_subscription(subscribed, kid)
+    db._execute("UPDATE users SET created_at = datetime('now', '-16 days') WHERE id = ?", (subscribed,))
     n = db.purge_inactive_users()
     assert n == 1
+    assert db.get_user(subscribed) is not None
     assert db.get_user(keep) is not None
     assert db.get_user(gone) is None
     assert db.get_user(logged) is not None

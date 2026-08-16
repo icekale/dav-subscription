@@ -950,6 +950,25 @@ def test_change_password_api():
     assert client.post("/api/auth/login", json={"username": "pwuser", "password": "newpass123"}).status_code == 200
 
 
+def test_change_password_rotates_feed_token():
+    client = make_client()
+    headers = user_headers(client, "pwfeed")
+    old = client.get("/api/me", headers=headers).json()["feed_token"]
+    assert old
+    assert client.get(f"/api/feed/{old}.xml").status_code == 200
+    assert client.post(
+        "/api/me/password",
+        headers=headers,
+        json={"old_password": "pass123456", "new_password": "newpass123"},
+    ).status_code == 200
+    assert client.get(f"/api/feed/{old}.xml").status_code == 404
+    login = client.post("/api/auth/login", json={"username": "pwfeed", "password": "newpass123"})
+    new_headers = {"Authorization": f"Bearer {login.json()['token']}"}
+    new = client.get("/api/me", headers=new_headers).json()["feed_token"]
+    assert new and new != old
+    assert client.get(f"/api/feed/{new}.xml").status_code == 200
+
+
 def test_channel_claim_conflict():
     client = make_client()
     headers_a = user_headers(client, "user_a")
@@ -3482,8 +3501,10 @@ def test_private_kol_content_denied_on_feed_and_rss():
 
     # RSS 同样不返回
     db.update_user(uid, feed_token="tok_priv_1")
-    xml = client.get("/feed/tok_priv_1.xml").text
-    assert "公开帖子" not in xml
+    xml_resp = client.get("/api/feed/tok_priv_1.xml")
+    assert xml_resp.status_code == 200
+    assert "application/rss+xml" in xml_resp.headers["content-type"]
+    assert "公开帖子" not in xml_resp.text
 
     # 管理员订阅后仍可读（管理访问语义保留）
     admin_uid = db.get_user_by_username("testadmin")["id"]
@@ -3952,6 +3973,12 @@ def test_inactive_user_policy_and_list_flags():
     db._execute("UPDATE users SET created_at = datetime('now', '-12 days') WHERE id = ?", (ghost3,))
     db.touch_last_login(ghost3)
     assert next(u for u in client.get("/api/users", headers=admin_headers).json() if u["id"] == ghost3)["inactive"] is False
+
+    rss_only = db.add_user("rssghost", "h")
+    kid = db.add_kol("xueqiu", "RSS大V", "rss1")
+    db.add_subscription(rss_only, kid)
+    db._execute("UPDATE users SET created_at = datetime('now', '-12 days') WHERE id = ?", (rss_only,))
+    assert next(u for u in client.get("/api/users", headers=admin_headers).json() if u["id"] == rss_only)["inactive"] is False
 
     admin_id = client.get("/api/me", headers=admin_headers).json()["id"]
     db._execute(
