@@ -3895,3 +3895,85 @@ def test_login_sets_last_login_at_register_does_not():
     ).status_code == 200
     row = db.get_user(uid)
     assert row["last_login_at"]
+
+
+def test_inactive_user_policy_and_list_flags():
+    from app.db import days_until_purge
+
+    client = make_client()
+    admin_headers = auth_headers(client)
+    db = client.app.state.db
+    assert client.get("/api/admin/inactive-users-policy", headers=admin_headers).json() == {
+        "inactive_after_days": 90,
+        "inactive_purge_after_days": 30,
+    }
+    uh = user_headers(client, "inact_norm")
+    assert client.put(
+        "/api/admin/inactive-users-policy",
+        headers=uh,
+        json={"inactive_after_days": 10, "inactive_purge_after_days": 5},
+    ).status_code == 403
+    assert client.put(
+        "/api/admin/inactive-users-policy",
+        headers=admin_headers,
+        json={"inactive_after_days": 10, "inactive_purge_after_days": 5},
+    ).status_code == 200
+    assert client.put(
+        "/api/admin/inactive-users-policy",
+        headers=admin_headers,
+        json={"inactive_after_days": -1, "inactive_purge_after_days": 5},
+    ).status_code == 400
+    assert client.put(
+        "/api/admin/inactive-users-policy",
+        headers=admin_headers,
+        json={"inactive_after_days": 10, "inactive_purge_after_days": 3651},
+    ).status_code == 400
+
+    ghost = db.add_user("ghost90", "h")
+    db._execute("UPDATE users SET created_at = datetime('now', '-12 days') WHERE id = ?", (ghost,))
+    rows = {u["id"]: u for u in client.get("/api/users", headers=admin_headers).json()}
+    assert rows[ghost]["inactive"] is True
+    assert rows[ghost]["days_until_purge"] == days_until_purge(
+        db.get_user(ghost)["created_at"], 10, 5
+    )
+    assert rows[ghost]["days_until_purge"] >= 0
+
+    db.update_user(ghost, telegram_chat_id="1")
+    rows = {u["id"]: u for u in client.get("/api/users", headers=admin_headers).json()}
+    assert rows[ghost]["inactive"] is False
+    assert rows[ghost]["days_until_purge"] is None
+
+    ghost2 = db.add_user("ghost91", "h")
+    db._execute("UPDATE users SET created_at = datetime('now', '-12 days') WHERE id = ?", (ghost2,))
+    db.add_push_log(0, "telegram", "success", user_id=ghost2)
+    assert next(u for u in client.get("/api/users", headers=admin_headers).json() if u["id"] == ghost2)["inactive"] is False
+
+    ghost3 = db.add_user("ghost92", "h")
+    db._execute("UPDATE users SET created_at = datetime('now', '-12 days') WHERE id = ?", (ghost3,))
+    db.touch_last_login(ghost3)
+    assert next(u for u in client.get("/api/users", headers=admin_headers).json() if u["id"] == ghost3)["inactive"] is False
+
+    admin_id = client.get("/api/me", headers=admin_headers).json()["id"]
+    db._execute(
+        "UPDATE users SET created_at = datetime('now', '-12 days'), last_login_at = NULL WHERE id = ?",
+        (admin_id,),
+    )
+    assert next(u for u in client.get("/api/users", headers=admin_headers).json() if u["id"] == admin_id)["inactive"] is False
+
+    ghost4 = db.add_user("ghost93", "h")
+    db._execute("UPDATE users SET created_at = datetime('now', '-12 days') WHERE id = ?", (ghost4,))
+    assert client.put(
+        "/api/admin/inactive-users-policy",
+        headers=admin_headers,
+        json={"inactive_after_days": 10, "inactive_purge_after_days": 0},
+    ).json() == {"inactive_after_days": 10, "inactive_purge_after_days": 0}
+    g4 = next(u for u in client.get("/api/users", headers=admin_headers).json() if u["id"] == ghost4)
+    assert g4["inactive"] is True
+    assert g4["days_until_purge"] is None
+
+    assert client.put(
+        "/api/admin/inactive-users-policy",
+        headers=admin_headers,
+        json={"inactive_after_days": 0, "inactive_purge_after_days": 5},
+    ).json()["inactive_after_days"] == 0
+    assert next(u for u in client.get("/api/users", headers=admin_headers).json() if u["id"] == ghost4)["inactive"] is False

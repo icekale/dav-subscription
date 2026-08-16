@@ -7,6 +7,7 @@ import shutil
 import sqlite3
 import threading
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 _UNSET = object()
@@ -49,6 +50,32 @@ def _user_has_channel_sql(alias: str = "") -> str:
         f"OR EXISTS (SELECT 1 FROM feishu_personal_bots b "
         f"WHERE b.user_id = {uid} AND b.status = 'active' AND b.chat_id != ''))"
     )
+
+
+INACTIVE_AFTER_KEY = "inactive_after_days"
+INACTIVE_PURGE_KEY = "inactive_purge_after_days"
+INACTIVE_LAST_PURGE_KEY = "inactive_users_last_purge_at"
+
+
+def _parse_inactive_days(value, default: int) -> int:
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return default
+    if n < 0 or n > 3650:
+        return default
+    return n
+
+
+def days_until_purge(created_at: str | None, n: int, m: int) -> int | None:
+    """距离 created_at + N + M 的剩余整天数；非活跃且 M>0 时由调用方使用。"""
+    if n <= 0 or m <= 0 or not created_at:
+        return None
+    created = datetime.strptime(
+        str(created_at)[:19].replace("T", " "), "%Y-%m-%d %H:%M:%S"
+    ).replace(tzinfo=timezone.utc)
+    sec = (created + timedelta(days=n + m) - datetime.now(timezone.utc)).total_seconds()
+    return max(0, int(sec // 86400))
 
 
 def _normalize_post_images(rows: list[dict]) -> list[dict]:
@@ -1136,6 +1163,28 @@ class DB:
 
     def list_users(self) -> list[dict]:
         return self._rows("SELECT * FROM users ORDER BY id DESC")
+
+    def get_inactive_policy(self) -> tuple[int, int]:
+        n = _parse_inactive_days(self.get_setting(INACTIVE_AFTER_KEY), 90)
+        m = _parse_inactive_days(self.get_setting(INACTIVE_PURGE_KEY), 30)
+        return n, m
+
+    def set_inactive_policy(self, after_days: int, purge_after_days: int) -> tuple[int, int]:
+        n = int(after_days)
+        m = int(purge_after_days)
+        self.set_setting(INACTIVE_AFTER_KEY, str(n))
+        self.set_setting(INACTIVE_PURGE_KEY, str(m))
+        return n, m
+
+    def list_inactive_user_rows(self, after_days: int) -> list[dict]:
+        if after_days <= 0:
+            return []
+        return self._rows(
+            "SELECT * FROM users WHERE is_admin = 0 AND last_login_at IS NULL "
+            f"AND created_at <= datetime('now', ?) AND NOT {_user_has_channel_sql()} "
+            "AND NOT EXISTS (SELECT 1 FROM push_logs p WHERE p.user_id = users.id)",
+            (f"-{int(after_days)} days",),
+        )
 
     def subscription_counts(self) -> dict[int, int]:
         return {

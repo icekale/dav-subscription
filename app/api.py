@@ -27,7 +27,7 @@ from pydantic import BaseModel
 from . import auth, wechat
 from .avatar_cache import cache_avatar
 from .bot_core import BIND_CODE_TTL
-from .db import _UNSET, ALLOWED_PLATFORMS, DB
+from .db import _UNSET, ALLOWED_PLATFORMS, DB, days_until_purge
 from .feed import build_rss_xml
 from .fetchers.base import Post
 from .fetchers.combination import extract_cube_symbol, resolve_combination_profile
@@ -293,6 +293,11 @@ class UserBatchAction(BaseModel):
     action: str  # enable_notify|disable_notify|delete
 
 
+class InactiveUsersPolicyIn(BaseModel):
+    inactive_after_days: int
+    inactive_purge_after_days: int
+
+
 class RegisterCodeBatchAction(BaseModel):
     codes: list[str]
     action: str  # revoke|delete
@@ -441,6 +446,8 @@ def admin_user_summary(
     *,
     feishu_personal_active: bool = False,
     subscription_count: int = 0,
+    inactive: bool = False,
+    days_until_purge: int | None = None,
 ) -> dict:
     """管理员用户列表摘要：只暴露管理所需字段，不含 feed_token/bark_key/wecom_webhook/llm_api_key 等凭证。"""
     invite = invite or {}
@@ -461,6 +468,8 @@ def admin_user_summary(
         "custom_telegram_bot": bool(user.get("telegram_bot_token")),
         "register_code": invite.get("code") or "",
         "register_note": invite.get("note") or "",
+        "inactive": bool(inactive),
+        "days_until_purge": days_until_purge,
     }
 
 
@@ -2270,15 +2279,37 @@ def create_api_router(
         invites = _invite_by_user_id()
         personal = db.active_feishu_personal_user_ids()
         counts = db.subscription_counts()
+        n_days, m_days = db.get_inactive_policy()
+        inactive_ids = {r["id"] for r in db.list_inactive_user_rows(n_days)}
         return [
             admin_user_summary(
                 u,
                 invites.get(u["id"]),
                 feishu_personal_active=u["id"] in personal,
                 subscription_count=counts.get(u["id"], 0),
+                inactive=u["id"] in inactive_ids,
+                days_until_purge=(
+                    days_until_purge(u.get("created_at"), n_days, m_days)
+                    if u["id"] in inactive_ids
+                    else None
+                ),
             )
             for u in db.list_users()
         ]
+
+    @router.get("/admin/inactive-users-policy", dependencies=[Depends(require_admin)])
+    def get_inactive_users_policy():
+        n, m = db.get_inactive_policy()
+        return {"inactive_after_days": n, "inactive_purge_after_days": m}
+
+    @router.put("/admin/inactive-users-policy")
+    def put_inactive_users_policy(body: InactiveUsersPolicyIn, admin: dict = Depends(require_admin)):
+        n, m = body.inactive_after_days, body.inactive_purge_after_days
+        if n < 0 or n > 3650 or m < 0 or m > 3650:
+            raise HTTPException(status_code=400, detail="天数须在 0–3650")
+        n, m = db.set_inactive_policy(n, m)
+        _audit(admin, "update_inactive_users_policy", "", f"n={n} m={m}")
+        return {"inactive_after_days": n, "inactive_purge_after_days": m}
 
     @router.post("/admin/users/batch", dependencies=[Depends(require_admin)])
     def users_batch_action(body: UserBatchAction, admin: dict = Depends(require_admin)):
