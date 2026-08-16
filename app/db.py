@@ -1186,6 +1186,43 @@ class DB:
             (f"-{int(after_days)} days",),
         )
 
+    def list_inactive_purge_ids(self, after_days: int, purge_after_days: int) -> list[int]:
+        if after_days <= 0 or purge_after_days <= 0:
+            return []
+        total = int(after_days) + int(purge_after_days)
+        return [
+            r["id"]
+            for r in self._rows(
+                "SELECT id FROM users WHERE is_admin = 0 AND last_login_at IS NULL "
+                f"AND created_at <= datetime('now', ?) AND NOT {_user_has_channel_sql()} "
+                "AND NOT EXISTS (SELECT 1 FROM push_logs p WHERE p.user_id = users.id)",
+                (f"-{total} days",),
+            )
+        ]
+
+    def purge_inactive_users(self) -> int:
+        n_days, m_days = self.get_inactive_policy()
+        ids = self.list_inactive_purge_ids(n_days, m_days)
+        for uid in ids:
+            row = self.get_user(uid)
+            username = (row or {}).get("username") or ""
+            self.log_admin_action(None, "purge_inactive_user", str(uid), username)
+            self.delete_user(uid)
+        return len(ids)
+
+    def purge_inactive_users_if_due(self, now_ts: int | None = None) -> int:
+        now_ts = int(now_ts or time.time())
+        raw = self.get_setting(INACTIVE_LAST_PURGE_KEY) or "0"
+        try:
+            last = int(float(raw))
+        except (TypeError, ValueError):
+            last = 0
+        if last and now_ts - last < 24 * 3600:
+            return 0
+        n = self.purge_inactive_users()
+        self.set_setting(INACTIVE_LAST_PURGE_KEY, str(now_ts))
+        return n
+
     def subscription_counts(self) -> dict[int, int]:
         return {
             r["user_id"]: r["n"]

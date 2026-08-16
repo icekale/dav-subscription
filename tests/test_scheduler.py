@@ -4079,3 +4079,52 @@ def test_secondary_kol_realtime_when_long_digest_disabled(monkeypatch):
     )
     assert calls == ["p1"]
     assert digest == {}
+
+
+def test_purge_inactive_users_deletes_old_ghosts():
+    db = make_db()
+    db.set_inactive_policy(10, 5)
+    keep = db.add_user("keepg", "h")
+    gone = db.add_user("goneg", "h")
+    logged = db.add_user("loggedg", "h")
+    bound = db.add_user("boundg", "h")
+    pushed = db.add_user("pushedg", "h")
+    admin = db.add_user("adming", "h", is_admin=True)
+    db._execute("UPDATE users SET created_at = datetime('now', '-12 days') WHERE id = ?", (keep,))
+    db._execute("UPDATE users SET created_at = datetime('now', '-16 days') WHERE id = ?", (gone,))
+    db._execute("UPDATE users SET created_at = datetime('now', '-16 days') WHERE id = ?", (logged,))
+    db._execute("UPDATE users SET created_at = datetime('now', '-16 days') WHERE id = ?", (bound,))
+    db._execute("UPDATE users SET created_at = datetime('now', '-16 days') WHERE id = ?", (pushed,))
+    db._execute("UPDATE users SET created_at = datetime('now', '-16 days') WHERE id = ?", (admin,))
+    db.touch_last_login(logged)
+    db.update_user(bound, telegram_chat_id="tg-bound")
+    db.add_push_log(0, "telegram", "success", user_id=pushed)
+    n = db.purge_inactive_users()
+    assert n == 1
+    assert db.get_user(keep) is not None
+    assert db.get_user(gone) is None
+    assert db.get_user(logged) is not None
+    assert db.get_user(bound) is not None
+    assert db.get_user(pushed) is not None
+    assert db.get_user(admin) is not None
+    logs = db.list_admin_logs()
+    assert any(r["action"] == "purge_inactive_user" and r["target"] == str(gone) for r in logs)
+
+    db.set_inactive_policy(1, 0)
+    leftover = db.add_user("markonly", "h")
+    db._execute("UPDATE users SET created_at = datetime('now', '-10 days') WHERE id = ?", (leftover,))
+    assert db.purge_inactive_users() == 0
+    assert db.get_user(leftover) is not None
+
+
+def test_purge_inactive_skips_within_24h():
+    db = make_db()
+    db.set_setting("inactive_users_last_purge_at", str(int(time.time())))
+    gone = db.add_user("goneg2", "h")
+    db.set_inactive_policy(1, 1)
+    db._execute("UPDATE users SET created_at = datetime('now', '-10 days') WHERE id = ?", (gone,))
+    assert db.purge_inactive_users_if_due() == 0
+    assert db.get_user(gone) is not None
+    db.set_setting("inactive_users_last_purge_at", str(int(time.time()) - 25 * 3600))
+    assert db.purge_inactive_users_if_due() == 1
+    assert db.get_user(gone) is None
