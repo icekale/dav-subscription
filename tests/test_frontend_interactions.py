@@ -284,6 +284,21 @@ def test_post_header_does_not_clip_platform_or_time():
     assert 'class="p-platform"' in post_card
 
 
+def test_mobile_post_name_aligns_with_platform_badge():
+    """移动端名字与平台角标必须同一中线：不能只用 min-height 把名字撑高却让文字贴顶。"""
+    css = STYLE_CSS.read_text()
+    mobile = re.search(
+        r"@media \(max-width: 768px\) \{.*?\.post-item a\.p-name\s*\{([^}]*)\}",
+        css,
+        re.DOTALL,
+    )
+    assert mobile, "缺少移动端 .post-item a.p-name 规则"
+    body = mobile.group(1)
+    assert "display: block" in body
+    assert "line-height: 44px" in body
+    assert "height: 44px" in body
+
+
 def test_push_channels_html_treats_personal_feishu_as_bound():
     """渠道勾选不能只看 users.feishu_*，否则个人机器人用户会看到「还没有绑定」。"""
     assert "feishu_personal" in _fn_body("feishuChannelBound")
@@ -460,3 +475,21 @@ def test_logout_clears_timeline_and_bind_cache():
     assert "pendingBind = null" in clear
     assert "state.timelineFavorite = false" in clear
     assert "state.timelineSecondary = false" in clear
+
+
+def test_sticky_chrome_is_opaque_canvas_not_glass():
+    """顶栏/筛选条用不透明画布色，禁止半透明+saturate 把页面径向渐变放大成色块。"""
+    tokens = (APP_JS.parent / "vendor" / "design-tokens.css").read_text()
+    css = STYLE_CSS.read_text()
+    assert tokens.count("--color-surface-nav: var(--color-bg)") >= 2
+    assert "rgba(15, 17, 21, 0.82)" not in tokens
+    assert "rgba(245, 245, 247, 0.78)" not in tokens
+    body = re.search(r"^body\s*\{([^}]*)\}", css, re.M)
+    assert body and "gradient-page-admin-wide" not in body.group(1)
+    topbar = re.search(r"^\.topbar\s*\{([^}]*)\}", css, re.M)
+    assert topbar and "backdrop-filter" not in topbar.group(1)
+    assert "background: var(--color-bg)" in topbar.group(1)
+    bar = re.search(r"^\.tl-filterbar\s*\{([^}]*)\}", css, re.M)
+    assert bar and "backdrop-filter" not in bar.group(1)
+    assert "calc(-1 * var(--page-pad-x))" in bar.group(1)
+    assert css.count("--page-pad-x:") >= 3

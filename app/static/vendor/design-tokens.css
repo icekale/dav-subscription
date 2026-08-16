@@ -90,7 +90,7 @@
   --color-surface-row-dirty: rgba(0, 113, 227, 0.08);
   --color-surface-row-dirty-hover: rgba(0, 113, 227, 0.12);
   --color-surface-row-dirty-cell: rgba(233, 244, 255, 0.86);
-  --color-surface-nav: rgba(245, 245, 247, 0.78);
+  --color-surface-nav: var(--color-bg);
   --color-surface-table-shell: rgba(255, 255, 255, 0.84);
   --color-surface-table-shell-soft: rgba(255, 255, 255, 0.76);
   --color-surface-table-head-top: rgba(249, 251, 254, 0.98);
@@ -350,7 +350,7 @@
   --color-surface-row-dirty: rgba(64, 145, 255, 0.12);
   --color-surface-row-dirty-hover: rgba(64, 145, 255, 0.18);
   --color-surface-row-dirty-cell: rgba(26, 36, 52, 0.9);
-  --color-surface-nav: rgba(15, 17, 21, 0.82);
+  --color-surface-nav: var(--color-bg);
   --color-surface-table-shell: rgba(22, 25, 31, 0.84);
   --color-surface-table-shell-soft: rgba(22, 25, 31, 0.76);
   --color-surface-table-head-top: rgba(26, 30, 38, 0.98);
