@@ -378,6 +378,7 @@ def test_admin_codes_page_has_batch_bar():
     src = APP_JS.read_text()
     assert "adminCodesTogglePage" in src
     assert "adminCodesSyncPageCheck" in src
+    assert "adminSaveCodeNote" not in src
     css = STYLE_CSS.read_text()
     assert ".admin-batch-bar" in css
     assert ".rc-check" in css
@@ -393,6 +394,8 @@ def test_register_codes_mobile_has_field_labels_and_compact_grid():
     for label in ("邀请码", "备注", "状态", "使用者", "时间", "操作"):
         assert f'data-label="{label}"' in row
     assert "rc-note-cell" in row
+    assert "rc-note-input" not in row
+    assert "adminSaveCodeNote" not in row
     assert "rc-counts" in batch  # 可用/已用独立元素，不再混在长行里断行
     assert ".rc-table td::before" in css
     assert 'content: attr(data-label)' in css

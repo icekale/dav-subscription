@@ -4129,7 +4129,7 @@ function renderCodeRow(c) {
   const checked = _adminCodesSelected.has(c.code) ? "checked" : "";
   return `<tr>
     <td data-label="邀请码"><span class="rc-code"><input type="checkbox" class="rc-check" data-code="${escapeHtml(c.code)}" data-batch="${escapeHtml(c.batch_id || c.code)}" ${checked} onchange="adminCodesToggle(this)" aria-label="选择邀请码"><code>${escapeHtml(c.code)}</code><button class="btn-sm" data-code="${escapeHtml(c.code)}" onclick="copyText(this.dataset.code, '已复制')">复制</button></span></td>
-    <td data-label="备注" class="rc-note-cell"><input class="form-control rc-note-input" data-code="${escapeHtml(c.code)}" value="${escapeHtml(c.note || "")}" maxlength="40" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}" onblur="adminSaveCodeNote(this)"></td>
+    <td data-label="备注" class="rc-note-cell">${escapeHtml(c.note || "")}</td>
     <td data-label="状态" class="${codeStatusClass(st)}">${codeStatusLabel(st)}</td>
     <td data-label="使用者">${escapeHtml(c.used_by_name || "")}</td>
     <td data-label="时间">${escapeHtml(when)}</td>
@@ -4157,28 +4157,6 @@ async function adminRevokeBatch(batchId, fromResult) {
     loadAdminCodes();
   } catch (err) {
     alert("作废失败: " + err.message);
-  }
-}
-
-async function adminSaveCodeNote(input) {
-  const code = input.dataset.code;
-  const note = input.value.trim();
-  if (note.length > 40) {
-    alert("备注最长40字");
-    return;
-  }
-  try {
-    await api(`/api/admin/register-codes/${encodeURIComponent(code)}`, {
-      method: "PATCH",
-      body: JSON.stringify({ note }),
-    });
-    const row = (state.adminCodes || []).find((c) => c.code === code);
-    if (row) row.note = note;
-    renderCodesList();
-  } catch (err) {
-    alert("保存备注失败: " + err.message);
-    const row = (state.adminCodes || []).find((c) => c.code === code);
-    if (row) input.value = row.note || "";
   }
 }
 
