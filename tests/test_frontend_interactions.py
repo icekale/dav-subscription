@@ -480,7 +480,7 @@ def test_logout_clears_timeline_and_bind_cache():
 
 
 def test_sticky_chrome_is_opaque_canvas_not_glass():
-    """顶栏/筛选条用不透明画布色，禁止半透明+saturate 把页面径向渐变放大成色块。"""
+    """壳层（顶栏/筛选条/侧栏/底栏）用不透明画布色，禁止半透明+saturate 放大色块。"""
     tokens = (APP_JS.parent / "vendor" / "design-tokens.css").read_text()
     css = STYLE_CSS.read_text()
     assert tokens.count("--color-surface-nav: var(--color-bg)") >= 2
@@ -495,3 +495,10 @@ def test_sticky_chrome_is_opaque_canvas_not_glass():
     assert bar and "backdrop-filter" not in bar.group(1)
     assert "calc(-1 * var(--page-pad-x))" in bar.group(1)
     assert css.count("--page-pad-x:") >= 3
+    sidebar = re.search(r"^\.sidebar\s*\{([^}]*)\}", css, re.M)
+    assert sidebar and "backdrop-filter" not in sidebar.group(1)
+    assert "background: var(--color-bg)" in sidebar.group(1)
+    bottom = re.search(r"^\.bottom-nav\s*\{([^}]*)\}", css, re.M)
+    assert bottom and "backdrop-filter" not in bottom.group(1)
+    assert "background: var(--color-bg)" in bottom.group(1)
+    assert "backdrop-filter" not in css

@@ -290,8 +290,7 @@ textarea.form-control {
   position: sticky;
   top: 0;
   height: 100vh;
-  background: var(--color-surface-soft);
-  backdrop-filter: blur(var(--blur-nav)) saturate(160%);
+  background: var(--color-bg);
   border-right: var(--border-default);
   display: flex;
   flex-direction: column;
@@ -353,7 +352,7 @@ textarea.form-control {
 .sidebar-gh-link.has-update::after {
   content: ""; position: absolute; top: -2px; right: -2px;
   width: 9px; height: 9px; border-radius: 50%;
-  background: var(--color-accent); border: 2px solid var(--color-surface-soft);
+  background: var(--color-accent); border: 2px solid var(--color-bg);
 }
 .sidebar-gh-icon { width: 14px; height: 14px; }
 .sidebar-user-meta { font-size: 11px; color: var(--color-text-faint); letter-spacing: 0.3px; }
@@ -1421,8 +1420,7 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
   position: fixed;
   left: 0; right: 0; bottom: 0;
   z-index: 50;
-  background: var(--color-surface-soft);
-  backdrop-filter: blur(var(--blur-nav)) saturate(160%);
+  background: var(--color-bg);
   border-top: var(--border-default);
   padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
   justify-content: space-around;
