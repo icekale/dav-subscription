@@ -293,6 +293,11 @@ class UserBatchAction(BaseModel):
     action: str  # enable_notify|disable_notify|delete
 
 
+class RegisterCodeBatchAction(BaseModel):
+    codes: list[str]
+    action: str  # revoke|delete
+
+
 class CategoryIn(BaseModel):
     name: str
 
@@ -1628,6 +1633,27 @@ def create_api_router(
         n = db.revoke_unused_in_batch(batch_id)
         _audit(admin, "revoke_register_code_batch", batch_id, f"count={n}")
         return {"ok": True, "count": n}
+
+    @router.post("/admin/register-codes/batch", dependencies=[Depends(require_admin)])
+    def register_codes_batch_action(body: RegisterCodeBatchAction, admin: dict = Depends(require_admin)):
+        codes = [c.strip().upper() for c in body.codes if c and str(c).strip()]
+        if not codes:
+            raise HTTPException(status_code=400, detail="请先选择注册码")
+        if body.action == "revoke":
+            count = sum(1 for c in codes if db.revoke_register_code(c))
+            skipped = len(codes) - count
+            if count == 0:
+                raise HTTPException(status_code=400, detail="没有可作废的注册码")
+            _audit(admin, "batch_revoke_register_codes", str(count), f"skipped={skipped}")
+            return {"ok": True, "count": count, "skipped": skipped}
+        if body.action == "delete":
+            count = db.purge_register_codes(codes)
+            skipped = len(codes) - count
+            if count == 0:
+                raise HTTPException(status_code=400, detail="没有可删除的注册码")
+            _audit(admin, "batch_delete_register_codes", str(count), f"skipped={skipped}")
+            return {"ok": True, "count": count, "skipped": skipped}
+        raise HTTPException(status_code=400, detail=f"不支持的操作: {body.action}")
 
     @router.patch("/admin/register-codes/{code}", dependencies=[Depends(require_admin)])
     def patch_register_code(

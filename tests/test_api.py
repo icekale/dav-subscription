@@ -3815,3 +3815,64 @@ def test_admin_users_batch_notify_and_delete():
         headers=uh,
         json={"ids": [uid_b], "action": "disable_notify"},
     ).status_code == 403
+
+
+def test_admin_register_codes_batch_revoke_and_purge():
+    client = make_client()
+    admin_headers = auth_headers(client)
+    db = client.app.state.db
+    gen = client.post(
+        "/api/admin/register-codes",
+        headers=admin_headers,
+        json={"count": 4, "note": "batch-rc"},
+    ).json()
+    available, to_use, to_revoke, to_expire = gen["codes"]
+    register(client, "rc_used_user", code=to_use)
+    assert client.post(
+        f"/api/admin/register-codes/{to_revoke}/revoke", headers=admin_headers
+    ).status_code == 200
+    db._execute(
+        "UPDATE register_codes SET expires_at = datetime('now', '-2 days') WHERE code = ?",
+        (to_expire,),
+    )
+
+    def batch(codes, action):
+        return client.post(
+            "/api/admin/register-codes/batch",
+            headers=admin_headers,
+            json={"codes": codes, "action": action},
+        )
+
+    assert batch([], "revoke").status_code == 400
+    assert batch([available], "nope").status_code == 400
+    # 混选：只作废未用未废的；已用/已作废跳过
+    mixed_revoke = batch([available, to_use, to_revoke], "revoke")
+    assert mixed_revoke.status_code == 200
+    assert mixed_revoke.json()["count"] == 1
+    rows = {r["code"]: r for r in client.get("/api/admin/register-codes", headers=admin_headers).json()}
+    assert rows[available]["revoked_at"]
+    assert rows[to_use]["used_by"]
+    # 可用码不能物理删除 → 全部不合法则 400
+    fresh = client.post(
+        "/api/admin/register-codes",
+        headers=admin_headers,
+        json={"count": 1, "note": "keep"},
+    ).json()["codes"][0]
+    assert batch([fresh], "delete").status_code == 400
+    # 清废码：已用/已作废/已过期；混进可用则跳过
+    purged = batch([to_use, to_revoke, to_expire, fresh], "delete")
+    assert purged.status_code == 200
+    assert purged.json()["count"] == 3
+    left = {r["code"] for r in client.get("/api/admin/register-codes", headers=admin_headers).json()}
+    assert to_use not in left and to_revoke not in left and to_expire not in left
+    assert fresh in left
+    invitee = next(u for u in client.get("/api/users", headers=admin_headers).json() if u["username"] == "rc_used_user")
+    assert invitee["register_code"] == ""
+    assert invitee["register_note"] == ""
+
+    uh = user_headers(client, "rc_batch_norm")
+    assert client.post(
+        "/api/admin/register-codes/batch",
+        headers=uh,
+        json={"codes": [fresh], "action": "revoke"},
+    ).status_code == 403

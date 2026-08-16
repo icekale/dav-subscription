@@ -1211,6 +1211,21 @@ class DB:
             self._conn.commit()
             return cur.rowcount
 
+    def purge_register_codes(self, codes: list[str]) -> int:
+        codes = [str(c).strip().upper() for c in codes if str(c).strip()]
+        if not codes:
+            return 0
+        placeholders = ",".join("?" * len(codes))
+        with self._lock:
+            cur = self._conn.execute(
+                f"DELETE FROM register_codes WHERE code IN ({placeholders}) AND ("
+                "used_by IS NOT NULL OR revoked_at IS NOT NULL OR "
+                "(expires_at IS NOT NULL AND expires_at <= datetime('now')))",
+                codes,
+            )
+            self._conn.commit()
+            return cur.rowcount
+
     def update_register_code_note(self, code: str, note: str) -> bool:
         with self._lock:
             cur = self._conn.execute(
