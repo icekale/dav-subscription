@@ -71,6 +71,7 @@ const state = {
   adminUsers: [],
   adminUsersQ: "",
   adminUsersFilter: "all",
+  inactivePolicy: { inactive_after_days: 90, inactive_purge_after_days: 30 },
   homeQ: "",
   homeCategory: "",
   timelineFavorite: false,
@@ -4895,6 +4896,7 @@ function adminUsersFiltered() {
     if (filter === "admin" && !u.is_admin) return false;
     if (filter === "unbound" && userHasBoundChannel(u)) return false;
     if (filter === "push-off" && u.notify_enabled) return false;
+    if (filter === "inactive" && !u.inactive) return false;
     if (!q) return true;
     return [u.username, u.register_code, u.register_note].some(
       (s) => String(s || "").toLowerCase().includes(q)
@@ -4974,14 +4976,19 @@ async function adminUsersBatch(action) {
 
 async function loadAdminUsers() {
   let users;
+  let policy;
   try {
-    users = await api("/api/users");
+    [users, policy] = await Promise.all([
+      api("/api/users"),
+      api("/api/admin/inactive-users-policy"),
+    ]);
   } catch (err) {
     if (!routeStillActive(_adminRenderSeq)) return;
     $("#admin-body").innerHTML = emptyState("加载失败: " + err.message);
     return;
   }
   state.adminUsers = users;
+  if (policy) state.inactivePolicy = policy;
   const known = new Set(users.map((u) => u.id));
   for (const id of [..._adminUsersSelected]) {
     if (!known.has(id)) _adminUsersSelected.delete(id);
@@ -4994,6 +5001,24 @@ function adminUsersApplyFilter(filter) {
   if (q) state.adminUsersQ = q.value.trim();
   if (filter) state.adminUsersFilter = filter;
   renderAdminUsers();
+}
+
+async function adminSaveInactivePolicy() {
+  const nEl = $("#au-inactive-n");
+  const mEl = $("#au-inactive-m");
+  if (!nEl || !mEl) return;
+  const n = Number(nEl.value);
+  const m = Number(mEl.value);
+  try {
+    state.inactivePolicy = await api("/api/admin/inactive-users-policy", {
+      method: "PUT",
+      body: JSON.stringify({ inactive_after_days: n, inactive_purge_after_days: m }),
+    });
+    flash("已保存非活跃规则");
+    loadAdminUsers();
+  } catch (err) {
+    flash(err.message, "error");
+  }
 }
 
 function renderAdminUsers() {
@@ -5010,6 +5035,7 @@ function renderAdminUsers() {
     admin: adminN,
     unbound: users.filter((u) => !userHasBoundChannel(u)).length,
     "push-off": users.filter((u) => !u.notify_enabled).length,
+    inactive: users.filter((u) => u.inactive).length,
   };
   const tab = (key, label) =>
     `<button class="settings-tab ${filter === key ? "active" : ""}" role="tab" aria-selected="${filter === key}" onclick="adminUsersApplyFilter('${key}')">${label} ${counts[key]}</button>`;
@@ -5019,7 +5045,11 @@ function renderAdminUsers() {
   const rows = filtered.map((u) => {
     const self = state.user && u.id === state.user.id;
     const pills = `${u.is_admin ? `<span class="user-pill">管理员</span>` : ""}${self ? `<span class="user-pill muted">本人</span>` : ""}`;
-    const push = u.notify_enabled
+    const push = u.inactive
+      ? (u.days_until_purge == null
+        ? `<span class="status-fail">非活跃</span>`
+        : `<span class="status-fail">非活跃</span><span class="muted"> · ${Number(u.days_until_purge)} 天后删除</span>`)
+      : u.notify_enabled
       ? `<span class="status-ok">开启</span>${u.dnd_enabled ? `<span class="muted"> · 免打扰</span>` : ""}`
       : `<span class="status-fail">关闭</span>`;
     return `<tr>
@@ -5046,18 +5076,25 @@ function renderAdminUsers() {
       <header class="section-head au-head">
         <div>
           <h3 class="section-title">用户管理</h3>
-          <p class="section-meta">${users.length} 人 · ${adminN} 管理员 · ${boundN} 已绑定渠道</p>
+          <p class="section-meta">${users.length} 人 · ${adminN} 管理员 · ${boundN} 已绑定渠道 · ${counts.inactive} 非活跃</p>
         </div>
         <div class="search-bar au-search">
           ${SEARCH_ICON}
           <input id="au-q" type="search" placeholder="搜索用户名 / 邀请码 / 备注，回车" value="${escapeHtml(state.adminUsersQ || "")}" onkeydown="if(event.key==='Enter')adminUsersApplyFilter()">
         </div>
       </header>
+      <div class="au-inactive-policy">
+        <label>满 <input id="au-inactive-n" class="form-control" type="number" min="0" max="3650" value="${Number((state.inactivePolicy || {}).inactive_after_days ?? 90)}"> 天列为非活跃</label>
+        <label>再 <input id="au-inactive-m" class="form-control" type="number" min="0" max="3650" value="${Number((state.inactivePolicy || {}).inactive_purge_after_days ?? 30)}"> 天自动删除</label>
+        <button type="button" class="btn-sm" onclick="adminSaveInactivePolicy()">保存</button>
+        <span class="muted">每天扫一次 · 0 为关闭</span>
+      </div>
       <div class="settings-tabs" role="tablist" aria-label="用户筛选">
         ${tab("all", "全部")}
         ${tab("admin", "管理员")}
         ${tab("unbound", "未绑定")}
         ${tab("push-off", "推送关闭")}
+        ${tab("inactive", "非活跃")}
       </div>
       <div class="toolbar admin-batch-bar" id="au-batch-bar" style="margin-top:10px;display:${_adminUsersSelected.size ? "flex" : "none"};align-items:center;gap:8px;flex-wrap:wrap">
         <strong>已选 ${_adminUsersSelected.size} 人</strong>

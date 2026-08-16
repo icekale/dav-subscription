@@ -1300,6 +1300,25 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
   gap: 12px;
 }
 .au-search { width: min(280px, 100%); }
+.au-inactive-policy {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin: 0 0 12px;
+  color: var(--color-text);
+  font-size: var(--text-sm);
+}
+.au-inactive-policy label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+}
+.au-inactive-policy .form-control {
+  width: 88px;
+  margin: 0;
+}
 .user-name { display: flex; align-items: center; gap: 8px; }
 .user-name strong { font-weight: var(--font-weight-semibold); color: var(--color-text-strong); }
 .user-pill {
