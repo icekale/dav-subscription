@@ -361,10 +361,12 @@ def test_admin_users_page_has_inactive_policy():
     assert 'id="au-inactive-n"' in render
     assert 'id="au-inactive-m"' in render
     assert 'id="au-inactive-save"' in render
-    assert "au-inactive-field" in render
+    assert "rc-field" in render
+    assert "rc-generate" in render
     assert "列为非活跃" in render
     assert "之后删除" in render
     assert "adminSaveInactivePolicy" in render
+    assert "btn-normal" in render
     src = APP_JS.read_text()
     assert "adminSaveInactivePolicy" in src
     assert "adminInactivePolicySyncSave" in src

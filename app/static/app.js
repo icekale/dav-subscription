@@ -5138,19 +5138,19 @@ function renderAdminUsers() {
           <input id="au-q" type="search" placeholder="搜索用户名 / 邀请码 / 备注，回车" value="${escapeHtml(state.adminUsersQ || "")}" onkeydown="if(event.key==='Enter')adminUsersApplyFilter()">
         </div>
       </header>
-      <div class="au-inactive-policy">
-        <label class="au-inactive-field">
+      <div class="rc-generate au-inactive-policy">
+        <label class="rc-field rc-field-num">
           <span>列为非活跃 <span class="cfg-unit">天</span></span>
           <input id="au-inactive-n" class="form-control" type="number" min="0" max="3650" inputmode="numeric" value="${escapeHtml(String(inactivePolicyDraft().inactive_after_days ?? 90))}" oninput="adminInactivePolicySyncSave()" onkeydown="adminInactivePolicyKeydown(event)" aria-describedby="au-inactive-hint">
         </label>
-        <label class="au-inactive-field">
+        <label class="rc-field rc-field-num">
           <span>之后删除 <span class="cfg-unit">天</span></span>
           <input id="au-inactive-m" class="form-control" type="number" min="0" max="3650" inputmode="numeric" value="${escapeHtml(String(inactivePolicyDraft().inactive_purge_after_days ?? 30))}" oninput="adminInactivePolicySyncSave()" onkeydown="adminInactivePolicyKeydown(event)" aria-describedby="au-inactive-hint">
         </label>
-        <div class="au-inactive-actions">
-          <button type="button" class="btn-sm" id="au-inactive-save" onclick="adminSaveInactivePolicy()">保存</button>
-          <span class="muted" id="au-inactive-hint">${escapeHtml(inactivePolicyHint(inactivePolicyDraft().inactive_after_days, inactivePolicyDraft().inactive_purge_after_days))}</span>
+        <div class="rc-field-submit">
+          <button type="button" class="btn-normal" id="au-inactive-save" onclick="adminSaveInactivePolicy()">保存</button>
         </div>
+        <span class="muted rc-generate-hint" id="au-inactive-hint">${escapeHtml(inactivePolicyHint(inactivePolicyDraft().inactive_after_days, inactivePolicyDraft().inactive_purge_after_days))}</span>
       </div>
       <div class="settings-tabs" role="tablist" aria-label="用户筛选">
         ${tab("all", "全部")}

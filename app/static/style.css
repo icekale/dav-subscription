@@ -1015,19 +1015,19 @@ td .btn-sm { margin-right: 6px; }
 }
 .status-ok { color: var(--color-success); }
 .status-fail { color: var(--color-danger); }
-.status-warn { color: var(--color-warning, #d97706); }
+.status-warn { color: var(--color-warning); }
 
 .rc-generate {
   display: flex;
   flex-wrap: wrap;
   align-items: end;
-  gap: 12px;
+  gap: var(--space-3);
   max-width: 860px;
 }
 .rc-field {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-2);
   min-width: 0;
 }
 .rc-field > span {
@@ -1036,6 +1036,7 @@ td .btn-sm { margin-right: 6px; }
   color: var(--color-text-strong);
   line-height: 1.2;
 }
+.rc-field .cfg-unit { color: var(--color-text-faint); font-weight: normal; }
 .rc-field .form-control,
 .rc-generate .form-control {
   margin: 0;
@@ -1043,8 +1044,9 @@ td .btn-sm { margin-right: 6px; }
 }
 .rc-field-note { flex: 1 1 220px; max-width: 360px; }
 .rc-field-count { width: 88px; flex: 0 0 88px; }
+.rc-field-num { width: 108px; flex: 0 0 108px; }
 .rc-field-expires { width: 148px; flex: 0 0 148px; }
-.rc-presets { display: flex; gap: 8px; flex-shrink: 0; }
+.rc-presets { display: flex; gap: var(--space-2); flex-shrink: 0; }
 .rc-preset {
   height: var(--control-height-2xl);
   padding: 0 14px;
@@ -1064,15 +1066,23 @@ td .btn-sm { margin-right: 6px; }
   font-weight: var(--font-weight-semibold);
 }
 .rc-field-submit { display: flex; align-items: stretch; }
-.rc-field-submit .btn-normal { height: var(--control-height-2xl); }
-.rc-list-head {
+.rc-field-submit > button { height: var(--control-height-2xl); }
+.rc-generate-hint {
+  min-height: var(--control-height-2xl);
+  display: inline-flex;
+  align-items: center;
+  font-size: var(--text-xs);
+}
+.rc-list-head,
+.au-head {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
 }
-.rc-search { width: min(280px, 100%); }
+.rc-search,
+.au-search { width: min(280px, 100%); }
 .rc-result {
   margin-top: 16px;
   padding: 12px 14px;
@@ -1240,7 +1250,7 @@ td .btn-sm { margin-right: 6px; }
 }
 .channel-status .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .channel-status.status-ok { color: var(--color-success); background: rgba(22, 163, 74, 0.1); }
-.channel-status.status-warn { color: var(--color-warning, #d97706); background: rgba(217, 119, 6, 0.1); }
+.channel-status.status-warn { color: var(--color-warning); background: var(--color-warning-soft); }
 .channel-status.status-fail { color: var(--color-danger); background: rgba(220, 38, 38, 0.1); }
 
 /* 系统日志 */
@@ -1293,56 +1303,11 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
   width: min(480px, 100%); padding: 24px; max-height: 90vh; overflow: auto;
 }
 
-.au-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 12px;
-}
-.au-search { width: min(280px, 100%); }
 .au-inactive-policy {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: end;
-  gap: 12px;
-  margin: 0 0 16px;
+  max-width: none;
+  margin: 0 0 var(--space-4);
 }
-.au-inactive-field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin: 0;
-  width: 108px;
-}
-.au-inactive-field > span {
-  font-size: var(--text-sm);
-  font-weight: var(--font-weight-medium);
-  color: var(--color-text-strong);
-  line-height: 1.2;
-}
-.au-inactive-field .cfg-unit { color: var(--color-text-faint); font-weight: normal; }
-.au-inactive-field .form-control {
-  width: 100%;
-  height: var(--control-height-xl);
-  margin: 0;
-  font-variant-numeric: tabular-nums;
-}
-.au-inactive-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-height: var(--control-height-xl);
-}
-.au-inactive-actions .btn-sm {
-  height: var(--control-height-xl);
-  min-height: var(--control-height-xl);
-  padding: 0 16px;
-}
-.au-inactive-actions .muted {
-  font-size: var(--text-xs);
-}
-.user-name { display: flex; align-items: center; gap: 8px; }
+.user-name { display: flex; align-items: center; gap: var(--space-2); }
 .user-name strong { font-weight: var(--font-weight-semibold); color: var(--color-text-strong); }
 .user-pill {
   font-size: var(--text-xs);
@@ -1350,13 +1315,13 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
   color: var(--color-accent-text);
   background: var(--color-accent-soft);
   border-radius: var(--radius-pill);
-  padding: 1px 8px;
+  padding: 1px var(--space-2);
 }
 .user-pill.muted {
   color: var(--color-badge-idle-text);
   background: var(--color-badge-idle-bg);
 }
-.user-channels { display: inline-flex; align-items: center; gap: 8px; }
+.user-channels { display: inline-flex; align-items: center; gap: var(--space-2); }
 .user-ch { display: inline-flex; color: var(--color-text-muted); }
 .user-ch .ch-icon { width: 16px; height: 16px; }
 .user-ch.on[data-channel="telegram"] { color: var(--color-brand-telegram); }
@@ -1366,11 +1331,11 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
 .user-ch.off { opacity: 0.32; }
 .modal-card.user-modal { width: min(520px, 100%); }
 .user-modal h3 { margin-bottom: 4px; }
-.um-meta { margin-bottom: 16px; }
-.um-push-result { margin-top: 8px; white-space: pre-wrap; }
+.um-meta { margin-bottom: var(--space-4); }
+.um-push-result { margin-top: var(--space-2); white-space: pre-wrap; }
 .user-modal-danger {
-  margin-top: 20px;
-  padding-top: 16px;
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
   border-top: var(--border-soft);
 }
 .user-modal-danger .muted { margin-bottom: 10px; }
@@ -1509,11 +1474,6 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
   .kol-card .btn-sub, .kol-card .fav-btn, .kol-card .btn-sm.danger { min-height: 44px; }
   .cat-chip { height: 44px; padding: 0 16px; }
   .search-bar { min-height: 44px; }
-  .au-search { width: 100%; }
-  .au-inactive-field { width: calc(50% - 6px); }
-  .au-inactive-field .form-control,
-  .au-inactive-actions .btn-sm { height: 44px; min-height: 44px; }
-  .au-inactive-actions { flex: 1 1 100%; min-height: 44px; }
   .toolbar { flex-wrap: wrap; }
   .fav-toggle { min-height: 44px; }
   .sub-type-switches { gap: 8px; }
@@ -1572,13 +1532,14 @@ pre.content-cell { white-space: pre-wrap; word-break: break-all; min-width: 260p
   .form-control, input:not([type="checkbox"]):not([type="hidden"]):not([type="file"]), select, textarea { font-size: 16px; }
   .rc-generate { max-width: none; }
   .rc-field-note { flex: 1 1 100%; max-width: none; }
-  .rc-field-count, .rc-field-expires { flex: 1 1 calc(50% - 6px); width: auto; }
+  .rc-field-count, .rc-field-num, .rc-field-expires { flex: 1 1 calc((100% - var(--space-3)) / 2); width: auto; }
   .rc-field-submit { flex: 1 1 100%; }
-  .rc-field-submit .btn-normal { width: 100%; }
+  .rc-field-submit > button { width: 100%; }
   .rc-presets { width: 100%; }
   .rc-preset { flex: 1; height: 44px; min-height: 44px; }
   .rc-generate .form-control, .rc-generate .btn-normal { width: 100%; min-height: 44px; }
-  .rc-search { width: 100%; }
+  .rc-search,
+  .au-search { width: 100%; }
   /* 注册码筛选：一行横向滚动，不再换行成两行（此处优先级低于文末基础规则，故在 .settings-tabs 定义后另设媒体块） */
   /* 批次头：信息纵向堆叠，操作按钮全宽两列 */
   .rc-batch-head { flex-direction: column; align-items: stretch; gap: 8px; }
@@ -1677,16 +1638,16 @@ details.bind-steps[open] > summary::before { content: "▾ "; }
 .settings-tabs, .platform-tabs, .home-filter-content .home-cats { touch-action: manipulation; }
 
 /* 设置页分段导航 */
-.settings-tabs { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+.settings-tabs { display: flex; gap: var(--space-2); margin-bottom: var(--space-4); flex-wrap: wrap; }
 .settings-tab {
-  padding: 7px 16px;
-  border-radius: 999px;
-  border: 1px solid var(--color-line-strong);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-pill);
+  border: var(--border-strong);
   background: transparent;
   color: var(--color-text-muted);
-  font-size: 13px;
+  font-size: var(--text-sm);
   cursor: pointer;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  transition: background var(--ease-standard), color var(--ease-standard), border-color var(--ease-standard);
 }
 .settings-tab:hover { border-color: var(--color-accent-text); color: var(--color-accent-text); }
 .settings-tab.active {
