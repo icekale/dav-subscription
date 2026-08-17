@@ -984,7 +984,11 @@ def _buffer_personal_secondary(db, kol_id: int, post: Post, secondary_buffer) ->
     if secondary_buffer is None:
         return
     for user in db.subscribers_of_kol(kol_id):
-        if bool(user.get("secondary")) and not bool(user.get("favorite")):
+        if (
+            bool(user.get("secondary"))
+            and not bool(user.get("favorite"))
+            and _sub_type_matches(user.get("subscribe_type") or "post", post.post_type)
+        ):
             secondary_buffer.setdefault(user["id"], []).append(post)
 
 
@@ -999,7 +1003,9 @@ def _buffer_secondary_subscribers(db, kol_id: int, post: Post, secondary_buffer)
     if secondary_buffer is None:
         return
     for user in db.subscribers_of_kol(kol_id):
-        if not bool(user.get("favorite")):
+        if not bool(user.get("favorite")) and _sub_type_matches(
+            user.get("subscribe_type") or "post", post.post_type
+        ):
             secondary_buffer.setdefault(user["id"], []).append(post)
 
 
@@ -1473,7 +1479,7 @@ class Scheduler:
         self._digest: dict[int, list[Post]] = {}
         self._dnd_buffer: dict[int, list[Post]] = {}
         self._secondary_buffer: dict[int, list[Post]] = {}
-        self._last_secondary_buffer_flush = time.monotonic()
+        self._secondary_first_at: dict[int, float] = {}
         self.retry_queue = PushRetryQueue()
         self._stop = asyncio.Event()
         self._last_cleanup = 0.0
@@ -1623,16 +1629,15 @@ class Scheduler:
                     )
                 except Exception:  # noqa: BLE001
                     logger.exception("摘要推送失败")
-            # 次要大V长周期合并摘要到点统一推送：与普通摘要独立计时，
-            # 个人次要（bell）用户共用同一缓冲与周期，跨大V合并成一条
-            if (
-                secondary_digest_interval > 0
-                and self._secondary_buffer
-                and now_mono - self._last_secondary_buffer_flush >= secondary_digest_interval
-            ):
-                self._last_secondary_buffer_flush = now_mono
+            # 次要大V：每轮按用户首帖入缓冲计时，到期才发；个人次要共用此缓冲
+            if secondary_digest_interval > 0 and self._secondary_buffer:
                 try:
-                    await asyncio.to_thread(self._flush_secondary_buffers, secondary_min_count)
+                    await asyncio.to_thread(
+                        self._flush_secondary_buffers,
+                        secondary_min_count,
+                        secondary_digest_interval,
+                        now_mono,
+                    )
                 except Exception:  # noqa: BLE001
                     logger.exception("次要大V合并摘要推送失败")
             # 免打扰时段结束：补推汇总
@@ -1891,35 +1896,47 @@ class Scheduler:
             except Exception as exc:  # noqa: BLE001
                 logger.warning("免打扰汇总推送失败 user=%s err=%s", user["username"], exc)
 
-    def _flush_secondary_buffers(self, min_count: int = 1) -> None:
-        """次要大V合并缓冲到点：把每位用户积压的新帖以摘要样式推送（跨大V合并）。
+    def _pop_secondary_user(self, user_id: int) -> None:
+        self._secondary_first_at.pop(user_id, None)
+        self._secondary_buffer.pop(user_id, None)
 
-        min_count：合并推送最低条数（后台「次要大V合并推送最低条数」），
-        积压条数不足时不推、保留继续攒，够数才推。
+    def _flush_secondary_buffers(
+        self, min_count: int = 1, interval: int = 0, now_mono: float | None = None
+    ) -> None:
+        """次要合并缓冲：按用户首帖计时，跨大V一条摘要。
+
+        interval=0 强制发（关闭/测试，仍尊重 min_count）。
+        interval>0 等满周期；条数不够再等一个周期后强制发。
+        DND 中整包交给 _dnd_buffer。
         """
         if not self._secondary_buffer:
             return
         now = datetime.now()
+        now_mono = time.monotonic() if now_mono is None else now_mono
+        max_wait = interval * 2 if interval > 0 else 0
         for user_id in list(self._secondary_buffer):
             posts = self._secondary_buffer.get(user_id) or []
             if not posts:
                 continue
-            if len(posts) < min_count:
-                continue  # 积压不足最低条数：继续攒，下个周期再判断
+            self._secondary_first_at.setdefault(user_id, now_mono)
             user = self.db.get_user(user_id)
             if user is None:
-                self._secondary_buffer.pop(user_id, None)
+                self._pop_secondary_user(user_id)
                 continue
             if _in_dnd_window(user, now):
-                continue  # 已进入免打扰时段，留给 dnd 机制处理，下轮再试
-            self._secondary_buffer.pop(user_id, None)
+                self._dnd_buffer.setdefault(user_id, []).extend(posts)
+                self._pop_secondary_user(user_id)
+                continue
+            waited = now_mono - self._secondary_first_at[user_id]
+            if interval > 0 and waited < interval:
+                continue
+            if len(posts) < min_count and (interval <= 0 or waited < max_wait):
+                continue
+            self._pop_secondary_user(user_id)
             try:
-                # 次要大V合并：纯汇总即可，不消耗 LLM token（use_llm=False）
                 self._send_dnd_summary(user, posts, title="🔕 次要大V合并摘要", use_llm=False)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("次要大V汇总推送失败 user=%s err=%s", user["username"], exc)
-                # 发送失败：帖子写失败日志并入重试队列（_send_dnd_summary 内部处理），
-                # 缓冲已弹出，不重复推送
 
     def _send_dnd_summary(
         self, user: dict, posts: list[Post], title: str | None = None, use_llm: bool = True
