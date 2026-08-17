@@ -1,0 +1,170 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-17T18:15:00+08:00",
+  "title": "Design System: V Push",
+  "extensions": {
+    "colorMeta": {
+      "primary": {
+        "role": "primary",
+        "displayName": "克制蓝",
+        "canonical": "#1f74ee",
+        "tonalRamp": ["#0c2a5e", "#0f3a82", "#114aa6", "#1668e0", "#1f74ee", "#5a9bf5", "#a7c9f7", "#e3effd"]
+      },
+      "primary-text": {
+        "role": "primary",
+        "displayName": "克制蓝（字与描边）",
+        "canonical": "#1668e0",
+        "tonalRamp": ["#0c2a5e", "#0f3a82", "#114aa6", "#155eef", "#1668e0", "#5a9bf5", "#a7c9f7", "#e3effd"]
+      },
+      "canvas": {
+        "role": "neutral",
+        "displayName": "画布",
+        "canonical": "#f5f5f7",
+        "tonalRamp": ["#0f1115", "#2b2e36", "#464a55", "#6e6e73", "#9aa3b2", "#c2c6ce", "#e0e2e8", "#f5f5f7"]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "纸面",
+        "canonical": "#ffffff",
+        "tonalRamp": ["#171a20", "#2a2e37", "#444a56", "#6d7686", "#9aa3b2", "#c6ccd6", "#e6e9ef", "#ffffff"]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "雾灰",
+        "canonical": "#6e6e73",
+        "tonalRamp": ["#3a3d45", "#4a4e58", "#5a5f6a", "#6e6e73", "#82878f", "#9aa3b2", "#b9bec7", "#d9dce2"]
+      },
+      "success": {
+        "role": "semantic",
+        "displayName": "成功绿",
+        "canonical": "#16a34a",
+        "tonalRamp": ["#052e16", "#166534", "#15803d", "#16a34a", "#22c55e", "#4ade80", "#86efac", "#dcfce7"]
+      },
+      "warning": {
+        "role": "semantic",
+        "displayName": "警告橙",
+        "canonical": "#d97706",
+        "tonalRamp": ["#431407", "#713f12", "#92400e", "#b45309", "#d97706", "#f59e0b", "#fbbf24", "#fef3c7"]
+      },
+      "danger": {
+        "role": "semantic",
+        "displayName": "危险红",
+        "canonical": "#dc2626",
+        "tonalRamp": ["#450a0a", "#7f1d1d", "#991b1b", "#b91c1c", "#dc2626", "#ef4444", "#f87171", "#fee2e2"]
+      }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "仅登录字标" },
+      "title": { "displayName": "Title", "purpose": "页标题、侧栏品牌、区块标题" },
+      "body": { "displayName": "Body", "purpose": "动态正文、表单、大V名；行宽 75ch，行高 1.65" },
+      "label": { "displayName": "Label", "purpose": "按钮、导航、筛选控件" },
+      "caption": { "displayName": "Caption", "purpose": "时间、表头、底栏、条数；tabular-nums" }
+    },
+    "shadows": [
+      { "name": "shadow-xs", "value": "0 2px 10px rgba(15, 23, 42, 0.04)", "purpose": "卡片 hover；深色 alpha 约 0.4" },
+      { "name": "shadow-sm", "value": "0 8px 24px rgba(15, 23, 42, 0.06)", "purpose": "下拉、弹出" },
+      { "name": "shadow-panel-elevated", "value": "0 12px 30px rgba(15, 23, 42, 0.05)", "purpose": "登录卡片" },
+      { "name": "shadow-focus-ring", "value": "0 0 0 3px rgba(0, 113, 227, 0.08)", "purpose": "输入焦点；深色 rgba(64, 145, 255, 0.25)" }
+    ],
+    "motion": [
+      { "name": "ease-standard", "value": "160ms ease", "purpose": "状态切换默认缓动" }
+    ],
+    "breakpoints": [
+      { "name": "lg", "value": "900px", "purpose": "侧栏信息开始收" },
+      { "name": "md", "value": "768px", "purpose": "藏侧栏、出底栏，触控 ≥44px" },
+      { "name": "sm", "value": "640px", "purpose": "登录与部分表格再收一层" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "主操作：克制蓝实底白字，12px 圆角，高 42px。",
+      "html": "<button class=\"ds-btn-primary\">订阅</button>",
+      "css": ".ds-btn-primary { display:inline-flex; align-items:center; justify-content:center; height:42px; padding:0 20px; border:none; border-radius:12px; background:var(--color-accent); color:var(--color-white); font:600 15px var(--font-sans); cursor:pointer; transition:background 160ms ease, transform 120ms ease; } .ds-btn-primary:hover { background:var(--color-accent-strong); } .ds-btn-primary:active { background:var(--color-accent-strong); transform:translateY(1px); } .ds-btn-primary:focus-visible { outline:2px solid var(--color-accent); outline-offset:2px; } .ds-btn-primary:disabled { opacity:.65; cursor:default; transform:none; }"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "次级操作：纸面 + 1px 线 + 13px 字。",
+      "html": "<button class=\"ds-btn-ghost\">清除筛选</button>",
+      "css": ".ds-btn-ghost { display:inline-flex; align-items:center; justify-content:center; height:34px; padding:0 16px; border:1px solid rgba(12,18,34,0.16); border-radius:12px; background:var(--color-surface); color:var(--color-text-strong); font:500 13px var(--font-sans); cursor:pointer; transition:border-color 160ms ease, background 160ms ease; } .ds-btn-ghost:hover { border-color:var(--color-text-muted); } .ds-btn-ghost:focus-visible { outline:2px solid var(--color-accent); outline-offset:2px; }"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "表单输入：纸面、1px 线、12px 圆角，focus 克制蓝线 + 淡圈。",
+      "html": "<input class=\"ds-input\" placeholder=\"搜索标题/内容关键词\">",
+      "css": ".ds-input { height:42px; padding:0 14px; border:1px solid rgba(12,18,34,0.16); border-radius:12px; background:var(--color-surface); color:var(--color-text); font:400 15px var(--font-sans); transition:border-color 160ms ease, box-shadow 160ms ease; } .ds-input::placeholder { color:var(--color-text-faint); } .ds-input:focus { outline:none; border-color:var(--color-accent-text); box-shadow:0 0 0 3px rgba(0,113,227,0.08); }"
+    },
+    {
+      "name": "Platform Pill",
+      "kind": "chip",
+      "refersTo": "chip-selected",
+      "description": "平台筛选胶囊：未选中纸面+线，选中克制蓝实底白字。",
+      "html": "<div class=\"ds-pills\"><span class=\"ds-pill\">全部</span><span class=\"ds-pill on\">雪球</span><span class=\"ds-pill\">微博</span></div>",
+      "css": ".ds-pills { display:flex; gap:8px; font-family:var(--font-sans); } .ds-pill { display:inline-flex; align-items:center; height:38px; padding:0 14px; border:1px solid rgba(12,18,34,0.16); border-radius:999px; background:var(--color-surface); font-size:13px; color:var(--color-text); } .ds-pill.on { background:var(--color-accent); border-color:var(--color-accent-text); color:var(--color-white); font-weight:600; }"
+    },
+    {
+      "name": "Sidebar Nav Item",
+      "kind": "nav",
+      "refersTo": "nav-item-active",
+      "description": "侧栏导航：12px 圆角，当前项淡蓝底 + 克制蓝字。",
+      "html": "<nav class=\"ds-nav\"><a class=\"ds-nav-item\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 2.5l2.95 5.98 6.6.96-4.78 4.66 1.13 6.58L12 17.6l-5.9 3.1 1.13-6.58L2.45 9.44l6.6-.96L12 2.5z\"/></svg><span>订阅广场</span></a><a class=\"ds-nav-item on\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9\"/><path d=\"M13.73 21a2 2 0 0 1-3.46 0\"/></svg><span>最新动态</span></a></nav>",
+      "css": ".ds-nav { display:flex; flex-direction:column; gap:2px; } .ds-nav-item { display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:12px; color:var(--color-text); font:400 13px var(--font-sans); text-decoration:none; transition:background 160ms ease, color 160ms ease; } .ds-nav-item svg { width:15px; height:15px; } .ds-nav-item:hover { background:var(--color-accent-soft); } .ds-nav-item.on { background:var(--color-accent-soft); color:var(--color-accent-text); font-weight:600; }"
+    },
+    {
+      "name": "KOL Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "订阅广场卡片：20px 圆角 + 1px 线，hover 线转克制蓝 + 轻影。",
+      "html": "<div class=\"ds-card\"><div class=\"ds-card-head\"><div class=\"ds-avatar\">伯</div><div><div class=\"ds-name\">伯言2020</div><div class=\"ds-sub\">雪球 · 组合</div></div></div><div class=\"ds-body\">实盘组合，调仓实时推送</div></div>",
+      "css": ".ds-card { display:flex; flex-direction:column; gap:12px; padding:16px; background:var(--color-surface); border:1px solid rgba(12,18,34,0.1); border-radius:20px; font-family:var(--font-sans); transition:border-color 160ms ease, box-shadow 160ms ease; } .ds-card:hover { border-color:var(--color-accent-text); box-shadow:0 2px 10px rgba(15,23,42,0.04); } .ds-card-head { display:flex; align-items:center; gap:12px; } .ds-avatar { width:52px; height:52px; border-radius:50%; background:var(--color-accent-soft); color:var(--color-accent-text); display:flex; align-items:center; justify-content:center; font:600 20px var(--font-sans); } .ds-name { font-weight:600; font-size:15px; color:var(--color-text-strong); } .ds-sub { font-size:12px; color:var(--color-text-muted); margin-top:2px; } .ds-body { font-size:12px; color:var(--color-text-muted); }"
+    },
+    {
+      "name": "New Posts Capsule",
+      "kind": "custom",
+      "refersTo": "button-primary",
+      "description": "时间线中断：实心蓝胶囊，叠头像 +「已发布」。",
+      "html": "<button class=\"ds-new\" type=\"button\"><span class=\"ds-avs\"><span class=\"ds-av\">林</span><span class=\"ds-av\">王</span><span class=\"ds-av\">陈</span></span>已发布</button>",
+      "css": ".ds-new { display:inline-flex; align-items:center; gap:10px; height:44px; padding:3px 16px 3px 3px; border:none; border-radius:999px; background:var(--color-accent); color:var(--color-white); font:600 13px var(--font-sans); cursor:pointer; } .ds-new:hover { background:var(--color-accent-strong); } .ds-new:focus-visible { outline:2px solid var(--color-accent-text); outline-offset:2px; } .ds-avs { display:flex; } .ds-av { width:38px; height:38px; border-radius:50%; background:#2a86ff; color:#fff; display:flex; align-items:center; justify-content:center; font:600 13px var(--font-sans); margin-left:-14px; box-shadow:0 0 0 2px var(--color-accent); } .ds-av:first-child { margin-left:0; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "安静的控制台",
+    "overview": "V Push 是一台安静的控制台：用户在桌面或手机上打开它，快速确认「谁发了新动态、有没有推出去、数据源是否健康」，然后合上。它不是内容社区，而是通知管线——界面的任务是把状态讲清楚，然后退到后台。\n\n默认界面保持低饱和的克制。只有状态真的变化时，才用克制蓝和告警色把信息顶到眼前。密度遵循「信息优先」：订阅广场是卡片网格，管理端是数据表格，时间线是紧凑的时间分组列表。手感是克制精致：少装饰，边和字都收着，按下去才有反馈。\n\n审美上明确拒绝营销式落地页、插画装饰、霓虹暗色和玻璃拟态。克制蓝是唯一的强调色，每一次出现都对应「可以操作 / 已经选中 / 需要关注」。深色是同一套系统的夜间版：色相不变，只换画布和字。动效只回应状态，不让人等动画。",
+    "keyCharacteristics": [
+      "单一强调色（克制蓝）只服务状态与操作，不装饰",
+      "信息密度优先：卡片网格 + 数据表格 + 紧凑时间线",
+      "壳层用不透明画布色，不用半透明模糊",
+      "深/浅是同一套 token 的夜间换底，不是另一套皮肤",
+      "手机浏览器与桌面同为一等场景：触控目标 ≥44px"
+    ],
+    "rules": [
+      { "name": "The Rarity Rule", "body": "克制蓝在任意一屏占比应 ≤10%。拿它做无状态描边、大面积底或装饰渐变，这一屏就偏了。稀有就是信息量。", "section": "colors" },
+      { "name": "The Four-Role Rule", "body": "阅读字号只准这四档：12 / 13 / 15 / 17。14 和 16 不进产品字号。字重不超过 600。时间、条数、净值用等宽数字。", "section": "typography" },
+      { "name": "The Shadow-Is-State Rule", "body": "平面是默认。阴影只作为 hover、浮层、焦点的响应。禁止给静止卡片同时上 1px 边框 + 宽软阴影。二选一：线，或 ≤10px blur 的轻影。", "section": "elevation" }
+    ],
+    "dos": [
+      "Do 让克制蓝只出现在可操作 / 已选中 / 需关注（主按钮、选中胶囊、焦点、新帖胶囊）。",
+      "Do 用四档字号 12 / 13 / 15 / 17，时间与数字用 tabular-nums。",
+      "Do 壳层与画布同色、不透明；深度用线，阴影留给状态。",
+      "Do 图标用线性描边 SVG（stroke=\"currentColor\"），与星标/铃铛同一套。",
+      "Do 移动端触控 ≥44px；空状态写出下一步（「去订阅」「清除筛选」）。",
+      "Do 动效限制在约 160ms；尊重 prefers-reduced-motion。"
+    ],
+    "donts": [
+      "Don't 用 emoji 或 Unicode 符号（☰◎◈）当导航/按钮图标。",
+      "Don't 用渐变字、彩色左边条、霓虹暗色、玻璃拟态。",
+      "Don't 做营销落地页排版（大留白、hero 大数字、逐屏进场）。",
+      "Don't 给静止卡片同时加 1px 边框 + 宽软阴影。",
+      "Don't 卡片圆角超过 20px。",
+      "Don't 换第二套正文字体，或把 Inter / 思源黑体当中文界面的「高级感」。",
+      "Don't 把平台品牌色铺进按钮或大面积底。",
+      "Don't 编造用户评价或社会证明。"
+    ]
+  }
+}
