@@ -13,10 +13,9 @@ import urllib.parse
 
 import httpx
 
-from ..fetchers.base import Post, digest_body
+from ..fetchers.base import PLATFORM_LABELS, Post, digest_body
 from .base import Notifier, why_badges
 
-PLATFORM_LABELS = {"xueqiu": "雪球", "combination": "雪球组合", "weibo": "微博", "twitter": "X/Twitter"}
 MAX_CONTENT_CHARS = 1600  # Bark 单条消息过长会被截断，正文截断到 1600 字
 DIGEST_MAX_ITEMS = 8
 DND_MAX_ITEMS = 10

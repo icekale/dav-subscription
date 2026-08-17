@@ -16,7 +16,7 @@ from datetime import datetime
 from .backup import run_scheduled
 from .channels import channel_bound, channel_enabled
 from .db import ALLOWED_PLATFORMS, DB
-from .fetchers.base import Fetcher, Post
+from .fetchers.base import PLATFORM_LABELS, Fetcher, Post
 from .notifiers.base import Notifier
 
 logger = logging.getLogger(__name__)
@@ -30,7 +30,6 @@ SOURCE_ALERT_INTERVAL = 6 * 3600
 SOURCE_FAIL_THRESHOLD = 3
 X_DIRECT_ALERT_KEY = "x_direct_alert_at"
 X_DIRECT_ALERT_INTERVAL = 6 * 3600
-PLATFORM_LABELS = {"xueqiu": "雪球", "combination": "雪球组合", "weibo": "微博", "twitter": "X"}
 SOURCE_OK_KEY = "source_ok_{platform}"
 SOURCE_ERR_KEY = "source_err_{platform}"
 SOURCE_FAILS_KEY = "source_fails_{platform}"
@@ -74,15 +73,20 @@ def parse_twitter_cookie(cookie: str) -> dict:
     return out
 
 
-def _polling_setting(db: DB, key: str, default: int) -> int:
+def _polling_setting(db: DB, key: str, default: int, *, positive: bool = False) -> int:
     """读取后台可覆盖的抓取配置（config_*），未设置时用启动配置默认值。"""
+    if db is None:
+        return default
     value = db.get_setting(key)
     if value is None:
         return default
     try:
-        return int(value)
+        parsed = int(value)
     except (TypeError, ValueError):
         return default
+    if positive and parsed <= 0:
+        return default
+    return parsed
 
 
 def _polling_bool(db: DB, key: str, default: bool = False) -> bool:
@@ -110,17 +114,8 @@ SECONDARY_MIN_DIGEST_COUNT = 1
 
 
 def _frequency_setting(db: DB, key: str, default: int) -> int:
-    """读取后台可覆盖的采集频率参数（config_*），未设置/非法时用默认常量。"""
-    if db is None:
-        return default
-    value = db.get_setting(key)
-    if value is None:
-        return default
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError):
-        return default
-    return parsed if parsed > 0 else default
+    """采集频率：非法或 <=0 时回落默认值。"""
+    return _polling_setting(db, key, default, positive=True)
 
 
 def _in_x_fallback(db: DB) -> bool:
@@ -172,30 +167,22 @@ def translate_text(
     text: str,
     target: str = "zh-CN",
     client=None,
-    xai_key: str | None = None,
-    model: str | None = None,
     tweet_id: str | None = None,
     twitter_cookie: str | None = None,
+    **_ignored,
 ) -> str:
-    """把 X 内容转成中文。
-
-    优先用 X 官方翻译（同网页版 Grok 翻译，需 X 登录 cookie，免 API key）；
-    未提供 cookie 时按 xAI Grok → Google → MyMemory 降级。
-    """
+    """把 X 内容转成中文。优先官方翻译，失败回退 MyMemory。"""
     import httpx
 
     text = (text or "").strip()
     if not text:
         return text
-    xai_key = xai_key or os.environ.get("XAI_API_KEY", "")
-    model = model or os.environ.get("XAI_MODEL", "") or "grok-2-latest"
     if twitter_cookie is None:
         twitter_cookie = os.environ.get("TWITTER_COOKIE", "")
     owns_client = client is None
     client = client or httpx.Client(timeout=15)
     errors = []
     try:
-        # 0) X 官方翻译：与 X 网页版同源（内部 Grok），需要登录 cookie + 推文 ID，免 API key
         x_cookie = parse_twitter_cookie(twitter_cookie)
         if tweet_id and x_cookie.get("auth_token") and x_cookie.get("ct0"):
             try:
@@ -227,50 +214,6 @@ def translate_text(
                     return translated.strip()
             except Exception as exc:  # noqa: BLE001
                 errors.append(f"x_translate: {exc}")
-        # 1) Grok（xAI API，质量好，需 Key）
-        if xai_key:
-            try:
-                resp = client.post(
-                    "https://api.x.ai/v1/chat/completions",
-                    headers={"Authorization": f"Bearer {xai_key}"},
-                    json={
-                        "model": model,
-                        "messages": [
-                            {
-                                "role": "system",
-                                "content": "你是专业译者。把用户提供的文本翻译成简体中文，"
-                                "只输出译文本身，不要解释、不要额外内容。",
-                            },
-                            {"role": "user", "content": text[:4000]},
-                        ],
-                        "temperature": 0.3,
-                    },
-                )
-                resp.raise_for_status()
-                content = (
-                    ((resp.json() or {}).get("choices") or [{}])[0]
-                    .get("message", {})
-                    .get("content")
-                    or ""
-                )
-                if content.strip():
-                    return content.strip()
-            except Exception as exc:  # noqa: BLE001
-                errors.append(f"grok: {exc}")
-        # 2) Google translate（海外网络可用）
-        try:
-            resp = client.get(
-                "https://translate.googleapis.com/translate_a/single",
-                params={"client": "gtx", "sl": "auto", "tl": target, "dt": "t", "q": text[:2000]},
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            translated = "".join(part[0] for part in data[0] if part and part[0])
-            if translated:
-                return translated
-        except Exception as exc:  # noqa: BLE001
-            errors.append(f"google: {exc}")
-        # 3) MyMemory（国内网络可用，单条限 500 字符）
         try:
             resp = client.get(
                 "https://api.mymemory.translated.net/get",
@@ -371,10 +314,6 @@ def _sub_type_matches(sub_type: str, post_type: str) -> bool:
     return sub_type in ("post", "both", "")
 
 
-# 渠道选择判断与 channels.channel_enabled 逐字一致，本地别名保持调用点不变
-_channel_enabled = channel_enabled
-
-
 def _can_still_push(user: dict, channel: str, post: Post, db: DB) -> bool:
     """推送前复查用户状态：通知开关、渠道选择与绑定、订阅关系与类型是否仍成立。
 
@@ -382,7 +321,7 @@ def _can_still_push(user: dict, channel: str, post: Post, db: DB) -> bool:
     """
     if not user or not user.get("notify_enabled"):
         return False
-    if not _channel_enabled(user, channel):
+    if not channel_enabled(user, channel):
         return False
     if channel == "telegram" and not user.get("telegram_chat_id"):
         return False
@@ -462,28 +401,47 @@ def _alerts_enabled() -> bool:
     )
 
 
-def maybe_alert_source_failure(
-    db: DB, notifiers: list[Notifier], platform: str, kol_name: str, detail: str, fail_count: int
-) -> None:
-    """数据源连续失败时向管理员推送告警（每平台每 6 小时最多一次）。"""
-    if not _alerts_enabled():
-        return
-    now = int(time.time())
-    key = f"source_alert_{platform}"
-    last = db.get_setting(key)
-    if last and now - int(last) < SOURCE_ALERT_INTERVAL:
-        return
-    db.set_setting(key, str(now))
-    label = PLATFORM_LABELS.get(platform, platform)
-    message = (
-        f"⚠️ 数据源告警：{label}「{kol_name}」连续失败 {fail_count} 次。\n"
-        f"错误：{detail[:200]}"
-    )
+def _send_admin_text(notifiers: list[Notifier], message: str, what: str) -> None:
     for notifier in notifiers:
         try:
             notifier.send_text(message)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("数据源告警发送失败 channel=%s err=%s", notifier.channel, exc)
+            logger.warning("%s发送失败 channel=%s err=%s", what, notifier.channel, exc)
+
+
+def _cooldown_ok(db: DB, key: str, interval: int) -> bool:
+    now = int(time.time())
+    last = db.get_setting(key)
+    if last:
+        try:
+            if now - int(last) < interval:
+                return False
+        except (TypeError, ValueError):
+            pass
+    db.set_setting(key, str(now))
+    return True
+
+
+def _daily_ok(db: DB, key: str) -> bool:
+    today = time.strftime("%Y-%m-%d")
+    if db.get_setting(key) == today:
+        return False
+    db.set_setting(key, today)
+    return True
+
+
+def maybe_alert_source_failure(
+    db: DB, notifiers: list[Notifier], platform: str, kol_name: str, detail: str, fail_count: int
+) -> None:
+    """数据源连续失败时向管理员推送告警（每平台每 6 小时最多一次）。"""
+    if not _alerts_enabled() or not _cooldown_ok(db, f"source_alert_{platform}", SOURCE_ALERT_INTERVAL):
+        return
+    label = PLATFORM_LABELS.get(platform, platform)
+    _send_admin_text(
+        notifiers,
+        f"⚠️ 数据源告警：{label}「{kol_name}」连续失败 {fail_count} 次。\n错误：{detail[:200]}",
+        "数据源告警",
+    )
 
 
 def maybe_alert_source_recovered(
@@ -493,12 +451,11 @@ def maybe_alert_source_recovered(
     if not _alerts_enabled():
         return
     label = PLATFORM_LABELS.get(platform, platform)
-    message = f"✅ 数据源已恢复：{label}「{kol_name}」重新抓取成功。"
-    for notifier in notifiers:
-        try:
-            notifier.send_text(message)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("数据源恢复通知发送失败 channel=%s err=%s", notifier.channel, exc)
+    _send_admin_text(
+        notifiers,
+        f"✅ 数据源已恢复：{label}「{kol_name}」重新抓取成功。",
+        "数据源恢复通知",
+    )
 
 
 def maybe_alert_source_health(db: DB, notifiers: list[Notifier]) -> None:
@@ -545,77 +502,51 @@ def maybe_alert_source_health(db: DB, notifiers: list[Notifier]) -> None:
     if not issues:
         return
     db.set_setting(SOURCE_HEALTH_ALERT_KEY, str(now))
-    message = "⚠️ 数据源健康告警\n" + "\n".join(f"· {i}" for i in issues)
-    for notifier in notifiers:
-        try:
-            notifier.send_text(message)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("数据源健康告警发送失败 channel=%s err=%s", notifier.channel, exc)
+    _send_admin_text(
+        notifiers,
+        "⚠️ 数据源健康告警\n" + "\n".join(f"· {i}" for i in issues),
+        "数据源健康告警",
+    )
 
 
 def maybe_warn_weibo_login(db: DB, notifiers: list[Notifier], detail: str) -> None:
     """微博自动登录失败时向各渠道推告警，每天最多一次。"""
-    if not _alerts_enabled():
+    if not _alerts_enabled() or not _daily_ok(db, WEIBO_WARNING_KEY):
         return
-    today = time.strftime("%Y-%m-%d")
-    if db.get_setting(WEIBO_WARNING_KEY) == today:
-        return
-    db.set_setting(WEIBO_WARNING_KEY, today)
-    message = f"⚠️ 微博 cookie 自动登录失败，请检查 weibo.username/password 或手动更新 cookie。详情：{detail[:200]}"
-    for notifier in notifiers:
-        try:
-            notifier.send_text(message)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("微博告警发送失败 channel=%s err=%s", notifier.channel, exc)
+    _send_admin_text(
+        notifiers,
+        f"⚠️ 微博 cookie 自动登录失败，请检查 weibo.username/password 或手动更新 cookie。详情：{detail[:200]}",
+        "微博告警",
+    )
 
 
 def maybe_warn_xueqiu_cookie(db: DB, notifiers: list[Notifier], detail: str) -> None:
     """雪球 cookie/WAF 失效时向各渠道推告警，每天最多一次。"""
-    if not _alerts_enabled():
+    if not _alerts_enabled() or not _daily_ok(db, XUEQIU_WARNING_KEY):
         return
-    today = time.strftime("%Y-%m-%d")
-    if db.get_setting(XUEQIU_WARNING_KEY) == today:
-        return
-    db.set_setting(XUEQIU_WARNING_KEY, today)
-    message = f"⚠️ 雪球 cookie 自动续期失败（可能被 WAF 拦截），请手动更新 sources.xueqiu.cookie。详情：{detail[:200]}"
-    for notifier in notifiers:
-        try:
-            notifier.send_text(message)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("雪球告警发送失败 channel=%s err=%s", notifier.channel, exc)
+    _send_admin_text(
+        notifiers,
+        f"⚠️ 雪球 cookie 自动续期失败（可能被 WAF 拦截），请手动更新 sources.xueqiu.cookie。详情：{detail[:200]}",
+        "雪球告警",
+    )
 
 
 def maybe_alert_backup_failure(db: DB, notifiers: list[Notifier], detail: str) -> None:
     """定时备份失败时向管理员告警，每天最多一次。"""
-    if not _alerts_enabled():
+    if not _alerts_enabled() or not _daily_ok(db, BACKUP_ALERT_KEY):
         return
-    today = time.strftime("%Y-%m-%d")
-    if db.get_setting(BACKUP_ALERT_KEY) == today:
-        return
-    db.set_setting(BACKUP_ALERT_KEY, today)
-    message = f"⚠️ 定时备份失败：{detail[:200]}"
-    for notifier in notifiers:
-        try:
-            notifier.send_text(message)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("备份告警发送失败 channel=%s err=%s", notifier.channel, exc)
+    _send_admin_text(notifiers, f"⚠️ 定时备份失败：{detail[:200]}", "备份告警")
 
 
 def maybe_alert_push_failure(db: DB, notifiers: list[Notifier], detail: str) -> None:
     """用户推送失败时向管理员告警，每小时最多一次避免刷屏。"""
-    if not _alerts_enabled():
+    if not _alerts_enabled() or not _cooldown_ok(db, PUSH_ALERT_KEY, PUSH_ALERT_INTERVAL):
         return
-    now = int(time.time())
-    last = db.get_setting(PUSH_ALERT_KEY)
-    if last and now - int(last) < PUSH_ALERT_INTERVAL:
-        return
-    db.set_setting(PUSH_ALERT_KEY, str(now))
-    message = f"⚠️ 用户推送失败（每小时最多提醒一次）：{detail[:200]}"
-    for notifier in notifiers:
-        try:
-            notifier.send_text(message)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("推送告警发送失败 channel=%s err=%s", notifier.channel, exc)
+    _send_admin_text(
+        notifiers,
+        f"⚠️ 用户推送失败（每小时最多提醒一次）：{detail[:200]}",
+        "推送告警",
+    )
 
 
 def _x_fallback_advice(reason: str) -> str:
@@ -677,11 +608,7 @@ def maybe_alert_x_fallback(db: DB, notifiers: list[Notifier]) -> None:
         f"原因：{reason[:200]}\n"
         f"{_x_fallback_advice(reason)}"
     )
-    for notifier in notifiers:
-        try:
-            notifier.send_text(message)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("X 降级告警发送失败 channel=%s err=%s", notifier.channel, exc)
+    _send_admin_text(notifiers, message, "X 降级告警")
     db.set_setting(X_DIRECT_ALERT_KEY, str(now))
 
 
@@ -1164,10 +1091,7 @@ def notify_digest_subscribers(
         return
     import httpx
 
-    from .notifiers.bark import BarkNotifier
-    from .notifiers.feishu import FeishuNotifier
-    from .notifiers.telegram import TelegramNotifier
-    from .notifiers.wecom import WeComNotifier
+    from .channels import build_channel_notifier, iter_user_channels
 
     client = httpx.Client(timeout=15)
     try:
@@ -1208,59 +1132,19 @@ def notify_digest_subscribers(
                     logger.warning(
                         "LLM 摘要异常 user=%s kol=%s err=%s", user["username"], kol["name"], exc
                     )
-            if user["telegram_chat_id"] and _channel_enabled(user, "telegram") and (
-                notifiers_config.telegram.bot_token or user.get("telegram_bot_token")
-            ):
-                notifier = TelegramNotifier(
-                    notifiers_config.telegram,
+            for channel in iter_user_channels(user, notifiers_config, db):
+                notifier = build_channel_notifier(
+                    channel,
+                    user,
+                    notifiers_config,
                     client=client,
-                    chat_id=user["telegram_chat_id"],
-                    unsub_kol_id=kol["id"],
-                    bot_token=user.get("telegram_bot_token") or None,
                     favorite=favorite,
                     secondary=bool(user.get("secondary")),
-                )
-                _send_digest_bundle(
-                    notifier, summary, matched, kol, db, "telegram", user, retry_queue, notifiers
-                )
-            if _channel_enabled(user, "feishu") and channel_bound(user, "feishu", notifiers_config, db):
-                from .feishu_personal import build_personal_feishu_kwargs
-
-                fs_kwargs = build_personal_feishu_kwargs(db, notifiers_config.feishu, user)
-                notifier = FeishuNotifier(
-                    notifiers_config.feishu,
-                    client=client,
-                    open_id=fs_kwargs["open_id"],
-                    chat_id=fs_kwargs["chat_id"],
                     unsub_kol_id=kol["id"],
-                    favorite=favorite,
-                    secondary=bool(user.get("secondary")),
-                    app_id=fs_kwargs["app_id"],
-                    app_secret=fs_kwargs["app_secret"],
-                    interactive_buttons=not bool(fs_kwargs["app_id"]),
+                    db=db,
                 )
                 _send_digest_bundle(
-                    notifier, summary, matched, kol, db, "feishu", user, retry_queue, notifiers
-                )
-            if user.get("wecom_webhook") and _channel_enabled(user, "wecom"):
-                notifier = WeComNotifier(
-                    notifiers_config.wecom,
-                    client=client,
-                    webhook_url=user["wecom_webhook"],
-                    favorite=favorite,
-                )
-                _send_digest_bundle(
-                    notifier, summary, matched, kol, db, "wecom", user, retry_queue, notifiers
-                )
-            if user.get("bark_key") and _channel_enabled(user, "bark"):
-                notifier = BarkNotifier(
-                    getattr(notifiers_config, "bark", None) if notifiers_config is not None else None,
-                    client=client,
-                    bark_key=user["bark_key"],
-                    favorite=favorite,
-                )
-                _send_digest_bundle(
-                    notifier, summary, matched, kol, db, "bark", user, retry_queue, notifiers
+                    notifier, summary, matched, kol, db, channel, user, retry_queue, notifiers
                 )
     finally:
         client.close()
@@ -1351,15 +1235,12 @@ def probe_xueqiu(db: DB, notifiers: list[Notifier], source_config) -> None:
             last = db.get_setting(XUEQIU_PROBE_ALERT_KEY)
             if not last or now - int(last) >= SOURCE_ALERT_INTERVAL:
                 db.set_setting(XUEQIU_PROBE_ALERT_KEY, str(now))
-                message = (
+                _send_admin_text(
+                    notifiers,
                     "⚠️ 雪球探测异常：抓取接口被反爬拦截或返回异常，"
-                    "cookie 可能失效。请到后台「数据源」页更新雪球 cookie。"
+                    "cookie 可能失效。请到后台「数据源」页更新雪球 cookie。",
+                    "雪球探测告警",
                 )
-                for notifier in notifiers:
-                    try:
-                        notifier.send_text(message)
-                    except Exception as exc:  # noqa: BLE001
-                        logger.warning("雪球探测告警发送失败 channel=%s err=%s", notifier.channel, exc)
             return
         db.set_setting(SOURCE_OK_KEY.format(platform="xueqiu"), str(int(time.time())))
         db.set_setting(SOURCE_ERR_KEY.format(platform="xueqiu"), "")
@@ -1394,11 +1275,7 @@ def _alert_cookie_keepalive(db: DB, notifiers: list[Notifier], label: str, detai
         f"请到后台「数据源」页更新 {label} cookie，或配置账号密码自动续期。"
         + (f" 详情：{detail[:120]}" if detail else "")
     )
-    for notifier in notifiers:
-        try:
-            notifier.send_text(message)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("cookie 保活告警发送失败 channel=%s err=%s", notifier.channel, exc)
+    _send_admin_text(notifiers, message, "cookie 保活告警")
 
 
 def keepalive_xueqiu_cookie(
@@ -1634,62 +1511,29 @@ class Scheduler:
             return
         import httpx
 
-        from .notifiers.feishu import FeishuNotifier
-        from .notifiers.telegram import TelegramNotifier
-        from .notifiers.wecom import WeComNotifier
+        from .channels import build_channel_notifier, iter_user_channels
 
         message = "✅ V Push服务已启动"
         client = httpx.Client(timeout=15)
         sent_any = False
         try:
-            admins = [u for u in self.db.list_users() if u.get("is_admin")]
-            for user in admins:
-                if (
-                    user["telegram_chat_id"]
-                    and _channel_enabled(user, "telegram")
-                    and (self.notifiers_config.telegram.bot_token or user.get("telegram_bot_token"))
-                ):
-                    notifier = TelegramNotifier(
-                        self.notifiers_config.telegram,
-                        client=client,
-                        chat_id=user["telegram_chat_id"],
-                        bot_token=user.get("telegram_bot_token") or None,
-                    )
+            for user in self.db.list_users():
+                if not user.get("is_admin"):
+                    continue
+                for channel in iter_user_channels(user, self.notifiers_config, self.db):
                     try:
+                        notifier = build_channel_notifier(
+                            channel, user, self.notifiers_config, client=client, db=self.db
+                        )
                         await asyncio.to_thread(notifier.send_text, message)
                         sent_any = True
                     except Exception as exc:  # noqa: BLE001
-                        logger.warning("启动提示 TG 发送失败 user=%s err=%s", user["username"], exc)
-                if channel_bound(user, "feishu", self.notifiers_config, self.db) and _channel_enabled(
-                    user, "feishu"
-                ):
-                    from .feishu_personal import build_personal_feishu_kwargs
-
-                    fs_kwargs = build_personal_feishu_kwargs(self.db, self.notifiers_config.feishu, user)
-                    notifier = FeishuNotifier(
-                        self.notifiers_config.feishu,
-                        client=client,
-                        open_id=fs_kwargs["open_id"],
-                        chat_id=fs_kwargs["chat_id"],
-                        app_id=fs_kwargs["app_id"],
-                        app_secret=fs_kwargs["app_secret"],
-                    )
-                    try:
-                        await asyncio.to_thread(notifier.send_text, message)
-                        sent_any = True
-                    except Exception as exc:  # noqa: BLE001
-                        logger.warning("启动提示飞书发送失败 user=%s err=%s", user["username"], exc)
-                if user.get("wecom_webhook") and _channel_enabled(user, "wecom"):
-                    notifier = WeComNotifier(
-                        self.notifiers_config.wecom,
-                        client=client,
-                        webhook_url=user["wecom_webhook"],
-                    )
-                    try:
-                        await asyncio.to_thread(notifier.send_text, message)
-                        sent_any = True
-                    except Exception as exc:  # noqa: BLE001
-                        logger.warning("启动提示企业微信发送失败 user=%s err=%s", user["username"], exc)
+                        logger.warning(
+                            "启动提示发送失败 user=%s channel=%s err=%s",
+                            user["username"],
+                            channel,
+                            exc,
+                        )
         finally:
             client.close()
         if not sent_any:
@@ -2323,32 +2167,28 @@ class Scheduler:
             )
         except Exception:  # noqa: BLE001 - 清理失败不影响推送
             logger.warning("每日精选投递状态清理失败", exc_info=True)
-        from .feishu_personal import build_personal_feishu_kwargs
+        from .channels import build_channel_notifier, iter_user_channels
         from .fetchers.base import Post
-        from .notifiers.bark import BarkNotifier
-        from .notifiers.feishu import FeishuNotifier
-        from .notifiers.telegram import TelegramNotifier
-        from .notifiers.wecom import WeComNotifier
 
         failed = False
         report_date = datetime.now().strftime("%Y-%m-%d")
         since = int(datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
 
-        def _deliver(channel: str, condition: bool, build_notifier, user) -> None:
+        def _deliver(channel: str, user) -> None:
             """按渠道幂等投递每日精选：当日该渠道已成功则跳过（部分失败重试不重复发）。
 
             成功立即标记投递状态（持久化，进程重启也不重复）；异常只标记该渠道失败。
             """
             nonlocal failed
-            if not condition:
-                return
             if self.db.daily_report_delivered(user["id"], report_date, channel):
                 logger.info(
                     "每日精选 channel=%s 当日已投递成功，跳过 user=%s",
                     channel, user["username"],
                 )
                 return
-            notifier = build_notifier()
+            notifier = build_channel_notifier(
+                channel, user, self.notifiers_config, db=self.db
+            )
             try:
                 if daily_text:
                     notifier.send_text(daily_text)
@@ -2414,47 +2254,6 @@ class Scheduler:
 
                 daily_text = render_daily_summary(summary, posts)
 
-            _deliver(
-                "telegram",
-                bool(
-                    user.get("telegram_chat_id")
-                    and _channel_enabled(user, "telegram")
-                    and (
-                        self.notifiers_config.telegram.bot_token or user.get("telegram_bot_token")
-                    )
-                ),
-                lambda u=user: TelegramNotifier(
-                    self.notifiers_config.telegram,
-                    chat_id=u["telegram_chat_id"],
-                    bot_token=u.get("telegram_bot_token") or None,
-                ),
-                user,
-            )
-            _deliver(
-                "feishu",
-                bool(
-                    _channel_enabled(user, "feishu")
-                    and channel_bound(user, "feishu", self.notifiers_config, self.db)
-                ),
-                lambda u=user: FeishuNotifier(
-                    self.notifiers_config.feishu,
-                    **build_personal_feishu_kwargs(self.db, self.notifiers_config.feishu, u),
-                ),
-                user,
-            )
-            _deliver(
-                "wecom",
-                bool(user.get("wecom_webhook") and _channel_enabled(user, "wecom")),
-                lambda u=user: WeComNotifier(
-                    self.notifiers_config.wecom,
-                    webhook_url=u["wecom_webhook"],
-                ),
-                user,
-            )
-            _deliver(
-                "bark",
-                bool(user.get("bark_key") and _channel_enabled(user, "bark")),
-                lambda u=user: BarkNotifier(bark_key=u["bark_key"]),
-                user,
-            )
+            for channel in iter_user_channels(user, self.notifiers_config, self.db):
+                _deliver(channel, user)
         return not failed

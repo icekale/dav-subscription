@@ -32,6 +32,56 @@ def _config_values(llm_config):
     return api_key, api_base, getattr(llm_config, "model", "") or "gpt-4o-mini"
 
 
+def _chat(llm_config, messages, max_tokens, client=None, temperature=0.3, attempts: int = 2) -> str | None:
+    """OpenAI 兼容 chat/completions；未配置或失败返回 None。"""
+    values = _config_values(llm_config)
+    if values is None:
+        return None
+    api_key, api_base, model = values
+    import httpx
+
+    owns_client = client is None
+    client = client or httpx.Client(timeout=60)
+    try:
+        last_err: Exception | None = None
+        for attempt in range(attempts):
+            try:
+                resp = client.post(
+                    f"{api_base}/chat/completions",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    json={
+                        "model": model,
+                        "messages": messages,
+                        "temperature": temperature,
+                        "max_tokens": max_tokens,
+                    },
+                )
+                if resp.status_code == 429 or resp.status_code >= 500:
+                    raise _RetryableError(f"LLM HTTP {resp.status_code}")
+                resp.raise_for_status()
+                text = (
+                    (resp.json().get("choices") or [{}])[0]
+                    .get("message", {})
+                    .get("content", "")
+                    .strip()
+                )
+                if not text:
+                    raise _RetryableError("LLM 返回空")
+                return text
+            except httpx.HTTPStatusError as exc:
+                last_err = exc
+                break
+            except (httpx.TransportError, _RetryableError) as exc:
+                last_err = exc
+            if attempt + 1 < attempts:
+                time.sleep(2)
+        logger.warning("LLM 请求失败: %s", last_err)
+        return None
+    finally:
+        if owns_client:
+            client.close()
+
+
 SUMMARY_SYSTEM_PROMPT = (
     "你是信息摘要助手。把下面用户订阅的社交动态整理成简洁的中文要点。"
     "要求：按重要性排序，每条要点一行，以「- 」开头；"
@@ -70,9 +120,7 @@ def summarize_posts(posts, llm_config=None, client=None, cache=None) -> str | No
     values = _config_values(llm_config)
     if values is None:
         return None
-    api_key, api_base, model = values
-    import httpx
-
+    _, api_base, model = values
     posts = sorted(posts, key=lambda p: (getattr(p, "post_type", "") or "") == "reply")
     content = "\n".join(_post_lines(posts))
     if not content.strip():
@@ -85,61 +133,20 @@ def summarize_posts(posts, llm_config=None, client=None, cache=None) -> str | No
         for p in posts
     ):
         return None
-    owns_client = client is None
-    client = client or httpx.Client(timeout=60)
-    try:
-        last_err: Exception | None = None
-        for attempt in range(2):
-            try:
-                resp = client.post(
-                    f"{api_base}/chat/completions",
-                    headers={"Authorization": f"Bearer {api_key}"},
-                    json={
-                        "model": model,
-                        "messages": [
-                            {"role": "system", "content": SUMMARY_SYSTEM_PROMPT},
-                            {
-                                "role": "user",
-                                "content": (
-                                    f"共 {len(posts)} 条动态，请整理要点：\n{content[:12000]}"
-                                ),
-                            },
-                        ],
-                        "temperature": 0.3,
-                        # 推理模型（如 deepseek-v4-flash）的 max_tokens 包含思考预算，
-                        # 太低会被思考吃光导致 content 为空；托底 2000、上限 8000
-                        "max_tokens": min(8000, max(2000, 200 + 120 * len(posts))),
-                    },
-                )
-                if resp.status_code == 429 or resp.status_code >= 500:
-                    raise _RetryableError(f"LLM HTTP {resp.status_code}")
-                resp.raise_for_status()
-                data = resp.json()
-                text = (
-                    (data.get("choices") or [{}])[0]
-                    .get("message", {})
-                    .get("content", "")
-                    .strip()
-                )
-                if not text:
-                    raise _RetryableError("LLM 返回空摘要")
-                usage = (data.get("usage") or {}).get("total_tokens") or 0
-                logger.info("LLM 摘要完成 posts=%d tokens=%d", len(posts), usage)
-                if key is not None:
-                    cache[key] = text
-                return text
-            except httpx.HTTPStatusError as exc:
-                last_err = exc  # 4xx（鉴权/参数错误）重试无意义
-                break
-            except (httpx.TransportError, _RetryableError) as exc:
-                last_err = exc
-            if attempt == 0:
-                time.sleep(2)
-        logger.warning("LLM 摘要失败，降级为普通汇总: %s", last_err)
+    text = _chat(
+        llm_config,
+        [
+            {"role": "system", "content": SUMMARY_SYSTEM_PROMPT},
+            {"role": "user", "content": f"共 {len(posts)} 条动态，请整理要点：\n{content[:12000]}"},
+        ],
+        min(8000, max(2000, 200 + 120 * len(posts))),
+        client=client,
+    )
+    if text is None:
         return None
-    finally:
-        if owns_client:
-            client.close()
+    if key is not None:
+        cache[key] = text
+    return text
 
 
 # ---- 每日精选综述 ----
@@ -271,70 +278,19 @@ def summarize_daily(posts, llm_config=None, client=None) -> DailySummary | None:
 
     与 summarize_posts 同款降级/重试策略；只传帖文标题/大V/平台/摘要，不传用户隐私字段。
     """
-    values = _config_values(llm_config)
-    if values is None:
-        return None
-    api_key, api_base, model = values
-    import httpx
-
     content = "\n".join(_daily_lines(posts))
     if not content.strip():
         return None
-    owns_client = client is None
-    client = client or httpx.Client(timeout=60)
-    try:
-        last_err: Exception | None = None
-        for attempt in range(2):
-            try:
-                resp = client.post(
-                    f"{api_base}/chat/completions",
-                    headers={"Authorization": f"Bearer {api_key}"},
-                    json={
-                        "model": model,
-                        "messages": [
-                            {"role": "system", "content": DAILY_SUMMARY_SYSTEM_PROMPT},
-                            {
-                                "role": "user",
-                                "content": (
-                                    f"共 {len(posts)} 条动态，请整理成每日综述：\n{content[:12000]}"
-                                ),
-                            },
-                        ],
-                        "temperature": 0.3,
-                        # 推理模型（deepseek-reasoner）思考预算可达 1 万+ tokens 且与帖数无关，
-                        # 用帖数公式（15 帖仅 2000）会被思考吃光致 content 为空；直接给足上限，
-                        # 普通模型不会用满。daily 场景帖数 ≤15，单条输入量可控。
-                        "max_tokens": 16000,
-                    },
-                )
-                if resp.status_code == 429 or resp.status_code >= 500:
-                    raise _RetryableError(f"LLM HTTP {resp.status_code}")
-                resp.raise_for_status()
-                data = resp.json()
-                text = (
-                    (data.get("choices") or [{}])[0]
-                    .get("message", {})
-                    .get("content", "")
-                    .strip()
-                )
-                summary = _parse_daily_summary(text, len(posts))
-                if summary is None:
-                    raise _RetryableError("LLM 每日综述无法解析")
-                usage = (data.get("usage") or {}).get("total_tokens") or 0
-                logger.info("LLM 每日综述完成 posts=%d points=%d tokens=%d", len(posts), len(summary.points), usage)
-                return summary
-            except httpx.HTTPStatusError as exc:
-                last_err = exc  # 4xx（鉴权/参数错误）重试无意义
-                break
-            except (httpx.TransportError, _RetryableError) as exc:
-                last_err = exc
-            if attempt == 0:
-                time.sleep(2)
-        logger.warning("LLM 每日综述失败，降级为原始列表: %s", last_err)
-        return None
-    finally:
-        if owns_client:
-            client.close()
+    text = _chat(
+        llm_config,
+        [
+            {"role": "system", "content": DAILY_SUMMARY_SYSTEM_PROMPT},
+            {"role": "user", "content": f"共 {len(posts)} 条动态，请整理成每日综述：\n{content[:12000]}"},
+        ],
+        16000,
+        client=client,
+    )
+    return _parse_daily_summary(text or "", len(posts))
 
 
 # ---- 股票黑话别名识别（每日一次低频任务） ----
@@ -356,67 +312,47 @@ def suggest_stock_aliases(candidates, known_stocks, llm_config=None, client=None
     未配置 LLM 或任何失败返回 []（调用方跳过本次识别）；confidence 为
     high/medium 的条目保留（调度层只采纳 high 自动写入），none 丢弃。
     """
-    values = _config_values(llm_config)
-    if values is None or not candidates:
+    if not candidates:
         return []
-    api_key, api_base, model = values
-    import httpx
-
-    owns_client = client is None
-    client = client or httpx.Client(timeout=60)
-    try:
-        resp = client.post(
-            f"{api_base}/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}"},
-            json={
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": ALIAS_SYSTEM_PROMPT},
-                    {
-                        "role": "user",
-                        "content": (
-                            f"候选词（可能含股票别名）：{json.dumps(candidates[:100], ensure_ascii=False)}\n"
-                            f"已知股票名：{json.dumps(known_stocks, ensure_ascii=False)}"
-                        ),
-                    },
-                ],
-                "temperature": 0,
-                # 推理模型思考预算大，2000 会被吃光致 JSON 截断
-                "max_tokens": 8000,
+    text = _chat(
+        llm_config,
+        [
+            {"role": "system", "content": ALIAS_SYSTEM_PROMPT},
+            {
+                "role": "user",
+                "content": (
+                    f"候选词（可能含股票别名）：{json.dumps(candidates[:100], ensure_ascii=False)}\n"
+                    f"已知股票名：{json.dumps(known_stocks, ensure_ascii=False)}"
+                ),
             },
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        text = (data.get("choices") or [{}])[0].get("message", {}).get("content", "").strip()
-        if not text:
-            logger.warning("LLM 别名识别返回空，跳过本轮")
-            return []
-        match = re.search(r"\[.*\]", text, re.DOTALL)
-        if not match:
-            logger.warning("LLM 别名识别无 JSON 数组: %.100s", text)
-            return []
-        try:
-            parsed = json.loads(match.group(0))
-        except ValueError:
-            return []
-        result = []
-        known_lower = {str(s).lower() for s in known_stocks}
-        for item in parsed if isinstance(parsed, list) else []:
-            if not isinstance(item, dict):
-                continue
-            alias = str(item.get("alias") or "").strip()
-            stock = str(item.get("stock") or "").strip()
-            confidence = str(item.get("confidence") or "none").strip().lower()
-            if alias and stock and stock.lower() in known_lower and confidence in ("high", "medium"):
-                result.append({"alias": alias, "stock": stock, "confidence": confidence})
-        logger.info("LLM 别名识别候选=%d 采纳=%d", len(candidates), len(result))
-        return result
-    except Exception as exc:  # noqa: BLE001 - 识别失败跳过本轮，不影响其他
-        logger.warning("LLM 别名识别失败，跳过本轮: %s", exc)
+        ],
+        8000,
+        client=client,
+        temperature=0,
+        attempts=1,
+    )
+    if not text:
         return []
-    finally:
-        if owns_client:
-            client.close()
+    match = re.search(r"\[.*\]", text, re.DOTALL)
+    if not match:
+        logger.warning("LLM 别名识别无 JSON 数组: %.100s", text)
+        return []
+    try:
+        parsed = json.loads(match.group(0))
+    except ValueError:
+        return []
+    result = []
+    known_lower = {str(s).lower() for s in known_stocks}
+    for item in parsed if isinstance(parsed, list) else []:
+        if not isinstance(item, dict):
+            continue
+        alias = str(item.get("alias") or "").strip()
+        stock = str(item.get("stock") or "").strip()
+        confidence = str(item.get("confidence") or "none").strip().lower()
+        if alias and stock and stock.lower() in known_lower and confidence in ("high", "medium"):
+            result.append({"alias": alias, "stock": stock, "confidence": confidence})
+    logger.info("LLM 别名识别候选=%d 采纳=%d", len(candidates), len(result))
+    return result
 
 
 # ---- 股票标记解析（$标记$ → 官方名/戏称） ----
@@ -443,68 +379,48 @@ def resolve_stock_marks(marks, llm_config=None, client=None) -> list[dict]:
     is_alias=false → 官方名进股票名表；is_alias=true → 戏称进别名表。
     未配置 LLM 或任何失败返回 []（静默跳过本轮）。
     """
-    values = _config_values(llm_config)
-    if values is None or not marks:
+    if not marks:
         return []
-    api_key, api_base, model = values
-    import httpx
-
-    owns_client = client is None
-    client = client or httpx.Client(timeout=60)
-    try:
-        resp = client.post(
-            f"{api_base}/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}"},
-            json={
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": MARK_RESOLVE_SYSTEM_PROMPT},
-                    {
-                        "role": "user",
-                        "content": "股票标记列表：\n"
-                        + "\n".join(f"{name}({code})" for name, code in marks),
-                    },
-                ],
-                "temperature": 0,
-                # 推理模型思考预算大（600+ tokens），2000 会被吃光致 JSON 截断
-                "max_tokens": 8000,
+    text = _chat(
+        llm_config,
+        [
+            {"role": "system", "content": MARK_RESOLVE_SYSTEM_PROMPT},
+            {
+                "role": "user",
+                "content": "股票标记列表：\n"
+                + "\n".join(f"{name}({code})" for name, code in marks),
             },
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        text = (data.get("choices") or [{}])[0].get("message", {}).get("content", "").strip()
-        if not text:
-            logger.warning("LLM 标记解析返回空，跳过本轮")
-            return []
-        match = re.search(r"\[.*\]", text, re.DOTALL)
-        if not match:
-            logger.warning("LLM 标记解析无 JSON 数组: %.100s", text)
-            return []
-        try:
-            parsed = json.loads(match.group(0))
-        except ValueError:
-            return []
-        valid_prefixes = ("SH", "SZ", "BJ")
-        result = []
-        for item in parsed if isinstance(parsed, list) else []:
-            if not isinstance(item, dict):
-                continue
-            name = str(item.get("name") or "").strip()
-            code = str(item.get("code") or "").strip().upper()
-            official = str(item.get("official") or "").strip()
-            is_alias = bool(item.get("is_alias"))
-            if not name or not official:
-                continue
-            if code and not code.startswith(valid_prefixes):
-                continue
-            result.append(
-                {"name": name, "code": code, "official": official, "is_alias": is_alias}
-            )
-        logger.info("LLM 标记解析 marks=%d 解析=%d", len(marks), len(result))
-        return result
-    except Exception as exc:  # noqa: BLE001 - 解析失败跳过本轮
-        logger.warning("LLM 标记解析失败，跳过本轮: %s", exc)
+        ],
+        8000,
+        client=client,
+        temperature=0,
+        attempts=1,
+    )
+    if not text:
         return []
-    finally:
-        if owns_client:
-            client.close()
+    match = re.search(r"\[.*\]", text, re.DOTALL)
+    if not match:
+        logger.warning("LLM 标记解析无 JSON 数组: %.100s", text)
+        return []
+    try:
+        parsed = json.loads(match.group(0))
+    except ValueError:
+        return []
+    valid_prefixes = ("SH", "SZ", "BJ")
+    result = []
+    for item in parsed if isinstance(parsed, list) else []:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        code = str(item.get("code") or "").strip().upper()
+        official = str(item.get("official") or "").strip()
+        is_alias = bool(item.get("is_alias"))
+        if not name or not official:
+            continue
+        if code and not code.startswith(valid_prefixes):
+            continue
+        result.append(
+            {"name": name, "code": code, "official": official, "is_alias": is_alias}
+        )
+    logger.info("LLM 标记解析 marks=%d 解析=%d", len(marks), len(result))
+    return result

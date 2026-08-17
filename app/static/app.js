@@ -16,7 +16,7 @@ const CHANNEL_ICONS = {
 };
 const CHANNEL_LABELS = { telegram: "Telegram", feishu: "飞书", wecom: "企业微信", bark: "Bark" };
 const USER_CHANNEL_KEYS = ["telegram", "feishu", "wecom", "bark"];
-const APP_VERSION = "1.12.9";
+const APP_VERSION = "1.12.10";
 const PLATFORM_TABS = ["", "xueqiu", "combination", "weibo", "twitter"];
 const TL_PLATFORMS = PLATFORM_TABS.map((p) => [p, p ? PLATFORM_LABELS[p] : "全部"]);
 const STAR_SVG = `<svg class="star-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5l2.95 5.98 6.6.96-4.78 4.66 1.13 6.58L12 17.6l-5.9 3.1 1.13-6.58L2.45 9.44l6.6-.96L12 2.5z"/></svg>`;
@@ -1545,7 +1545,7 @@ async function renderSearch(seq) {
   else $("#search-input").focus();
 }
 
-const ASK_PLATFORM_LABELS = { xueqiu: "雪球", combination: "雪球组合", weibo: "微博", twitter: "X" };
+
 
 function detectAskPlatform(link) {
   // 与后端 _detect_platform_from_link 同规则：输入链接时自动甄别平台
@@ -1563,7 +1563,7 @@ function onAskLinkInput() {
   const sel = $("#ask-platform");
   if (!detected || !sel || sel.value === detected) return;
   sel.value = detected;
-  showAskResult(`已识别为「${ASK_PLATFORM_LABELS[detected]}」主页链接，平台已自动切换`, false);
+  showAskResult(`已识别为「${PLATFORM_LABELS[detected]}」主页链接，平台已自动切换`, false);
 }
 
 function showAskResult(msg, isError) {
@@ -2498,7 +2498,7 @@ function renderBindResult(channel, code) {
     const label = channel === "telegram" ? "Telegram" : "飞书";
     el.innerHTML = `
       <p style="margin:10px 0 6px">复制绑定码，粘贴发送给${label}机器人（自动识别，无需命令）：</p>
-      <b style="font-size:20px;letter-spacing:3px">${escapeHtml(code)}</b>`;
+      <b style="font-size:var(--text-icon);letter-spacing:3px;font-family:var(--font-mono);font-variant-numeric:tabular-nums">${escapeHtml(code)}</b>`;
   }
 }
 
@@ -2673,7 +2673,7 @@ async function genBindCode() {
   try {
     const data = await api("/api/me/bind-code", { method: "POST" });
     $("#bind-result").innerHTML =
-      `绑定码：<b style="font-size:20px;letter-spacing:3px">${escapeHtml(data.code)}</b>` +
+      `绑定码：<b style="font-size:var(--text-icon);letter-spacing:3px;font-family:var(--font-mono);font-variant-numeric:tabular-nums">${escapeHtml(data.code)}</b>` +
       `（${Math.floor(data.expires_in_seconds / 60)} 分钟内有效）<br>` +
       `发给机器人：<code>/bind ${escapeHtml(data.code)}</code>`;
   } catch (err) {
@@ -3122,8 +3122,8 @@ async function pollWeiboQr(qrid) {
 function statCard(label, value) {
   return `
     <div style="flex:1;min-width:150px;background:var(--color-bg-muted);border-radius:var(--radius-control);padding:16px 18px">
-      <div style="font-size:12px;color:var(--color-text-muted)">${escapeHtml(label)}</div>
-      <div style="font-size:20px;font-weight:700;color:var(--color-text-strong);margin-top:6px">${escapeHtml(String(value))}</div>
+      <div style="font-size:var(--text-xs);color:var(--color-text-muted)">${escapeHtml(label)}</div>
+      <div style="font-size:var(--text-title);font-weight:var(--font-weight-semibold);font-variant-numeric:tabular-nums;color:var(--color-text-strong);margin-top:6px">${escapeHtml(String(value))}</div>
     </div>`;
 }
 
@@ -4466,7 +4466,7 @@ function postRowHtml(p) {
       <td>${escapeHtml(p.category_name || "")}</td>
       <td class="post-cell" onclick="adminTogglePost(${p.id})" title="点击展开/收起全文" role="button" tabindex="0" aria-expanded="${expanded}" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();adminTogglePost(${p.id})}">
         <pre class="content-cell">${escapeHtml(body.slice(0, expanded ? 100000 : 120))}</pre>
-        <span class="muted" style="font-size:12px">${expanded ? "▲ 收起" : (body.length > 120 ? "▼ 展开全文" : "")}</span>
+        <span class="muted">${expanded ? "▲ 收起" : (body.length > 120 ? "▼ 展开全文" : "")}</span>
       </td>
       <td>${escapeHtml(p.published_at)}</td>
       <td>${safeUrl ? `<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener">原文</a>` : ""}</td>

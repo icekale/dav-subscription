@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 
 # 项目面向中文社交平台，发布时间统一按北京时间展示，避免依赖服务器时区
 CN_TZ = timezone(timedelta(hours=8))
+PLATFORM_LABELS = {"xueqiu": "雪球", "combination": "雪球组合", "weibo": "微博", "twitter": "X"}
 
 
 @dataclass

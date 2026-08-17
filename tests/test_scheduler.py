@@ -1317,7 +1317,7 @@ def test_digest_llm_summary_computed_once_for_multiple_subscribers(monkeypatch):
             pass
 
     class FakeWeCom:
-        def __init__(self, config, client=None, webhook_url=None, favorite=False):
+        def __init__(self, config, client=None, webhook_url=None, favorite=False, **kwargs):
             self.client = SimpleNamespace(close=lambda: None)
 
         def send_text(self, text):
@@ -2503,75 +2503,16 @@ def test_existing_posts_not_retagged(monkeypatch):
     assert calls["n"] == 1
 
 
-def test_translate_text_google_first():
+def test_translate_text_mymemory():
     def handler(request):
+        assert "mymemory.translated.net" in str(request.url)
         return httpx.Response(
             200,
-            json=[[["你好世界", "Hello world", None, None, 10]], None, "en"],
+            json={"responseData": {"translatedText": "你好世界"}},
         )
 
     client = httpx.Client(transport=httpx.MockTransport(handler))
     assert translate_text("Hello world", client=client) == "你好世界"
-
-
-def test_translate_text_falls_back_to_mymemory():
-    calls = []
-
-    def handler(request):
-        calls.append(str(request.url))
-        if "translate.googleapis.com" in str(request.url):
-            return httpx.Response(302)  # Google 不可用（302/被墙）
-        return httpx.Response(
-            200,
-            json={"responseData": {"translatedText": "我们相信这款芯片是第一款"}},
-        )
-
-    client = httpx.Client(transport=httpx.MockTransport(handler))
-    assert translate_text("We believe this chip is the first", client=client) == "我们相信这款芯片是第一款"
-    assert len(calls) == 2
-
-
-def test_translate_text_uses_grok_when_key_provided():
-    calls = []
-
-    def handler(request):
-        calls.append(str(request.url))
-        assert request.headers.get("authorization") == "Bearer xai-test-key"
-        return httpx.Response(
-            200,
-            json={
-                "choices": [
-                    {"message": {"content": "我们相信这款芯片是第一款"}}
-                ]
-            },
-        )
-
-    client = httpx.Client(transport=httpx.MockTransport(handler))
-    result = translate_text(
-        "We believe this chip is the first",
-        client=client,
-        xai_key="xai-test-key",
-        model="grok-2-latest",
-    )
-    assert result == "我们相信这款芯片是第一款"
-    assert len(calls) == 1  # 不触发 google/mymemory 降级
-
-
-def test_translate_text_grok_failure_falls_back():
-    calls = []
-
-    def handler(request):
-        calls.append(str(request.url))
-        if "api.x.ai" in str(request.url):
-            return httpx.Response(401)  # Key 无效
-        return httpx.Response(
-            200,
-            json={"responseData": {"translatedText": "回退译文"}},
-        )
-
-    client = httpx.Client(transport=httpx.MockTransport(handler))
-    assert translate_text("hello", client=client, xai_key="bad") == "回退译文"
-    assert len(calls) >= 2
 
 
 def test_extract_tweet_id():
@@ -2617,8 +2558,6 @@ def test_translate_text_x_official_missing_cookie_falls_back():
 
     def handler(request):
         calls.append(str(request.url))
-        if "translate.googleapis.com" in str(request.url):
-            return httpx.Response(302)  # Google 不可用
         return httpx.Response(
             200,
             json={"responseData": {"translatedText": "回退译文"}},
@@ -2632,7 +2571,7 @@ def test_translate_text_x_official_missing_cookie_falls_back():
         twitter_cookie="guest_id=abc",  # 没有 auth_token/ct0，走降级
     )
     assert result == "回退译文"
-    assert len(calls) == 2
+    assert len(calls) == 1
 
 
 def test_twitter_translation_uses_x_official_once_with_cookie(monkeypatch):

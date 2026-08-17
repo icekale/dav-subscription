@@ -40,8 +40,6 @@ services:
       WEIBO_PASSWORD: "${WEIBO_PASSWORD}"
       # X 备用通道：指向同 compose 内的自建 RSSHub（不对外暴露）
       RSSHUB_BASE: "${RSSHUB_BASE:-http://rsshub:1200}"
-      XAI_API_KEY: "${XAI_API_KEY}"
-      XAI_MODEL: "${XAI_MODEL:-grok-2-latest}"
       # X 登录 Cookie（完整串）：主通道直抓 X 官方接口 + 官方翻译，免 API key
       TWITTER_COOKIE: "${TWITTER_COOKIE}"
       WEB_ALLOW_REGISTER: "${WEB_ALLOW_REGISTER:-true}"
@@ -84,9 +82,6 @@ services:
 
   # 轻量 JS solver 定期通过目标站点的 WAF 挑战（雪球 acw 挑战等），
   # 把验证通过的 cookie 写到共享数据卷，主容器抓取时读取复用。
-  # 雪球 WAF 通关 cookie sidecar：默认 jsdom 求解器（无浏览器）。
-  # 回退方案：若挑战升级导致 jsdom 失效，把 build 改为
-  #   build: { context: ./waf-bot, dockerfile: Dockerfile.chromium }
   waf-bot:
     build:
       context: ./waf-bot

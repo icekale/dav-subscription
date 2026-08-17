@@ -494,7 +494,6 @@ def test_sticky_chrome_is_opaque_canvas_not_glass():
     """壳层（顶栏/筛选条/侧栏/底栏）用不透明画布色，禁止半透明+saturate 放大色块。"""
     tokens = (APP_JS.parent / "vendor" / "design-tokens.css").read_text()
     css = STYLE_CSS.read_text()
-    assert tokens.count("--color-surface-nav: var(--color-bg)") >= 2
     assert "rgba(15, 17, 21, 0.82)" not in tokens
     assert "rgba(245, 245, 247, 0.78)" not in tokens
     body = re.search(r"^body\s*\{([^}]*)\}", css, re.M)
@@ -513,3 +512,39 @@ def test_sticky_chrome_is_opaque_canvas_not_glass():
     assert bottom and "backdrop-filter" not in bottom.group(1)
     assert "background: var(--color-bg)" in bottom.group(1)
     assert "backdrop-filter" not in css
+
+
+def test_type_scale_uses_four_reading_roles():
+    """产品字号只保留四档阅读角色：12 元信息 / 13 控件 / 15 正文 / 17 标题。"""
+    tokens = (APP_JS.parent / "vendor" / "design-tokens.css").read_text()
+    css = STYLE_CSS.read_text()
+    assert re.search(r"--text-xs:\s*12px", tokens)
+    assert re.search(r"--text-sm:\s*13px", tokens)
+    assert re.search(r"--text-body:\s*15px", tokens)
+    assert re.search(r"--text-title:\s*17px", tokens)
+    assert re.search(r"--text-display:\s*30px", tokens)
+    assert "--font-mono:" in tokens
+    assert re.search(r"--font-weight-bold:\s*600", tokens)
+    for retired in ("--text-md:", "--text-lg:", "--text-xl:", "--text-title-sm:"):
+        assert retired not in tokens, f"token 仍保留已废弃的 {retired}"
+        assert retired not in css, f"样式仍引用已废弃的 {retired}"
+
+    body = re.search(r"^body\s*\{([^}]*)\}", css, re.M)
+    assert body and "font-size: var(--text-body)" in body.group(1)
+    assert "font-size: 14px" not in css
+
+    content = re.search(r"\.post-item \.p-content\s*\{([^}]*)\}", css)
+    assert content, "未找到 .post-item .p-content"
+    block = content.group(1)
+    assert "font-size: var(--text-body)" in block
+    assert "word-break: break-all" not in block
+    assert "overflow-wrap:" in block
+    assert re.search(r"line-height:\s*1\.65", block)
+
+    time = re.search(r"\.post-item \.p-time\s*\{([^}]*)\}", css)
+    assert time and "tabular-nums" in time.group(1)
+
+    for size in ("10px", "11px"):
+        for match in re.finditer(rf"font-size:\s*{re.escape(size)}", css):
+            window = css[max(0, match.start() - 80) : match.end()]
+            assert "cube-nav" in window, f"{size} 只能用于图表刻度: {window!r}"

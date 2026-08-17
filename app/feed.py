@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from email.utils import format_datetime
 from xml.etree import ElementTree
 
-PLATFORM_LABELS = {"xueqiu": "雪球", "combination": "雪球组合", "weibo": "微博", "twitter": "X/Twitter"}
+from .fetchers.base import PLATFORM_LABELS
 
 _TZ_CST = timezone(timedelta(hours=8))
 

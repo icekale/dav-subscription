@@ -1,7 +1,5 @@
 """飞书个人机器人：扫码注册（device-code 协议）、临时绑定监听、推送路由决策。
 
-设计文档：docs/superpowers/specs/2026-08-09-feishu-personal-bot-registration-design.md
-
 个人机器人只承担推送职责：无 /list /sub 等常驻命令、无卡片回调、无常驻连接。
 验证成功前及失效后均回退到共享机器人，不动 users 表的共享飞书字段。
 """

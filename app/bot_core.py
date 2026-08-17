@@ -5,6 +5,8 @@ import re
 import time
 from math import ceil
 
+from .fetchers.base import PLATFORM_LABELS
+
 HELP_TEXT = (
     "📌 V Push机器人\n"
     "/list — 查看可订阅的大V（/list 2 翻页）\n"
@@ -35,7 +37,6 @@ BIND_CODE_TTL = 600
 LIST_PAGE_SIZE = 20
 SEARCH_MAX = 10
 SUB_TYPE_LABELS = {"post": "帖子", "reply": "回复", "both": "帖子+回复"}
-PLATFORM_LABELS = {"xueqiu": "雪球", "combination": "雪球组合", "weibo": "微博", "twitter": "X"}
 
 
 class SubscriptionBot:

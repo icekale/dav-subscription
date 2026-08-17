@@ -29,7 +29,7 @@ from .avatar_cache import cache_avatar
 from .bot_core import BIND_CODE_TTL
 from .db import _UNSET, ALLOWED_PLATFORMS, DB, days_until_purge
 from .feed import build_rss_xml
-from .fetchers.base import Post
+from .fetchers.base import PLATFORM_LABELS, Post
 from .fetchers.combination import extract_cube_symbol, resolve_combination_profile
 from .fetchers.twitter import resolve_x_profile
 from .fetchers.weibo import WEIBO_COOKIE_KEY, resolve_weibo_profile
@@ -55,7 +55,6 @@ def _normalize_weibo_id(external_id: str) -> str:
 
 
 # ---- 大V申请输入甄别与归一化（过滤无效信息 + 平台纠错提示） ----
-_PLATFORM_LABELS = {"xueqiu": "雪球", "combination": "雪球组合", "weibo": "微博", "twitter": "X"}
 # X 的系统页面路径（用户主页链接不会以这些开头）
 _TWITTER_SYSTEM_PATHS = {"home", "explore", "search", "settings", "notifications",
                          "messages", "compose", "bookmarks", "jobs", "login", "signup",
@@ -87,8 +86,8 @@ def _normalize_kol_request_input(platform: str, raw: str) -> tuple[str, str | No
     detected = _detect_platform_from_link(text)
     if detected is not None and detected != platform:
         return "", (
-            f"检测到这是「{_PLATFORM_LABELS[detected]}」的主页链接，"
-            f"请把平台切换为「{_PLATFORM_LABELS[detected]}」（当前选的是「{_PLATFORM_LABELS[platform]}」）"
+            f"检测到这是「{PLATFORM_LABELS[detected]}」的主页链接，"
+            f"请把平台切换为「{PLATFORM_LABELS[detected]}」（当前选的是「{PLATFORM_LABELS[platform]}」）"
         )
     if platform == "xueqiu":
         m = re.search(r"xueqiu\.com/(?:u/)?(\d+)", text)
@@ -740,7 +739,7 @@ def create_api_router(
 
         from .channels import CHANNELS, build_channel_notifier, channel_bound
 
-        label = _PLATFORM_LABELS.get(platform, platform)
+        label = PLATFORM_LABELS.get(platform, platform)
         message = (
             f"🆕 新的大V添加申请：{label}「{ref}」\n"
             f"申请人：{requester['username']}\n"

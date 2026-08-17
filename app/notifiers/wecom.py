@@ -8,10 +8,9 @@ from __future__ import annotations
 
 import httpx
 
-from ..fetchers.base import Post, digest_body
+from ..fetchers.base import PLATFORM_LABELS, Post, digest_body
 from .base import Notifier, why_badges
 
-PLATFORM_LABELS = {"xueqiu": "雪球", "combination": "雪球组合", "weibo": "微博", "twitter": "X/Twitter"}
 DIGEST_MAX_ITEMS = 5
 DND_MAX_ITEMS = 10
 MAX_CONTENT_CHARS = 1800  # 保守截断，避开 4096 字节上限

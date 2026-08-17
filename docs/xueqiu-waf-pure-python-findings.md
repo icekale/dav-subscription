@@ -2,7 +2,7 @@
 
 2026-08-10 在 `feat/xueqiu-waf-pure-python` 分支做的探索。目标：用轻量 JS 引擎（quickjs/jsdom）替代 waf-bot 的 200MB Chromium，纯 Python 算出雪球 WAF 通关 cookie。
 
-> 复验更正：旧 PoC 手工重建了精简 DOM，遗漏了参与签名的完整页面内容。将服务端返回的完整 HTML 原样交给 jsdom 后，签名请求和真实时间线 API 均返回 200。无 Chromium 路线可行，设计见 `docs/superpowers/specs/2026-08-10-xueqiu-waf-jsdom-design.md`。
+> 复验更正：旧 PoC 手工重建了精简 DOM，遗漏了参与签名的完整页面内容。将服务端返回的完整 HTML 原样交给 jsdom 后，签名请求和真实时间线 API 均返回 200。jsdom 路线可行。
 
 ## 结论
 

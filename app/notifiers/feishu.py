@@ -8,11 +8,10 @@ import time
 
 import httpx
 
-from ..fetchers.base import Post, digest_body, truncate_text
+from ..fetchers.base import PLATFORM_LABELS, Post, digest_body, truncate_text
 from ..url_safety import safe_get
 from .base import Notifier, why_badges
 
-PLATFORM_LABELS = {"xueqiu": "雪球", "combination": "雪球组合", "weibo": "微博", "twitter": "X/Twitter"}
 DIGEST_MAX_ITEMS = 5
 DND_MAX_ITEMS = 10
 SUMMARY_LIMIT = 100

@@ -33,6 +33,15 @@ def channel_enabled(user: dict, channel: str) -> bool:
     return channel in {c.strip() for c in selected.split(",") if c.strip()}
 
 
+def iter_user_channels(user: dict, notifiers_config, db=None):
+    """用户已勾选且已绑定的渠道（推送顺序同 CHANNELS）。"""
+    for channel in CHANNELS:
+        if channel_enabled(user, channel) and channel_bound(
+            user, channel, notifiers_config, db
+        ):
+            yield channel
+
+
 def channel_bound(user: dict, channel: str, notifiers_config=None, db=None) -> bool:
     """用户绑定关系是否成立（未做 push_channels 过滤）。
 
