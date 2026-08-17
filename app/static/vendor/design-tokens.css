@@ -129,10 +129,10 @@
   --color-line-danger-soft: rgba(220, 38, 38, 0.18);
   --color-line-danger: rgba(220, 38, 38, 0.3);
 
-  --color-accent: #1668e0;
-  --color-accent-strong: #155eef;
+  --color-accent: #1f74ee;
+  --color-accent-strong: #1668e0;
   --color-accent-soft: rgba(22, 119, 255, 0.12);
-  /* 强调色文字：浅色同 accent（浅底对比 5.1:1 达标）；深色主题覆盖为亮蓝 */
+  /* 实底提一档，白字 4.4:1；浅底蓝字仍用原色，保证 5.1:1 */
   --color-accent-text: #1668e0;
   /* 品牌渐变（logo/头像底）：上亮蓝过渡到主色，统一进 token 避免硬编码漂移 */
   --brand-gradient: linear-gradient(180deg, #2a86ff, var(--color-accent));
