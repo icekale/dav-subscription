@@ -506,7 +506,13 @@ def _prune_window_dict(
             entries.pop(k, None)
 
 
-def _do_approve_kol_request(db: DB, request_id: int, admin: dict, notifiers_config=None) -> dict | None:
+def _do_approve_kol_request(
+    db: DB,
+    request_id: int,
+    admin: dict,
+    notifiers_config=None,
+    category_id: int | None = None,
+) -> dict | None:
     """审批通过大V申请（HTTP 端点与 TG 审批按钮共用）。"""
     req = db.get_kol_request(request_id)
     if req is None or req["status"] != "pending":
@@ -551,8 +557,10 @@ def _do_approve_kol_request(db: DB, request_id: int, admin: dict, notifiers_conf
         name = name or profile.get("name") or ""
         avatar_url = profile.get("avatar_url") or ""
     name = name or f"{req['platform']}_{req['external_id']}"
+    if category_id is not None and db.get_category(category_id) is None:
+        raise HTTPException(status_code=400, detail="分类不存在")
     try:
-        kid = db.add_kol(req["platform"], name, req["external_id"])
+        kid = db.add_kol(req["platform"], name, req["external_id"], category_id=category_id)
         if avatar_url:
             db.update_kol_avatar(kid, cache_avatar(db, kid, avatar_url))
     except ValueError as exc:

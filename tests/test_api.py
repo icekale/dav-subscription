@@ -794,8 +794,16 @@ def test_tg_callback_approve_reject_kol_request(monkeypatch):
             }
         })
 
-    # 管理员点「通过」：上架 + 审批状态更新 + 消息编辑为已通过
+    # 管理员点「通过」：先选分类，未上架
     click("111", f"approve:{req_id}")
+    assert db.get_kol_by_external("xueqiu", "888888") is None
+    assert db.get_kol_request(req_id)["status"] == "pending"
+    assert any(m == "editMessageText" and "分类" in p.get("text", "") for m, p in calls)
+    markup = next(p.get("reply_markup", "") for m, p in calls if m == "editMessageText")
+    assert f"apcat:{req_id}:0" in markup
+
+    # 选「未分类」：上架 + 审批状态更新
+    click("111", f"apcat:{req_id}:0")
     assert db.get_kol_by_external("xueqiu", "888888") is not None
     assert db.get_kol_request(req_id)["status"] == "approved"
     assert any(m == "editMessageText" and "已通过" in p.get("text", "") for m, p in calls)
@@ -814,6 +822,48 @@ def test_tg_callback_approve_reject_kol_request(monkeypatch):
     # 重复审批（已处理）提示失败
     click("111", f"approve:{req2}")
     assert any(m == "editMessageText" and "审批失败" in p.get("text", "") for m, p in calls)
+
+
+def test_tg_callback_approve_kol_request_with_category(monkeypatch):
+    """管理员审批时选分类，上架后 category_id 写入。"""
+    monkeypatch.setattr("app.api.resolve_profile", lambda uid, cookie="": {})
+    client = make_client()
+    auth_headers(client)
+    db = client.app.state.db
+    admin = db.get_user_by_username("testadmin")
+    db.update_user(admin["id"], telegram_chat_id="111")
+    u = register(client, "askcat", "pass123456")
+    uid = u.json()["user"]["id"]
+    cat_id = db.add_category("宏观")
+    req_id = db.add_kol_request("xueqiu", "777777", uid, "待分类大V")
+
+    from app.telegram_bot import TelegramBot
+
+    bot = TelegramBot(db, "tok", "secret")
+    calls = []
+    bot._call = lambda method, **params: calls.append((method, params))
+    bot.handle_update({
+        "callback_query": {
+            "id": "cq1", "data": f"approve:{req_id}", "from": {"username": "tgadmin"},
+            "message": {"chat": {"id": "111"}, "message_id": 5},
+        }
+    })
+    markup = next(p.get("reply_markup", "") for m, p in calls if m == "editMessageText")
+    assert f"apcat:{req_id}:{cat_id}" in markup
+    assert "宏观" in markup
+
+    calls.clear()
+    bot.handle_update({
+        "callback_query": {
+            "id": "cq2", "data": f"apcat:{req_id}:{cat_id}", "from": {"username": "tgadmin"},
+            "message": {"chat": {"id": "111"}, "message_id": 5},
+        }
+    })
+    kol = db.get_kol_by_external("xueqiu", "777777")
+    assert kol is not None
+    assert kol["category_id"] == cat_id
+    assert db.get_kol(kol["id"])["category_name"] == "宏观"
+    assert any("宏观" in p.get("text", "") and "已通过" in p.get("text", "") for m, p in calls)
 
 
 def test_push_channels_api():

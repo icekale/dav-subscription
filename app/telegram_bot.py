@@ -68,6 +68,17 @@ class TelegramBot:
             params["reply_markup"] = json.dumps({"inline_keyboard": keyboard}, ensure_ascii=False)
         self._call("sendMessage", **params)
 
+    def _approval_category_keyboard(self, request_id: int) -> list[list[dict]]:
+        """审批通过后选分类：每行两个，末尾固定「未分类」和「拒绝」。"""
+        cats = self.db.list_categories()
+        buttons = [{"text": c["name"], "callback_data": f"apcat:{request_id}:{c['id']}"} for c in cats]
+        rows = [buttons[i:i + 2] for i in range(0, len(buttons), 2)]
+        rows.append([
+            {"text": "未分类", "callback_data": f"apcat:{request_id}:0"},
+            {"text": "❌ 拒绝", "callback_data": f"reject:{request_id}"},
+        ])
+        return rows
+
     def _list_keyboard(self, page: int | None, pages: int | None) -> list[list[dict]]:
         keyboard = []
         if pages and pages > 1:
@@ -281,26 +292,46 @@ class TelegramBot:
             str(chat_id),
             (cb.get("from") or {}).get("username") or "",
         )
-        if data.startswith(("approve:", "reject:")):
+        if data.startswith(("approve:", "reject:", "apcat:")):
             # 大V添加申请审批按钮：仅管理员可操作，走与后台端点相同的逻辑
             if not user.get("is_admin"):
                 self._edit(chat_id, message_id, "只有管理员可以审批大V申请")
                 return
             try:
-                request_id = int(data.split(":", 1)[1])
-            except ValueError:
+                parts = data.split(":")
+                request_id = int(parts[1])
+            except (ValueError, IndexError):
                 request_id = 0
             from .api import _do_approve_kol_request, _do_reject_kol_request
 
             try:
                 if data.startswith("approve:"):
-                    kol = _do_approve_kol_request(self.db, request_id, user)
+                    req = self.db.get_kol_request(request_id)
+                    if req is None or req["status"] != "pending":
+                        self._edit(chat_id, message_id, f"审批失败：申请 {request_id} 不存在或已处理")
+                    else:
+                        label = req.get("name") or req.get("external_id") or str(request_id)
+                        self._edit(
+                            chat_id, message_id,
+                            f"请选择「{label}」的分类：",
+                            keyboard=self._approval_category_keyboard(request_id),
+                        )
+                elif data.startswith("apcat:"):
+                    try:
+                        category_id = int(parts[2])
+                    except (ValueError, IndexError):
+                        category_id = 0
+                    kol = _do_approve_kol_request(
+                        self.db, request_id, user,
+                        category_id=category_id or None,
+                    )
                     if kol is None:
                         self._edit(chat_id, message_id, f"审批失败：申请 {request_id} 不存在")
                     else:
+                        cat = (kol.get("category_name") or "未分类").strip() or "未分类"
                         self._edit(
                             chat_id, message_id,
-                            f"✅ 已通过「{kol['name']}」的添加申请，已上架并自动订阅申请人",
+                            f"✅ 已通过「{kol['name']}」的添加申请（{cat}），已上架并自动订阅申请人",
                         )
                 else:
                     _do_reject_kol_request(self.db, request_id, user)
