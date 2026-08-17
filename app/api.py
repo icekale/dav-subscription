@@ -48,6 +48,34 @@ REGISTER_NOTE_MAX = 40
 REGISTER_EXPIRE_DAYS = frozenset({1, 7, 30})
 
 
+def _cube_holdings_response(snap) -> dict:
+    """兼容旧 list 快照与新 {holdings, cash} 快照。"""
+    if not snap:
+        return {"holdings": [], "cash": None, "updated_at": ""}
+    payload = snap["payload"]
+    if isinstance(payload, dict):
+        return {
+            "holdings": payload.get("holdings") or [],
+            "cash": payload.get("cash"),
+            "updated_at": snap["fetched_at"],
+        }
+    return {"holdings": payload or [], "cash": None, "updated_at": snap["fetched_at"]}
+
+
+def _cube_nav_response(snap) -> dict:
+    """兼容旧 list 快照与新 {series, benchmark} 快照。"""
+    if not snap:
+        return {"series": [], "benchmark": [], "updated_at": ""}
+    payload = snap["payload"]
+    if isinstance(payload, dict):
+        return {
+            "series": payload.get("series") or [],
+            "benchmark": payload.get("benchmark") or [],
+            "updated_at": snap["fetched_at"],
+        }
+    return {"series": payload or [], "benchmark": [], "updated_at": snap["fetched_at"]}
+
+
 def _normalize_weibo_id(external_id: str) -> str:
     """微博主页链接（https://weibo.com/u/<uid>）提取 UID。"""
     match = re.search(r"weibo\.com/u/(\d+)", external_id)
@@ -1328,16 +1356,20 @@ def create_api_router(
         )
         favorite_ids = db.subscribed_favorite_ids(user["id"])
         secondary_ids = db.subscribed_secondary_ids(user["id"])
-        return [
-            {
+        rows = []
+        for kol in kols:
+            row = {
                 **kol,
                 "subscribed": kol["id"] in subscribed_types,
                 "subscribe_type": subscribed_types.get(kol["id"], "post"),
                 "favorite": kol["id"] in favorite_ids,
                 "secondary": kol["id"] in secondary_ids,
             }
-            for kol in kols
-        ]
+            if kol["platform"] == "combination":
+                snap = db.get_cube_snapshot(kol["id"], "quote")
+                row["quote"] = snap["payload"] if snap else None
+            rows.append(row)
+        return rows
 
     @router.get("/recommendations")
     def recommendations(user: dict = Depends(get_current_user)):
@@ -1470,7 +1502,7 @@ def create_api_router(
         ):
             raise HTTPException(status_code=404, detail="大V不存在")
         snap = db.get_cube_snapshot(kol_id, "holdings")
-        return {"holdings": snap["payload"] if snap else [], "updated_at": snap["fetched_at"] if snap else ""}
+        return _cube_holdings_response(snap)
 
     @router.get("/kols/{kol_id}/nav")
     def kol_nav(kol_id: int, user: dict = Depends(get_current_user)):
@@ -1481,7 +1513,7 @@ def create_api_router(
         ):
             raise HTTPException(status_code=404, detail="大V不存在")
         snap = db.get_cube_snapshot(kol_id, "nav")
-        return {"series": snap["payload"] if snap else [], "updated_at": snap["fetched_at"] if snap else ""}
+        return _cube_nav_response(snap)
 
     @router.post("/kol-requests")
     def create_kol_request(body: KolRequestIn, user: dict = Depends(get_current_user)):

@@ -170,8 +170,8 @@ def test_combination_holdings_and_nav_endpoints():
     kid = resp.json()["id"]
 
     # 无快照：空数据 + 空时间
-    assert client.get(f"/api/kols/{kid}/holdings", headers=headers).json() == {"holdings": [], "updated_at": ""}
-    assert client.get(f"/api/kols/{kid}/nav", headers=headers).json() == {"series": [], "updated_at": ""}
+    assert client.get(f"/api/kols/{kid}/holdings", headers=headers).json() == {"holdings": [], "cash": None, "updated_at": ""}
+    assert client.get(f"/api/kols/{kid}/nav", headers=headers).json() == {"series": [], "benchmark": [], "updated_at": ""}
 
     db = client.app.state.db
     db.set_cube_snapshot(kid, "holdings", [{"name": "贵州茅台", "symbol": "SH600519", "weight": 5.2}])
@@ -186,6 +186,18 @@ def test_combination_holdings_and_nav_endpoints():
     kol = client.get(f"/api/kols/{kid}", headers=headers).json()
     assert kol["quote"] == {"net_value": 1.8472, "day_percent_gain": 0.55}
     assert kol["quote_at"]
+
+    # 新快照形状：dict + cash / benchmark；旧 list 快照仍可读
+    db.set_cube_snapshot(kid, "holdings", {"holdings": [{"name": "现金组合", "symbol": "SZ000001", "weight": 80.0, "prev": 70.0}], "cash": 20.0})
+    db.set_cube_snapshot(kid, "nav", {"series": [{"date": "2026-07-01", "value": 1.0}], "benchmark": [{"date": "2026-07-01", "value": 4000.0}]})
+    h = client.get(f"/api/kols/{kid}/holdings", headers=headers).json()
+    assert h["cash"] == 20.0 and h["holdings"][0]["prev"] == 70.0
+    n = client.get(f"/api/kols/{kid}/nav", headers=headers).json()
+    assert n["benchmark"][0]["value"] == 4000.0
+
+    cat = client.get("/api/catalog?platform=combination", headers=headers).json()
+    item = next(k for k in cat if k["id"] == kid)
+    assert item["quote"]["day_percent_gain"] == 0.55
 
 
 def test_combination_endpoints_require_visibility():

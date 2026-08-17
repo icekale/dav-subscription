@@ -16,7 +16,7 @@ const CHANNEL_ICONS = {
 };
 const CHANNEL_LABELS = { telegram: "Telegram", feishu: "飞书", wecom: "企业微信", bark: "Bark" };
 const USER_CHANNEL_KEYS = ["telegram", "feishu", "wecom", "bark"];
-const APP_VERSION = "1.12.12";
+const APP_VERSION = "1.12.13";
 const PLATFORM_TABS = ["", "xueqiu", "combination", "weibo", "twitter"];
 const TL_PLATFORMS = PLATFORM_TABS.map((p) => [p, p ? PLATFORM_LABELS[p] : "全部"]);
 const STAR_SVG = `<svg class="star-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5l2.95 5.98 6.6.96-4.78 4.66 1.13 6.58L12 17.6l-5.9 3.1 1.13-6.58L2.45 9.44l6.6-.96L12 2.5z"/></svg>`;
@@ -644,6 +644,7 @@ function kolCard(kol) {
             <span class="name" title="${escapeHtml(kol.name)}">${escapeHtml(kol.name)}</span>
             <span class="tag">${PLATFORM_LABELS[kol.platform] || escapeHtml(kol.platform)}</span>
             ${kol.category_name ? `<span class="tag">${escapeHtml(kol.category_name)}</span>` : ""}
+            ${kol.platform === "combination" && kol.quote && kol.quote.day_percent_gain != null ? `<span class="tag cube-day ${kol.quote.day_percent_gain >= 0 ? "up" : "down"}">${kol.quote.day_percent_gain >= 0 ? "+" : ""}${kol.quote.day_percent_gain.toFixed(2)}%</span>` : ""}
           </div>
           <div class="desc">外部 ID：${escapeHtml(kol.external_id)}${kol.enabled ? "" : " · 已停用"}</div>
         </div>
@@ -1681,13 +1682,20 @@ async function renderCombinationSnapshots(kol) {
         <div class="cube-quote-item"><span class="cube-quote-label">今日涨跌</span><span class="cube-quote-value ${q.day_percent_gain != null ? (q.day_percent_gain >= 0 ? "up" : "down") : ""}">${q.day_percent_gain != null ? (q.day_percent_gain >= 0 ? "+" : "") + q.day_percent_gain.toFixed(2) + "%" : "—"}</span></div>
         ${kol.quote_at ? `<div class="cube-quote-item"><span class="cube-quote-label">快照</span><span class="cube-quote-value small">${escapeHtml(formatSnapshotTs(kol.quote_at))}</span></div>` : ""}
       </div>` : "";
-    const holdingsHtml = (holdings.holdings || []).length ? `
+    const rows = (holdings.holdings || []).map((h) => {
+      const delta = h.prev != null && Math.abs(h.weight - h.prev) >= 0.01
+        ? `${h.weight >= h.prev ? "+" : ""}${(h.weight - h.prev).toFixed(1)}`
+        : "";
+      return { ...h, delta };
+    });
+    if (holdings.cash != null) rows.push({ name: "现金", symbol: "CASH", weight: holdings.cash, delta: "" });
+    const holdingsHtml = rows.length ? `
       <div class="cube-holdings">
-        ${(holdings.holdings || []).map((h) => `
+        ${rows.map((h) => `
           <div class="cube-holding">
             <div class="cube-holding-head">
               <span class="cube-holding-name" title="${escapeHtml(h.symbol)}">${escapeHtml(h.name)}</span>
-              <span class="cube-holding-weight">${h.weight}%</span>
+              <span class="cube-holding-weight">${h.weight}%${h.delta ? ` <em class="cube-holding-delta ${Number(h.delta) >= 0 ? "up" : "down"}">${h.delta}</em>` : ""}</span>
             </div>
             <div class="cube-weight-bar"><div class="cube-weight-fill" style="width:${Math.max(h.weight, 1)}%"></div></div>
           </div>`).join("")}
@@ -1696,9 +1704,9 @@ async function renderCombinationSnapshots(kol) {
     const navHtml = (nav.series || []).length >= 2 ? `
       <div class="cube-nav-head">
         <b>最新 ${nav.series[nav.series.length - 1].value}</b>
-        <span class="section-meta">${escapeHtml(nav.series[nav.series.length - 1].date)}</span>
+        <span class="section-meta">${escapeHtml(nav.series[nav.series.length - 1].date)}${(nav.benchmark || []).length >= 2 ? " · 对照沪深300" : ""}</span>
       </div>
-      ${navChartSvg(nav.series)}` : `<p class="section-meta">暂无净值数据（订阅后自动抓取）</p>`;
+      ${navChartSvg(nav.series, nav.benchmark)}` : `<p class="section-meta">暂无净值数据（订阅后自动抓取）</p>`;
     return `
       ${quoteHtml ? `<section class="section-panel"><h3 class="section-title">组合状态</h3>${quoteHtml}</section>` : ""}
       <section class="section-panel"><h3 class="section-title">当前持仓</h3>${holdingsHtml}</section>
@@ -1717,37 +1725,54 @@ function formatSnapshotTs(ts) {
 }
 
 // 净值曲线：手绘 SVG 折线（含渐变面积、网格、首/中/尾日期），A股红涨绿跌
-function navChartSvg(series) {
+function navChartSvg(series, benchmark) {
   const W = 640, H = 200, padL = 44, padR = 10, padT = 10, padB = 24;
-  let min = Math.min(...series.map((p) => p.value));
-  let max = Math.max(...series.map((p) => p.value));
+  let cube = series;
+  let bench = null;
+  if (benchmark && benchmark.length >= 2) {
+    const bm = Object.fromEntries(benchmark.map((p) => [p.date, p.value]));
+    const aligned = series.filter((p) => bm[p.date] != null);
+    if (aligned.length >= 2 && aligned[0].value && bm[aligned[0].date]) {
+      const c0 = aligned[0].value;
+      const b0 = bm[aligned[0].date];
+      cube = aligned.map((p) => ({ date: p.date, value: p.value / c0 }));
+      bench = aligned.map((p) => ({ date: p.date, value: bm[p.date] / b0 }));
+    }
+  }
+  const vals = cube.map((p) => p.value).concat(bench ? bench.map((p) => p.value) : []);
+  let min = Math.min(...vals);
+  let max = Math.max(...vals);
   if (max - min < 1e-9) { max += 0.005; min -= 0.005; }
   const span = max - min;
   min -= span * 0.05;
   max += span * 0.05;
-  const X = (i) => padL + (i / (series.length - 1)) * (W - padL - padR);
+  const X = (i) => padL + (i / (cube.length - 1)) * (W - padL - padR);
   const Y = (v) => padT + (1 - (v - min) / (max - min)) * (H - padT - padB);
-  const pts = series.map((p, i) => `${X(i).toFixed(1)},${Y(p.value).toFixed(1)}`).join(" ");
+  const pts = cube.map((p, i) => `${X(i).toFixed(1)},${Y(p.value).toFixed(1)}`).join(" ");
   const up = series[series.length - 1].value >= series[0].value;
-  // 数据色走 token（CSS 变量，深色主题自动切换亮色变体）
   const cssVar = up ? "--color-data-positive" : "--color-data-negative";
   const color = getComputedStyle(document.documentElement).getPropertyValue(cssVar).trim() || (up ? "#b05b63" : "#23714a");
+  const muted = getComputedStyle(document.documentElement).getPropertyValue("--color-text-muted").trim() || "#8a8a8a";
   const base = (H - padB).toFixed(1);
-  const area = `M${X(0).toFixed(1)},${base} L${pts.replace(/ /g, " L")} L${X(series.length - 1).toFixed(1)},${base} Z`;
+  const area = `M${X(0).toFixed(1)},${base} L${pts.replace(/ /g, " L")} L${X(cube.length - 1).toFixed(1)},${base} Z`;
   const grid = [0, 1, 2, 3].map((i) => {
     const v = min + ((max - min) * i) / 3;
     return `<line x1="${padL}" y1="${Y(v).toFixed(1)}" x2="${W - padR}" y2="${Y(v).toFixed(1)}" class="cube-nav-grid"/>`
       + `<text x="4" y="${(Y(v) + 3).toFixed(1)}" class="cube-nav-tick">${v.toFixed(3)}</text>`;
   }).join("");
-  const first = series[0], mid = series[Math.floor(series.length / 2)], last = series[series.length - 1];
+  const first = cube[0], mid = cube[Math.floor(cube.length / 2)], last = cube[cube.length - 1];
+  const benchLine = bench
+    ? `<polyline points="${bench.map((p, i) => `${X(i).toFixed(1)},${Y(p.value).toFixed(1)}`).join(" ")}" fill="none" stroke="${muted}" stroke-width="1.5" stroke-dasharray="4 3" stroke-linejoin="round"/>`
+    : "";
   return `<svg viewBox="0 0 ${W} ${H}" class="cube-nav-svg" role="img" aria-label="净值曲线">
     ${grid}
     <path d="${area}" fill="${up ? "rgba(230,67,64,0.12)" : "rgba(7,193,96,0.12)"}"/>
+    ${benchLine}
     <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
     <text x="${padL}" y="${H - 6}" class="cube-nav-date">${escapeHtml(first.date)}</text>
     <text x="${(padL + W - padR) / 2}" y="${H - 6}" text-anchor="middle" class="cube-nav-date">${escapeHtml(mid.date)}</text>
     <text x="${W - padR}" y="${H - 6}" text-anchor="end" class="cube-nav-date">${escapeHtml(last.date)}</text>
-    <text x="${W - padR}" y="${(Y(last.value) - 5).toFixed(1)}" text-anchor="end" class="cube-nav-last" fill="${color}">${last.value}</text>
+    <text x="${W - padR}" y="${(Y(last.value) - 5).toFixed(1)}" text-anchor="end" class="cube-nav-last" fill="${color}">${series[series.length - 1].value}</text>
   </svg>`;
 }
 

@@ -628,6 +628,9 @@ textarea.form-control {
 .kol-card-info .base { display: flex; align-items: center; gap: 8px; }
 .kol-card-info .name { font-size: var(--text-body); font-weight: var(--font-weight-semibold); color: var(--color-text-strong); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kol-card-info .tag { font-size: var(--text-xs); color: var(--color-accent-text); background: var(--color-accent-soft); border-radius: var(--radius-pill); padding: 2px 10px; flex-shrink: 0; white-space: nowrap; }
+.kol-card-info .tag.cube-day { background: transparent; padding: 2px 0; font-variant-numeric: tabular-nums; }
+.kol-card-info .tag.cube-day.up { color: var(--color-data-positive); }
+.kol-card-info .tag.cube-day.down { color: var(--color-data-negative); }
 .kol-card-info .desc { color: var(--color-text-muted); font-size: var(--text-xs); margin-top: 5px; }
 .kol-card-actions { display: flex; align-items: center; gap: 8px; margin-top: auto; }
 /* 主按钮与星标/删除圆按钮等高（44px），垂直居中，避免矮一截偏上 */
@@ -1707,6 +1710,9 @@ details.bind-steps[open] > summary::before { content: "▾ "; }
 .cube-holding-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
 .cube-holding-name { font-weight: 500; color: var(--color-text-strong); }
 .cube-holding-weight { font-size: var(--text-sm); color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
+.cube-holding-delta { font-style: normal; font-weight: 500; margin-left: 6px; }
+.cube-holding-delta.up { color: var(--color-data-positive); }
+.cube-holding-delta.down { color: var(--color-data-negative); }
 .cube-weight-bar { margin-top: 5px; height: 6px; border-radius: 3px; background: var(--color-surface-soft); overflow: hidden; }
 .cube-weight-fill { height: 100%; border-radius: 3px; background: var(--color-accent); opacity: 0.85; }
 

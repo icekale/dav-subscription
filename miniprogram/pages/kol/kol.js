@@ -25,6 +25,8 @@ Page({
     holdings: [],
     holdingsUpdatedAt: "",
     navSeries: [],
+    navBenchmark: [],
+    navHint: "",
     quoteDisplay: null,
   },
 
@@ -49,15 +51,23 @@ Page({
         p.platform_label = platformLabel(p.platform || kol.platform);
         p.avatar_url = resolveAvatar(p.avatar_url || kol.avatar_url);
       });
-      const extra = { holdings: [], holdingsUpdatedAt: "", navSeries: [], quoteDisplay: null };
+      const extra = { holdings: [], holdingsUpdatedAt: "", navSeries: [], navBenchmark: [], navHint: "", quoteDisplay: null };
       if (kol.platform === "combination") {
         const [holdings, nav] = await Promise.all([
           request(`/api/kols/${this.kolId}/holdings`),
           request(`/api/kols/${this.kolId}/nav`),
         ]);
-        extra.holdings = holdings.holdings || [];
+        extra.holdings = (holdings.holdings || []).map((h) => {
+          const delta = h.prev != null && Math.abs(h.weight - h.prev) >= 0.01
+            ? `${h.weight >= h.prev ? "+" : ""}${(h.weight - h.prev).toFixed(1)}`
+            : "";
+          return { ...h, delta, deltaClass: delta && Number(delta) >= 0 ? "up" : delta ? "down" : "" };
+        });
+        if (holdings.cash != null) extra.holdings.push({ name: "现金", symbol: "CASH", weight: holdings.cash, delta: "", deltaClass: "" });
         extra.holdingsUpdatedAt = formatSnapshotTime(holdings.updated_at);
         extra.navSeries = nav.series || [];
+        extra.navBenchmark = nav.benchmark || [];
+        extra.navHint = extra.navBenchmark.length >= 2 ? " · 对照沪深300" : "";
         const q = kol.quote || {};
         if (q.day_percent_gain != null || q.net_value != null) {
           const d = q.day_percent_gain;
@@ -78,6 +88,7 @@ Page({
 
   drawNavChart() {
     const series = this.data.navSeries;
+    const benchmark = this.data.navBenchmark || [];
     if (!series || series.length < 2) return;
     wx.createSelectorQuery()
       .in(this)
@@ -100,8 +111,22 @@ Page({
         const padB = 20;
         const pw = w - padL - padR;
         const ph = h - padT - padB;
-        let min = Math.min(...series.map((p) => p.value));
-        let max = Math.max(...series.map((p) => p.value));
+        let cube = series;
+        let bench = null;
+        if (benchmark.length >= 2) {
+          const bm = {};
+          benchmark.forEach((p) => { bm[p.date] = p.value; });
+          const aligned = series.filter((p) => bm[p.date] != null);
+          if (aligned.length >= 2 && aligned[0].value && bm[aligned[0].date]) {
+            const c0 = aligned[0].value;
+            const b0 = bm[aligned[0].date];
+            cube = aligned.map((p) => ({ date: p.date, value: p.value / c0 }));
+            bench = aligned.map((p) => ({ date: p.date, value: bm[p.date] / b0 }));
+          }
+        }
+        const vals = cube.map((p) => p.value).concat(bench ? bench.map((p) => p.value) : []);
+        let min = Math.min(...vals);
+        let max = Math.max(...vals);
         if (max - min < 1e-9) {
           max += 0.005;
           min -= 0.005;
@@ -109,7 +134,7 @@ Page({
         const span = max - min;
         min -= span * 0.05;
         max += span * 0.05;
-        const X = (i) => padL + (i / (series.length - 1)) * pw;
+        const X = (i) => padL + (i / (cube.length - 1)) * pw;
         const Y = (v) => padT + (1 - (v - min) / (max - min)) * ph;
 
         // 网格 + Y 轴刻度
@@ -137,22 +162,30 @@ Page({
         ctx.fillStyle = grad;
         ctx.beginPath();
         ctx.moveTo(X(0), padT + ph);
-        series.forEach((p, i) => ctx.lineTo(X(i), Y(p.value)));
-        ctx.lineTo(X(series.length - 1), padT + ph);
+        cube.forEach((p, i) => ctx.lineTo(X(i), Y(p.value)));
+        ctx.lineTo(X(cube.length - 1), padT + ph);
         ctx.closePath();
         ctx.fill();
 
-        // 折线
+        if (bench) {
+          ctx.strokeStyle = "rgba(0,0,0,0.35)";
+          ctx.lineWidth = 1;
+          ctx.setLineDash([4, 3]);
+          ctx.beginPath();
+          bench.forEach((p, i) => (i === 0 ? ctx.moveTo(X(i), Y(p.value)) : ctx.lineTo(X(i), Y(p.value))));
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+
         ctx.strokeStyle = color;
         ctx.lineWidth = 1.5;
         ctx.beginPath();
-        series.forEach((p, i) => (i === 0 ? ctx.moveTo(X(i), Y(p.value)) : ctx.lineTo(X(i), Y(p.value))));
+        cube.forEach((p, i) => (i === 0 ? ctx.moveTo(X(i), Y(p.value)) : ctx.lineTo(X(i), Y(p.value))));
         ctx.stroke();
 
-        // 日期标签（首/中/尾）与最新值
-        const first = series[0].date;
-        const mid = series[Math.floor(series.length / 2)].date;
-        const last = series[series.length - 1];
+        const first = cube[0].date;
+        const mid = cube[Math.floor(cube.length / 2)].date;
+        const last = cube[cube.length - 1];
         ctx.fillStyle = "rgba(0,0,0,0.45)";
         ctx.textAlign = "left";
         ctx.fillText(first, padL, h - 6);
@@ -161,7 +194,7 @@ Page({
         ctx.textAlign = "right";
         ctx.fillText(last.date, w - padR, h - 6);
         ctx.fillStyle = color;
-        ctx.fillText(last.value.toFixed(3), w - padR, Y(last.value) - 4);
+        ctx.fillText(series[series.length - 1].value.toFixed(3), w - padR, Y(last.value) - 4);
       });
   },
 

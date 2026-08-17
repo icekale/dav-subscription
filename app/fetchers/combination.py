@@ -98,6 +98,19 @@ def resolve_combination_profile(
     return {}
 
 
+def _num(v):
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, (int, float)):
+        return float(v)
+    if isinstance(v, str):
+        try:
+            return float(v)
+        except ValueError:
+            return None
+    return None
+
+
 def parse_quote(data) -> dict:
     """解析 cubes/quote.json 响应。
 
@@ -112,28 +125,15 @@ def parse_quote(data) -> dict:
             if isinstance(v, dict):
                 data = v
                 break
+    if not isinstance(data, dict):
+        return {"net_value": None, "day_percent_gain": None}
     day = None
     for key in ("daily_gain", "day_percent_gain", "percent"):
-        v = data.get(key)
-        if isinstance(v, (int, float)):
-            day = v
+        day = _num(data.get(key))
+        if day is not None:
             break
-        if isinstance(v, str):
-            try:
-                day = float(v)
-                break
-            except ValueError:
-                continue
-    net = data.get("net_value")
-    if isinstance(net, str):
-        try:
-            net = float(net)
-        except ValueError:
-            net = None
-    return {
-        "net_value": net if isinstance(net, (int, float)) else None,
-        "day_percent_gain": day if isinstance(day, (int, float)) else None,
-    }
+    net = _num(data.get("net_value"))
+    return {"net_value": net, "day_percent_gain": day}
 
 
 def parse_holdings(data) -> list[dict]:
@@ -166,21 +166,57 @@ def parse_holdings(data) -> list[dict]:
             w = h.get("target_weight")
         if not isinstance(w, (int, float)):
             continue
-        holdings.append(
-            {
-                "name": h.get("stock_name") or "",
-                "symbol": h.get("stock_symbol") or "",
-                "weight": round(w, 2),
-            }
-        )
+        row = {
+            "name": h.get("stock_name") or "",
+            "symbol": h.get("stock_symbol") or "",
+            "weight": round(w, 2),
+        }
+        prev = _num(h.get("prev_weight"))
+        if prev is not None:
+            row["prev"] = round(prev, 2)
+        holdings.append(row)
     return holdings
 
 
-def parse_nav(data) -> list[dict]:
-    """解析 nav_daily/all.json 响应为 [{date, value}]（取组合自身，跳过沪深300基准）。"""
-    if not isinstance(data, list) or not data or not isinstance(data[0], dict):
+def parse_cash(data) -> float | None:
+    """从 current.json 取现金占比。只信 last_rb.cash，不读调仓历史顶层伪 cash。"""
+    if not isinstance(data, dict):
+        return None
+    inner = data.get("data") if isinstance(data.get("data"), dict) else None
+    for obj in (data.get("last_rb"), (inner or {}).get("last_rb")):
+        if not isinstance(obj, dict):
+            continue
+        n = _num(obj.get("cash"))
+        if n is not None:
+            return round(n, 2)
+    return None
+
+
+def _xueqiu_error(data) -> bool:
+    if not isinstance(data, dict):
+        return False
+    return data.get("error_code") not in (None, 0, "0")
+
+
+def _looks_like_holdings(data) -> bool:
+    if isinstance(data, list):
+        return True
+    if not isinstance(data, dict):
+        return False
+    if isinstance(data.get("holdings"), list) or isinstance(data.get("last_rb"), dict):
+        return True
+    inner = data.get("data")
+    if isinstance(inner, list):
+        return True
+    return isinstance(inner, dict) and (
+        isinstance(inner.get("holdings"), list) or isinstance(inner.get("last_rb"), dict)
+    )
+
+
+def _nav_series(obj) -> list[dict]:
+    if not isinstance(obj, dict):
         return []
-    items = data[0].get("list")
+    items = obj.get("list")
     if not isinstance(items, list):
         return []
     series = []
@@ -192,6 +228,20 @@ def parse_nav(data) -> list[dict]:
             continue
         series.append({"date": str(it.get("date") or ""), "value": round(v, 4)})
     return series
+
+
+def parse_nav(data) -> list[dict]:
+    """解析 nav_daily/all.json 的组合自身序列 [{date, value}]。"""
+    if not isinstance(data, list) or not data:
+        return []
+    return _nav_series(data[0])
+
+
+def parse_benchmark(data) -> list[dict]:
+    """解析 nav_daily/all.json 的沪深300基准（通常是第 2 项）。"""
+    if not isinstance(data, list) or len(data) < 2:
+        return []
+    return _nav_series(data[1])
 
 
 class CombinationFetcher(Fetcher):
@@ -243,18 +293,27 @@ class CombinationFetcher(Fetcher):
         except Exception as exc:  # noqa: BLE001 - 快照失败不影响主流程
             logger.warning("组合 %s %s 快照抓取失败: %s", cube_symbol, kind, exc)
             return
+        if _xueqiu_error(data):
+            logger.warning("组合 %s %s 快照接口返回 error_code=%s", cube_symbol, kind, data.get("error_code"))
+            return
         try:
             if kind == "quote":
                 payload = parse_quote(data)
+                if payload.get("net_value") is None and payload.get("day_percent_gain") is None:
+                    return
             elif kind == "holdings":
-                payload = parse_holdings(data)
+                if not _looks_like_holdings(data):
+                    return
+                payload = {"holdings": parse_holdings(data), "cash": parse_cash(data)}
             else:
-                payload = parse_nav(data)
+                series = parse_nav(data)
+                if not series:
+                    return
+                payload = {"series": series, "benchmark": parse_benchmark(data)}
         except Exception as exc:  # noqa: BLE001
             logger.warning("组合 %s %s 快照解析失败: %s", cube_symbol, kind, exc)
             return
-        if payload:
-            self.db.set_cube_snapshot(kol_id, kind, payload)
+        self.db.set_cube_snapshot(kol_id, kind, payload)
 
     def _refresh_snapshots(self, kol_id: int, cube_symbol: str) -> None:
         """刷新三种组合快照（各带 TTL，独立失败互不影响）。"""

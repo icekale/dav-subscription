@@ -63,7 +63,7 @@
         <view class="holding-row" wx:for="{{holdings}}" wx:key="symbol">
           <view class="row" style="justify-content:space-between">
             <text class="holding-name">{{item.name}}</text>
-            <text class="holding-weight">{{item.weight}}%</text>
+            <text class="holding-weight">{{item.weight}}%<text wx:if="{{item.delta}}" class="holding-delta {{item.deltaClass}}"> {{item.delta}}</text></text>
           </view>
           <view class="weight-bar"><view class="weight-fill" style="width:{{item.weight}}%"></view></view>
         </view>
@@ -76,7 +76,7 @@
       <view wx:else>
         <view class="row" style="justify-content:space-between;align-items:baseline">
           <text class="nav-latest">最新 {{navSeries[navSeries.length - 1].value}}</text>
-          <text class="nav-date">{{navSeries[navSeries.length - 1].date}}</text>
+          <text class="nav-date">{{navSeries[navSeries.length - 1].date}}{{navHint}}</text>
         </view>
         <canvas type="2d" id="navChart" class="nav-chart"></canvas>
       </view>

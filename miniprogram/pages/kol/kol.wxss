@@ -69,6 +69,9 @@
 .holding-row { padding: 14rpx 0; }
 .holding-name { font-size: 26rpx; color: var(--text-strong); }
 .holding-weight { font-size: 26rpx; font-weight: 600; color: var(--text-muted); }
+.holding-delta { font-weight: 500; }
+.holding-delta.up { color: #e64340; }
+.holding-delta.down { color: #07c160; }
 .weight-bar {
   margin-top: 8rpx;
   height: 8rpx;

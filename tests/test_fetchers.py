@@ -506,9 +506,9 @@ def test_combination_snapshots_stored_and_ttl_skips_refetch():
     fetcher.fetch(kol)
     assert counts == {"quote": 1, "current": 1, "nav": 1}
     snap = db.get_cube_snapshot(7, "holdings")
-    assert snap and snap["payload"] == [{"name": "贵州茅台", "symbol": "SH600519", "weight": 10.0}]
+    assert snap and snap["payload"] == {"holdings": [{"name": "贵州茅台", "symbol": "SH600519", "weight": 10.0}], "cash": None}
     snap = db.get_cube_snapshot(7, "nav")
-    assert snap and snap["payload"] == [{"date": "2026-07-01", "value": 1.0}]
+    assert snap and snap["payload"] == {"series": [{"date": "2026-07-01", "value": 1.0}], "benchmark": []}
     snap = db.get_cube_snapshot(7, "quote")
     assert snap and snap["payload"]["day_percent_gain"] == -0.32
 
@@ -606,6 +606,103 @@ def test_combination_parse_helpers_accept_known_shapes():
     assert series == [{"date": "2026-07-01", "value": 1.0}]
     assert parse_nav({}) == []
     assert parse_nav([]) == []
+
+    # last_rb 带 prev_weight / cash：持仓行保留上次权重，现金单独解析
+    from app.fetchers.combination import parse_benchmark, parse_cash
+
+    with_prev = parse_holdings({
+        "last_rb": {
+            "cash": 12.5,
+            "holdings": [
+                {"stock_name": "茅台", "stock_symbol": "SH600519", "weight": 20.0, "prev_weight": 15.0},
+            ],
+        }
+    })
+    assert with_prev == [{"name": "茅台", "symbol": "SH600519", "weight": 20.0, "prev": 15.0}]
+    assert parse_cash({"last_rb": {"cash": 12.5, "holdings": []}}) == 12.5
+    assert parse_cash({"last_rb": {"holdings": []}}) is None
+    assert parse_cash([{"weight": 1}]) is None
+    # history 顶层 cash 是伪值（100−Σ变动），current 解析不得回退去读它
+    assert parse_cash({"cash": 80.0, "cash_value": 0.0, "rebalancing_histories": []}) is None
+
+    bench = parse_benchmark(
+        [
+            {"symbol": "ZH1", "list": [{"date": "2026-07-01", "value": 1.0}]},
+            {"symbol": "SH000300", "list": [{"date": "2026-07-01", "value": 4000.0}, {"date": "bad", "value": "x"}]},
+        ]
+    )
+    assert bench == [{"date": "2026-07-01", "value": 4000.0}]
+    assert parse_benchmark([]) == []
+    assert parse_benchmark([{"list": [{"date": "2026-07-01", "value": 1.0}]}]) == []
+
+
+def test_combination_empty_holdings_snapshot_is_written():
+    """清仓后 holdings=[] 也要覆盖旧快照，不能因为空列表 falsy 而跳过写入。"""
+    def handler(request):
+        path = request.url.path
+        if path == "/cubes/rebalancing/history.json":
+            return httpx.Response(200, json={"list": []})
+        if path == "/cubes/quote.json":
+            return httpx.Response(200, json={"data": {"net_value": 1.0, "day_percent_gain": 0.0}})
+        if path == "/cubes/rebalancing/current.json":
+            return httpx.Response(200, json={"last_rb": {"cash": 100.0, "holdings": []}})
+        if path == "/cubes/nav_daily/all.json":
+            return httpx.Response(200, json=[
+                {"symbol": "ZH1", "list": [{"date": "2026-07-01", "value": 1.0}]},
+                {"symbol": "SH000300", "list": [{"date": "2026-07-01", "value": 4000.0}]},
+            ])
+        return httpx.Response(404)
+
+    db = DB(":memory:")
+    db.set_cube_snapshot(3, "holdings", [{"name": "旧持仓", "symbol": "SH000001", "weight": 99.0}])
+    # 把 fetched_at 打成过期，强制本轮重抓
+    db._execute(
+        "UPDATE cube_snapshots SET fetched_at = datetime('now', '-10 minutes') "
+        "WHERE kol_id = 3 AND kind = 'holdings'"
+    )
+    fetcher = CombinationFetcher(
+        XueqiuConfig(cookie="xq_a_token=abc"), db=db,
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    fetcher.fetch({"id": 3, "name": "空仓组合", "external_id": "ZH000003"})
+    snap = db.get_cube_snapshot(3, "holdings")
+    assert snap["payload"] == {"holdings": [], "cash": 100.0}
+    nav = db.get_cube_snapshot(3, "nav")
+    assert nav["payload"]["series"] == [{"date": "2026-07-01", "value": 1.0}]
+    assert nav["payload"]["benchmark"] == [{"date": "2026-07-01", "value": 4000.0}]
+
+
+def test_combination_error_body_does_not_overwrite_holdings():
+    """雪球常 HTTP 200 + error_code（10022/400016），不得当成空仓覆盖旧快照。"""
+    good = {"holdings": [{"name": "茅台", "symbol": "SH600519", "weight": 20.0}], "cash": 5.0}
+
+    def handler(request):
+        path = request.url.path
+        if path == "/cubes/rebalancing/history.json":
+            return httpx.Response(200, json={"list": []})
+        if path == "/cubes/quote.json":
+            return httpx.Response(200, json={"error_code": 400016})
+        if path == "/cubes/rebalancing/current.json":
+            return httpx.Response(200, json={"error_code": "10022", "error_description": "未登录"})
+        if path == "/cubes/nav_daily/all.json":
+            return httpx.Response(200, json={"error_code": 10022})
+        return httpx.Response(404)
+
+    db = DB(":memory:")
+    db.set_cube_snapshot(4, "holdings", good)
+    db.set_cube_snapshot(4, "quote", {"net_value": 1.2, "day_percent_gain": 1.0})
+    db.set_cube_snapshot(4, "nav", {"series": [{"date": "2026-07-01", "value": 1.0}], "benchmark": []})
+    db._execute(
+        "UPDATE cube_snapshots SET fetched_at = datetime('now', '-10 minutes') WHERE kol_id = 4"
+    )
+    fetcher = CombinationFetcher(
+        XueqiuConfig(cookie="xq_a_token=abc"), db=db,
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    fetcher.fetch({"id": 4, "name": "组合", "external_id": "ZH000004"})
+    assert db.get_cube_snapshot(4, "holdings")["payload"] == good
+    assert db.get_cube_snapshot(4, "quote")["payload"]["net_value"] == 1.2
+    assert db.get_cube_snapshot(4, "nav")["payload"]["series"][0]["value"] == 1.0
 
 
 def test_xueqiu_cookie_expired_403_raises_clear_error():
