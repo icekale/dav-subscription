@@ -99,7 +99,7 @@ def _polling_bool(db: DB, key: str, default: bool = False) -> bool:
 # 无新帖自适应降频：空轮越多间隔越长（2 倍步进），有新帖立即恢复基础间隔。
 # 以下为默认值，均可在后台「数据源」页抓取设置区调参（config_* 即时生效）：
 #   普通大V空轮封顶 900s（合并推送周期 600s，低活跃大V晚几分钟看到可接受）；
-#   优先大V温和拉伸封顶 180s（实时性最坏 +2min）；X 降级 RSSHub 期间再 ×4（封顶 1800s）；
+#   优先大V温和拉伸封顶 180s（实时性最坏 +2min）；X 直抓失败期间再 ×4（封顶 1800s）；
 #   雪球组合独立高频档：基础 30s、空轮封顶 120s，调仓最坏 ~2min 内发现并实时推送；
 #   次要大V低频档：基础 900s（15min）、空轮封顶 3600s（1h）、长摘要 3600s（1h）。
 NORMAL_IDLE_CAP_SECONDS = 900
@@ -119,7 +119,7 @@ def _frequency_setting(db: DB, key: str, default: int) -> int:
 
 
 def _in_x_fallback(db: DB) -> bool:
-    """X 直抓当前是否处于 RSSHub 降级状态（最近一次降级晚于最近一次直抓成功）。"""
+    """X 直抓当前是否处于失败状态（最近一次失败晚于最近一次直抓成功）。"""
     fallback_at = db.get_setting("x_direct_last_fallback_at")
     if not fallback_at:
         return False
@@ -137,8 +137,8 @@ def _effective_interval(
     """单个大V本轮的有效抓取间隔。
 
     基础间隔（雪球组合高频档 > 优先大V > 普通大V）× 空轮拉伸（2 倍步进，
-    封顶）→ 有效间隔；平台为 X 且处于 RSSHub 降级时再 ×4（封顶），
-    避免打爆备用通道。各档位数值可在后台「数据源」页调参。
+    封顶）→ 有效间隔；平台为 X 且直抓失败时再 ×4（封顶），避免空打已挂接口。
+    各档位数值可在后台「数据源」页调参。
     """
     if kol["platform"] == "combination":
         base = _frequency_setting(db, "config_combination_base_seconds", COMBINATION_BASE_SECONDS)
@@ -159,7 +159,7 @@ def _effective_interval(
     effective = min(base * (2**empty), cap)
     if kol["platform"] == "twitter" and db is not None and _in_x_fallback(db):
         x_cap = _frequency_setting(db, "config_x_fallback_cap_seconds", X_FALLBACK_CAP_SECONDS)
-        effective = min(effective * 4, x_cap)
+        effective = min(effective * 4, x_cap)  # 直抓失败期放慢，避免空打已挂的接口
     return effective
 
 
@@ -575,14 +575,14 @@ def _x_fallback_advice(reason: str) -> str:
         "ssl", "timeout", "timed out", "eof", "connection", "reset", "network",
         "deadline",  # DeadlineExceeded: X 后端超时，同 503 一类瞬时故障
     )):
-        return "X 服务端暂时不可用或网络抖动，已自动回退 RSSHub，无需操作；持续出现再检查 Cookie。"
+        return "X 服务端暂时不可用或网络抖动，无需操作；持续出现再检查 Cookie。"
     if any(k in text for k in ("401", "403", "forbidden", "unauthorized")):
         return "X 拒绝了请求（401/403）：请检查 TWITTER_COOKIE 是否失效（Cookie 刚更新仍复现则可能是 X 接口规则变更，需升级代码）。"
-    return "已自动回退 RSSHub 备用通道，请留意后续是否持续降级。"
+    return "失败期间会放慢采集并告警，请留意是否持续失败。"
 
 
 def maybe_alert_x_fallback(db: DB, notifiers: list[Notifier]) -> None:
-    """X 直抓降级到 RSSHub 备用通道时通知管理员（每 6 小时最多一次）。"""
+    """X 直抓失败时通知管理员（每 6 小时最多一次）。"""
     if not _alerts_enabled():
         return
     fallback_at = db.get_setting("x_direct_last_fallback_at")
@@ -604,11 +604,11 @@ def maybe_alert_x_fallback(db: DB, notifiers: list[Notifier]) -> None:
             pass
     reason = db.get_setting("x_direct_fallback_reason") or "X 官方接口不可用"
     message = (
-        "⚠️ X 直抓已降级到 RSSHub 备用通道\n"
+        "⚠️ X 直抓失败，本轮未取到新帖\n"
         f"原因：{reason[:200]}\n"
         f"{_x_fallback_advice(reason)}"
     )
-    _send_admin_text(notifiers, message, "X 降级告警")
+    _send_admin_text(notifiers, message, "X 失败告警")
     db.set_setting(X_DIRECT_ALERT_KEY, str(now))
 
 
@@ -711,7 +711,7 @@ def poll_once(
         state = states.setdefault(kol["platform"], PlatformState())
         if now < state.skip_until:
             continue
-        # 自适应间隔：优先大V更短，空轮拉伸，X 降级 RSSHub 期间加倍
+        # 自适应间隔：优先大V更短，空轮拉伸，X 直抓失败期间加倍
         effective = _effective_interval(
             db, kol, state, interval_seconds, priority_interval_seconds
         )

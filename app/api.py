@@ -151,8 +151,8 @@ def _parse_batch_kol_line(line: str, default_platform: str) -> tuple[str, str, s
     if not external_id:
         return default_platform, "", nickname, parse_error or "未识别到链接或ID"
     platform = platform or default_platform
-    # RSSHub 等源地址（不含 x.com/twitter.com）原样保留，RSS 兜底抓取器直接消费；
-    # 其余走归一化（X 主页链接存 screen name，系统页/推文链接报错）
+    # 非 x.com/twitter.com 的 http(s) 地址原样保留（历史导入）；其余走归一化
+    # （X 主页链接存 screen name，系统页/推文链接报错）
     if external_id.startswith(("http://", "https://")) and not re.search(
         r"(?:x|twitter)\.com", external_id
     ):
@@ -1882,8 +1882,7 @@ def create_api_router(
             # 支持直接粘贴微博主页链接，自动提取 UID
             external_id = _normalize_weibo_id(external_id)
         elif body.platform == "twitter":
-            # 与申请/批量导入同一归一化：主页链接存 screen name，推文/系统页拒绝；
-            # RSSHub 等源地址（不含 x.com/twitter.com）原样保留（RSS 兜底抓取器直接消费）
+            # 与申请/批量导入同一归一化：主页链接存 screen name，推文/系统页拒绝
             if not external_id.startswith(("http://", "https://")) or re.search(
                 r"(?:x|twitter)\.com", external_id
             ):
@@ -2386,7 +2385,7 @@ def create_api_router(
                 "last_alert_at": db.get_setting(f"source_alert_{platform}") or "",
             }
             if platform == "twitter":
-                # X 通道状态：直抓（官方接口）为主，降级时用 RSSHub 备用
+                # X 通道状态：直抓成功为 direct；失败未恢复为 fallback（沿用字段名）
                 direct_ok = db.get_setting("x_direct_last_ok_at")
                 fallback_at = db.get_setting("x_direct_last_fallback_at")
                 if fallback_at and (not direct_ok or fallback_at > direct_ok):

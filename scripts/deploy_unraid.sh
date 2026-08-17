@@ -51,5 +51,5 @@ for _ in $(seq 1 24); do
 done
 curl -fsS -m 8 "http://192.168.5.28:$PORT/api/version"
 echo
-ssh "$HOST" "docker ps --format '{{.Names}} {{.Status}}' | grep -E 'vpush|rsshub'; docker logs --tail=80 vpush 2>&1 | tail -80"
+ssh "$HOST" "docker ps --format '{{.Names}} {{.Status}}' | grep -E 'vpush'; docker logs --tail=80 vpush 2>&1 | tail -80"
 echo "部署完成"

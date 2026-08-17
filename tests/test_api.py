@@ -545,6 +545,19 @@ def test_error_db_handler_captures_warnings():
     assert not any("普通信息" in c[2] for c in captured)
 
 
+def test_no_rsshub_fallback_in_frontend_or_compose():
+    """X 不再走 RSSHub：界面与 compose 不得再宣传备用通道。"""
+    from pathlib import Path
+
+    app_js = Path("app/static/app.js").read_text(encoding="utf-8")
+    assert "备用RSS" not in app_js
+    assert "RSSHub" not in app_js
+    for name in ("docker-compose.prod.yml", "docker-compose.unraid.yml"):
+        text = Path(name).read_text(encoding="utf-8")
+        assert "dav-rsshub" not in text
+        assert "RSSHUB_BASE" not in text
+
+
 def test_frontend_fallback_version_matches_backend():
     """接口失败/离线时，侧栏兜底版本不能落后于后端发布版本。"""
     import re
@@ -1482,16 +1495,16 @@ def test_xueqiu_cookie_write_and_batch_rss_url(monkeypatch, tmp_path):
         == 400
     )
 
-    # 批量导入支持 X/RSS 源地址
+    # 批量导入支持 X 主页地址
     resp = client.post(
         "/api/kols/batch",
         headers=headers,
-        json={"platform": "twitter", "lines": "Elon Musk https://rsshub.app/twitter/user/elonmusk"},
+        json={"platform": "twitter", "lines": "Elon Musk https://x.com/elonmusk"},
     )
     assert resp.status_code == 200 and resp.json()["ok"] == 1
     assert resp.json()["failed"] == []
     kols = client.get("/api/kols", headers=headers).json()
-    assert any(k["external_id"] == "https://rsshub.app/twitter/user/elonmusk" for k in kols)
+    assert any(k["external_id"] == "elonmusk" for k in kols)
 
 
 def test_kol_request_flow(monkeypatch):

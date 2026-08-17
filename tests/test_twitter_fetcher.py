@@ -1,5 +1,3 @@
-from types import SimpleNamespace
-
 import httpx
 import pytest
 
@@ -151,11 +149,7 @@ def _timeline_response():
 
 def _make_fetcher(handler, db):
     client = httpx.Client(transport=httpx.MockTransport(handler))
-    return TwitterFetcher(
-        SimpleNamespace(rsshub_base="https://rsshub.app"),
-        db,
-        client=client,
-    )
+    return TwitterFetcher(db=db, client=client)
 
 
 def test_extract_screen_name():
@@ -252,40 +246,28 @@ def test_twitter_fetch_pin_entry_and_visibility_wrapper(monkeypatch):
     assert {p.content for p in posts} == {"置顶帖", "受限可见性帖"}
 
 
-def test_twitter_suspended_user_falls_back_no_false_ok(monkeypatch):
-    """用户被封/不存在时 UserTweets 返回空壳，不应记「直抓成功」，应回退 RSSHub。"""
+def test_twitter_suspended_user_raises_no_false_ok(monkeypatch):
+    """用户被封/不存在时 UserTweets 返回空壳，不应记「直抓成功」，应抛出并记失败。"""
     monkeypatch.setenv("TWITTER_COOKIE", "auth_token=a; ct0=b")
-    feed_xml = (
-        b'<?xml version="1.0" encoding="UTF-8"?>'
-        b'<rss version="2.0"><channel></channel></rss>'
-    )
 
     def handler(request):
-        if request.url.host == "x.com":
-            # 空壳：用户已停用（或不存在），无 timeline
-            return httpx.Response(
-                200,
-                json={
-                    "data": {
-                        "user": {
-                            "result": {"__typename": "UserUnavailable", "reason": "Suspended"}
-                        }
-                    }
-                },
-            )
         return httpx.Response(
             200,
-            content=feed_xml,
-            headers={"content-type": "application/rss+xml"},
+            json={
+                "data": {
+                    "user": {
+                        "result": {"__typename": "UserUnavailable", "reason": "Suspended"}
+                    }
+                }
+            },
         )
 
     db = DB(":memory:")
     kid = db.add_kol("twitter", "SemiAnalysis", "https://x.com/SemiAnalysis_")
     fetcher = _make_fetcher(handler, db)
     fetcher._user_ids["SemiAnalysis_"] = "1745"  # 模拟已缓存的 userId，跳过 UserByScreenName
-    posts = fetcher.fetch(db.get_kol(kid))
-    assert posts == []
-    # 必须标记降级、不标记直抓成功
+    with pytest.raises(RuntimeError, match="停用"):
+        fetcher.fetch(db.get_kol(kid))
     assert db.get_setting("x_direct_last_fallback_at")
     assert not db.get_setting("x_direct_last_ok_at")
     assert "停用" in (db.get_setting("x_direct_fallback_reason") or "")
@@ -445,63 +427,43 @@ def test_twitter_note_tweet_uses_full_body(monkeypatch):
     assert posts[0].title == posts[0].content[:80]
 
 
-def test_twitter_falls_back_to_rsshub(monkeypatch):
-    import datetime
-    import email.utils
-
-    monkeypatch.setenv("TWITTER_COOKIE", "auth_token=a; ct0=b")
-    recent = email.utils.format_datetime(
-        datetime.datetime.now(datetime.UTC) - datetime.timedelta(minutes=10)
-    )
-    feed_xml = (
-        '<?xml version="1.0" encoding="UTF-8"?>'
-        '<rss version="2.0"><channel>'
-        "<item><title>备用源</title>"
-        "<link>https://x.com/SemiAnalysis_/status/999</link>"
-        "<description>来自 RSSHub 的内容</description>"
-        f"<pubDate>{recent}</pubDate>"
-        "</item></channel></rss>"
-    ).encode()
-
-    def handler(request):
-        if request.url.host == "x.com":
-            return httpx.Response(200, json={"errors": [{"message": "queryId 已失效"}]})
-        assert request.url.path == "/twitter/user/SemiAnalysis_"
-        return httpx.Response(
-            200,
-            content=feed_xml,
-            headers={"content-type": "application/rss+xml"},
-        )
-
-    db = DB(":memory:")
-    kid = db.add_kol("twitter", "SemiAnalysis", "https://x.com/SemiAnalysis_")
-    fetcher = _make_fetcher(handler, db)
-    posts = fetcher.fetch(db.get_kol(kid))
-    assert len(posts) == 1
-    assert posts[0].title == "备用源"
-    assert posts[0].url == "https://x.com/SemiAnalysis_/status/999"
-    assert db.get_setting("x_direct_last_fallback_at")
-    assert "queryId 已失效" in (db.get_setting("x_direct_fallback_reason") or "")
-
-
-def test_twitter_network_error_skips_rsshub_fallback(monkeypatch):
-    """网络层错误（SSL/超时/连接重置）不触发降级，避免抖动时误报。"""
+def test_twitter_auth_error_raises_without_rsshub(monkeypatch):
+    """鉴权/接口错误不再走 RSSHub：记失败并抛出，由调度器告警/退避。"""
     monkeypatch.setenv("TWITTER_COOKIE", "auth_token=a; ct0=b")
     rss_calls = {"n": 0}
 
     def handler(request):
-        if request.url.host in ("x.com", "api.twitter.com"):
-            raise httpx.ConnectError("connection reset", request=request)
+        if request.url.host == "x.com":
+            return httpx.Response(200, json={"errors": [{"message": "queryId 已失效"}]})
         rss_calls["n"] += 1
         return httpx.Response(200, content=b"<rss/>")
 
     db = DB(":memory:")
     kid = db.add_kol("twitter", "SemiAnalysis", "https://x.com/SemiAnalysis_")
     fetcher = _make_fetcher(handler, db)
+    with pytest.raises(RuntimeError, match="queryId"):
+        fetcher.fetch(db.get_kol(kid))
+    assert rss_calls["n"] == 0
+    assert db.get_setting("x_direct_last_fallback_at")
+    assert "queryId 已失效" in (db.get_setting("x_direct_fallback_reason") or "")
+    assert not db.get_setting("x_direct_last_ok_at")
+    events = db.recent_source_events()
+    assert any("X直抓失败" in (e["detail"] or "") for e in events)
+
+
+def test_twitter_network_error_skips_failure_mark(monkeypatch):
+    """网络层错误（SSL/超时/连接重置）不标直抓失败，避免抖动时误报。"""
+    monkeypatch.setenv("TWITTER_COOKIE", "auth_token=a; ct0=b")
+
+    def handler(request):
+        raise httpx.ConnectError("connection reset", request=request)
+
+    db = DB(":memory:")
+    kid = db.add_kol("twitter", "SemiAnalysis", "https://x.com/SemiAnalysis_")
+    fetcher = _make_fetcher(handler, db)
     with pytest.raises(httpx.TransportError):
         fetcher.fetch(db.get_kol(kid))
-    assert rss_calls["n"] == 0  # 没有走到 RSSHub
-    assert not db.get_setting("x_direct_last_fallback_at")  # 不标记降级
+    assert not db.get_setting("x_direct_last_fallback_at")
     events = db.recent_source_events()
     assert any("网络抖动" in e["detail"] for e in events)
 
@@ -536,7 +498,7 @@ def test_direct_fetch_never_calls_api_twitter(monkeypatch):
 
 def test_typeahead_resolves_when_userbyscreenname_empty(monkeypatch):
     """第三方账号：UserByScreenName 返回空壳（2026-08 起仅本账号可解析）时，
-    经 typeahead 解析 uid 并正常直抓，不再全部回退 RSSHub。"""
+    经 typeahead 解析 uid 并正常直抓。"""
     monkeypatch.setenv("TWITTER_COOKIE", "auth_token=a; ct0=b")
     userby_calls = {"n": 0}
 
@@ -626,10 +588,9 @@ def test_typeahead_no_exact_match_falls_back_to_userbyscreenname(monkeypatch):
 
 
 def test_graphql_401_fails_without_api_twitter_retry(monkeypatch):
-    """GraphQL 401 直接失败降级：不再换 guest token 重试（guest/activate 已被 CF 锁死）。"""
+    """GraphQL 401 直接失败：不再换 guest token 重试（guest/activate 已被 CF 锁死）。"""
     monkeypatch.setenv("TWITTER_COOKIE", "auth_token=a; ct0=b")
     api_twitter_calls = {"n": 0}
-    rss_calls = {"n": 0}
 
     def handler(request):
         if request.url.host == "api.twitter.com":
@@ -641,16 +602,14 @@ def test_graphql_401_fails_without_api_twitter_retry(monkeypatch):
             )
         if "UserTweets" in str(request.url):
             return httpx.Response(401, json={"errors": [{"message": "Invalid or expired token", "code": 89}]})
-        rss_calls["n"] += 1
         return httpx.Response(200, content=b"<rss/>")
 
     db = DB(":memory:")
     kid = db.add_kol("twitter", "SemiAnalysis", "https://x.com/SemiAnalysis")
     fetcher = _make_fetcher(handler, db)
-    posts = fetcher.fetch(db.get_kol(kid))
-    assert posts == []  # RSSHub 兜底返回空
-    assert api_twitter_calls["n"] == 0  # 不换 token 重试
-    assert rss_calls["n"] == 1  # 走了一次备用通道
+    with pytest.raises(RuntimeError, match="401"):
+        fetcher.fetch(db.get_kol(kid))
+    assert api_twitter_calls["n"] == 0
     assert db.get_setting("x_direct_last_fallback_at")
 
 
@@ -665,7 +624,7 @@ def test_graphql_error_includes_body_code(monkeypatch):
         )
 
     client = httpx.Client(transport=httpx.MockTransport(handler))
-    fetcher = TwitterFetcher(SimpleNamespace(rsshub_base="x"), None, client=client)
+    fetcher = TwitterFetcher(db=None, client=client)
     with pytest.raises(RuntimeError) as ei:
         fetcher._graphql("UserTweets", {"userId": "1"}, "auth_token=a; ct0=b")
     assert "HTTP 403" in str(ei.value)

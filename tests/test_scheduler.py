@@ -308,8 +308,8 @@ def test_x_fallback_advice_categorizes_reasons():
         assert cookie_hint not in _x_fallback_advice(reason), reason
 
     # 未知原因 → 通用兜底建议
-    assert "持续降级" in _x_fallback_advice("some weird error")
-    assert "持续降级" in _x_fallback_advice("")
+    assert "持续失败" in _x_fallback_advice("some weird error")
+    assert "持续失败" in _x_fallback_advice("")
 
     # code 353（guest 绑定要求，2026-08 X 反爬升级）→ 提示升级代码而非重新登录
     for reason in (
@@ -1140,7 +1140,7 @@ def test_combination_interval_highest_frequency():
 
 
 def test_frequency_settings_override_effective_interval():
-    """后台 config_* 参数覆盖各档位：组合基础/封顶、普通/优先封顶、X 降级封顶。"""
+    """后台 config_* 参数覆盖各档位：组合基础/封顶、普通/优先封顶、X 失败封顶。"""
     from app.scheduler import COMBINATION_BASE_SECONDS
 
     db = make_db()
@@ -1562,7 +1562,7 @@ def test_empty_rounds_stretch_interval_then_reset_on_new_post():
 
 
 def test_x_fallback_multiplies_interval():
-    """X 处于 RSSHub 降级时有效间隔 ×4（封顶 1800s），避免打爆备用通道。"""
+    """X 直抓失败时有效间隔 ×4（封顶 1800s），避免空打已挂接口。"""
     db = make_db()
     db.set_setting("x_direct_last_fallback_at", str(int(time.time())))
     db.set_setting("x_direct_last_ok_at", str(int(time.time()) - 600))  # 降级晚于成功

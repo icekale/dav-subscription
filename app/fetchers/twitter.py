@@ -1,9 +1,9 @@
-"""X/Twitter 官方 GraphQL 直抓（主通道），失败时自动回退 RSSHub（备用通道）。
+"""X/Twitter 官方 GraphQL 直抓。
 
 直抓依赖登录 Cookie（TWITTER_COOKIE 里的 auth_token / ct0），调用 X 网页端同源
 GraphQL 接口：UserByScreenName（拿 userId/头像）+ UserTweets（拿时间线）。
 queryId 由 X 前端轮换，启动后每 6 小时自动从前端 main bundle 提取一次，
-提取失败时用内置默认值兜底；接口失效则整体回退 RSSHub。
+提取失败时用内置默认值兜底；接口失败则抛出，由调度器告警并放慢采集。
 
 2026-08 起 X 把 api.twitter.com 升级成 Cloudflare managed challenge（裸客户端
 一律 403），但 x.com/i/api 的 GraphQL/typeahead 只是 passive TLS/HTTP2 指纹检测——
@@ -31,7 +31,6 @@ from curl_cffi.requests.errors import RequestsError
 
 from ..avatar_cache import cache_avatar
 from .base import Fetcher, Post, format_published_at
-from .rss import RssFetcher
 
 logger = logging.getLogger(__name__)
 
@@ -276,7 +275,6 @@ class TwitterFetcher(Fetcher):
         self._client = client  # 外部注入（测试 mock / 头像解析）时复用；None 则按线程懒建
         self._thread_local = threading.local()
         self._user_ids: dict[str, str] = {}
-        self._fallback = RssFetcher(source_config, db, client=client)
 
     def _client_for(self):
         """curl_cffi.Session 非线程安全：每线程懒建一个；外部注入的 client 直接复用。"""
@@ -289,11 +287,12 @@ class TwitterFetcher(Fetcher):
         return sess
 
     def fetch(self, kol: dict) -> list[Post]:
-        """优先 X 直抓；失败时按错误类型分流。
+        """X 直抓；失败按错误类型分流后抛出，不再走备用内容通道。
 
-        - 网络类错误（SSL/超时/连接重置）：不降级 RSSHub——备用通道大概率同样不通，
-          只记 warn 事件后抛出，让调度器退避等网络恢复，避免抖动时刷降级事件/告警；
-        - 鉴权/接口类错误（401/403/GraphQL errors/cookie 失效）：降级 RSSHub 备用通道。
+        - 网络类错误（SSL/超时/连接重置）：只记 warn，不标「直抓失败」——避免抖动时
+          刷告警；调度器退避等网络恢复。
+        - 鉴权/接口类错误（401/403/GraphQL errors/cookie 失效）：记下失败时间与原因，
+          供告警和放慢采集，然后抛出。
         """
         cookie = os.environ.get("TWITTER_COOKIE", "")
         try:
@@ -308,23 +307,19 @@ class TwitterFetcher(Fetcher):
                     "warn",
                     f"X网络抖动(直抓): {str(exc)[:200]}",
                 )
-            logger.warning("X 直抓网络错误，跳过降级 kol=%s err=%s", kol["name"], exc)
+            logger.warning("X 直抓网络错误，本轮跳过 kol=%s err=%s", kol["name"], exc)
             raise
-        except Exception as exc:  # noqa: BLE001 - 回退备用通道
+        except Exception as exc:
             if self.db is not None:
                 self.db.set_setting("x_direct_last_fallback_at", str(int(time.time())))
                 self.db.set_setting("x_direct_fallback_reason", str(exc)[:300])
                 self.db.add_source_event(
                     "twitter",
                     "warn",
-                    f"X直抓降级RSSHub: {str(exc)[:200]}",
+                    f"X直抓失败: {str(exc)[:200]}",
                 )
-            logger.warning(
-                "X 直抓失败，回退 RSSHub kol=%s err=%s",
-                kol["name"],
-                exc,
-            )
-            return self._fallback.fetch(kol)
+            logger.warning("X 直抓失败 kol=%s err=%s", kol["name"], exc)
+            raise
 
     def _graphql(
         self,

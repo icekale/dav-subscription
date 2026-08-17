@@ -1,5 +1,4 @@
 import json
-import re
 import threading
 import time
 from pathlib import Path
@@ -11,7 +10,6 @@ import rsa
 from app.config import XueqiuConfig
 from app.db import DB
 from app.fetchers.combination import CombinationFetcher, extract_cube_symbol
-from app.fetchers.rss import RssFetcher
 from app.fetchers.xueqiu import (
     XueqiuFetcher,
     _crop_watermark,
@@ -728,97 +726,6 @@ def test_twitter_extract_images():
     assert extract_twitter_images({}) == []
 
 
-def test_rss_resolve_x_url():
-    fetcher = RssFetcher(SimpleNamespace(rsshub_base="https://rsshub.app"))
-    assert (
-        fetcher._resolve_feed_url("https://x.com/SemiAnalysis_")
-        == "https://rsshub.app/twitter/user/SemiAnalysis_"
-    )
-    assert (
-        fetcher._resolve_feed_url("https://twitter.com/elonmusk/")
-        == "https://rsshub.app/twitter/user/elonmusk"
-    )
-    assert (
-        fetcher._resolve_feed_url("https://rsshub.app/twitter/user/elonmusk")
-        == "https://rsshub.app/twitter/user/elonmusk"
-    )
-
-
-def test_rss_fetch_resolves_x_and_saves_avatar():
-    import datetime
-    import email.utils
-
-    recent = email.utils.format_datetime(
-        datetime.datetime.now(datetime.UTC) - datetime.timedelta(minutes=10)
-    )
-    feed_xml = (
-        '<?xml version="1.0" encoding="UTF-8"?>'
-        '<rss version="2.0"><channel>'
-        '<image><url>https://pbs.twimg.com/avatar.jpg</url></image>'
-        "<item><title>今日观点</title>"
-        "<link>https://x.com/SemiAnalysis_/status/1</link>"
-        "<description>市场动态</description>"
-        f"<pubDate>{recent}</pubDate>"
-        "</item></channel></rss>"
-    ).encode()
-
-    def handler(request):
-        assert request.url.path == "/twitter/user/SemiAnalysis_"
-        return httpx.Response(200, content=feed_xml, headers={"content-type": "application/rss+xml"})
-
-    db = DB(":memory:")
-    kid = db.add_kol("twitter", "SemiAnalysis", "https://x.com/SemiAnalysis_")
-    client = httpx.Client(transport=httpx.MockTransport(handler))
-    fetcher = RssFetcher(SimpleNamespace(rsshub_base="https://rsshub.app"), db, client=client)
-    posts = fetcher.fetch(db.get_kol(kid))
-    assert len(posts) == 1 and posts[0].title == "今日观点"
-    assert posts[0].external_id == "1"  # URL 归一化为数字 tweet id，与直抓一致去重
-    assert db.get_kol(kid)["avatar_url"] == "https://pbs.twimg.com/avatar.jpg"
-
-
-def test_rss_normalize_twitter_id():
-    fetcher = RssFetcher(SimpleNamespace(rsshub_base="https://rsshub.app"))
-    assert (
-        fetcher._normalize_twitter_id("https://twitter.com/SemiAnalysis_/status/2085154080037429715")
-        == "2085154080037429715"
-    )
-    assert (
-        fetcher._normalize_twitter_id("https://x.com/@foo/status/12345")
-        == "12345"
-    )
-    # 非 URL 原样返回（其它 RSS 源）
-    assert fetcher._normalize_twitter_id("abc123") == "abc123"
-
-
-def test_rss_fetch_skips_stale_entries():
-    import datetime
-    import email.utils
-
-    fresh = email.utils.format_datetime(
-        datetime.datetime.now(datetime.UTC) - datetime.timedelta(hours=1)
-    )
-    stale = email.utils.format_datetime(
-        datetime.datetime.now(datetime.UTC) - datetime.timedelta(days=200)
-    )
-    feed_xml = (
-        '<?xml version="1.0" encoding="UTF-8"?>'
-        '<rss version="2.0"><channel>'
-        f"<item><title>新帖</title><link>https://x.com/A/status/101</link><pubDate>{fresh}</pubDate></item>"
-        f"<item><title>老帖</title><link>https://x.com/A/status/102</link><pubDate>{stale}</pubDate></item>"
-        "</channel></rss>"
-    ).encode()
-
-    def handler(request):
-        return httpx.Response(200, content=feed_xml, headers={"content-type": "application/rss+xml"})
-
-    db = DB(":memory:")
-    kid = db.add_kol("twitter", "A", "https://x.com/A")
-    client = httpx.Client(transport=httpx.MockTransport(handler))
-    fetcher = RssFetcher(SimpleNamespace(rsshub_base="https://rsshub.app"), db, client=client)
-    posts = fetcher.fetch(db.get_kol(kid))
-    assert [p.external_id for p in posts] == ["101"]  # 200 天前的旧帖被跳过
-
-
 def test_weibo_parse_fixture():
     payload = json.loads((FIXTURES / "weibo_sample.json").read_text(encoding="utf-8"))
 
@@ -1117,29 +1024,6 @@ def test_weibo_prelogin_missing_pubkey_raises():
     raise AssertionError("缺 pubkey 时应抛出清晰错误")
 
 
-
-
-def test_rss_parse_fixture():
-    import datetime
-    import email.utils
-
-    content = (FIXTURES / "rss_sample.xml").read_bytes()
-    # fixture 的 pubDate 是固定旧日期，换成当前时间避免触发陈旧过滤
-    fresh = email.utils.format_datetime(
-        datetime.datetime.now(datetime.UTC) - datetime.timedelta(hours=1)
-    )
-    content = re.sub(rb"<pubDate>[^<]*</pubDate>", f"<pubDate>{fresh}</pubDate>".encode(), content)
-
-    def handler(request):
-        return httpx.Response(200, content=content)
-
-    client = httpx.Client(transport=httpx.MockTransport(handler))
-    fetcher = RssFetcher(client=client)
-    posts = fetcher.fetch({"id": 3, "name": "X大V", "external_id": "https://rss.example/feed"})
-    assert len(posts) == 1
-    assert posts[0].external_id == "1"
-    assert posts[0].url == "https://x.com/status/1"
-    assert "world" in posts[0].content
 
 
 def test_weibo_login_lock_serializes(monkeypatch):

@@ -16,7 +16,7 @@ const CHANNEL_ICONS = {
 };
 const CHANNEL_LABELS = { telegram: "Telegram", feishu: "飞书", wecom: "企业微信", bark: "Bark" };
 const USER_CHANNEL_KEYS = ["telegram", "feishu", "wecom", "bark"];
-const APP_VERSION = "1.12.11";
+const APP_VERSION = "1.12.12";
 const PLATFORM_TABS = ["", "xueqiu", "combination", "weibo", "twitter"];
 const TL_PLATFORMS = PLATFORM_TABS.map((p) => [p, p ? PLATFORM_LABELS[p] : "全部"]);
 const STAR_SVG = `<svg class="star-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5l2.95 5.98 6.6.96-4.78 4.66 1.13 6.58L12 17.6l-5.9 3.1 1.13-6.58L2.45 9.44l6.6-.96L12 2.5z"/></svg>`;
@@ -2832,8 +2832,8 @@ async function loadAdminStats() {
                 <span>优先大V空轮封顶<span class="cfg-unit">秒</span></span>
                 <input id="pc-pc" type="number" class="form-control" min="5" max="86400" value="${s.polling_config.priority_idle_cap_seconds}">
               </label>
-              <label class="cfg-field" title="X 降级到 RSSHub 备用通道期间封顶的抓取间隔，降级期放慢以减少备用通道压力">
-                <span>X降级封顶<span class="cfg-unit">秒</span></span>
+              <label class="cfg-field" title="X 直抓失败期间封顶的抓取间隔，失败期放慢以免空打接口">
+                <span>X失败封顶<span class="cfg-unit">秒</span></span>
                 <input id="pc-xc" type="number" class="form-control" min="5" max="86400" value="${s.polling_config.x_fallback_cap_seconds}">
               </label>
             </div>
@@ -2960,7 +2960,7 @@ function renderStatsData(s) {
         : `<span class="channel-status status-ok"><i class="dot"></i>重试队列空闲</span>`,
     ];
     if (alerts.push_alert_last_at) chips.push(`<span class="channel-status status-warn"><i class="dot"></i>推送告警 ${fmtTs(alerts.push_alert_last_at)}</span>`);
-    if (alerts.x_direct_alert_at) chips.push(`<span class="channel-status status-warn"><i class="dot"></i>X降级告警 ${fmtTs(alerts.x_direct_alert_at)}</span>`);
+    if (alerts.x_direct_alert_at) chips.push(`<span class="channel-status status-warn"><i class="dot"></i>X失败告警 ${fmtTs(alerts.x_direct_alert_at)}</span>`);
     if (alerts.cookie_keepalive_alert_at) chips.push(`<span class="channel-status status-warn"><i class="dot"></i>cookie保活告警 ${fmtTs(alerts.cookie_keepalive_alert_at)}</span>`);
     if (alerts.xueqiu_probe_alert_at) chips.push(`<span class="channel-status status-warn"><i class="dot"></i>雪球探测告警 ${fmtTs(alerts.xueqiu_probe_alert_at)}</span>`);
     ops.innerHTML = `<div class="row" style="gap:10px;flex-wrap:wrap">${chips.join("")}</div>`;
@@ -2972,7 +2972,7 @@ function renderStatsData(s) {
         ? (src.direct_mode === "direct"
             ? '<span class="status-ok">直抓</span>'
             : src.direct_mode === "fallback"
-              ? '<span class="status-warn" title="' + escapeHtml(src.direct_fallback_reason || "") + '">备用RSS</span>'
+              ? '<span class="status-warn" title="' + escapeHtml(src.direct_fallback_reason || "") + '">直抓失败</span>'
               : '<span class="muted">-</span>')
         : '<span class="muted">-</span>';
       return `
@@ -3188,7 +3188,7 @@ async function loadAdminDashboard() {
               ? src.direct_mode === "direct"
                 ? '<span class="status-ok">直抓</span>'
                 : src.direct_mode === "fallback"
-                  ? `<span class="status-warn" title="${escapeHtml(src.direct_fallback_reason || "")}">备用RSS</span>`
+                  ? `<span class="status-warn" title="${escapeHtml(src.direct_fallback_reason || "")}">直抓失败</span>`
                   : '<span class="muted">-</span>'
               : '<span class="muted">-</span>';
           return `<tr>

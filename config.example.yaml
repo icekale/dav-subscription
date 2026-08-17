@@ -29,8 +29,6 @@ sources:
     token: ""         # 可选：x-xsrf-token
     username: ""      # 可选：微博账号（配置后自动登录续期 cookie）
     password: ""      # 可选：微博密码
-  rss:
-    rsshub_base: "http://rsshub:1200"  # X 直抓失败时的备用 RSS 通道（compose 内置自建 RSSHub，内网互通）
 
 polling:
   interval_seconds: 180
