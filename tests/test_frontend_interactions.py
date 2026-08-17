@@ -299,6 +299,25 @@ def test_mobile_post_name_aligns_with_platform_badge():
     assert "height: 44px" in body
 
 
+def test_timeline_new_badge_pins_to_sticky_filterbar():
+    """新帖胶囊挂在吸顶筛选条上，往下滚仍能点，不能跟着时间线一起滑走。"""
+    render = _fn_body("renderTimeline")
+    html = re.search(r'\$\("#main"\)\.innerHTML = `(.*?)`;', render, re.S)
+    assert html, "renderTimeline 未写入主栏 HTML"
+    chunk = html.group(1)
+    feed = re.search(r'<section class="section-panel tl-feed-panel".*?</section>', chunk, re.S)
+    assert feed, "缺少时间线面板"
+    assert 'id="tl-new-badge"' not in feed.group(0)
+    assert chunk.index('id="tl-filterbar"') < chunk.index('id="tl-new-badge"') < chunk.index('id="tl-feed-panel"')
+    css = STYLE_CSS.read_text()
+    bar = re.search(r"^\.tl-filterbar\s*\{([^}]*)\}", css, re.M)
+    assert bar and "position: sticky" in bar.group(1)
+    badge = re.search(r"^\.tl-new-badge\s*\{([^}]*)\}", css, re.M)
+    assert badge, "缺少 .tl-new-badge"
+    assert "position: absolute" in badge.group(1)
+    assert "top: 100%" in badge.group(1)
+
+
 def test_timeline_new_badge_shows_posted_not_count():
     """新帖胶囊跟 X：可见文案是「已发布」，不画 +N，条数只在 aria-label。"""
     src = APP_JS.read_text()

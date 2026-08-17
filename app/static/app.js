@@ -1027,9 +1027,6 @@ async function renderTimeline(seq) {
             <button class="btn-normal" onclick="tlApplyFilter()">完成</button>
           </div>`}
       </div>
-    </div>
-    <div id="tl-active-chips-wrap">${tlActiveChipsHtml()}</div>
-    <section class="section-panel tl-feed-panel" id="tl-feed-panel">
       <div class="tl-new-badge" id="tl-new-badge">
         <button class="tl-new-badge-btn" onclick="refreshTimeline()" aria-label="有新动态，点击查看">
           ${ARROW_UP_ICON}
@@ -1037,6 +1034,9 @@ async function renderTimeline(seq) {
           已发布
         </button>
       </div>
+    </div>
+    <div id="tl-active-chips-wrap">${tlActiveChipsHtml()}</div>
+    <section class="section-panel tl-feed-panel" id="tl-feed-panel">
       <div id="feed">${reuse ? "" : TL_SKELETON}</div>
     </section>`;
   if (reuse) {

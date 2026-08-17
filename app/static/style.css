@@ -875,10 +875,11 @@ body.lightbox-open { overflow: hidden; }
   position: sticky;
   top: 56px;
   z-index: 25;
+  overflow: visible;
   background: var(--color-bg);
   margin: 0 calc(-1 * var(--page-pad-x)) 4px;
   padding: 14px var(--page-pad-x) 12px;
-} /* 不透明画布色 + 拉满与 topbar 同宽，避免半透明叠径向渐变出现色块 */
+} /* 不透明画布色 + 拉满与 topbar 同宽；新帖胶囊挂在条底，随筛选条吸顶 */
 /* 生效筛选条件 chip：筛选后常驻可见，逐个可移除（P0：筛选状态可见） */
 .tl-active-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 10px; }
 .tl-active-chip {
@@ -896,11 +897,11 @@ body.lightbox-open { overflow: hidden; }
 }
 .tl-chip-x:hover { background: var(--color-surface-hover); }
 .tl-chip-x .x-icon { width: 12px; height: 12px; }
-.tl-feed-panel { position: relative; margin-top: 16px; } /* 新帖胶囊的定位锚点：悬浮在面板顶边；上边距给胶囊留出吸顶筛选栏以下的完整空间，避免顶部被裁切 */
-.tl-feed-panel.has-new { padding-top: 36px; } /* 胶囊占位：胶囊露出时面板让出高度，避免盖住分组标题/首条卡片 */
+.tl-feed-panel { margin-top: 16px; }
+.tl-feed-panel.has-new { padding-top: 36px; } /* 胶囊从筛选条底边探出时，给首条卡片让位 */
 .tl-new-badge {
-  position: absolute; top: -16px; left: 50%; transform: translateX(-50%);
-  display: none; z-index: 5;
+  position: absolute; top: 100%; left: 50%; transform: translate(-50%, -16px);
+  display: none; z-index: 26;
 }
 .tl-new-badge.show { display: block; animation: tl-new-slide 0.25s var(--ease-standard); }
 .tl-new-badge-btn {
@@ -937,8 +938,8 @@ body.lightbox-open { overflow: hidden; }
   display: inline-flex; align-items: center; justify-content: center;
 }
 @keyframes tl-new-slide {
-  from { opacity: 0; transform: translate(-50%, -6px); }
-  to { opacity: 1; transform: translate(-50%, 0); }
+  from { opacity: 0; transform: translate(-50%, -22px); }
+  to { opacity: 1; transform: translate(-50%, -16px); }
 }
 .tl-skeleton { display: flex; flex-direction: column; gap: 16px; padding: 4px 0; }
 .tl-sk-item { display: flex; gap: 12px; align-items: flex-start; }
