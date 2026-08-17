@@ -299,6 +299,17 @@ def test_mobile_post_name_aligns_with_platform_badge():
     assert "height: 44px" in body
 
 
+def test_timeline_new_badge_shows_posted_not_count():
+    """新帖胶囊跟 X：可见文案是「已发布」，不画 +N，条数只在 aria-label。"""
+    src = APP_JS.read_text()
+    render = _fn_body("renderTimeline")
+    assert "已发布" in render
+    assert 'id="tl-new-count"' not in src
+    assert "tl-badge-more" not in _fn_body("tlBadgeAvatarsHtml")
+    assert "条新动态，点击查看" in _fn_body("pollNewPosts")
+    assert ".tl-badge-more" not in STYLE_CSS.read_text()
+
+
 def test_push_channels_html_treats_personal_feishu_as_bound():
     """渠道勾选不能只看 users.feishu_*，否则个人机器人用户会看到「还没有绑定」。"""
     assert "feishu_personal" in _fn_body("feishuChannelBound")

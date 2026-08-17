@@ -1031,10 +1031,10 @@ async function renderTimeline(seq) {
     <div id="tl-active-chips-wrap">${tlActiveChipsHtml()}</div>
     <section class="section-panel tl-feed-panel" id="tl-feed-panel">
       <div class="tl-new-badge" id="tl-new-badge">
-        <button class="tl-new-badge-btn" onclick="refreshTimeline()">
+        <button class="tl-new-badge-btn" onclick="refreshTimeline()" aria-label="有新动态，点击查看">
           ${ARROW_UP_ICON}
           <span class="tl-badge-avatars" id="tl-new-avatars"></span>
-          <span id="tl-new-count">0</span> 条新动态
+          已发布
         </button>
       </div>
       <div id="feed">${reuse ? "" : TL_SKELETON}</div>
@@ -1075,7 +1075,7 @@ function stopTimelinePoll() {
 }
 
 async function pollNewPosts() {
-  // X 式新帖检测：按 since_id 只拉新帖，计数 + 缓存到 _tlPendingNew，提示条实时显示数量
+  // X 式新帖检测：按 since_id 只拉新帖，缓存到 _tlPendingNew；胶囊显示「已发布」，条数写在 aria-label
   if (!_tlLatestId || !$("#feed")) return;
   const seq = routeRenderSeq;
   try {
@@ -1099,8 +1099,12 @@ async function pollNewPosts() {
       }
     }
     _tlPendingLatestId = Math.max(_tlPendingLatestId, ...newer.map((p) => p.id));
-    const count = $("#tl-new-count");
-    if (count) count.textContent = String(_tlPendingNew.length);
+    const label = `${_tlPendingNew.length} 条新动态，点击查看`;
+    const btn = $(".tl-new-badge-btn");
+    if (btn) {
+      btn.title = label;
+      btn.setAttribute("aria-label", label);
+    }
     const avatars = $("#tl-new-avatars");
     if (avatars) avatars.innerHTML = tlBadgeAvatarsHtml(_tlPendingNew);
     const badge = $("#tl-new-badge");
@@ -1109,7 +1113,7 @@ async function pollNewPosts() {
   } catch { /* 新帖检测失败静默 */ }
 }
 
-// 新帖胶囊头像：去重取前 3 个头像（无头像用首字色块），超出部分按作者数以 +N 计数
+// 新帖胶囊头像：去重取前 3 个（无头像用首字色块）；超出的作者不另画 +N，条数只在 aria-label
 function tlBadgeAvatarsHtml(posts, max = 3) {
   const seen = new Set();
   const avs = [];
@@ -1117,14 +1121,12 @@ function tlBadgeAvatarsHtml(posts, max = 3) {
     const key = p.kol_id || p.kol_name;
     if (seen.has(key)) continue;
     seen.add(key);
-    if (avs.length < max) {
-      avs.push(p.avatar_url
-        ? `<img src="${escapeHtml(p.avatar_url)}" alt="" onerror="this.remove()">`
-        : `<span class="ph">${escapeHtml(avatarText(p.kol_name))}</span>`);
-    }
+    if (avs.length >= max) break;
+    avs.push(p.avatar_url
+      ? `<img src="${escapeHtml(p.avatar_url)}" alt="" onerror="this.remove()">`
+      : `<span class="ph">${escapeHtml(avatarText(p.kol_name))}</span>`);
   }
-  const extra = seen.size - avs.length;
-  return avs.join("") + (extra > 0 ? `<span class="tl-badge-more">+${extra}</span>` : "");
+  return avs.join("");
 }
 
 async function refreshTimeline() {
