@@ -915,7 +915,7 @@ body.lightbox-open { overflow: hidden; }
 }
 .tl-chip-x:hover { background: var(--color-surface-hover); }
 .tl-chip-x .x-icon { width: 12px; height: 12px; }
-.tl-feed-panel { margin-top: 16px; }
+.tl-feed-panel { margin-top: 0; }
 .tl-feed-panel.has-new { padding-top: 36px; } /* 胶囊从筛选条底边探出时，给首条卡片让位 */
 .tl-new-badge {
   position: absolute; top: 100%; left: 50%; transform: translate(-50%, -16px);
@@ -986,7 +986,7 @@ body.lightbox-open { overflow: hidden; }
 .admin-sk-table-row { display: flex; gap: 12px; }
 .admin-sk-table-row .admin-sk-line { flex: 1; }
 .tl-filterbar-top { display: flex; align-items: center; gap: 10px; }
-.tl-pills { display: flex; flex-wrap: wrap; gap: 8px; flex: 1; min-width: 0; }
+.tl-pills { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; min-width: 0; }
 .tl-pill {
   display: inline-flex; align-items: center; gap: 6px;
   height: 38px; padding: 0 14px;
@@ -995,6 +995,8 @@ body.lightbox-open { overflow: hidden; }
   font-size: var(--text-sm); cursor: pointer; white-space: nowrap; flex-shrink: 0;
   transition: all var(--ease-standard);
 }
+.tl-pill-icon { width: 38px; padding: 0; justify-content: center; }
+.tl-pill-icon .pt-icon { width: 16px; height: 16px; }
 .tl-pill:hover { border-color: var(--color-accent-text); color: var(--color-accent-text); }
 .tl-pill.selected { background: var(--color-accent); border-color: var(--color-accent-text); color: var(--color-white); font-weight: var(--font-weight-semibold); }
 .tl-pill.selected .pt-icon { filter: brightness(0) invert(1); }
@@ -1004,6 +1006,102 @@ body.lightbox-open { overflow: hidden; }
 .tl-pill[data-platform="weibo"]:not(.selected) .pt-icon { color: var(--color-brand-weibo); }
 .tl-pill[data-platform="twitter"]:not(.selected) .pt-icon { color: var(--color-brand-twitter); }
 .tl-actions { display: flex; gap: 10px; flex-shrink: 0; }
+.tl-layout { display: flex; align-items: flex-start; gap: 20px; }
+.tl-main { flex: 1; min-width: 0; }
+.tl-layout .tl-feed-panel { flex: 1; min-width: 0; margin-top: 16px; }
+@media (min-width: 1280px) {
+  .tl-filterbar {
+    height: 64px;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    align-items: center;
+  }
+  .tl-filterbar-top { width: 100%; }
+  .tl-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 300px;
+    column-gap: 20px;
+    align-items: start;
+  }
+  .tl-rail-head {
+    height: 64px;
+    display: flex;
+    align-items: center;
+  }
+  .tl-rail-head > .tl-rail-search {
+    width: 100%;
+    min-width: 0;
+  }
+  .tl-rail {
+    width: 100%;
+    position: sticky;
+    top: 56px;
+  }
+}
+@media (max-width: 1279px) {
+  .tl-layout { display: block; }
+  .tl-rail { display: none; }
+}
+.tl-rail-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 16px;
+}
+#tl-rail-recs:empty,
+#tl-rail-tags:empty { display: none; }
+.tl-rail-card {
+  background: var(--color-surface);
+  border: var(--border-default);
+  border-radius: var(--radius-card);
+  padding: 16px;
+}
+.tl-rail-title {
+  font-size: var(--text-title);
+  font-weight: var(--font-weight-semibold);
+  margin: 0 0 12px;
+}
+.tl-rail-view {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.tl-rail-view .fav-toggle { width: 100%; justify-content: center; }
+.tl-rail-rec { display: flex; align-items: center; gap: 10px; min-height: 44px; }
+.tl-rail-rec + .tl-rail-rec { margin-top: 8px; }
+.tl-rail-rec .kol-avatar { width: 36px; height: 36px; flex-shrink: 0; }
+.tl-rail-rec-info { flex: 1; min-width: 0; }
+.tl-rail-rec-name {
+  display: block;
+  font-size: var(--text-body);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-strong);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tl-rail-rec .btn-ghost { flex-shrink: 0; }
+.tl-rail-rec-meta {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tl-rail-more { display: inline-block; margin-top: 10px; font-size: var(--text-sm); }
+.tl-rail-tags { display: flex; flex-wrap: wrap; gap: 8px; }
+.tl-rail-tag {
+  height: 32px; padding: 0 12px;
+  border: var(--border-strong); border-radius: var(--radius-pill);
+  background: var(--color-surface); color: var(--color-text);
+  font-size: var(--text-xs); cursor: pointer;
+}
+.tl-rail-tag.selected {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-white);
+}
 .tl-actions .fav-toggle.has-filter { border-color: var(--color-accent-text); color: var(--color-accent-text); background: var(--color-accent-soft); font-weight: var(--font-weight-semibold); }
 .tl-filter-panel { display: none; margin-top: 12px; padding-top: 12px; border-top: var(--border-default); flex-direction: column; gap: 10px; }
 .tl-filterbar.open .tl-filter-panel { display: flex; }
@@ -1324,6 +1422,26 @@ pre.content-cell { white-space: pre-wrap; overflow-wrap: break-word; min-width: 
   margin-bottom: 16px;
   line-height: 1.7;
 }
+.notice-warn {
+  background: var(--color-warning-soft);
+  color: var(--color-warning-strong);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.notice-warn-body { flex: 1; min-width: 0; }
+.notice-warn-body strong {
+  display: block;
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+.notice-warn-body p { margin: 4px 0 0; }
+.notice-warn .btn-normal { flex-shrink: 0; }
+.cookie-paste {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+}
 .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .muted { color: var(--color-text-muted); font-size: var(--text-xs); line-height: 1.7; }
 .ask-error { color: var(--color-danger); }
@@ -1498,6 +1616,9 @@ pre.content-cell { white-space: pre-wrap; overflow-wrap: break-word; min-width: 
   .request-banner { padding: 10px 12px; gap: 8px; }
   .request-banner-copy .desc { display: none; }
   .request-banner .btn-normal { min-height: 44px; }
+  .notice-warn { flex-direction: column; }
+  .notice-warn .btn-normal { min-height: 44px; }
+  .cookie-paste { font-size: 16px; }
   .topbar { padding: 0 14px; } /* 左右 14px 与内容区 page-main 对齐，logo 和下方胶囊同列 */
 
   /* 移动端左上角：logo 单独显示并放大，隐藏文字标题 */

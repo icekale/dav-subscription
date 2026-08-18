@@ -234,7 +234,7 @@ def test_add_x_kol_auto_resolves_name_and_avatar(monkeypatch):
     monkeypatch.setattr(
         api_mod,
         "resolve_x_profile",
-        lambda external_id, cookie="": {
+        lambda external_id, cookie="", db=None: {
             "name": "SemiAnalysis",
             "avatar_url": "https://pbs.twimg.com/x_400x400.jpg",
             "screen_name": "SemiAnalysis_",
@@ -258,7 +258,7 @@ def test_batch_import_x_kol_auto_resolves_name(monkeypatch):
     monkeypatch.setattr(
         api_mod,
         "resolve_x_profile",
-        lambda external_id, cookie="": {
+        lambda external_id, cookie="", db=None: {
             "name": "elonmusk",
             "avatar_url": "https://pbs.twimg.com/musk.jpg",
             "screen_name": "elonmusk",
@@ -284,7 +284,11 @@ def test_batch_import_auto_detects_platform_per_line(monkeypatch):
     from app import api as api_mod
 
     monkeypatch.setattr(api_mod, "resolve_weibo_profile", lambda external_id, cookie="": {"name": "微博用户", "avatar_url": ""})
-    monkeypatch.setattr(api_mod, "resolve_x_profile", lambda external_id, cookie="": {"name": "X用户", "avatar_url": ""})
+    monkeypatch.setattr(
+        api_mod,
+        "resolve_x_profile",
+        lambda external_id, cookie="", db=None: {"name": "X用户", "avatar_url": ""},
+    )
     client = make_client()
     headers = auth_headers(client)
     resp = client.post(
@@ -346,7 +350,9 @@ def test_add_x_kol_stores_screen_name(monkeypatch):
     from app import api as api_mod
 
     monkeypatch.setattr(
-        api_mod, "resolve_x_profile", lambda external_id, cookie="": {"name": "Semi", "avatar_url": ""}
+        api_mod,
+        "resolve_x_profile",
+        lambda external_id, cookie="", db=None: {"name": "Semi", "avatar_url": ""},
     )
     client = make_client()
     headers = auth_headers(client)
@@ -447,6 +453,23 @@ def test_recommendations_api_sorted_by_subscribers():
     assert recs[0]["subscriber_count"] == 2
     assert recs[0]["subscribed"] is True
     assert recs[1]["subscribed"] is False
+
+
+def test_recommendations_unsubscribed_only():
+    """右侧栏用 unsubscribed=1，只返回当前用户未订的大V。"""
+    client = make_client()
+    admin = auth_headers(client)
+    hot = client.post(
+        "/api/kols", headers=admin, json={"platform": "xueqiu", "name": "热门", "external_id": "1"}
+    ).json()["id"]
+    cold = client.post(
+        "/api/kols", headers=admin, json={"platform": "weibo", "name": "冷门", "external_id": "2"}
+    ).json()["id"]
+    u1 = user_headers(client, "sub_aa")
+    assert client.post("/api/subscriptions", headers=u1, json={"kol_id": hot, "type": "post"}).status_code == 200
+    recs = client.get("/api/recommendations?unsubscribed=1", headers=u1).json()
+    assert [r["id"] for r in recs] == [cold]
+    assert all(not r["subscribed"] for r in recs)
 
 
 def test_stats_x_direct_mode():
@@ -803,7 +826,7 @@ def test_approve_garbage_request_returns_clear_error():
 
 def test_approve_legacy_at_twitter_request(monkeypatch):
     """旧 twitter 申请（@用户名 原样入库，未经归一化）审批二次校验应放行。"""
-    monkeypatch.setattr("app.api.resolve_x_profile", lambda uid: {})
+    monkeypatch.setattr("app.api.resolve_x_profile", lambda uid, cookie="", db=None: {})
     client = make_client()
     admin_headers = auth_headers(client)
     u = register(client, "atuser", "pass123456")
@@ -1568,6 +1591,26 @@ def test_xueqiu_cookie_write_and_batch_rss_url(monkeypatch, tmp_path):
         client.post("/api/admin/xueqiu-cookie", headers=headers, json={"cookie": "  "}).status_code
         == 400
     )
+
+    tw = client.get("/api/admin/twitter-cookie", headers=headers).json()
+    assert tw["set"] is False
+    assert (
+        client.post(
+            "/api/admin/twitter-cookie",
+            headers=headers,
+            json={"cookie": "guest_id=abc"},
+        ).status_code
+        == 400
+    )
+    assert client.post(
+        "/api/admin/twitter-cookie",
+        headers=headers,
+        json={"cookie": "auth_token=a; ct0=b; lang=zh-CN"},
+    ).status_code == 200
+    tw = client.get("/api/admin/twitter-cookie", headers=headers).json()
+    assert tw["set"] is True and "auth_token=a" in tw["preview"]
+    stats = client.get("/api/stats", headers=headers).json()
+    assert stats["twitter_cookie"]["set"] is True
 
     # 批量导入支持 X 主页地址
     resp = client.post(

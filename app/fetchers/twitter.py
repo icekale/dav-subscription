@@ -34,6 +34,21 @@ from .base import Fetcher, Post, format_published_at
 
 logger = logging.getLogger(__name__)
 
+TWITTER_COOKIE_KEY = "twitter_cookie"
+TWITTER_COOKIE_TIME_KEY = "twitter_cookie_updated_at"
+
+
+def configured_twitter_cookie(db=None, override: str | None = None) -> str:
+    """后台写入的 Cookie 优先，否则回退环境变量。"""
+    if override:
+        return override
+    if db is not None:
+        stored = db.get_setting(TWITTER_COOKIE_KEY)
+        if stored:
+            return stored
+    return os.environ.get("TWITTER_COOKIE", "")
+
+
 # X 网页端公开的 guest bearer token（来自 abs.twimg.com 前端包）
 GUEST_BEARER_TOKEN = (
     "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs"
@@ -187,12 +202,12 @@ def extract_twitter_images(legacy: dict) -> list[str]:
     return out
 
 
-def resolve_x_profile(external_id: str, cookie: str = "") -> dict:
+def resolve_x_profile(external_id: str, cookie: str = "", db=None) -> dict:
     """按 X 用户名/主页链接解析昵称与头像（UserByScreenName，需登录 Cookie）。
 
     失败（cookie 失效/风控/未配置）时返回空 dict，调用方回退占位名。
     """
-    cookie = cookie or os.environ.get("TWITTER_COOKIE", "")
+    cookie = cookie or configured_twitter_cookie(db)
     screen_name = extract_screen_name(external_id)
     if not screen_name or not cookie:
         return {}
@@ -294,7 +309,7 @@ class TwitterFetcher(Fetcher):
         - 鉴权/接口类错误（401/403/GraphQL errors/cookie 失效）：记下失败时间与原因，
           供告警和放慢采集，然后抛出。
         """
-        cookie = os.environ.get("TWITTER_COOKIE", "")
+        cookie = configured_twitter_cookie(self.db)
         try:
             posts = self._fetch_direct(kol, cookie)
             if self.db is not None:
@@ -426,7 +441,7 @@ class TwitterFetcher(Fetcher):
 
     def _fetch_direct(self, kol: dict, cookie: str) -> list[Post]:
         if not cookie:
-            raise RuntimeError("未配置 TWITTER_COOKIE")
+            raise RuntimeError("未配置 X Cookie（后台「数据源 → Cookie 管理」或 TWITTER_COOKIE）")
         screen_name = extract_screen_name(kol["external_id"])
         if not screen_name:
             raise RuntimeError(f"无法识别 X 用户名: {kol['external_id']}")

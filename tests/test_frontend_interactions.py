@@ -129,10 +129,24 @@ def test_mobile_timeline_filter_renders_existing_platform_icons_only():
     assert "tlPickMobilePlatform('${p}')" in mobile_html
     assert "<span>${label}</span>" not in mobile_html
 
-    # desktop branch must remain feature-complete
-    for marker in ('id="tl-q"', 'id="tl-platform"', 'id="tl-category"',
-                   'id="tl-tag"', "tlApplyFilter()"):
-        assert marker in render
+    # 桌面窄屏仍有关键词/标签；分类已从时间线拿掉
+    assert "tlSearchBarHtml()" in render
+    assert 'id="tl-q"' in _fn_body("tlSearchBarHtml")
+    assert 'id="tl-tag"' in render
+    assert "tlApplyFilter()" in render
+    assert 'id="tl-category"' not in render
+    assert "tlApplyRailSearch" in APP_JS.read_text()
+
+
+def test_timeline_pills_keep_icons_without_platform_text():
+    """桌面平台胶囊只留角标；「全部」保留二字。名称走 aria-label / title。"""
+    pills = _fn_body("tlPillsHtml")
+    assert "tl-pill-icon" in pills
+    assert "aria-label=\"${label}\"" in pills
+    assert "title=\"${label}\"" in pills
+    assert '""}<span>${label}</span>' not in pills
+    assert ": `<span>${label}</span>`" in pills
+    assert ".tl-pill-icon" in STYLE_CSS.read_text()
 
 
 def test_mobile_platform_filter_clears_hidden_state_and_applies_immediately():
@@ -275,6 +289,27 @@ def test_settings_save_feedback_uses_flash():
     assert "flash(" in _fn_body("savePollingConfig")
     assert "alert(" not in _fn_body("savePollingConfig")
     assert "alert(" not in _fn_body("saveXueqiuCookie")
+    assert "alert(" not in _fn_body("saveTwitterCookie")
+    assert "flash(" in _fn_body("saveTwitterCookie")
+    assert "flash(" in _fn_body("pasteCookieField")
+
+
+def test_stats_cookie_repair_deep_link():
+    """Cookie 失效要从总览一键进 Cookie 管理，并吃 #/admin/stats?tab=cookies。"""
+    src = APP_JS.read_text()
+    assert "function cookieRepairItems" in src
+    assert "function cookieRepairBanner" in src
+    assert "function statsTabFromHash" in src
+    assert "#/admin/stats?tab=" in _fn_body("switchStatsTab")
+    assert "statsTabFromHash()" in _fn_body("loadAdminStats")
+    assert "saveTwitterCookie()" in _fn_body("loadAdminStats")
+    assert "pasteCookieField('xq-cookie')" in _fn_body("loadAdminStats")
+    banner = _fn_body("cookieRepairBanner")
+    assert "switchStatsTab('cookies')" in banner
+    assert "Cookie 需要更新" in banner
+    repair = _fn_body("cookieRepairItems")
+    assert "xueqiu_probe_alert_at" not in repair
+    assert "src.xueqiu && !src.xueqiu.ok" in repair
 
 
 def test_post_header_does_not_clip_platform_or_time():
@@ -335,6 +370,86 @@ def test_timeline_new_badge_pins_to_sticky_filterbar():
     assert badge, "缺少 .tl-new-badge"
     assert "position: absolute" in badge.group(1)
     assert "top: 100%" in badge.group(1)
+
+
+def test_timeline_filterbar_stays_in_main_column():
+    """筛选条只占主列，不横跨右侧栏留下空走廊；不居中、不收窄整页。"""
+    render = _fn_body("renderTimeline")
+    html = re.search(r'\$\("#main"\)\.innerHTML = `(.*?)`;', render, re.S)
+    assert html, "renderTimeline 未写入主栏 HTML"
+    chunk = html.group(1)
+    assert chunk.index('class="tl-layout"') < chunk.index('id="tl-filterbar"')
+    assert 'class="tl-main"' in chunk
+    assert chunk.index('class="tl-main"') < chunk.index('id="tl-filterbar"') < chunk.index('id="tl-feed-panel"')
+    assert chunk.index('id="tl-feed-panel"') < chunk.index('id="tl-rail"')
+    css = STYLE_CSS.read_text()
+    assert re.search(r"\.tl-main\s*\{[^}]*min-width:\s*0", css)
+    assert "top: 128px" not in css
+    assert ".tl-layout { margin: 0 auto" not in css.replace("\n", " ")
+    wide = re.search(r"@media \(min-width:\s*1280px\)\s*\{([\s\S]*?)\n\}", css)
+    assert wide, "缺少宽屏布局块"
+    assert re.search(
+        r"\.tl-filterbar\s*\{[^}]*height:\s*64px[^}]*display:\s*flex[^}]*align-items:\s*center",
+        wide.group(1),
+    )
+    assert re.search(
+        r"\.tl-rail-head\s*\{[^}]*height:\s*64px[^}]*display:\s*flex[^}]*align-items:\s*center",
+        wide.group(1),
+    )
+
+
+def test_timeline_wide_rail_markup():
+    """宽屏动态页有右侧栏：开关可搬家，推荐未订阅，标签走 tlPickTag。"""
+    render = _fn_body("renderTimeline")
+    assert "isWideTimeline()" in render
+    assert 'id="tl-rail"' in render
+    assert "loadTimelineRail" in render
+    assert "tlViewTogglesHtml" in render
+    assert "recommendations?unsubscribed=1" in _fn_body("loadTimelineRail")
+    assert "tlPickTag" in _fn_body("renderRailTags")
+    css = STYLE_CSS.read_text()
+    assert ".tl-rail" in css
+    assert "min-width: 1280px" in css or "min-width:1280px" in css
+    assert "max-width: 1279px" in css or "max-width:1279px" in css
+
+
+def test_timeline_rail_fills_main_and_survives_resize():
+    """主列铺满、右侧 300px；75ch 只限正文；跨 1280px 重排开关。"""
+    css = STYLE_CSS.read_text()
+    assert "minmax(0, 1fr) 300px" in css
+    assert ".tl-filterbar-top,\n  .tl-layout" not in css and ".tl-filterbar-top,.tl-layout" not in css.replace(" ", "")
+    assert re.search(r"\.tl-layout \.tl-feed-panel\s*\{[^}]*flex:\s*1", css)
+    render = _fn_body("renderTimeline")
+    assert "tlSearchBarHtml()" in render
+    assert "tlApplyRailSearch" in APP_JS.read_text()
+    assert 'id="tl-category"' not in render
+    rail = render[render.index('id="tl-rail"'):]
+    assert rail.index("tlSearchBarHtml()") < rail.index("tl-rail-view")
+    assert "${tlSearchBarHtml()}${tlViewTogglesHtml()}" not in render
+    assert 'class="tl-rail-head"' in rail
+    assert 'class="tl-rail-body"' in rail
+    assert ".tl-rail-head > .tl-rail-search" in css
+    assert re.search(r"\.tl-rail-body\s*\{[^}]*margin-top:\s*16px", css)
+    assert re.search(
+        r"\.tl-rail-view\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)",
+        css,
+    )
+    assert not re.search(r"\.tl-rail-search\s*\{[^}]*radius-card", css)
+    assert re.search(r"\.tl-layout \.tl-feed-panel\s*\{[^}]*margin-top:\s*16px", css)
+    assert re.search(r"@media \(min-width:\s*1280px\)[\s\S]*?\.tl-rail\s*\{[^}]*top:\s*56px", css)
+    assert "calc(75ch + 2 * var(--section-padding-lg-x))" not in css
+    assert ".post-item .p-content" in css and "max-width: 75ch" in css
+    assert ".tl-rail-rec .btn-ghost" in css
+    assert ".tl-rail-rec-meta" in css and "text-overflow: ellipsis" in css
+    src = APP_JS.read_text()
+    assert "ensureWideTimelineWatch" in src
+    assert "ensureWideTimelineWatch()" in _fn_body("renderTimeline")
+    watch = _fn_body("ensureWideTimelineWatch")
+    assert "min-width: 1280px" in watch
+    assert 'addEventListener("change"' in watch
+    assert "renderTimeline(" in watch
+    assert "tlSyncActiveChips()" in _fn_body("tlPickTag")
+    assert "renderRailTags" in _fn_body("tlRemoveFilter")
 
 
 def test_timeline_new_badge_shows_posted_not_count():

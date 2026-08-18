@@ -101,9 +101,9 @@ cp .env.example .env
 | `LLM_API_BASE` / `LLM_API_KEY` / `LLM_MODEL` | 可选 | OpenAI 兼容 LLM（OpenAI / DeepSeek / 本地 Ollama、vLLM 均可）。配置 `LLM_API_KEY` 后，免打扰时段汇总自动生成 AI 要点；未配置则用普通列表汇总，推送管线零变化 |
 | `WEB_ADMIN_PASSWORD` | 推荐 | 启动时创建 `admin` 管理员账号，登录后台管理 |
 | `WEB_ALLOW_REGISTER` | 可选 | 是否允许注册（`false` 时关闭注册入口）；注册始终需要邀请码，邀请码由管理员在后台生成 |
-| `XUEQIU_COOKIE` | **必需** | 浏览器登录 xueqiu.com 后复制的 Cookie。雪球抓取接口必须有登录态，无/失效 cookie 会返回 400；首页续期通道已被反爬接管无法自动续期，后台「数据源」页会定时探测并告警，失效时手动更新 |
+| `XUEQIU_COOKIE` | **必需** | 浏览器登录 xueqiu.com 后复制的 Cookie。雪球抓取接口必须有登录态，无/失效 cookie 会返回 400；首页续期通道已被反爬接管无法自动续期，后台「数据源 → Cookie 管理」粘贴新串即可，不用重启 |
 | `WEIBO_COOKIE` | 可选 | 浏览器登录微博后复制的 Cookie，可后台扫码登录替代 |
-| `TWITTER_COOKIE` | 可选 | 浏览器登录 x.com 后复制的完整 Cookie（直抓 X + 自动翻译中文） |
+| `TWITTER_COOKIE` | 可选 | 浏览器登录 x.com 后复制的完整 Cookie（直抓 X + 自动翻译中文）；也可在后台「数据源 → Cookie 管理」覆盖，无需重启 |
 | `LOG_LEVEL` | 可选 | 日志级别 `INFO`/`DEBUG`（DEBUG 记录每次 API 请求与慢请求告警，便于排查） |
 | `LOG_FILE` | 可选 | 日志文件，默认 `/data/logs/app.log`（随数据卷持久化，滚动 5MB×3，重启不丢） |
 
@@ -229,8 +229,8 @@ docker compose up -d --build
 
 ## 数据源配置
 
-- **雪球**：后台「数据源」页可直接粘贴 Cookie；配置 `WEIBO_USERNAME/PASSWORD` 可自动登录续期微博 Cookie，微博也支持网页扫码登录
-- **X**：配置 `TWITTER_COOKIE` 后直抓 X 官方接口并把内容翻译成中文；直抓失败会告警并放慢采集，不再走备用内容通道
+- **雪球**：后台「数据源 → Cookie 管理」粘贴 Cookie，保存即时生效；配置 `WEIBO_USERNAME/PASSWORD` 可自动登录续期微博 Cookie，微博也支持网页扫码登录
+- **X**：配置 `TWITTER_COOKIE` 或在「数据源 → Cookie 管理」粘贴后直抓 X 官方接口并把内容翻译成中文；直抓失败会告警并放慢采集，不再走备用内容通道
 - **反爬绕过**：X 与雪球均对裸 HTTP 客户端设了反爬（Cloudflare / 阿里云 WAF JS 挑战），本仓库已内置对应绕过——X 直抓用 curl_cffi 模拟 Chrome 指纹（`impersonate=chrome124`）；雪球 `waf-bot` sidecar 默认使用 curl_cffi + jsdom 求解器，不包含浏览器运行时，并在发布 cookie 前校验真实接口（配置了登录 cookie 时验证组合调仓接口确认登录态有效）。挑战脚本受 Node 文件系统与进程权限限制，容器同时启用只读根文件系统、仅保留数据写入所需的 `DAC_OVERRIDE` 能力和禁止提权。详见下方「常见问题」
 - **抓取频率**：后台「数据源」页可实时调整轮询间隔、优先大V间隔、次要大V间隔/封顶/推送周期/**合并推送最低条数**（积压不足此条数不推送、继续攒，够数才发）、合并推送周期等，即时生效
 
@@ -261,7 +261,7 @@ uvicorn app.main:app --reload
 - **收不到推送？** 先到网页「推送设置」确认状态为已绑定；飞书必须是私聊会话；Telegram 先给机器人发 `/start`
 - **绑定了多个渠道只收到一部分？** 在「推送设置 → 推送通道选择」勾选想接收的渠道
 - **雪球抓取失败？** 后台「数据源」更新雪球 Cookie。若接口直接返回 400（`error_code 400016`），是雪球升级了阿里云 WAF JS 挑战——先确认 `waf-bot` 容器在运行（`docker ps | grep waf-bot`）且 `data/waf_cookies.json` 文件在持续刷新（改时间戳为最近几分钟）；若接口校验失败（游客：公开时间线；登录：组合调仓接口报 `10022` 表示登录失效），`waf-bot` 不会覆盖旧 cookie 文件，主容器会继续使用上次验证成功的版本。若「组合」大V报 `10022`，说明雪球登录 Cookie 已失效，需重新登录；后台「数据源」更新 Cookie 会自动同步给 waf-bot，无需重建 sidecar。只有通过 `.env` 或 `config.yaml` 变更 Cookie 时才需要重启主服务使配置生效
-- **X 抓不到？** 后台开启「X 内容自动翻译」并配置 `TWITTER_COOKIE`。若报 `X GraphQL ... 403` 且响应体含 `Just a moment`，是 X 的 Cloudflare 挑战——直抓已内置 curl_cffi 指纹绕过（无需换 Cookie，通常是临时风控，等数小时自动解除）；若 403 是 code 89/353 则是 Cookie 失效或 X 接口规则变更
+- **X 抓不到？** 后台开启「X 内容自动翻译」，并在「数据源 → Cookie 管理」更新 Cookie（或设 `TWITTER_COOKIE`）。若报 `X GraphQL ... 403` 且响应体含 `Just a moment`，是 X 的 Cloudflare 挑战——直抓已内置 curl_cffi 指纹绕过（无需换 Cookie，通常是临时风控，等数小时自动解除）；若 403 是 code 89/353 则是 Cookie 失效或 X 接口规则变更
 
 ## License
 

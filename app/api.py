@@ -31,7 +31,11 @@ from .db import _UNSET, ALLOWED_PLATFORMS, DB, days_until_purge
 from .feed import build_rss_xml
 from .fetchers.base import PLATFORM_LABELS, Post
 from .fetchers.combination import extract_cube_symbol, resolve_combination_profile
-from .fetchers.twitter import resolve_x_profile
+from .fetchers.twitter import (
+    TWITTER_COOKIE_KEY,
+    TWITTER_COOKIE_TIME_KEY,
+    resolve_x_profile,
+)
 from .fetchers.weibo import WEIBO_COOKIE_KEY, resolve_weibo_profile
 from .fetchers.xueqiu import (
     XUEQIU_COOKIE_KEY,
@@ -1374,8 +1378,11 @@ def create_api_router(
         return rows
 
     @router.get("/recommendations")
-    def recommendations(user: dict = Depends(get_current_user)):
-        """新用户引导：按订阅人数推荐大V（仅首次引导使用）。"""
+    def recommendations(user: dict = Depends(get_current_user), unsubscribed: bool = False):
+        """按订阅人数推荐大V。unsubscribed=1 供动态页右侧栏，排除已订。"""
+        rows = db.recommended_kols(user["id"], 16 if unsubscribed else 4)
+        if unsubscribed:
+            rows = [k for k in rows if not k["subscribed"]][:4]
         return [
             {
                 "id": k["id"],
@@ -1386,7 +1393,7 @@ def create_api_router(
                 "subscriber_count": int(k["subscriber_count"] or 0),
                 "subscribed": bool(k["subscribed"]),
             }
-            for k in db.recommended_kols(user["id"], 4)
+            for k in rows
         ]
 
     @router.post("/subscriptions")
@@ -1606,14 +1613,31 @@ def create_api_router(
     def list_register_codes():
         return db.list_register_codes()
 
-    @router.get("/admin/xueqiu-cookie", dependencies=[Depends(require_admin)])
-    def get_xueqiu_cookie():
-        cookie = db.get_setting(XUEQIU_COOKIE_KEY) or ""
+    def _cookie_status(key: str, time_key: str) -> dict:
+        cookie = db.get_setting(key) or ""
         return {
             "set": bool(cookie),
-            "updated_at": db.get_setting(XUEQIU_COOKIE_TIME_KEY) or "",
+            "updated_at": db.get_setting(time_key) or "",
             "preview": (cookie[:40] + "…") if len(cookie) > 40 else cookie,
         }
+
+    @router.get("/admin/xueqiu-cookie", dependencies=[Depends(require_admin)])
+    def get_xueqiu_cookie():
+        return _cookie_status(XUEQIU_COOKIE_KEY, XUEQIU_COOKIE_TIME_KEY)
+
+    @router.get("/admin/twitter-cookie", dependencies=[Depends(require_admin)])
+    def get_twitter_cookie():
+        status = _cookie_status(TWITTER_COOKIE_KEY, TWITTER_COOKIE_TIME_KEY)
+        if not status["set"]:
+            env = os.environ.get("TWITTER_COOKIE", "")
+            if env:
+                status = {
+                    "set": True,
+                    "updated_at": "",
+                    "preview": (env[:40] + "…") if len(env) > 40 else env,
+                    "from_env": True,
+                }
+        return status
 
     @router.get("/admin/polling-config", dependencies=[Depends(require_admin)])
     def get_polling_config():
@@ -1651,6 +1675,18 @@ def create_api_router(
         except Exception:  # noqa: BLE001 - sidecar sync must not fail the admin request
             logger.warning("雪球 sidecar seed cookie 写入失败")
         _audit(admin, "set_xueqiu_cookie", "", f"len={len(cookie)}")
+        return {"ok": True}
+
+    @router.post("/admin/twitter-cookie", dependencies=[Depends(require_admin)])
+    def set_twitter_cookie(body: CookieIn, admin: dict = Depends(require_admin)):
+        cookie = body.cookie.strip()
+        if not cookie:
+            raise HTTPException(status_code=400, detail="cookie 不能为空")
+        if "auth_token=" not in cookie or "ct0=" not in cookie:
+            raise HTTPException(status_code=400, detail="X Cookie 需包含 auth_token 与 ct0")
+        db.set_setting(TWITTER_COOKIE_KEY, cookie)
+        db.set_setting(TWITTER_COOKIE_TIME_KEY, str(int(time.time())))
+        _audit(admin, "set_twitter_cookie", "", f"len={len(cookie)}")
         return {"ok": True}
 
     def _revoke_one(code: str, admin: dict) -> dict:
@@ -1950,7 +1986,7 @@ def create_api_router(
                 name = profile.get("name") or f"weibo_{external_id}"
             elif body.platform == "twitter":
                 # 没填昵称时自动查 X 显示名（需 TWITTER_COOKIE，失败退回占位名）
-                profile = resolve_x_profile(external_id)
+                profile = resolve_x_profile(external_id, db=db)
                 name = profile.get("name") or f"twitter_{external_id}"
         if body.category_id is not None and db.get_category(body.category_id) is None:
             raise HTTPException(status_code=400, detail="分类不存在")
@@ -2027,7 +2063,7 @@ def create_api_router(
                 avatar_url = profile.get("avatar_url") or ""
             elif platform == "twitter":
                 # 自动查 X 显示名（没填昵称时）与头像（需 TWITTER_COOKIE）
-                profile = resolve_x_profile(external_id)
+                profile = resolve_x_profile(external_id, db=db)
                 if not nickname and profile.get("name"):
                     name = profile["name"]
                 avatar_url = profile.get("avatar_url") or ""
@@ -2447,6 +2483,16 @@ def create_api_router(
         xueqiu_updated = db.get_setting("xueqiu_cookie_updated_at") or ""
         weibo_cookie = db.get_setting("weibo_cookie") or ""
         weibo_updated = db.get_setting("weibo_cookie_updated_at") or ""
+        twitter_status = _cookie_status(TWITTER_COOKIE_KEY, TWITTER_COOKIE_TIME_KEY)
+        if not twitter_status["set"]:
+            env_tw = os.environ.get("TWITTER_COOKIE", "")
+            if env_tw:
+                twitter_status = {
+                    "set": True,
+                    "updated_at": "",
+                    "preview": (env_tw[:40] + "…") if len(env_tw) > 40 else env_tw,
+                    "from_env": True,
+                }
         last_post_at = db.last_post_time_by_kol()
         kol_health = [
             {
@@ -2484,6 +2530,7 @@ def create_api_router(
                 "updated_at": weibo_updated,
                 "preview": (weibo_cookie[:40] + "…") if len(weibo_cookie) > 40 else weibo_cookie,
             },
+            "twitter_cookie": twitter_status,
             "polling_config": _effective_polling(),
             "recent_source_events": db.recent_source_events(30),
             "kol_health": kol_health,

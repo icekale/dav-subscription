@@ -276,7 +276,7 @@ def test_fetch_error_does_not_crash():
 
 def test_x_fallback_advice_categorizes_reasons():
     """降级原因分类：cookie 失效 / queryId 轮换 / 瞬时故障 给出对应建议。"""
-    cookie_hint = "请检查 TWITTER_COOKIE"
+    cookie_hint = "Cookie 管理"
     transient_hint = "暂时不可用"
     qid_hint = "DEFAULT_QUERY_IDS"
 

@@ -913,8 +913,8 @@ let _tlOffset = 0;
 let _tlHasMore = true;
 let _tlLoadingMore = false;
 const _tlExpanded = new Set();
-let _tlCategories = null;
 let _tlTags = null;
+let _tlDynamicTags = [];
 let _tlLatestId = 0;        // 当前已加载的最新帖 id，用于后台检测新帖
 let _tlLoadedFilter = null; // 缓存列表对应的筛选条件快照
 let _tlSavedScrollY = 0;    // 离开动态页时的滚动位置，切回时恢复
@@ -922,6 +922,7 @@ let _tlPendingNew = [];     // 轮询拉到的新帖（点提示条时直接插�
 let _tlPendingLatestId = 0; // 已拉取的新帖中最新 id，轮询去重
 let _tlRefreshing = false;  // 刷新锁：防止连点/并发 poll 重复插入新帖
 let _tlPollTimer = null;    // 新帖轮询定时器
+let _tlWideWatchBound = false; // 1280px 断点只绑一次，避免开关留在已隐藏的栏里
 
 function tlFilterKey() {
   return JSON.stringify([
@@ -936,10 +937,6 @@ function tlFilterKey() {
 function tlActiveChips() {
   const chips = [];
   if (state.timelineQ) chips.push({ key: "q", label: `关键词：${escapeHtml(state.timelineQ)}` });
-  if (state.timelineCategory) {
-    const c = (_tlCategories || []).find((x) => String(x.id) === String(state.timelineCategory));
-    if (c) chips.push({ key: "category", label: `分类：${escapeHtml(c.name)}` });
-  }
   if (state.timelineTag) chips.push({ key: "tag", label: `标签：${escapeHtml(state.timelineTag)}` });
   if (state.timelinePlatform) {
     const p = TL_PLATFORMS.find(([v]) => v === state.timelinePlatform);
@@ -958,7 +955,11 @@ function tlActiveChipsHtml() {
 function tlRemoveFilter(key) {
   if (key === "q") state.timelineQ = "";
   else if (key === "category") state.timelineCategory = "";
-  else if (key === "tag") state.timelineTag = "";
+  else if (key === "tag") {
+    state.timelineTag = "";
+    const tagSel = $("#tl-tag");
+    if (tagSel) tagSel.value = "";
+  }
   else if (key === "platform") {
     state.timelinePlatform = "";
     const plat = $("#tl-platform");
@@ -967,6 +968,7 @@ function tlRemoveFilter(key) {
     if (pills) pills.innerHTML = tlPillsHtml();
   }
   loadTimeline(true, routeRenderSeq);
+  renderRailTags(_tlDynamicTags.slice(0, 8));
 }
 
 const TL_SKELETON = `<div class="tl-skeleton">${Array(4).fill(`
@@ -985,6 +987,38 @@ function isMobileTimelineFilter() {
   return window.matchMedia("(max-width: 768px)").matches;
 }
 
+function isWideTimeline() {
+  return window.matchMedia("(min-width: 1280px)").matches;
+}
+
+function ensureWideTimelineWatch() {
+  if (_tlWideWatchBound) return;
+  _tlWideWatchBound = true;
+  window.matchMedia("(min-width: 1280px)").addEventListener("change", () => {
+    if ($("#tl-feed-panel")) renderTimeline(routeRenderSeq);
+  });
+}
+
+function tlViewTogglesHtml() {
+  return `
+          <button id="timeline-fav-toggle" class="fav-toggle ${state.timelineFavorite ? "fav-on" : ""}" aria-pressed="${state.timelineFavorite}" onclick="toggleTimelineFav()">${STAR_SVG} 特别关注</button>
+          <button id="timeline-secondary-toggle" class="fav-toggle ${state.timelineSecondary ? "fav-on" : ""}" aria-pressed="${state.timelineSecondary}" onclick="toggleTimelineSecondary()" title="显示/隐藏次要大V动态（默认隐藏）">${state.timelineSecondary ? EYE_ICON : EYE_OFF_ICON} 次要大V</button>`;
+}
+
+function tlSearchBarHtml() {
+  return `<div class="search-bar tl-rail-search">
+      ${SEARCH_ICON}
+      <input id="tl-q" type="search" placeholder="搜索动态" value="${escapeHtml(state.timelineQ || "")}" aria-label="搜索动态" onkeydown="if(event.key==='Enter')tlApplyRailSearch()">
+    </div>`;
+}
+
+function tlApplyRailSearch() {
+  const q = $("#tl-q");
+  state.timelineQ = q ? q.value.trim() : "";
+  tlSyncActiveChips();
+  loadTimeline(true, routeRenderSeq);
+}
+
 function tlMobilePlatformsHtml() {
   return TL_PLATFORMS.map(([p, label]) => `
     <button class="tl-mobile-platform ${state.timelinePlatform === p ? "selected" : ""}"
@@ -999,35 +1033,36 @@ function tlMobilePlatformsHtml() {
 
 async function renderTimeline(seq) {
   setPageTitle("最新动态");
+  ensureWideTimelineWatch();
   // 离开期间筛选条件未变且有缓存 → 直接恢复列表并检测新帖，不重新加载（保留阅读位置）
   const reuse = _tlPosts.length && _tlLoadedFilter === tlFilterKey();
   const mobileFilter = isMobileTimelineFilter();
+  const wide = isWideTimeline();
   $("#main").innerHTML = `
+    <div class="tl-layout">
+    <div class="tl-main">
     <div class="tl-filterbar" id="tl-filterbar">
       <div class="tl-filterbar-top">
         <div class="tl-pills" id="tl-pills">${tlPillsHtml()}</div>
-        <div class="tl-actions">
-          <button id="tl-filter-toggle" class="fav-toggle ${state.timelineQ || state.timelinePlatform || state.timelineCategory || state.timelineTag ? "has-filter" : ""}" aria-expanded="false" aria-controls="tl-filter-panel" onclick="tlFilterPanel()">${FILTER_ICON}筛选</button>
-          <button id="timeline-fav-toggle" class="fav-toggle ${state.timelineFavorite ? "fav-on" : ""}" aria-pressed="${state.timelineFavorite}" onclick="toggleTimelineFav()">${STAR_SVG} 特别关注</button>
-          <button id="timeline-secondary-toggle" class="fav-toggle ${state.timelineSecondary ? "fav-on" : ""}" aria-pressed="${state.timelineSecondary}" onclick="toggleTimelineSecondary()" title="显示/隐藏次要大V动态（默认隐藏）">${state.timelineSecondary ? EYE_ICON : EYE_OFF_ICON} 次要大V</button>
-        </div>
+        ${wide ? "" : `<div class="tl-actions">
+          <button id="tl-filter-toggle" class="fav-toggle ${state.timelineQ || state.timelinePlatform || state.timelineTag ? "has-filter" : ""}" aria-expanded="false" aria-controls="tl-filter-panel" onclick="tlFilterPanel()">${FILTER_ICON}筛选</button>
+          ${tlViewTogglesHtml()}
+        </div>`}
       </div>
-      <div class="tl-filter-panel" id="tl-filter-panel">
+      ${wide ? "" : `<div class="tl-filter-panel" id="tl-filter-panel">
         ${mobileFilter ? `
           <div class="tl-mobile-platforms" id="tl-mobile-platforms">
             ${tlMobilePlatformsHtml()}
           </div>` : `
-          <input id="tl-q" class="form-control" placeholder="搜索标题/内容关键词" value="${escapeHtml(state.timelineQ || "")}" onkeydown="if(event.key==='Enter')tlApplyFilter()">
+          ${tlSearchBarHtml()}
           <div class="tl-filter-row">
-            <select id="tl-platform" class="form-control" onchange="tlApplyFilter()">${tlPlatformOptions()}</select>
-            <select id="tl-category" class="form-control" onchange="tlApplyFilter()"><option value="">全部分类</option></select>
             <select id="tl-tag" class="form-control" onchange="tlApplyFilter()"><option value="">全部标签</option></select>
           </div>
           <div class="tl-filter-actions">
             <button class="btn-ghost" onclick="tlResetFilters()">清除筛选</button>
             <button class="btn-normal" onclick="tlApplyFilter()">完成</button>
           </div>`}
-      </div>
+      </div>`}
       <div class="tl-new-badge" id="tl-new-badge">
         <button class="tl-new-badge-btn" onclick="refreshTimeline()" aria-label="有新动态，点击查看">
           ${ARROW_UP_ICON}
@@ -1039,12 +1074,23 @@ async function renderTimeline(seq) {
     <div id="tl-active-chips-wrap">${tlActiveChipsHtml()}</div>
     <section class="section-panel tl-feed-panel" id="tl-feed-panel">
       <div id="feed">${reuse ? "" : TL_SKELETON}</div>
-    </section>`;
+    </section>
+    </div>
+    ${wide ? `<aside class="tl-rail" id="tl-rail" aria-label="发现">
+      <div class="tl-rail-head">${tlSearchBarHtml()}</div>
+      <div class="tl-rail-body">
+        <div class="tl-rail-card tl-rail-view">${tlViewTogglesHtml()}</div>
+        <div id="tl-rail-recs"></div>
+        <div id="tl-rail-tags"></div>
+      </div>
+    </aside>` : ""}
+    </div>`;
   if (reuse) {
     renderTimelineFeed();
     window.scrollTo(0, _tlSavedScrollY); // 恢复离开时的阅读位置
     startTimelinePoll();
     pollNewPosts(); // 后台检测新帖，有则浮出提示条
+    if (wide) loadTimelineRail(seq);
     return;
   }
   _tlPosts.length = 0;
@@ -1052,11 +1098,11 @@ async function renderTimeline(seq) {
   _tlHasMore = true;
   _tlLatestId = 0;
   try {
-    if (!mobileFilter) {
-      await loadTimelineCategories().catch(() => { _tlCategories = []; }); // 分类下拉失败降级，不阻塞 feed
-      await loadTimelineTags().catch(() => { _tlTags = []; }); // 标签下拉失败降级，不阻塞 feed
+    if (!mobileFilter && !wide) {
+      await loadTimelineTags().catch(() => { _tlTags = []; _tlDynamicTags = []; }); // 标签下拉失败降级，不阻塞 feed
     }
     await loadTimeline(true, seq);
+    if (wide) loadTimelineRail(seq);
     startTimelinePoll();
     pollNewPosts(); // 首屏就绪后立即查一次新帖
   } catch (err) {
@@ -1164,8 +1210,8 @@ async function refreshTimeline() {
 
 function tlPillsHtml() {
   return TL_PLATFORMS.map(([p, label]) => `
-    <button class="tl-pill ${state.timelinePlatform === p ? "selected" : ""}" data-platform="${p}" aria-pressed="${state.timelinePlatform === p}" onclick="tlPickPlatform('${p}')">
-      ${p ? (PLATFORM_ICONS[p] || "") : ""}<span>${label}</span>
+    <button class="tl-pill${p ? " tl-pill-icon" : ""} ${state.timelinePlatform === p ? "selected" : ""}" data-platform="${p}" aria-label="${label}" title="${label}" aria-pressed="${state.timelinePlatform === p}" onclick="tlPickPlatform('${p}')">
+      ${p ? (PLATFORM_ICONS[p] || "") : `<span>${label}</span>`}
     </button>`).join("");
 }
 
@@ -1234,18 +1280,18 @@ function tlFilterPanel() {
 }
 
 function tlApplyFilter() {
-  state.timelineQ = $("#tl-q").value.trim();
-  state.timelinePlatform = $("#tl-platform").value;
-  state.timelineCategory = $("#tl-category").value;
-  state.timelineTag = $("#tl-tag").value;
-  $("#tl-filterbar").classList.remove("open");
+  const q = $("#tl-q");
+  if (q) state.timelineQ = q.value.trim();
+  const tag = $("#tl-tag");
+  if (tag) state.timelineTag = tag.value;
+  state.timelineCategory = "";
+  $("#tl-filterbar")?.classList.remove("open");
   const btn = $("#tl-filter-toggle");
   if (btn) {
-    btn.classList.toggle("has-filter", !!(state.timelineQ || state.timelinePlatform || state.timelineCategory || state.timelineTag));
+    btn.classList.toggle("has-filter", !!(state.timelineQ || state.timelinePlatform || state.timelineTag));
     btn.setAttribute("aria-expanded", "false");
   }
-  const pills = $("#tl-pills");
-  if (pills) pills.innerHTML = tlPillsHtml(); // 面板改平台时同步桌面胶囊
+  tlSyncActiveChips();
   loadTimeline(true, routeRenderSeq);
 }
 
@@ -1257,8 +1303,6 @@ function tlResetFilters() {
   state.timelineFavorite = false;
   state.timelineSecondary = false;
   const q = $("#tl-q"); if (q) q.value = "";
-  const plat = $("#tl-platform"); if (plat) plat.value = "";
-  const cat = $("#tl-category"); if (cat) cat.value = "";
   const tag = $("#tl-tag"); if (tag) tag.value = "";
   const pills = $("#tl-pills"); if (pills) pills.innerHTML = tlPillsHtml();
   const fb = $("#tl-filter-toggle"); if (fb) {
@@ -1273,8 +1317,9 @@ function tlResetFilters() {
     sec.classList.remove("fav-on");
     sec.setAttribute("aria-pressed", "false");
   }
-  $("#tl-filterbar").classList.remove("open");
+  $("#tl-filterbar")?.classList.remove("open");
   loadTimeline(true, routeRenderSeq);
+  renderRailTags(_tlDynamicTags.slice(0, 8));
 }
 
 // 点击帖子标签直接进入该标签筛选（复用 timelineTag 状态与筛选条）
@@ -1284,17 +1329,11 @@ function tlPickTag(tag) {
   if (tagSel) tagSel.value = tag;
   const btn = $("#tl-filter-toggle");
   if (btn) {
-    btn.classList.toggle("has-filter", !!(state.timelineQ || state.timelineCategory || state.timelineTag));
+    btn.classList.toggle("has-filter", !!(state.timelineQ || state.timelinePlatform || state.timelineTag));
   }
+  tlSyncActiveChips();
   loadTimeline(true, routeRenderSeq);
-}
-
-async function loadTimelineCategories() {
-  if (!_tlCategories) _tlCategories = await api("/api/categories");
-  const sel = $("#tl-category");
-  if (!sel) return;
-  sel.innerHTML = `<option value="">全部分类</option>` + _tlCategories.map((c) =>
-    `<option value="${c.id}" ${state.timelineCategory == c.id ? "selected" : ""}>${escapeHtml(c.name)}</option>`).join("");
+  renderRailTags(_tlDynamicTags.slice(0, 8));
 }
 
 async function loadTimelineTags() {
@@ -1304,12 +1343,85 @@ async function loadTimelineTags() {
     const vocabTags = (Array.isArray(data?.tags) ? data.tags : [])
       .map((r) => (typeof r === "string" ? r : r.tag)).filter(Boolean);
     const dynamicTags = Array.isArray(data?.dynamic_tags) ? data.dynamic_tags : [];
+    _tlDynamicTags = dynamicTags;
     _tlTags = [...new Set([...vocabTags, ...dynamicTags])];
   }
   const sel = $("#tl-tag");
   if (!sel) return;
   sel.innerHTML = `<option value="">全部标签</option>` + _tlTags.map((t) =>
     `<option value="${escapeHtml(t)}" ${state.timelineTag === t ? "selected" : ""}>${escapeHtml(t)}</option>`).join("");
+}
+
+async function loadTimelineRail(routeSeq) {
+  if (!$("#tl-rail")) return;
+  try {
+    const recs = await api("/api/recommendations?unsubscribed=1");
+    if (!routeStillActive(routeSeq) || !$("#tl-rail")) return;
+    renderRailRecs(Array.isArray(recs) ? recs : []);
+  } catch {
+    const el = $("#tl-rail-recs");
+    if (el) el.innerHTML = "";
+  }
+  try {
+    let tags = _tlDynamicTags;
+    if (!_tlTags) {
+      const data = await api("/api/tags");
+      tags = Array.isArray(data?.dynamic_tags) ? data.dynamic_tags : [];
+      _tlDynamicTags = tags;
+    }
+    if (!routeStillActive(routeSeq) || !$("#tl-rail")) return;
+    renderRailTags((tags || []).slice(0, 8));
+  } catch {
+    const el = $("#tl-rail-tags");
+    if (el) el.innerHTML = "";
+  }
+}
+
+function renderRailRecs(recs) {
+  const el = $("#tl-rail-recs");
+  if (!el) return;
+  const list = recs.filter((r) => !r.subscribed).slice(0, 4);
+  if (!list.length) { el.innerHTML = ""; return; }
+  el.innerHTML = `
+    <section class="tl-rail-card">
+      <h3 class="tl-rail-title">推荐关注</h3>
+      ${list.map((r) => `
+        <div class="tl-rail-rec">
+          ${avatarHtml(r.name, r.avatar_url)}
+          <div class="tl-rail-rec-info">
+            <a class="tl-rail-rec-name" href="#/kol/${r.id}">${escapeHtml(r.name)}</a>
+            <div class="tl-rail-rec-meta">${escapeHtml(PLATFORM_LABELS[r.platform] || r.platform)}${r.category_name ? " · " + escapeHtml(r.category_name) : ""}</div>
+          </div>
+          <button type="button" class="btn-ghost" onclick="railSubscribe(${r.id}, this)">订阅</button>
+        </div>`).join("")}
+      <a class="tl-rail-more" href="#/search">显示更多</a>
+    </section>`;
+}
+
+function renderRailTags(tags) {
+  const el = $("#tl-rail-tags");
+  if (!el) return;
+  if (!tags.length) { el.innerHTML = ""; return; }
+  el.innerHTML = `
+    <section class="tl-rail-card">
+      <h3 class="tl-rail-title">热门标签</h3>
+      <div class="tl-rail-tags">${tags.map((t) => `
+        <button type="button" class="tl-rail-tag ${state.timelineTag === t ? "selected" : ""}" data-tag="${escapeHtml(t)}" onclick="tlPickTag(this.dataset.tag)">${escapeHtml(t)}</button>`).join("")}</div>
+    </section>`;
+}
+
+async function railSubscribe(kolId, btn) {
+  try {
+    await api("/api/subscriptions", { method: "POST", body: JSON.stringify({ kol_id: kolId, type: "post" }) });
+    if (btn) {
+      btn.textContent = "已订阅";
+      btn.disabled = true;
+    }
+    if (state.user) state.user.subscription_count = (state.user.subscription_count || 0) + 1;
+    flash("已订阅");
+  } catch (err) {
+    flash(err.message, "error");
+  }
 }
 
 async function loadTimeline(reset = true, routeSeq) {
@@ -1382,6 +1494,7 @@ function renderTimelineFeed() {
   feed.innerHTML = posts.length
     ? html + footer
     : emptyState(emptyMsg, emptyAction);
+  tlSyncActiveChips();
 }
 
 function toggleTimelineFav() {
@@ -2229,8 +2342,14 @@ function switchSettingsTab(name) {
   });
 }
 
+function statsTabFromHash() {
+  const tab = new URLSearchParams(location.hash.split("?")[1] || "").get("tab") || "overview";
+  return ["overview", "health", "config", "cookies"].includes(tab) ? tab : "overview";
+}
+
 function switchStatsTab(name) {
   // 数据源页分段导航：监控总览 / 大V健康 / 抓取设置 / Cookie 管理
+  if (!["overview", "health", "config", "cookies"].includes(name)) name = "overview";
   document.querySelectorAll(".settings-tab").forEach((b) =>
     b.classList.toggle("active", b.dataset.tab === name)
   );
@@ -2238,6 +2357,55 @@ function switchStatsTab(name) {
     const el = document.getElementById("st-" + t);
     if (el) el.style.display = t === name ? "" : "none";
   });
+  const next = name === "overview" ? "#/admin/stats" : `#/admin/stats?tab=${name}`;
+  if (location.hash !== next) history.replaceState(null, "", next);
+}
+
+function cookieRepairItems(s) {
+  const items = [];
+  const src = {};
+  (s.sources || []).forEach((row) => { src[row.platform] = row; });
+  const live = (s.kol_health || []).filter((k) => k.enabled);
+  const hasXq = live.some((k) => k.platform === "xueqiu" || k.platform === "combination");
+  const hasWb = live.some((k) => k.platform === "weibo");
+  const hasTw = live.some((k) => k.platform === "twitter");
+  const xq = s.xueqiu_cookie || {};
+  const xqErr = `${src.xueqiu?.last_error || ""} ${src.combination?.last_error || ""}`;
+  const xqSick = /cookie|waf|反爬|401|403|失效|登录/i.test(xqErr);
+  if (hasXq && !xq.set) items.push({ key: "xq-missing", label: "雪球 Cookie 未写入" });
+  else if (hasXq && src.xueqiu && !src.xueqiu.ok && xqSick) {
+    items.push({ key: "xq-bad", label: "雪球 Cookie 可能失效" });
+  }
+  const wb = src.weibo;
+  if (hasWb && wb && !wb.ok && /登录|login|cookie|会话/i.test(wb.last_error || "")) {
+    items.push({ key: "wb-bad", label: "微博登录态失效，可扫码续期" });
+  }
+  const tw = s.twitter_cookie || {};
+  const twReason = src.twitter?.direct_fallback_reason || src.twitter?.last_error || "";
+  if (hasTw && src.twitter?.direct_mode === "fallback" && /cookie|401|403|89|32|未配置|twitter/i.test(twReason)) {
+    items.push({ key: "x-bad", label: "X Cookie 可能失效" });
+  } else if (hasTw && !tw.set) {
+    items.push({ key: "x-missing", label: "X Cookie 未写入" });
+  }
+  return items;
+}
+
+function cookieRepairBanner(s) {
+  const items = cookieRepairItems(s);
+  if (!items.length) return "";
+  return `<div class="notice notice-warn" role="status">
+    <div class="notice-warn-body">
+      <strong>Cookie 需要更新</strong>
+      <p>${items.map((i) => escapeHtml(i.label)).join("；")}。保存后即时生效，不用改配置文件、不用重启。</p>
+    </div>
+    <button type="button" class="btn-normal" onclick="switchStatsTab('cookies')">去更新</button>
+  </div>`;
+}
+
+function cookieUpdatedLabel(info) {
+  if (!info || !info.set) return "未写入";
+  if (info.from_env) return "已从环境变量读取";
+  return info.updated_at ? `已写入（${escapeHtml(fmtTs(info.updated_at))}）` : "已写入";
 }
 
 function bindGuideHtml(bound, stepsHtml) {
@@ -2780,8 +2948,10 @@ function rateBar(rate) {
 
 async function loadAdminStats() {
   stopStatsTimer();
-  const [s, xq] = await Promise.all([api("/api/stats"), api("/api/admin/xueqiu-cookie")]);
+  const s = await api("/api/stats");
   if (!routeStillActive(_adminRenderSeq)) return;
+  const xq = s.xueqiu_cookie || {};
+  const tw = s.twitter_cookie || {};
   $("#admin-body").innerHTML = `
     <div class="settings-tabs" role="tablist" aria-label="数据源管理">
       <button class="settings-tab active" data-tab="overview" onclick="switchStatsTab('overview')">监控总览</button>
@@ -2931,33 +3101,40 @@ async function loadAdminStats() {
       </section>
     </div>
     <div id="st-cookies" class="settings-tab-panel" style="display:none">
+      <div id="cookie-repair-inline"></div>
+      <section class="section-panel">
+        <header class="section-head">
+          <div><h3 class="section-title">雪球 Cookie</h3>
+          <p class="section-meta">${cookieUpdatedLabel(xq)}${xq.preview ? ` · 预览 ${escapeHtml(xq.preview)}` : ""}${s.keepalive_interval_seconds > 0 ? ` · 每 ${Math.round(s.keepalive_interval_seconds / 3600)} 小时探测` : ""}。登录 xueqiu.com → F12 → Application → Cookies，复制整串后保存，即时生效。</p></div>
+        </header>
+        <textarea id="xq-cookie" class="form-control cookie-paste" rows="4" placeholder="xq_a_token=...; u=..."></textarea>
+        <div class="toolbar" style="margin-top:12px">
+          <button type="button" class="btn-normal" onclick="saveXueqiuCookie()">保存雪球 Cookie</button>
+          <button type="button" class="btn-ghost" onclick="pasteCookieField('xq-cookie')">从剪贴板填入</button>
+        </div>
+      </section>
       <section class="section-panel">
         <header class="section-head"><div><h3 class="section-title">微博 Cookie</h3>
-        <p class="section-meta">扫码登录后自动保存 Cookie，或配置账号密码自动续期。</p></div></header>
+        <p class="section-meta">${cookieUpdatedLabel(s.weibo_cookie)}。用微博 App 扫码后自动保存，无需复制。</p></div></header>
         <div>
-          <button class="btn-normal" onclick="startWeiboQr()">微博扫码登录</button>
-          <span class="muted" style="margin-left:10px">用微博 App 扫码后自动保存 Cookie，无需手动复制</span>
-          <p class="muted" style="margin-top:10px">
-            微博 Cookie：${s.weibo_cookie && s.weibo_cookie.set
-              ? `已写入（${escapeHtml(s.weibo_cookie.updated_at || "")}）`
-              : "未写入"}
-            ${s.keepalive_interval_seconds > 0 ? `· 每 ${Math.round(s.keepalive_interval_seconds / 3600)} 小时自动保活` : ""}
-          </p>
+          <button type="button" class="btn-normal" onclick="startWeiboQr()">微博扫码登录</button>
         </div>
         <div id="wb-qr-box" style="margin-top:16px"></div>
       </section>
       <section class="section-panel">
         <header class="section-head">
-          <div><h3 class="section-title">雪球 Cookie</h3>
-          <p class="section-meta">${xq.set ? `已写入（${escapeHtml(xq.updated_at || "")}），预览：${escapeHtml(xq.preview)}` : "未写入，抓取可能受限或被反爬拦截"}${s.keepalive_interval_seconds > 0 ? ` · 每 ${Math.round(s.keepalive_interval_seconds / 3600)} 小时自动保活` : ""}</p></div>
+          <div><h3 class="section-title">X Cookie</h3>
+          <p class="section-meta">${cookieUpdatedLabel(tw)}${tw.preview ? ` · 预览 ${escapeHtml(tw.preview)}` : ""}。登录 x.com → F12 → Application → Cookies，复制整串（需含 auth_token 与 ct0），保存即时生效。</p></div>
         </header>
-        <textarea id="xq-cookie" class="form-control" rows="4" style="font-family:monospace" placeholder="登录 xueqiu.com 后，浏览器 F12 → Application → Cookies 复制整串（形如 xq_a_token=...; u=...）"></textarea>
+        <textarea id="tw-cookie" class="form-control cookie-paste" rows="4" placeholder="auth_token=...; ct0=..."></textarea>
         <div class="toolbar" style="margin-top:12px">
-          <button class="btn-normal" onclick="saveXueqiuCookie()">保存雪球 Cookie</button>
+          <button type="button" class="btn-normal" onclick="saveTwitterCookie()">保存 X Cookie</button>
+          <button type="button" class="btn-ghost" onclick="pasteCookieField('tw-cookie')">从剪贴板填入</button>
         </div>
       </section>
     </div>`;
   renderStatsData(s);
+  switchStatsTab(statsTabFromHash());
   statsTimer = setInterval(async () => {
     try {
       const fresh = await api("/api/stats");
@@ -2969,7 +3146,15 @@ async function loadAdminStats() {
 }
 
 function renderStatsData(s) {
+  const banner = cookieRepairBanner(s);
   const cards = $("#stats-cards");
+  if (cards) {
+    const existing = cards.previousElementSibling;
+    if (existing && existing.classList.contains("notice-warn")) existing.remove();
+    if (banner) cards.insertAdjacentHTML("beforebegin", banner);
+  }
+  const cookieInline = $("#cookie-repair-inline");
+  if (cookieInline) cookieInline.innerHTML = banner;
   if (cards) {
     cards.innerHTML = `
       <div class="row" style="gap:16px;flex-wrap:wrap">
@@ -3099,10 +3284,27 @@ async function savePollingConfig() {
   }
 }
 
+async function pasteCookieField(inputId) {
+  const el = $("#" + inputId);
+  if (!el) return;
+  try {
+    const text = (await navigator.clipboard.readText()).trim();
+    if (!text) {
+      flash("剪贴板是空的", "error");
+      return;
+    }
+    el.value = text;
+    el.focus();
+    flash("已填入，确认后点保存");
+  } catch {
+    flash("无法读剪贴板，请直接粘贴到输入框", "error");
+  }
+}
+
 async function saveXueqiuCookie() {
   const cookie = $("#xq-cookie").value.trim();
   if (!cookie) {
-    flash("请先粘贴雪球 cookie", "error");
+    flash("请先粘贴雪球 Cookie", "error");
     return;
   }
   try {
@@ -3110,7 +3312,28 @@ async function saveXueqiuCookie() {
       method: "POST",
       body: JSON.stringify({ cookie }),
     });
-    flash("雪球 Cookie 已保存");
+    flash("雪球 Cookie 已保存，即时生效");
+    history.replaceState(null, "", "#/admin/stats?tab=cookies");
+    await loadAdminStats();
+  } catch (err) {
+    flash(err.message, "error");
+  }
+}
+
+async function saveTwitterCookie() {
+  const cookie = $("#tw-cookie").value.trim();
+  if (!cookie) {
+    flash("请先粘贴 X Cookie", "error");
+    return;
+  }
+  try {
+    await api("/api/admin/twitter-cookie", {
+      method: "POST",
+      body: JSON.stringify({ cookie }),
+    });
+    flash("X Cookie 已保存，即时生效");
+    history.replaceState(null, "", "#/admin/stats?tab=cookies");
+    await loadAdminStats();
   } catch (err) {
     flash(err.message, "error");
   }

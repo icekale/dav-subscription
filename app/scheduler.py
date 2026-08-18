@@ -178,7 +178,9 @@ def translate_text(
     if not text:
         return text
     if twitter_cookie is None:
-        twitter_cookie = os.environ.get("TWITTER_COOKIE", "")
+        from .fetchers.twitter import configured_twitter_cookie
+
+        twitter_cookie = configured_twitter_cookie()
     owns_client = client is None
     client = client or httpx.Client(timeout=15)
     errors = []
@@ -526,7 +528,7 @@ def maybe_warn_xueqiu_cookie(db: DB, notifiers: list[Notifier], detail: str) -> 
         return
     _send_admin_text(
         notifiers,
-        f"⚠️ 雪球 cookie 自动续期失败（可能被 WAF 拦截），请手动更新 sources.xueqiu.cookie。详情：{detail[:200]}",
+        f"⚠️ 雪球 cookie 失效或被 WAF 拦截，请到后台「数据源 → Cookie 管理」粘贴新 Cookie。详情：{detail[:200]}",
         "雪球告警",
     )
 
@@ -564,12 +566,12 @@ def _x_fallback_advice(reason: str) -> str:
     if any(k in text for k in ("invalidrequest", "queryid")):
         return "X 已轮换 GraphQL queryId，需要更新代码中的 DEFAULT_QUERY_IDS 后重新部署。"
     if "未配置" in text and "twitter_cookie" in text:
-        return "未配置 TWITTER_COOKIE，请在部署环境配置后重启。"
+        return "未配置 X Cookie，请到后台「数据源 → Cookie 管理」粘贴，或设置 TWITTER_COOKIE 后重启。"
     if any(k in text for k in (
         "code 89", "code 32", "invalid or expired token",
         "could not authenticate", "not authorized",
     )):
-        return "请检查 TWITTER_COOKIE 是否失效，必要时重新登录 X 更新 Cookie。"
+        return "请到后台「数据源 → Cookie 管理」更新 X Cookie，保存后即时生效。"
     if any(k in text for k in (
         "500", "502", "503", "504", "429", "serviceunavailable", "unavailable",
         "ssl", "timeout", "timed out", "eof", "connection", "reset", "network",
@@ -577,7 +579,7 @@ def _x_fallback_advice(reason: str) -> str:
     )):
         return "X 服务端暂时不可用或网络抖动，无需操作；持续出现再检查 Cookie。"
     if any(k in text for k in ("401", "403", "forbidden", "unauthorized")):
-        return "X 拒绝了请求（401/403）：请检查 TWITTER_COOKIE 是否失效（Cookie 刚更新仍复现则可能是 X 接口规则变更，需升级代码）。"
+        return "X 拒绝了请求（401/403）：请到后台「数据源 → Cookie 管理」更新 X Cookie（刚更新仍复现则可能是接口规则变更，需升级代码）。"
     return "失败期间会放慢采集并告警，请留意是否持续失败。"
 
 
@@ -886,13 +888,16 @@ def _fetch_kol_once(
             # 仅翻译新帖，避免每轮重复调用翻译接口
             try:
                 tweet_id = extract_tweet_id(post.external_id)
-                x_cookie = parse_twitter_cookie(os.environ.get("TWITTER_COOKIE", ""))
+                from .fetchers.twitter import configured_twitter_cookie
+
+                tw_cookie = configured_twitter_cookie(db)
+                x_cookie = parse_twitter_cookie(tw_cookie)
                 if tweet_id and x_cookie.get("auth_token") and x_cookie.get("ct0"):
                     # X 官方翻译按整条推文返回，翻译一次后拆出标题
                     translated = translate_text(
                         post.content or "",
                         tweet_id=tweet_id,
-                        twitter_cookie=os.environ.get("TWITTER_COOKIE", ""),
+                        twitter_cookie=tw_cookie,
                     )
                     post.content = translated
                     post.title = translated.splitlines()[0][:80] if translated else (post.title or "")
@@ -1241,7 +1246,7 @@ def probe_xueqiu(db: DB, notifiers: list[Notifier], source_config) -> None:
                 _send_admin_text(
                     notifiers,
                     "⚠️ 雪球探测异常：抓取接口被反爬拦截或返回异常，"
-                    "cookie 可能失效。请到后台「数据源」页更新雪球 cookie。",
+                    "cookie 可能失效。请到后台「数据源 → Cookie 管理」粘贴新的雪球 Cookie。",
                     "雪球探测告警",
                 )
             return
@@ -1275,7 +1280,8 @@ def _alert_cookie_keepalive(db: DB, notifiers: list[Notifier], label: str, detai
     db.set_setting(COOKIE_KEEPALIVE_ALERT_KEY, str(now))
     message = (
         f"⚠️ {label} cookie 保活失败：会话可能已过期或登录态被清除。"
-        f"请到后台「数据源」页更新 {label} cookie，或配置账号密码自动续期。"
+        f"请到后台「数据源 → Cookie 管理」更新 {label} Cookie。"
+        f"{'微博可扫码续期。' if label == '微博' else ''}"
         + (f" 详情：{detail[:120]}" if detail else "")
     )
     _send_admin_text(notifiers, message, "cookie 保活告警")
@@ -1438,11 +1444,11 @@ def _start_weibo_qr_renewal(db: DB, notifiers: list[Notifier]) -> bool:
                 else:
                     tg.send_text(
                         f"微博扫码未完成：{result.get('detail') or result['status']}，"
-                        "可到后台「数据源」页重新扫码"
+                        "可到后台「数据源 → Cookie 管理」重新扫码"
                     )
                 break
             else:
-                tg.send_text("微博二维码已过期，可到后台「数据源」页重新扫码")
+                tg.send_text("微博二维码已过期，可到后台「数据源 → Cookie 管理」重新扫码")
         except Exception as exc:  # noqa: BLE001
             logger.warning("微博续期轮询异常: %s", exc)
         finally:

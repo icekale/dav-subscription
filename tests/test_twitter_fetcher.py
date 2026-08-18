@@ -4,6 +4,7 @@ import pytest
 from app.db import DB
 from app.fetchers.twitter import (
     TwitterFetcher,
+    configured_twitter_cookie,
     extract_screen_name,
     resolve_x_profile,
 )
@@ -327,6 +328,15 @@ def test_resolve_x_profile(monkeypatch):
     # 未配置 cookie 时返回空，调用方回退占位名
     monkeypatch.delenv("TWITTER_COOKIE")
     assert resolve_x_profile("https://x.com/SemiAnalysis_") == {}
+
+
+def test_configured_twitter_cookie_prefers_db(monkeypatch):
+    monkeypatch.setenv("TWITTER_COOKIE", "auth_token=env; ct0=env")
+    db = DB(":memory:")
+    assert configured_twitter_cookie(db).startswith("auth_token=env")
+    db.set_setting("twitter_cookie", "auth_token=db; ct0=db")
+    assert configured_twitter_cookie(db) == "auth_token=db; ct0=db"
+    assert configured_twitter_cookie(db, override="auth_token=x; ct0=x") == "auth_token=x; ct0=x"
 
 
 def test_twitter_direct_fetch_parses_tweets_and_avatar(monkeypatch):
