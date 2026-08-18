@@ -440,6 +440,17 @@ textarea.form-control {
 .section-title { font-size: var(--text-title); font-weight: var(--font-weight-semibold); color: var(--color-text-strong); margin-top: 4px; }
 .section-meta { color: var(--color-text-muted); font-size: var(--text-xs); margin-top: 4px; }
 .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.toolbar .btn-ghost,
+.toolbar .btn-sm {
+  height: var(--control-height-2xl);
+  box-sizing: border-box;
+}
+.ak-filters { margin-top: 12px; }
+.ak-platform-tabs { margin-top: 12px; }
+.ak-platform-tabs .platform-tab {
+  width: var(--control-height-2xl);
+  height: var(--control-height-2xl);
+}
 
 /* 抓取设置分组栅格：按抓取档位分组（基础轮询/雪球组合/自适应降频/次要大V/X通道/保活定时），
    固定两列（6 组 = 3 行 × 2 列），避免超宽屏 auto-fit 无限加列把卡片拉成横排一长条；窄屏折单列 */
@@ -1021,6 +1032,7 @@ th, td { padding: 12px 10px; text-align: left; border-bottom: var(--border-soft)
 th { color: var(--color-text-muted); font-weight: var(--font-weight-semibold); font-size: var(--text-xs); background: var(--color-bg-table-head); }
 tbody tr { transition: background var(--ease-standard); }
 tbody tr:hover { background: var(--color-surface-row-hover); }
+.ak-row-flash { background: var(--color-accent-soft); }
 .btn-sm {
   font-size: var(--text-xs); padding: 5px 12px; min-height: 32px;
   border: var(--border-strong);
@@ -1489,7 +1501,8 @@ pre.content-cell { white-space: pre-wrap; overflow-wrap: break-word; min-width: 
   .topbar-title h2 { display: none; }
   .page-main { padding: 16px 14px calc(74px + env(safe-area-inset-bottom)); --page-pad-x: 14px; }
   .platform-tabs { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; }
-  .platform-tab { flex-shrink: 0; width: auto; height: auto; min-height: 44px; padding: 0 14px; gap: 6px; border-radius: var(--radius-pill); }
+  .platform-tab,
+  .ak-platform-tabs .platform-tab { flex-shrink: 0; width: auto; height: auto; min-height: 44px; padding: 0 14px; gap: 6px; border-radius: var(--radius-pill); }
   .platform-tab .pt-label { display: inline; font-size: var(--text-sm); }
   .tl-pill { min-height: 44px; }
   .tl-new-badge-btn { min-height: 44px; }
@@ -1588,6 +1601,20 @@ pre.content-cell { white-space: pre-wrap; overflow-wrap: break-word; min-width: 
   .rc-table td .btn-sm, .rc-batch-actions .btn-sm, .rc-result-actions .btn-sm { min-height: 44px; }
   .admin-batch-bar .btn-sm { min-height: 44px; }
   .rc-code .rc-check, .rc-batch-title .rc-batch-check, .rc-checkall input { width: 20px; height: 20px; }
+  .ak-table thead { display: none; }
+  .ak-table tbody tr { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; padding: 12px 0; border-bottom: var(--border-default); }
+  .ak-table td { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; white-space: normal; }
+  .ak-table td::before { content: attr(data-label); font-size: var(--text-xs); color: var(--color-text-muted); }
+  .ak-table td.ak-check { flex-direction: row; align-items: center; }
+  .ak-table td.ak-check::before { content: none; }
+  .ak-table td.ak-hide-mobile { display: none; }
+  .ak-table td.ak-actions { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .ak-table td.ak-actions::before { content: none; }
+  .ak-table td.ak-actions .btn-sm { width: 100%; min-height: 44px; }
+  .ak-table .kol-check, .ak-table #ak-checkall { width: 20px; height: 20px; }
+  .ak-table tr.ak-empty { display: block; }
+  .ak-table tr.ak-empty td { display: block; }
+  .ak-table tr.ak-empty td::before { content: none; }
 }
 
 /* ---------- 全景概览 ---------- */

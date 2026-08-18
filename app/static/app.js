@@ -3292,7 +3292,6 @@ let _adminKolsSelected = new Set(); // 批量操作选中的大V id（跨页保�
 async function loadAdminKols(opts) {
   opts = opts || {};
   const seq = ++_adminKolsSeq;
-  if (opts.goToLast) state.adminKolsPage = 0;
   let data, categories;
   try {
     const params = new URLSearchParams({
@@ -3310,15 +3309,21 @@ async function loadAdminKols(opts) {
     return;
   }
   if (seq !== _adminKolsSeq) return; // 已切换筛选/翻页，丢弃过期响应
-  const lastPage = Math.max(0, Math.ceil((data.total || 0) / _adminKolsPageSize) - 1);
-  if (opts.goToLast && lastPage > 0) {
-    state.adminKolsPage = lastPage;
-    return loadAdminKols();
+  const matchIds = new Set(data.ids || []);
+  const focusIds = opts.focusIds || [];
+  const visibleFocus = focusIds.filter((id) => matchIds.has(id));
+  if (visibleFocus.length) {
+    const idx = (data.ids || []).indexOf(visibleFocus[0]);
+    const wantPage = Math.max(0, Math.floor(idx / _adminKolsPageSize));
+    if (wantPage !== (state.adminKolsPage || 0)) {
+      state.adminKolsPage = wantPage;
+      return loadAdminKols({ focusIds: visibleFocus });
+    }
   }
+  const highlightIds = new Set(visibleFocus);
   const kols = data.items || [];
   state.adminKols = kols;
   state.adminKolsTotal = data.total || 0;
-  const matchIds = new Set(data.ids || []);
   for (const id of [..._adminKolsSelected]) {
     if (!matchIds.has(id)) _adminKolsSelected.delete(id);
   }
@@ -3341,16 +3346,18 @@ async function loadAdminKols(opts) {
         : `<button class="btn-sm" onclick="adminTogglePriority(${k.id}, true)">设优先</button>
                 <button class="btn-sm" onclick="adminToggleSecondary(${k.id}, true)">设次要</button>`;
     return `
-            <tr>
-              <td><input type="checkbox" class="kol-check" data-id="${k.id}" ${_adminKolsSelected.has(k.id) ? "checked" : ""} onchange="adminKolToggleSelect(this)" aria-label="选择 ${escapeHtml(k.name)}"></td>
-              <td>${k.id}</td><td>${PLATFORM_LABELS[k.platform] || k.platform}</td>
-              <td>${escapeHtml(k.name)}</td><td>${escapeHtml(k.category_name || "")}</td>
-              <td>${escapeHtml(k.external_id)}</td>
-              <td>${tier}</td>
-              <td>${orig}</td>
-              <td>${k.is_private ? '<span class="status-warn">私有</span>' : "公开"}</td>
-              <td class="${k.enabled ? "status-ok" : "status-fail"}">${k.enabled ? "启用" : "停用"}</td>
-              <td>
+            <tr class="${highlightIds.has(k.id) ? "ak-row-flash" : ""}">
+              <td class="ak-check"><input type="checkbox" class="kol-check" data-id="${k.id}" ${_adminKolsSelected.has(k.id) ? "checked" : ""} onchange="adminKolToggleSelect(this)" aria-label="选择 ${escapeHtml(k.name)}"></td>
+              <td class="ak-hide-mobile" data-label="ID">${k.id}</td>
+              <td data-label="平台">${PLATFORM_LABELS[k.platform] || k.platform}</td>
+              <td data-label="昵称">${escapeHtml(k.name)}</td>
+              <td data-label="分类">${escapeHtml(k.category_name || "")}</td>
+              <td class="ak-hide-mobile" data-label="外部ID">${escapeHtml(k.external_id)}</td>
+              <td data-label="档位">${tier}</td>
+              <td class="ak-hide-mobile" data-label="原创">${orig}</td>
+              <td data-label="可见性">${k.is_private ? '<span class="status-warn">私有</span>' : "公开"}</td>
+              <td data-label="状态" class="${k.enabled ? "status-ok" : "status-fail"}">${k.enabled ? "启用" : "停用"}</td>
+              <td class="ak-actions" data-label="操作">
                 ${tierBtns}
                 <button class="btn-sm" onclick="adminToggleKol(${k.id}, ${k.enabled ? 0 : 1})">${k.enabled ? "停用" : "启用"}</button>
                 <button class="btn-sm" onclick="adminEditKol(${k.id})">编辑</button>
@@ -3363,16 +3370,16 @@ async function loadAdminKols(opts) {
       <header class="section-head">
         <div><h3 class="section-title">添加大V</h3></div>
         <div class="toolbar" style="margin-top:12px">
-          <select id="ad-platform" class="form-control" style="margin:0;width:auto" onchange="adminPlatformDefaultCat(this)">
+          <select id="ad-platform" class="form-control" style="margin:0;width:auto" aria-label="平台" onchange="adminPlatformDefaultCat(this)">
             <option value="xueqiu">雪球</option>
             <option value="combination">雪球组合</option>
             <option value="weibo">微博</option>
             <option value="twitter">X</option>
           </select>
-          <select id="ad-category" class="form-control" style="margin:0;width:auto"><option value="">未分类</option>${catOptions}</select>
-          <input id="ad-name" class="form-control" style="margin:0;width:200px" placeholder="昵称">
-          <input id="ad-external" class="form-control" style="margin:0;width:300px" placeholder="user_id / uid / X主页链接 / 雪球主页链接">
-          <button class="btn-normal" onclick="adminAddKol()">添加</button>
+          <select id="ad-category" class="form-control" style="margin:0;width:auto" aria-label="分类"><option value="">未分类</option>${catOptions}</select>
+          <input id="ad-name" class="form-control" style="margin:0;width:200px" placeholder="昵称" aria-label="昵称">
+          <input id="ad-external" class="form-control" style="margin:0;width:300px" placeholder="user_id / uid / X主页链接 / 雪球主页链接" aria-label="外部ID或主页链接">
+          <button class="btn-normal" id="ad-add-btn" onclick="adminAddKol()">添加</button>
         </div>
       </header>
     </section>
@@ -3384,50 +3391,50 @@ async function loadAdminKols(opts) {
       <textarea id="ad-batch-lines" class="form-control" rows="8" style="font-family:monospace;min-height:180px;resize:vertical" placeholder="https://xueqiu.com/u/12345&#10;段永平 12345&#10;https://weibo.com/u/1642591402&#10;https://x.com/elonmusk&#10;https://xueqiu.com/P/ZH123456"></textarea>
       <div class="toolbar" style="margin-top:12px">
         <label class="muted" for="ad-batch-platform">默认平台（未识别的行）</label>
-        <select id="ad-batch-platform" class="form-control" style="margin:0;width:auto" onchange="adminPlatformDefaultCat(this, '#ad-batch-category')">
+        <select id="ad-batch-platform" class="form-control" style="margin:0;width:auto" aria-label="默认平台（未识别的行）" onchange="adminPlatformDefaultCat(this, '#ad-batch-category')">
           <option value="xueqiu">雪球</option>
           <option value="combination">雪球组合</option>
           <option value="weibo">微博</option>
           <option value="twitter">X</option>
         </select>
-        <select id="ad-batch-category" class="form-control" style="margin:0;width:auto"><option value="">未分类</option>${catOptions}</select>
-        <button class="btn-normal" onclick="adminBatchAddKols()">批量导入</button>
-        <span id="ad-batch-result" class="muted"></span>
+        <select id="ad-batch-category" class="form-control" style="margin:0;width:auto" aria-label="导入分类"><option value="">未分类</option>${catOptions}</select>
+        <button class="btn-normal" id="ad-batch-btn" onclick="adminBatchAddKols()">批量导入</button>
+        <div id="ad-batch-result" class="muted" style="white-space:pre-line"></div>
       </div>
     </section>
     <section class="section-panel">
       <header class="section-head">
         <div><h3 class="section-title">大V列表</h3>
         <p class="section-meta" id="admin-kols-meta">共 ${state.adminKolsTotal} 个大V · 优先约 60 秒抓一次，次要走低频摘要</p></div>
-        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+        <div class="toolbar ak-filters">
           <input id="ak-q" class="form-control" style="width:200px" placeholder="昵称 / 外部ID" value="${escapeHtml(state.adminKolsQ || "")}" onkeydown="if(event.key==='Enter')adminKolsApplyFilter()">
-          <button type="button" class="btn-sm" onclick="adminKolsApplyFilter()">搜索</button>
+          <button type="button" class="btn-ghost" onclick="adminKolsApplyFilter()">搜索</button>
           <select id="ak-category" class="form-control" style="width:auto" onchange="adminKolsApplyFilter()"><option value="">全部分类</option>${catOptions}</select>
           <select id="ak-status" class="form-control" style="width:auto" onchange="adminKolsApplyFilter()">
             <option value="">全部状态</option>
             <option value="1" ${state.adminKolsStatus === "1" ? "selected" : ""}>启用</option>
             <option value="0" ${state.adminKolsStatus === "0" ? "selected" : ""}>停用</option>
           </select>
-          <button type="button" class="btn-sm" onclick="adminKolsClearFilter()">清除</button>
+          <button type="button" class="btn-ghost" onclick="adminKolsClearFilter()">清除</button>
         </div>
-        <div class="platform-tabs" id="admin-kols-tabs" style="margin-top:12px"></div>
+        <div class="platform-tabs ak-platform-tabs" id="admin-kols-tabs"></div>
       </header>
-      <div class="toolbar" id="ak-batch-bar" style="margin-top:10px;display:${selCount ? "flex" : "none"};align-items:center;gap:8px;flex-wrap:wrap">
+      <div class="toolbar admin-batch-bar" id="ak-batch-bar" style="margin-top:10px;display:${selCount ? "flex" : "none"};align-items:center;gap:8px;flex-wrap:wrap">
         <strong>已选 ${selCount} 个</strong>
         <button class="btn-sm" onclick="adminKolBatch('enable')">批量启用</button>
         <button class="btn-sm" onclick="adminKolBatch('disable')">批量停用</button>
         <button class="btn-sm" onclick="adminKolBatch('priority', true)">批量设优先</button>
         <button class="btn-sm" onclick="adminKolBatch('secondary', true)">批量设次要</button>
-        <button class="btn-sm" onclick="adminKolBatchTier('normal')">批量设普通</button>
+        <button class="btn-sm" onclick="adminKolBatch('normal')">批量设普通</button>
         <select id="ak-batch-category" class="form-control" style="width:auto"><option value="">批量改分类…</option>${catOptions}<option value="0">（清除分类）</option></select>
         <button class="btn-sm" onclick="adminKolBatchCategory()">应用分类</button>
         <button class="btn-sm danger" onclick="adminKolBatch('delete')">批量删除</button>
         <button class="btn-sm" onclick="adminKolClearSelect()">取消选择</button>
       </div>
       <div class="table-wrap">
-        <table>
+        <table class="ak-table">
           <thead><tr><th scope="col" style="width:32px"><input type="checkbox" id="ak-checkall" onchange="adminKolTogglePage(this)" aria-label="全选当前页"></th><th scope="col">ID</th><th scope="col">平台</th><th scope="col">昵称</th><th scope="col">分类</th><th scope="col">外部ID</th><th scope="col">档位</th><th scope="col">原创</th><th scope="col">可见性</th><th scope="col">状态</th><th scope="col">操作</th></tr></thead>
-          <tbody>${rows || `<tr><td colspan="11" class="muted">${state.adminKolsQ || state.adminKolsCategory || state.adminKolsStatus !== "" || state.adminKolsPlatform ? "没有匹配的大V" : "还没有大V，先用上方表单添加"}</td></tr>`}</tbody>
+          <tbody>${rows || `<tr class="ak-empty"><td colspan="11" class="muted">${state.adminKolsQ || state.adminKolsCategory || state.adminKolsStatus !== "" || state.adminKolsPlatform ? "没有匹配的大V" : "还没有大V，先用上方表单添加"}</td></tr>`}</tbody>
         </table>
       </div>
       <div class="toolbar" style="margin-top:12px;justify-content:center;gap:12px;align-items:center">
@@ -3442,9 +3449,12 @@ async function loadAdminKols(opts) {
   const statusEl = $("#ak-status"); if (statusEl) statusEl.value = state.adminKolsStatus ?? "";
   adminKolSyncCheckall(kols);
   $("#admin-kols-tabs").innerHTML = PLATFORM_TABS.map((p) => platformTabHTML(p, state.adminKolsPlatform, "switchAdminKolsPlatform")).join("");
+  return { hiddenFocus: focusIds.length > 0 && visibleFocus.length === 0 };
 }
 
 function switchAdminKolsPlatform(platform) {
+  const qEl = $("#ak-q");
+  if (qEl) state.adminKolsQ = qEl.value.trim();
   state.adminKolsPlatform = platform;
   state.adminKolsPage = 0;
   loadAdminKols();
@@ -3526,38 +3536,20 @@ async function adminKolBatch(action, value) {
   const ids = [..._adminKolsSelected];
   if (!ids.length) return;
   if (action === "delete" && !confirm(`确认删除选中的 ${ids.length} 个大V？（将同时清理其订阅/帖子/推送记录）`)) return;
+  const bar = $("#ak-batch-bar");
+  const buttons = bar ? [...bar.querySelectorAll("button")] : [];
+  buttons.forEach((b) => { b.disabled = true; });
   try {
     await api("/api/admin/kols/batch", {
       method: "POST",
       body: JSON.stringify({ ids, action, value: value ?? null }),
     });
-    flash(`已对 ${ids.length} 个大V执行批量操作`);
+    flash(action === "normal" ? `已将 ${ids.length} 个大V设为普通档` : `已对 ${ids.length} 个大V执行批量操作`);
     _adminKolsSelected.clear();
     loadAdminKols();
   } catch (err) {
     flash("批量操作失败: " + err.message, "error");
-  }
-}
-
-async function adminKolBatchTier(tier) {
-  if (tier === "priority") return adminKolBatch("priority", true);
-  if (tier === "secondary") return adminKolBatch("secondary", true);
-  const ids = [..._adminKolsSelected];
-  if (!ids.length) return;
-  try {
-    await api("/api/admin/kols/batch", {
-      method: "POST",
-      body: JSON.stringify({ ids, action: "priority", value: false }),
-    });
-    await api("/api/admin/kols/batch", {
-      method: "POST",
-      body: JSON.stringify({ ids, action: "secondary", value: false }),
-    });
-    flash(`已将 ${ids.length} 个大V设为普通档`);
-    _adminKolsSelected.clear();
-    loadAdminKols();
-  } catch (err) {
-    flash("批量操作失败: " + err.message, "error");
+    buttons.forEach((b) => { b.disabled = false; });
   }
 }
 
@@ -3575,6 +3567,8 @@ async function adminBatchAddKols() {
   }
   const platform = $("#ad-batch-platform").value;
   const category = $("#ad-batch-category").value;
+  const btn = $("#ad-batch-btn");
+  if (btn) btn.disabled = true;
   try {
     const data = await api("/api/kols/batch", {
       method: "POST",
@@ -3585,24 +3579,25 @@ async function adminBatchAddKols() {
       }),
     });
     const failLines = data.failed.map((f) => `${f.line} — ${f.error}`).join("\n");
-    state.adminKolsPlatform = platform;
-    state.adminKolsCategory = category || "";
-    state.adminKolsQ = "";
-    state.adminKolsStatus = "";
-    await loadAdminKols({ goToLast: true });
+    const view = await loadAdminKols({ focusIds: data.ids || [] });
     const resultEl = $("#ad-batch-result");
     if (resultEl) {
       resultEl.textContent = data.failed.length
-        ? `成功 ${data.ok}/${data.total}，失败 ${data.failed.length} 条${failLines ? `。${failLines}` : ""}`
+        ? `成功 ${data.ok}/${data.total}，失败 ${data.failed.length} 条${failLines ? `\n${failLines}` : ""}`
         : `成功 ${data.ok}/${data.total}`;
       resultEl.style.color = data.failed.length ? "var(--color-danger)" : "var(--color-success)";
       resultEl.style.fontWeight = "bold";
     }
+    const hidden = view && view.hiddenFocus && data.ok;
     flash(data.failed.length
-      ? `导入完成：成功 ${data.ok}/${data.total}，失败 ${data.failed.length} 条`
-      : `导入成功：${data.ok} 个`);
+      ? `导入完成：成功 ${data.ok}/${data.total}，失败 ${data.failed.length} 条${hidden ? "，不在当前筛选里" : ""}`
+      : hidden
+        ? `导入成功：${data.ok} 个，不在当前筛选里`
+        : `导入成功：${data.ok} 个`);
   } catch (err) {
     flash("批量导入失败: " + err.message, "error");
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 
@@ -3620,24 +3615,30 @@ async function adminAddKol() {
   const name = $("#ad-name").value.trim();
   const platform = $("#ad-platform").value;
   const category = $("#ad-category").value;
+  const external = $("#ad-external").value.trim();
+  if (!external) {
+    flash("请填写外部ID或主页链接", "error");
+    return;
+  }
+  const btn = $("#ad-add-btn");
+  if (btn) btn.disabled = true;
   try {
     const created = await api("/api/kols", {
       method: "POST",
       body: JSON.stringify({
         platform,
         name,
-        external_id: $("#ad-external").value.trim(),
+        external_id: external,
         category_id: category ? Number(category) : null,
       }),
     });
-    flash(`已添加「${created.name || name || "未命名"}」`);
-    state.adminKolsPlatform = platform;
-    state.adminKolsCategory = category || "";
-    state.adminKolsQ = "";
-    state.adminKolsStatus = "";
-    await loadAdminKols({ goToLast: true });
+    const view = await loadAdminKols({ focusIds: created.id ? [created.id] : [] });
+    const label = created.name || name || "未命名";
+    flash(view && view.hiddenFocus ? `已添加「${label}」，不在当前筛选里` : `已添加「${label}」`);
   } catch (err) {
     flash("添加失败: " + err.message, "error");
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 
@@ -3709,8 +3710,8 @@ async function adminEditKol(id) {
   const mask = document.createElement("div");
   mask.className = "modal-mask";
   mask.innerHTML = `
-    <div class="modal-card">
-      <h3 style="margin-bottom:12px">编辑大V：${escapeHtml(kol.name)}</h3>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="ek-title">
+      <h3 id="ek-title" style="margin-bottom:12px">编辑大V：${escapeHtml(kol.name)}</h3>
       <label class="form-label">昵称
         <input id="ek-name" class="form-control" value="${escapeHtml(kol.name)}">
       </label>
@@ -3718,16 +3719,16 @@ async function adminEditKol(id) {
         <select id="ek-category" class="form-control"><option value="">未分类</option>${catOptions}</select>
       </label>
       <label class="form-label" style="display:flex;align-items:center;gap:8px">
-        <input id="ek-private" type="checkbox" ${kol.is_private ? "checked" : ""}> 私有大V（仅白名单用户可见/可订阅）
+        <input id="ek-private" type="checkbox" ${kol.is_private ? "checked" : ""} onchange="document.getElementById('ek-users-wrap').hidden=!this.checked"> 私有大V（仅白名单用户可见/可订阅）
       </label>
       ${kol.platform === "weibo" ? `<label class="form-label" style="display:flex;align-items:center;gap:8px">
         <input id="ek-original" type="checkbox" ${kol.original_only ? "checked" : ""}> 只看原创（微博跳过转发，适合转发刷屏的大V）
       </label>` : ""}
-      <label class="form-label">白名单用户（逗号分隔用户名，仅对私有大V生效）
+      <label class="form-label" id="ek-users-wrap" ${kol.is_private ? "" : "hidden"}>白名单用户（逗号分隔用户名）
         <input id="ek-users" class="form-control" value="${escapeHtml((kol.visible_users || []).join(", "))}" placeholder="user1, user2">
       </label>
       <div class="toolbar" style="margin-top:16px">
-        <button class="btn-normal" onclick="saveKolEdit(${kol.id})">保存</button>
+        <button class="btn-normal" id="ek-save" onclick="saveKolEdit(${kol.id})">保存</button>
         <button type="button" class="btn-sm" data-close>取消</button>
       </div>
     </div>`;
@@ -3746,6 +3747,20 @@ async function adminEditKol(id) {
     if (e.key === "Escape") {
       e.preventDefault();
       tryClose();
+      return;
+    }
+    if (e.key === "Tab") {
+      const nodes = [...mask.querySelectorAll("button, input, select, textarea")].filter((el) => !el.disabled && !el.hidden && el.offsetParent);
+      if (!nodes.length) return;
+      const first = nodes[0];
+      const last = nodes[nodes.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
     }
   });
   mask.querySelector("[data-close]").addEventListener("click", tryClose);
@@ -3777,6 +3792,8 @@ async function saveKolEdit(id) {
     visible_users: visibleUsers,
   };
   if ($("#ek-original")) body.original_only = $("#ek-original").checked;
+  const btn = $("#ek-save");
+  if (btn) btn.disabled = true;
   try {
     await api(`/api/kols/${id}`, {
       method: "PUT",
@@ -3787,6 +3804,7 @@ async function saveKolEdit(id) {
     loadAdminKols();
   } catch (err) {
     flash("保存失败: " + err.message, "error");
+    if (btn) btn.disabled = false;
   }
 }
 

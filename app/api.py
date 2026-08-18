@@ -311,7 +311,7 @@ class KolUpdate(BaseModel):
 
 class KolBatchAction(BaseModel):
     ids: list[int]
-    action: str  # enable|disable|priority|secondary|category|delete
+    action: str  # enable|disable|priority|secondary|normal|category|delete
     value: bool | int | None = None
 
 
@@ -1873,7 +1873,7 @@ def create_api_router(
 
     @router.post("/admin/kols/batch", dependencies=[Depends(require_admin)])
     def kol_batch_action(body: KolBatchAction, admin: dict = Depends(require_admin)):
-        """批量操作：enable/disable/priority/secondary/category/delete。"""
+        """批量操作：enable/disable/priority/secondary/normal/category/delete。"""
         if not body.ids:
             raise HTTPException(status_code=400, detail="请先选择大V")
         action = body.action
@@ -1881,6 +1881,9 @@ def create_api_router(
             db.set_kols_enabled(body.ids, action == "enable")
         elif action in ("priority", "secondary"):
             db.set_kols_flag(body.ids, action, bool(body.value))
+        elif action == "normal":
+            db.set_kols_flag(body.ids, "priority", False)
+            db.set_kols_flag(body.ids, "secondary", False)
         elif action == "category":
             db.set_kols_category(body.ids, body.value)
         elif action == "delete":
@@ -2050,6 +2053,7 @@ def create_api_router(
         return {
             "total": len(results),
             "ok": ok_count,
+            "ids": [r["id"] for r in results if r["ok"]],
             "failed": [r for r in results if not r["ok"]],
         }
 

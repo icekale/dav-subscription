@@ -111,6 +111,9 @@ def test_admin_kols_batch_actions():
     assert all(db.get_kol(k)["priority"] and not db.get_kol(k)["secondary"] for k in kids)
     assert batch(kids, "secondary", True).status_code == 200
     assert all(db.get_kol(k)["secondary"] and not db.get_kol(k)["priority"] for k in kids)
+    assert batch(kids, "normal").status_code == 200
+    assert all(not db.get_kol(k)["priority"] and not db.get_kol(k)["secondary"] for k in kids)
+    assert batch(kids, "secondary", True).status_code == 200
     assert batch(kids, "priority", False).status_code == 200
     assert all(not db.get_kol(k)["priority"] and db.get_kol(k)["secondary"] for k in kids)
     assert batch(kids, "secondary", False).status_code == 200
@@ -270,6 +273,8 @@ def test_batch_import_x_kol_auto_resolves_name(monkeypatch):
     )
     assert resp.status_code == 200
     assert resp.json()["ok"] == 1
+    assert resp.json()["ids"]
+    assert len(resp.json()["ids"]) == 1
     kols = client.get("/api/kols", headers=headers).json()
     assert any(k["name"] == "elonmusk" for k in kols)
 

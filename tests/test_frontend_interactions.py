@@ -541,11 +541,94 @@ def test_admin_kols_keeps_selection_against_filter_ids():
     assert "pageIds.has(id)" not in body
 
 
-def test_admin_kols_add_jumps_to_new_row():
-    """添加/导入成功后应落到能看到新行的最后一页。"""
-    assert "goToLast" in _fn_body("adminAddKol")
-    assert "goToLast" in _fn_body("adminBatchAddKols")
-    assert "opts.goToLast" in _fn_body("loadAdminKols") or "goToLast" in _fn_body("loadAdminKols")
+def test_admin_kols_add_keeps_filters_and_marks_row():
+    """添加/导入不得改写筛选；新行在当前筛选里就标出，否则说明看不到。"""
+    add = _fn_body("adminAddKol")
+    batch = _fn_body("adminBatchAddKols")
+    load = _fn_body("loadAdminKols")
+    for body in (add, batch):
+        assert "state.adminKolsPlatform" not in body
+        assert "state.adminKolsCategory" not in body
+        assert "goToLast" not in body
+        assert "focusIds" in body
+        assert "不在当前筛选" in body
+    assert "focusIds" in load
+    assert "ak-row-flash" in load
+
+
+def test_admin_kols_mobile_table_uses_data_labels():
+    """窄屏表用 data-label 卡片，桌面仍是表。"""
+    body = _fn_body("loadAdminKols")
+    assert "ak-table" in body
+    assert 'data-label="昵称"' in body
+    assert 'data-label="档位"' in body
+    assert 'data-label="操作"' in body
+    assert "ak-hide-mobile" in body
+    css = STYLE_CSS.read_text()
+    assert ".ak-table" in css
+    assert "ak-hide-mobile" in css
+    assert "ak-actions" in css
+
+
+def test_admin_kols_edit_modal_is_dialog():
+    """编辑弹层对齐用户管理：dialog + 焦点循环；白名单仅私有时出现。"""
+    body = _fn_body("adminEditKol")
+    assert 'role="dialog"' in body
+    assert "aria-modal" in body
+    assert "aria-labelledby" in body
+    assert 'e.key === "Tab"' in body or 'e.key==="Tab"' in body
+    assert "ek-users-wrap" in body
+    assert "hidden" in body
+
+
+def test_admin_kols_batch_normal_is_one_request():
+    """设普通走一次 batch action=normal，不再连续打两次 flag。"""
+    load = _fn_body("loadAdminKols")
+    assert "adminKolBatch('normal')" in load
+    src = APP_JS.read_text()
+    assert "async function adminKolBatchTier" not in src
+
+
+def test_admin_kols_platform_tab_reads_pending_search():
+    """点平台 tab 时要把未提交的搜索框读进 state，避免筛丢。"""
+    body = _fn_body("switchAdminKolsPlatform")
+    assert "ak-q" in body
+
+
+def test_admin_kols_filter_controls_match_input_height():
+    """列表筛选与平台 tab 跟输入同高 42px，不得用 32px 药丸贴在 42px 框旁边。"""
+    body = _fn_body("loadAdminKols")
+    chunk = body.split('id="ak-q"')[1].split("admin-kols-tabs")[0]
+    assert "btn-ghost" in chunk
+    assert 'class="btn-sm"' not in chunk
+    assert "ak-filters" in body
+    assert "ak-platform-tabs" in body
+    css = STYLE_CSS.read_text()
+    assert re.search(r"\.toolbar \.btn-ghost[^{]*\{[^}]*--control-height-2xl", css)
+    assert re.search(r"\.ak-platform-tabs \.platform-tab[^{]*\{[^}]*--control-height-2xl", css)
+
+
+def test_admin_kols_add_fields_have_accessible_names():
+    """添加区控件要有可达名称，不能只靠 placeholder。"""
+    body = _fn_body("loadAdminKols")
+    assert 'aria-label="平台"' in body
+    assert 'aria-label="昵称"' in body
+    assert "aria-label=" in body and "外部ID" in body
+
+
+def test_admin_kols_import_result_preserves_lines():
+    """导入失败明细按行展示，不能塞进 inline span 把换行挤掉。"""
+    body = _fn_body("loadAdminKols")
+    assert '<span id="ad-batch-result"' not in body
+    assert "ad-batch-result" in body
+    assert "pre-line" in body or "<pre" in body
+
+
+def test_admin_kols_mutations_disable_while_in_flight():
+    """添加/导入/保存/批量进行中要禁用，防连点。"""
+    for name in ("adminAddKol", "adminBatchAddKols", "adminKolBatch", "saveKolEdit"):
+        body = _fn_body(name)
+        assert "disabled" in body, f"{name} 无进行中禁用"
 
 
 def test_admin_kols_delete_and_private_name_consequences():
