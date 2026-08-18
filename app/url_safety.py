@@ -15,12 +15,6 @@ import httpx
 
 ALLOWED_SCHEMES = ("http", "https")
 MAX_REDIRECTS = 3
-USER_LLM_HOSTS = frozenset({
-    "api.openai.com",
-    "api.deepseek.com",
-    "api.x.ai",
-    "generativelanguage.googleapis.com",
-})
 
 # 直接拒绝的目标网段：环回/私网/链路本地/运营商级 NAT/云元数据/多播/保留段
 _BLOCKED_NETWORKS = [
@@ -88,19 +82,15 @@ def is_safe_http_url(url: str) -> bool:
 
 
 def is_allowed_user_llm_base(url: str) -> bool:
-    """用户级 LLM 只允许明确的官方公网 HTTPS 端点。"""
+    """用户级 LLM：任意公网 http(s)，拒绝内网/元数据和带账号密码的地址。"""
+    raw = (url or "").strip()
     try:
-        parsed = urlparse((url or "").strip())
-        port = parsed.port
+        parsed = urlparse(raw)
     except ValueError:
         return False
-    return (
-        parsed.scheme == "https"
-        and parsed.hostname in USER_LLM_HOSTS
-        and port in (None, 443)
-        and not parsed.username
-        and not parsed.password
-    )
+    if parsed.username or parsed.password:
+        return False
+    return is_safe_http_url(raw)
 
 
 def _pinned_request(url: str) -> tuple[str, str]:

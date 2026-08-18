@@ -1213,7 +1213,7 @@ def create_api_router(
                 from .url_safety import is_allowed_user_llm_base
 
                 if not is_allowed_user_llm_base(value):
-                    raise HTTPException(status_code=400, detail="用户 LLM 地址仅支持官方 HTTPS API 域名")
+                    raise HTTPException(status_code=400, detail="用户 LLM 地址不能指向内网或非法地址")
             updates["llm_api_base"] = value
         if "llm_model" in body.model_fields_set:
             updates["llm_model"] = (body.llm_model or "").strip()

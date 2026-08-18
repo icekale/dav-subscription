@@ -2240,7 +2240,7 @@ async function renderSettings(seq) {
           <input id="set-llm-base" class="form-control" type="text"
             placeholder="https://api.deepseek.com"
             value="${escapeHtml(state.user.llm_api_base || "")}">
-          <p class="muted" style="margin-top:4px">留空默认 DeepSeek：<code>https://api.deepseek.com</code></p>
+          <p class="muted" style="margin-top:4px">OpenAI 兼容的公网 http(s) 地址即可，不能指向内网。留空默认 DeepSeek：<code>https://api.deepseek.com</code></p>
         </div>
         <div class="form-row">
           <label for="set-llm-key">API Key</label>

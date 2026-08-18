@@ -1,7 +1,7 @@
 import httpx
 import pytest
 
-from app.url_safety import is_safe_http_url, safe_get
+from app.url_safety import is_allowed_user_llm_base, is_safe_http_url, safe_get
 
 
 def test_rejects_non_http_and_empty():
@@ -80,6 +80,22 @@ def test_safe_get_blocks_redirect_to_internal(monkeypatch):
     client = httpx.Client(transport=httpx.MockTransport(handler))
     with pytest.raises(ValueError):
         safe_get(client, "https://safe.example/a")
+
+
+def test_user_llm_allows_public_third_party(monkeypatch):
+    monkeypatch.setattr("app.url_safety._resolve_host_ips", lambda host: ["93.184.216.34"])
+    assert is_allowed_user_llm_base("https://grok.k4le.top:8096/v1") is True
+    assert is_allowed_user_llm_base("https://api.deepseek.com") is True
+    assert is_allowed_user_llm_base("http://llm.example.com:11434/v1") is True
+
+
+def test_user_llm_still_blocks_ssrf():
+    assert is_allowed_user_llm_base("http://127.0.0.1:11434") is False
+    assert is_allowed_user_llm_base("http://192.168.1.1/v1") is False
+    assert is_allowed_user_llm_base("http://169.254.169.254/") is False
+    assert is_allowed_user_llm_base("https://user:pass@api.deepseek.com") is False
+    assert is_allowed_user_llm_base("file:///etc/passwd") is False
+    assert is_allowed_user_llm_base("") is False
 
 
 def test_safe_get_blocks_too_many_redirects(monkeypatch):
