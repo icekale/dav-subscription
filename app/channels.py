@@ -81,8 +81,6 @@ def build_channel_notifier(
     *,
     favorite: bool = False,
     keyword: bool = False,
-    secondary: bool = False,
-    unsub_kol_id: int | None = None,
     db=None,
 ):
     """按渠道与用户绑定信息构造 notifier；未绑定抛 RuntimeError。
@@ -103,8 +101,6 @@ def build_channel_notifier(
             bot_token=user.get("telegram_bot_token") or None,
             favorite=favorite,
             keyword=keyword,
-            secondary=secondary,
-            unsub_kol_id=unsub_kol_id,
         )
     if channel == "feishu":
         from .feishu_personal import build_personal_feishu_kwargs
@@ -128,11 +124,8 @@ def build_channel_notifier(
             chat_id=kwargs["chat_id"],
             favorite=favorite,
             keyword=keyword,
-            secondary=secondary,
-            unsub_kol_id=unsub_kol_id,
             app_id=kwargs["app_id"],
             app_secret=kwargs["app_secret"],
-            interactive_buttons=not bool(kwargs["app_id"]),
         )
     if channel == "wecom":
         from .notifiers.wecom import WeComNotifier
@@ -175,7 +168,6 @@ def deliver_post(
     *,
     favorite: bool = False,
     keyword: bool = False,
-    secondary: bool = False,
 ) -> None:
     """单个用户单个渠道的新帖推送骨架。
 
@@ -189,8 +181,6 @@ def deliver_post(
         client=client,
         favorite=favorite,
         keyword=keyword,
-        secondary=secondary,
-        unsub_kol_id=post.kol_id if getattr(post, "kol_id", None) else None,
         db=db,
     )
     try:

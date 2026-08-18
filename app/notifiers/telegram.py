@@ -183,21 +183,16 @@ class TelegramNotifier(Notifier):
         config,
         client: httpx.Client | None = None,
         chat_id: str | None = None,
-        unsub_kol_id: int | None = None,
         bot_token: str | None = None,
         favorite: bool = False,
         keyword: bool = False,
-        secondary: bool = False,
     ):
         # 用户自建 bot 时用用户自己的 token；否则用全局共享 bot
         self.bot_token = bot_token or config.bot_token
-        self.own_bot = bool(bot_token)  # 个人 bot 的消息回调不会到达全局轮询，按钮会失效
         self.chat_id = chat_id or config.chat_id
         self.client = client or httpx.Client(timeout=15, proxy=config.proxy or None)
-        self.unsub_kol_id = unsub_kol_id
         self.favorite = favorite
         self.keyword = keyword
-        self.secondary = secondary
 
     def _post(self, url: str, **kw) -> httpx.Response:
         """POST 并容忍瞬时网络故障：TLS 握手超时等 TransportError 立即重试一次。
@@ -240,17 +235,7 @@ class TelegramNotifier(Notifier):
         self._send_text_message(post)
 
     def _send_text_message(self, post: Post) -> None:
-        kol_id = self.unsub_kol_id if self.unsub_kol_id is not None else post.kol_id
         keyboard = [[{"text": "🔗 查看原文", "url": post.url}]]
-        # 操作按钮仅共享 bot 可用：个人 bot 的消息回调不会到达全局轮询
-        if kol_id and not self.own_bot:
-            sec_label = "🔔 取消次要" if self.secondary else "🔕 设为次要"
-            keyboard.append(
-                [
-                    {"text": sec_label, "callback_data": f"sec:{kol_id}"},
-                    {"text": "退订", "callback_data": f"unsub:{kol_id}"},
-                ]
-            )
         text = (
             build_combination_text(post)
             if post.platform == "combination" and post.detail
@@ -309,15 +294,6 @@ class TelegramNotifier(Notifier):
 
     def send_digest(self, posts: list[Post], kol_name: str, platform: str) -> None:
         keyboard = _numbered_url_rows(posts, DIGEST_MAX_ITEMS)
-        # 操作按钮仅共享 bot 可用：个人 bot 的消息回调不会到达全局轮询
-        if self.unsub_kol_id is not None and not self.own_bot:
-            sec_label = "🔔 取消次要" if self.secondary else "🔕 设为次要"
-            keyboard.append(
-                [
-                    {"text": sec_label, "callback_data": f"sec:{self.unsub_kol_id}"},
-                    {"text": "退订", "callback_data": f"unsub:{self.unsub_kol_id}"},
-                ]
-            )
         data = {
             "text": build_telegram_digest(posts, kol_name, platform),
             "parse_mode": "HTML",

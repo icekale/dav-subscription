@@ -61,6 +61,9 @@ def test_admin_kols_pagination_and_filters():
     # 分页
     data = client.get("/api/admin/kols?limit=5&offset=0", headers=admin_headers).json()
     assert data["total"] == 13 and len(data["items"]) == 5
+    assert len(data["ids"]) == 13
+    assert set(data["ids"]) >= {item["id"] for item in data["items"]}
+    assert all("subscriber_count" in item for item in data["items"])
     page2 = client.get("/api/admin/kols?limit=5&offset=5", headers=admin_headers).json()
     assert page2["items"][0]["id"] != data["items"][0]["id"]
     # 关键词（昵称/外部ID）
@@ -70,7 +73,9 @@ def test_admin_kols_pagination_and_filters():
     data = client.get("/api/admin/kols?q=uid1", headers=admin_headers).json()
     assert data["total"] == 3  # uid1/uid10/uid11
     # 平台 + 分类 + 状态
-    assert client.get("/api/admin/kols?platform=twitter", headers=admin_headers).json()["total"] == 1
+    twitter = client.get("/api/admin/kols?platform=twitter", headers=admin_headers).json()
+    assert twitter["total"] == 1
+    assert twitter["ids"] == [twitter["items"][0]["id"]]
     assert client.get(f"/api/admin/kols?category_id={cid}", headers=admin_headers).json()["total"] == 6
     assert client.get("/api/admin/kols?status=0", headers=admin_headers).json()["total"] == 3
     # 非法状态
@@ -103,9 +108,13 @@ def test_admin_kols_batch_actions():
     assert batch(kids, "enable").status_code == 200
     assert all(db.get_kol(k)["enabled"] for k in kids)
     assert batch(kids, "priority", True).status_code == 200
-    assert all(db.get_kol(k)["priority"] for k in kids)
+    assert all(db.get_kol(k)["priority"] and not db.get_kol(k)["secondary"] for k in kids)
     assert batch(kids, "secondary", True).status_code == 200
-    assert all(db.get_kol(k)["secondary"] for k in kids)
+    assert all(db.get_kol(k)["secondary"] and not db.get_kol(k)["priority"] for k in kids)
+    assert batch(kids, "priority", False).status_code == 200
+    assert all(not db.get_kol(k)["priority"] and db.get_kol(k)["secondary"] for k in kids)
+    assert batch(kids, "secondary", False).status_code == 200
+    assert all(not db.get_kol(k)["priority"] and not db.get_kol(k)["secondary"] for k in kids)
     assert batch(kids[:2], "category", cid).status_code == 200
     assert db.get_kol(kids[0])["category_id"] == cid and db.get_kol(kids[2])["category_id"] is None
     # 批量删除：级联清理订阅/帖子

@@ -38,16 +38,6 @@ def _open_url_button(text: str, url: str, *, button_type: str = "default") -> di
     }
 
 
-def _callback_button(text: str, value: dict, *, button_type: str = "default") -> dict:
-    """v2 回调按钮：独立 button + behaviors.callback。"""
-    return {
-        "tag": "button",
-        "text": {"tag": "plain_text", "content": text},
-        "type": button_type,
-        "behaviors": [{"type": "callback", "value": value}],
-    }
-
-
 def _more_note(text: str) -> dict:
     """v2 移除了 note 组件，用 notation 字号 + grey 的普通文本代替。"""
     return {
@@ -337,13 +327,10 @@ class FeishuNotifier(Notifier):
         client: httpx.Client | None = None,
         open_id: str | None = None,
         chat_id: str | None = None,
-        unsub_kol_id: int | None = None,
         favorite: bool = False,
         keyword: bool = False,
-        secondary: bool = False,
         app_id: str | None = None,
         app_secret: str | None = None,
-        interactive_buttons: bool = True,
     ):
         self.webhook_url = config.webhook_url
         # 个人机器人凭据优先，缺省回退全局共享应用（同 TelegramNotifier 的 bot_token 模式）
@@ -351,12 +338,8 @@ class FeishuNotifier(Notifier):
         self.app_secret = app_secret or config.app_secret
         self.open_id = open_id
         self.chat_id = chat_id
-        self.unsub_kol_id = unsub_kol_id
         self.favorite = favorite
         self.keyword = keyword
-        self.secondary = secondary
-        # 个人机器人没有卡片回调订阅，按钮会失效——由构造方显式关闭
-        self.interactive_buttons = interactive_buttons
         self.client = client or httpx.Client(timeout=15)
 
     def _tenant_access_token(self) -> str:
@@ -420,20 +403,6 @@ class FeishuNotifier(Notifier):
                     )
             except Exception as exc:  # noqa: BLE001
                 logger.warning("飞书图片上传失败 err=%s", exc)
-        # 操作按钮仅共享应用可用：个人机器人没有卡片回调订阅，按钮会失效
-        if self.unsub_kol_id is not None and self.interactive_buttons:
-            card["body"]["elements"].append(
-                _callback_button(
-                    "🔔 取消次要" if self.secondary else "🔕 设为次要",
-                    {"action": "sec", "kol_id": self.unsub_kol_id},
-                )
-            )
-            card["body"]["elements"].append(
-                _callback_button(
-                    "退订",
-                    {"action": "unsub", "kol_id": self.unsub_kol_id},
-                )
-            )
         self._send_card(card)
 
     def _upload_images(self, image_urls: list[str]) -> list[str]:
@@ -462,20 +431,6 @@ class FeishuNotifier(Notifier):
 
     def send_digest(self, posts: list[Post], kol_name: str, platform: str) -> None:
         card = build_feishu_digest_card(posts, kol_name, platform)
-        # 操作按钮仅共享应用可用：个人机器人没有卡片回调订阅，按钮会失效
-        if self.unsub_kol_id is not None and self.interactive_buttons:
-            card["body"]["elements"].append(
-                _callback_button(
-                    "🔔 取消次要" if self.secondary else "🔕 设为次要",
-                    {"action": "sec", "kol_id": self.unsub_kol_id},
-                )
-            )
-            card["body"]["elements"].append(
-                _callback_button(
-                    "退订",
-                    {"action": "unsub", "kol_id": self.unsub_kol_id},
-                )
-            )
         self._send_card(card)
 
     def send_daily(self, posts: list[Post]) -> None:

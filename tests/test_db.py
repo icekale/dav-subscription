@@ -33,6 +33,23 @@ def test_update_kol_secondary_and_mutex(tmp_path):
     assert kol["priority"] == 1 and kol["secondary"] == 0
 
 
+def test_set_kols_flag_priority_secondary_mutex(tmp_path):
+    db = DB(str(tmp_path / "t.db"))
+    kids = [db.add_kol("xueqiu", f"批量{i}", f"bf{i}", priority=True) for i in range(2)]
+    db.set_kols_flag(kids, "secondary", True)
+    for kid in kids:
+        kol = db.get_kol(kid)
+        assert kol["secondary"] == 1 and kol["priority"] == 0
+    db.set_kols_flag(kids, "priority", True)
+    for kid in kids:
+        kol = db.get_kol(kid)
+        assert kol["priority"] == 1 and kol["secondary"] == 0
+    db.set_kols_flag(kids, "priority", False)
+    for kid in kids:
+        kol = db.get_kol(kid)
+        assert kol["priority"] == 0 and kol["secondary"] == 0
+
+
 def test_add_kol_priority_wins_over_secondary(tmp_path):
     db = DB(str(tmp_path / "t.db"))
     kid = db.add_kol("xueqiu", "测试", "999", priority=True, secondary=True)

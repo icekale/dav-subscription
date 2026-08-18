@@ -234,7 +234,7 @@ def test_telegram_notify_raises_after_retry_still_fails():
         notifier.notify(make_post())
 
 
-def test_telegram_unsub_button():
+def test_telegram_notify_has_no_manage_buttons():
     sent = {}
 
     def handler(request):
@@ -246,33 +246,13 @@ def test_telegram_unsub_button():
     notifier = TelegramNotifier(
         TelegramConfig(bot_token="123:abc", chat_id="456"),
         client=client,
-        unsub_kol_id=7,
     )
     notifier.notify(make_post())
     markup = sent["reply_markup"][0]
-    assert "退订" in markup and '"callback_data": "unsub:7"' in markup
-    assert '"callback_data": "sec:7"' in markup and "设为次要" in markup
-
-
-def test_telegram_own_bot_hides_action_buttons():
-    """个人 bot 的消息回调不会到达全局轮询：不挂可操作按钮，避免死按钮。"""
-    sent = {}
-
-    def handler(request):
-        form = parse_qs(request.read().decode("utf-8"))
-        sent.update(form)
-        return httpx.Response(200, json={"ok": True})
-
-    client = httpx.Client(transport=httpx.MockTransport(handler))
-    notifier = TelegramNotifier(
-        TelegramConfig(bot_token="123:abc", chat_id="456"),
-        client=client,
-        bot_token="own:token",
-        unsub_kol_id=7,
-    )
-    notifier.notify(make_post())
-    markup = sent["reply_markup"][0]
-    assert "退订" not in markup and "unsub:" not in markup and "sec:" not in markup
+    assert "查看原文" in markup
+    assert "退订" not in markup
+    assert "unsub:" not in markup and "sec:" not in markup
+    assert "设为次要" not in markup and "取消次要" not in markup
 
 
 def test_telegram_digest_per_post_buttons():
@@ -287,38 +267,14 @@ def test_telegram_digest_per_post_buttons():
     notifier = TelegramNotifier(
         TelegramConfig(bot_token="123:abc", chat_id="456"),
         client=client,
-        unsub_kol_id=7,
     )
     posts = [make_post(), make_post()]
     posts[1].external_id = "w2"
     notifier.send_digest(posts, "李四", "weibo")
     kb = json.loads(sent["reply_markup"][0])["inline_keyboard"]
-    # 逐条编号查看按钮
     assert kb[0][0]["text"] == "1 🔗" and kb[0][0]["url"] == "https://weibo.com/1"
     assert kb[0][1]["text"] == "2 🔗" and kb[0][1]["url"] == "https://weibo.com/1"
-    # 操作行
-    assert any(any(b.get("callback_data") == "unsub:7" for b in row) for row in kb)
-    assert any(any(b.get("callback_data") == "sec:7" for b in row) for row in kb)
-
-
-def test_telegram_digest_secondary_label():
-    sent = {}
-
-    def handler(request):
-        form = parse_qs(request.read().decode("utf-8"))
-        sent.update(form)
-        return httpx.Response(200, json={"ok": True})
-
-    client = httpx.Client(transport=httpx.MockTransport(handler))
-    notifier = TelegramNotifier(
-        TelegramConfig(bot_token="123:abc", chat_id="456"),
-        client=client,
-        unsub_kol_id=7,
-        secondary=True,
-    )
-    notifier.send_digest([make_post()], "李四", "weibo")
-    kb = json.loads(sent["reply_markup"][0])["inline_keyboard"]
-    assert any(any("取消次要" in b.get("text", "") for b in row) for row in kb)
+    assert not any(b.get("callback_data") for row in kb for b in row)
 
 
 def test_telegram_notify_sends_text_then_image_album():
@@ -539,7 +495,7 @@ def test_wecom_digest_and_webhook_validation():
     assert is_valid_wecom_webhook("") is False
 
 
-def test_feishu_unsub_button():
+def test_feishu_notify_has_no_manage_buttons():
     sent = {}
 
     def handler(request):
@@ -553,16 +509,15 @@ def test_feishu_unsub_button():
         FeishuConfig(app_id="a", app_secret="s"),
         client=client,
         open_id="ou_1",
-        unsub_kol_id=7,
     )
     notifier.notify(make_post())
     body = sent["calls"][-1]
-    assert "退订" in body and '"kol_id\\": 7' in body
-    assert "设为次要" in body
+    assert "查看原文" in body
+    assert "退订" not in body
+    assert "设为次要" not in body and "取消次要" not in body
 
 
-def test_feishu_personal_bot_hides_action_buttons():
-    """个人机器人没有卡片回调订阅：不挂可操作按钮，避免死按钮。"""
+def test_feishu_digest_has_no_manage_buttons():
     sent = {}
 
     def handler(request):
@@ -576,12 +531,12 @@ def test_feishu_personal_bot_hides_action_buttons():
         FeishuConfig(app_id="a", app_secret="s"),
         client=client,
         open_id="ou_1",
-        unsub_kol_id=7,
-        interactive_buttons=False,
     )
-    notifier.notify(make_post())
+    notifier.send_digest([make_post()], "李四", "weibo")
     body = sent["calls"][-1]
-    assert "退订" not in body and "设为次要" not in body
+    assert "查看原文" in body
+    assert "退订" not in body
+    assert "设为次要" not in body and "取消次要" not in body
 
 
 def test_digest_builders():

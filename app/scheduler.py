@@ -672,7 +672,6 @@ def notify_subscribers(
                     alert_cb=maybe_alert_push_failure,
                     favorite=favorite,
                     keyword=keyword_hit,
-                    secondary=bool(user.get("secondary")),
                 )
     finally:
         if owns_client:
@@ -1087,7 +1086,7 @@ def notify_digest_subscribers(
     llm_config=None,
     summary_cache: dict | None = None,
 ) -> None:
-    """把合并摘要推送给订阅了该大V的用户（各自绑定的渠道，带退订按钮）。
+    """把合并摘要推送给订阅了该大V的用户（各自绑定的渠道）。
 
     用户自配 LLM（或全局 llm_config）时，先发一条 AI 要点再发摘要卡片；
     生成失败自动降级，不影响摘要推送。summary_cache 透传给 summarize_posts，
@@ -1145,8 +1144,6 @@ def notify_digest_subscribers(
                     notifiers_config,
                     client=client,
                     favorite=favorite,
-                    secondary=bool(user.get("secondary")),
-                    unsub_kol_id=kol["id"],
                     db=db,
                 )
                 _send_digest_bundle(
@@ -1854,7 +1851,7 @@ class Scheduler:
             self.retry_queue.drop(item)
             return
         notifier = self._build_retry_notifier(
-            item["channel"], item["user_id"], favorite=favorite, unsub_kol_id=post.kol_id
+            item["channel"], item["user_id"], favorite=favorite
         )
         try:
             notifier.notify(post)
@@ -2015,7 +2012,6 @@ class Scheduler:
         channel: str,
         user_id: int | None,
         favorite: bool = False,
-        unsub_kol_id: int | None = None,
     ):
         from .channels import CHANNEL_LABELS, build_channel_notifier, channel_bound
 
@@ -2034,7 +2030,6 @@ class Scheduler:
             user,
             self.notifiers_config,
             favorite=favorite,
-            unsub_kol_id=unsub_kol_id,
             db=self.db,
         )
 

@@ -721,17 +721,13 @@ class DB:
             (source or "", kol_id),
         )
 
-    def list_kols(
+    def _kol_filters(
         self,
         platform: str | None = None,
         category_id: int | None = None,
         q: str | None = None,
         status: int | None = None,
-        limit: int | None = None,
-        offset: int = 0,
-    ) -> list[dict]:
-        """大V列表：可选平台/分类/关键词/启用状态筛选 + 分页（管理列表用）。"""
-        sql = "SELECT k.*, c.name AS category_name FROM kols k LEFT JOIN categories c ON c.id = k.category_id"
+    ) -> tuple[list[str], list]:
         conds, params = [], []
         if platform:
             conds.append("k.platform = ?")
@@ -746,6 +742,26 @@ class DB:
         if status is not None:
             conds.append("k.enabled = ?")
             params.append(1 if status else 0)
+        return conds, params
+
+    def list_kols(
+        self,
+        platform: str | None = None,
+        category_id: int | None = None,
+        q: str | None = None,
+        status: int | None = None,
+        limit: int | None = None,
+        offset: int = 0,
+        with_subscriber_count: bool = False,
+    ) -> list[dict]:
+        """大V列表：可选平台/分类/关键词/启用状态筛选 + 分页（管理列表用）。"""
+        extra = (
+            ", (SELECT COUNT(*) FROM subscriptions s WHERE s.kol_id = k.id) AS subscriber_count"
+            if with_subscriber_count
+            else ""
+        )
+        sql = f"SELECT k.*, c.name AS category_name{extra} FROM kols k LEFT JOIN categories c ON c.id = k.category_id"
+        conds, params = self._kol_filters(platform, category_id, q, status)
         if conds:
             sql += " WHERE " + " AND ".join(conds)
         sql += " ORDER BY k.id"
@@ -753,6 +769,21 @@ class DB:
             sql += " LIMIT ? OFFSET ?"
             params.extend([limit, offset])
         return self._rows(sql, params)
+
+    def list_kol_ids(
+        self,
+        platform: str | None = None,
+        category_id: int | None = None,
+        q: str | None = None,
+        status: int | None = None,
+    ) -> list[int]:
+        """与 list_kols 同条件的全部 id（管理端跨页勾选用）。"""
+        conds, params = self._kol_filters(platform, category_id, q, status)
+        sql = "SELECT k.id FROM kols k"
+        if conds:
+            sql += " WHERE " + " AND ".join(conds)
+        sql += " ORDER BY k.id"
+        return [r["id"] for r in self._rows(sql, params)]
 
     def count_kols(
         self,
@@ -762,20 +793,7 @@ class DB:
         status: int | None = None,
     ) -> int:
         """与 list_kols 同条件的大V总数（分页控件用）。"""
-        conds, params = [], []
-        if platform:
-            conds.append("k.platform = ?")
-            params.append(platform)
-        if category_id is not None:
-            conds.append("k.category_id = ?")
-            params.append(category_id)
-        if q:
-            like = f"%{q}%"
-            conds.append("(k.name LIKE ? OR k.external_id LIKE ?)")
-            params.extend([like, like])
-        if status is not None:
-            conds.append("k.enabled = ?")
-            params.append(1 if status else 0)
+        conds, params = self._kol_filters(platform, category_id, q, status)
         where = f"WHERE {' AND '.join(conds)}" if conds else ""
         row = self._rows(f"SELECT COUNT(*) AS n FROM kols k {where}", params)
         return _to_int(row[0]["n"]) if row else 0
@@ -788,13 +806,20 @@ class DB:
         )
 
     def set_kols_flag(self, ids: list[int], flag: str, value: bool) -> None:
-        """批量设置 priority / secondary 标记。"""
+        """批量设置 priority / secondary；设为 True 时清掉另一档（与 update_kol 互斥一致）。"""
         col = "priority" if flag == "priority" else "secondary"
+        other = "secondary" if col == "priority" else "priority"
         placeholders = ",".join("?" * len(ids))
-        self._execute(
-            f"UPDATE kols SET {col} = ? WHERE id IN ({placeholders})",
-            (1 if value else 0, *ids),
-        )
+        if value:
+            self._execute(
+                f"UPDATE kols SET {col} = 1, {other} = 0 WHERE id IN ({placeholders})",
+                ids,
+            )
+        else:
+            self._execute(
+                f"UPDATE kols SET {col} = 0 WHERE id IN ({placeholders})",
+                ids,
+            )
 
     def set_kols_category(self, ids: list[int], category_id: int | None) -> None:
         placeholders = ",".join("?" * len(ids))

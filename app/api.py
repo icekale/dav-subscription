@@ -632,7 +632,6 @@ def _do_approve_kol_request(
                     chat_id=kwargs["chat_id"],
                     app_id=kwargs["app_id"],
                     app_secret=kwargs["app_secret"],
-                    interactive_buttons=not bool(kwargs["app_id"]),
                 )
                 notifier.send_text(message)
             except Exception:  # noqa: BLE001
@@ -1867,7 +1866,9 @@ def create_api_router(
                 status=status,
                 limit=bounded_limit(limit, default=50),
                 offset=max(offset, 0),
+                with_subscriber_count=True,
             ),
+            "ids": db.list_kol_ids(platform=platform, category_id=category_id, q=q, status=status),
         }
 
     @router.post("/admin/kols/batch", dependencies=[Depends(require_admin)])

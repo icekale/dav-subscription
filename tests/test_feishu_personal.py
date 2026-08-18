@@ -339,9 +339,7 @@ def test_deliver_post_personal_fallback_to_shared(monkeypatch):
 
     class FakeNotifier:
         def __init__(self, config, client=None, open_id=None, chat_id=None,
-                     unsub_kol_id=None, favorite=False, keyword=False,
-                     secondary=False, app_id=None, app_secret=None,
-                     interactive_buttons=True):
+                     favorite=False, keyword=False, app_id=None, app_secret=None):
             self.chat_id = chat_id
             self.app_id = app_id
 

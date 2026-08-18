@@ -533,6 +533,76 @@ def test_sticky_chrome_is_opaque_canvas_not_glass():
     assert "backdrop-filter" not in css
 
 
+def test_admin_kols_keeps_selection_against_filter_ids():
+    """跨页勾选按筛选全集清理，不得按当前页 id 丢掉选中项。"""
+    body = _fn_body("loadAdminKols")
+    assert "state.adminKols = kols" in body
+    assert "data.ids" in body
+    assert "pageIds.has(id)" not in body
+
+
+def test_admin_kols_add_jumps_to_new_row():
+    """添加/导入成功后应落到能看到新行的最后一页。"""
+    assert "goToLast" in _fn_body("adminAddKol")
+    assert "goToLast" in _fn_body("adminBatchAddKols")
+    assert "opts.goToLast" in _fn_body("loadAdminKols") or "goToLast" in _fn_body("loadAdminKols")
+
+
+def test_admin_kols_delete_and_private_name_consequences():
+    """单删要说清级联；私有空名单要明示对所有人隐藏。"""
+    delete = _fn_body("adminDeleteKol")
+    assert "订阅" in delete
+    assert "帖子" in delete
+    save = _fn_body("saveKolEdit")
+    assert "对所有人隐藏" in save
+
+
+def test_admin_kols_edit_modal_dirty_check():
+    """未保存修改时点遮罩/Esc 必须确认，不能直接丢掉白名单。"""
+    body = _fn_body("adminEditKol")
+    assert "dirty" in body.lower() or "未保存" in body
+
+
+def test_admin_kols_batch_can_unset_tier():
+    """批量栏能设普通档，不能只设优先/次要。"""
+    body = _fn_body("loadAdminKols")
+    assert "adminKolBatch('priority', false)" in body or "adminKolBatchTier(" in body or "设普通" in body
+
+
+def test_admin_kols_tier_and_private_copy():
+    """档位用普通/优先/次要；私有用警告色；原创只在微博显示。"""
+    body = _fn_body("loadAdminKols")
+    assert "普通" in body and "优先" in body and "次要" in body
+    assert "status-warn" in body
+    assert 'k.platform === "weibo"' in body or "k.platform == \"weibo\"" in body
+
+
+def test_admin_kols_errors_use_flash_not_alert():
+    """大V管理失败走 flash error，不弹 alert。"""
+    for name in (
+        "adminAddKol",
+        "adminBatchAddKols",
+        "adminKolBatch",
+        "adminToggleKol",
+        "adminTogglePriority",
+        "adminToggleSecondary",
+        "adminDeleteKol",
+        "saveKolEdit",
+    ):
+        body = _fn_body(name)
+        assert "alert(" not in body, f"{name} 仍使用 alert"
+        assert 'flash(' in body and '"error"' in body, f"{name} 失败未走 flash error"
+
+
+def test_admin_kols_empty_and_filter_controls():
+    """空状态要算上平台筛选；搜索可点、可清除；全选支持 indeterminate。"""
+    body = _fn_body("loadAdminKols")
+    assert "adminKolsPlatform" in body
+    assert "adminKolsClearFilter" in body or "清除" in body
+    assert "adminKolsApplyFilter()" in body
+    assert "indeterminate" in _fn_body("adminKolSyncCheckall")
+
+
 def test_type_scale_uses_four_reading_roles():
     """产品字号只保留四档阅读角色：12 元信息 / 13 控件 / 15 正文 / 17 标题。"""
     tokens = (APP_JS.parent / "vendor" / "design-tokens.css").read_text()
