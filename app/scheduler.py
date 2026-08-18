@@ -1032,6 +1032,16 @@ def _user_llm_config(user: dict, fallback=None):
     )
 
 
+def _admin_llm_config(db: DB, fallback=None):
+    """系统任务跟管理员推送设置同一套；没有自配再退回环境变量。"""
+    for user in db.list_users():
+        if user.get("is_admin"):
+            cfg = _user_llm_config(user)
+            if cfg is not None:
+                return cfg
+    return fallback
+
+
 def _send_digest_bundle(
     notifier,
     summary,
@@ -1132,7 +1142,7 @@ def notify_digest_subscribers(
                     continue
                 matched = instant
             summary = None
-            llm_cfg = _user_llm_config(user, llm_config)
+            llm_cfg = _user_llm_config(user, _admin_llm_config(db, llm_config))
             if llm_cfg is not None:
                 try:
                     from .llm import summarize_posts
@@ -1965,7 +1975,9 @@ class Scheduler:
         if use_llm:
             from .llm import summarize_posts
 
-            llm_cfg = _user_llm_config(user, getattr(self, "llm_config", None))
+            llm_cfg = _user_llm_config(
+                user, _admin_llm_config(self.db, getattr(self, "llm_config", None))
+            )
             if llm_cfg is not None:
                 try:
                     summary = summarize_posts(posts, llm_cfg)
@@ -2078,8 +2090,8 @@ class Scheduler:
         except Exception as exc:  # noqa: BLE001
             logger.warning("贴文标签清理失败: %s", exc)
 
-        # 2) 别名识别：需要 LLM 配置
-        llm_cfg = getattr(self, "llm_config", None)
+        # 2) 别名识别：跟管理员推送设置同一套，没有再退环境变量
+        llm_cfg = _admin_llm_config(self.db, getattr(self, "llm_config", None))
         if llm_cfg is None or not getattr(llm_cfg, "api_key", ""):
             return
         try:
@@ -2255,9 +2267,10 @@ class Scheduler:
                 for r in rows
             ]
             summary = None
-            # 每日综述是系统级推送内容，用全局 LLM 配置保证输出格式稳定；
-            # 用户级自配模型（可能含推理模型）继续用于 digest/免打扰汇总。
-            llm_cfg = getattr(self, "llm_config", None)
+            # 跟推送设置同一套：用户自配 → 管理员自配 → 环境变量
+            llm_cfg = _user_llm_config(
+                user, _admin_llm_config(self.db, getattr(self, "llm_config", None))
+            )
             if llm_cfg is not None:
                 try:
                     from .llm import summarize_daily

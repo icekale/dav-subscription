@@ -3956,6 +3956,124 @@ def test_stock_alias_task_expands_names_from_marks(monkeypatch):
     assert "五粮液" in db.get_stock_names()
 
 
+def _alias_scheduler(db, llm_config):
+    return Scheduler(
+        db, {}, [],
+        SimpleNamespace(),
+        notifiers_config=SimpleNamespace(
+            telegram=SimpleNamespace(bot_token="t", chat_id=""),
+            feishu=SimpleNamespace(app_id="", app_secret=""),
+        ),
+        xueqiu_config=SimpleNamespace(cookie=""),
+        weibo_config=SimpleNamespace(cookie="", username="", password=""),
+        llm_config=llm_config,
+    )
+
+
+def test_stock_alias_task_prefers_admin_push_settings_llm(monkeypatch):
+    """系统别名任务与管理员推送设置同一套 LLM，不走环境变量里的另一套。"""
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    db.insert_post("xueqiu", kid, "al-admin", "宁王", "宁王今天创新高", "u", "")
+    uid = db.add_user("kale", "h", is_admin=True)
+    db.update_user(
+        uid,
+        llm_api_key="sk-grok",
+        llm_api_base="https://api.deepseek.com",
+        llm_model="grok-4.6",
+    )
+    seen = {}
+
+    def fake_suggest(cands, stocks, cfg, client=None):
+        seen["key"] = cfg.api_key
+        seen["model"] = cfg.model
+        seen["user_supplied"] = getattr(cfg, "user_supplied", False)
+        return [{"alias": "宁王", "stock": "宁德时代", "confidence": "high"}]
+
+    monkeypatch.setattr("app.llm.suggest_stock_aliases", fake_suggest)
+    monkeypatch.setattr("app.llm.resolve_stock_marks", lambda *a, **k: [])
+    _alias_scheduler(
+        db,
+        SimpleNamespace(
+            api_key="sk-deepseek",
+            api_base="https://api.deepseek.com",
+            model="deepseek-chat",
+        ),
+    )._run_stock_alias_task()
+    assert seen["key"] == "sk-grok"
+    assert seen["model"] == "grok-4.6"
+    assert seen["user_supplied"] is True
+
+
+def test_stock_alias_task_runs_with_admin_llm_when_env_empty(monkeypatch):
+    """环境变量没配 LLM 时，管理员推送设置也能跑别名识别。"""
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    db.insert_post("xueqiu", kid, "al-only", "宁王", "宁王大涨", "u", "")
+    uid = db.add_user("kale", "h", is_admin=True)
+    db.update_user(
+        uid,
+        llm_api_key="sk-grok",
+        llm_api_base="https://api.deepseek.com",
+        llm_model="grok-4.6",
+    )
+    seen = {"n": 0}
+
+    def fake_suggest(cands, stocks, cfg, client=None):
+        seen["n"] += 1
+        seen["key"] = cfg.api_key
+        return []
+
+    monkeypatch.setattr("app.llm.suggest_stock_aliases", fake_suggest)
+    monkeypatch.setattr("app.llm.resolve_stock_marks", lambda *a, **k: [])
+    _alias_scheduler(db, None)._run_stock_alias_task()
+    assert seen["n"] == 1
+    assert seen["key"] == "sk-grok"
+
+
+def test_daily_report_uses_admin_push_settings_llm(monkeypatch):
+    """每日综述跟推送设置同一套：管理员自配优先于环境变量。"""
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    db.insert_post("xueqiu", kid, "p1", "t", "今日内容", "u", "")
+    uid = db.add_user("kale", "h", telegram_chat_id="111", is_admin=True)
+    db.update_user(
+        uid,
+        daily_report=True,
+        llm_api_key="sk-grok",
+        llm_api_base="https://api.deepseek.com",
+        llm_model="grok-4.6",
+    )
+    db.add_subscription(uid, kid)
+    seen = {}
+
+    def fake_daily(posts, cfg, client=None):
+        seen["key"] = cfg.api_key
+        seen["model"] = cfg.model
+        return None
+
+    monkeypatch.setattr("app.llm.summarize_daily", fake_daily)
+    fake = FakeDailyNotifier()
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", lambda *a, **k: fake)
+    Scheduler(
+        db, {}, [],
+        SimpleNamespace(daily_report_hour=20, push_logs_retention_days=90),
+        notifiers_config=SimpleNamespace(
+            telegram=SimpleNamespace(bot_token="t", chat_id="111"),
+            feishu=SimpleNamespace(app_id="", app_secret=""),
+        ),
+        xueqiu_config=SimpleNamespace(cookie=""),
+        weibo_config=SimpleNamespace(cookie="", username="", password=""),
+        llm_config=SimpleNamespace(
+            api_key="sk-deepseek",
+            api_base="https://api.deepseek.com",
+            model="deepseek-chat",
+        ),
+    )._send_daily_report()
+    assert seen["key"] == "sk-grok"
+    assert seen["model"] == "grok-4.6"
+
+
 def test_effective_interval_secondary_tier():
     from app.scheduler import (
         SECONDARY_BASE_SECONDS,
