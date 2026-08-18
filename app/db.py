@@ -115,15 +115,23 @@ def _normalize_post_tags(rows: list[dict]) -> list[dict]:
 # 贴文规则打标的默认词表（标签 + 关键词，管理员可在后台改，存 settings 表 tag_vocabulary）。
 # 关键词做子串匹配：任一命中即给该标签；英文关键词打标时统一小写比较，故此处可混用大小写。
 DEFAULT_TAG_RULES = [
-    {"tag": "宏观", "keywords": ["央行", "降息", "加息", "GDP", "通胀", "CPI", "PPI", "利率", "美联储", "货币政策", "汇率"]},
+    {"tag": "宏观", "keywords": ["央行", "降息", "加息", "GDP", "通胀", "CPI", "PPI", "利率", "美联储", "货币政策", "汇率", "国债", "衰退", "滞胀"]},
     {"tag": "大盘", "keywords": ["A股", "沪指", "上证", "深成指", "创业板指", "大盘", "指数", "两市", "涨停", "跌停", "成交量"]},
-    {"tag": "板块", "keywords": ["板块", "概念股", "半导体", "新能源", "光伏", "锂电", "白酒", "券商", "地产", "汽车"]},
+    {"tag": "板块", "keywords": ["板块", "概念股", "半导体", "新能源", "光伏", "锂电", "白酒", "券商", "地产", "汽车", "光模块", "军工"]},
     {"tag": "个股", "keywords": ["个股", "股价", "买入", "卖出", "目标价", "重仓", "持仓", "业绩", "市盈率", "PE"]},
-    {"tag": "科技", "keywords": ["AI", "人工智能", "芯片", "大模型", "OpenAI", "英伟达", "NVIDIA", "算力", "机器人", "半导体设备", "GPU"]},
-    {"tag": "政策", "keywords": ["政策", "监管", "证监会", "国务院", "发改委", "央行行长", "降准", "专项债", "限购", "补贴"]},
+    {"tag": "科技", "keywords": ["AI", "人工智能", "芯片", "大模型", "OpenAI", "英伟达", "NVIDIA", "算力", "机器人", "半导体设备", "GPU", "DeepSeek"]},
+    {"tag": "政策", "keywords": ["政策", "监管", "证监会", "国务院", "发改委", "央行行长", "降准", "专项债", "限购", "补贴", "关税", "两会"]},
     {"tag": "财报", "keywords": ["财报", "季报", "年报", "营收", "净利润", "EPS", "毛利率", "分红", "回购", "指引"]},
     {"tag": "公告", "keywords": ["公告", "停牌", "复牌", "减持", "增持", "重组", "要约收购", "重大合同", "诉讼", "立案"]},
     {"tag": "资讯", "keywords": ["消息", "传闻", "报道", "据悉", "知情人士", "来源", "表示", "称", "透露"]},
+    {"tag": "美股", "keywords": ["美股", "纳斯达克", "纳指", "标普", "道指", "标普500", "美债", "非农"]},
+    {"tag": "港股", "keywords": ["港股", "恒指", "恒生", "南向", "北向资金", "港交所"]},
+    {"tag": "黄金", "keywords": ["黄金", "金价", "伦敦金", "黄金ETF", "黄金期货"]},
+    {"tag": "大宗", "keywords": ["原油", "布伦特", "铜价", "铁矿", "期货", "有色"]},
+    {"tag": "医药", "keywords": ["医药", "创新药", "CXO", "集采", "医保", "生物医药"]},
+    {"tag": "加密", "keywords": ["比特币", "以太坊", "BTC", "ETH", "加密货币", "稳定币"]},
+    {"tag": "理念", "keywords": ["价值投资", "护城河", "能力圈", "安全边际", "巴菲特", "芒格", "长期持有"]},
+    {"tag": "调仓", "keywords": ["调仓", "换仓", "组合调仓", "再平衡"]},
 ]
 TAG_VOCABULARY_KEY = "tag_vocabulary"
 
@@ -2235,6 +2243,20 @@ class DB:
     def set_tag_vocabulary(self, tags: list[dict]) -> None:
         """保存贴文打标词表（对象数组：tag + keywords）。"""
         self.set_setting(TAG_VOCABULARY_KEY, json.dumps(tags, ensure_ascii=False))
+
+    def merge_default_tag_vocabulary(self) -> int:
+        """把默认词表里还没有的标签追加进去，不改已有标签的关键词。返回新增条数。"""
+        from .tagging import TAG_VOCABULARY_MAX
+
+        current = self.get_tag_vocabulary()
+        have = {r["tag"] for r in current}
+        extra = [dict(r) for r in DEFAULT_TAG_RULES if r["tag"] not in have]
+        room = max(0, TAG_VOCABULARY_MAX - len(current))
+        extra = extra[:room]
+        if not extra:
+            return 0
+        self.set_tag_vocabulary(current + extra)
+        return len(extra)
 
     def tag_stats(self) -> dict:
         """打标统计（管理端回填进度展示用）。

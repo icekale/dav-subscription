@@ -117,6 +117,7 @@ def create_app(config=None, db_path: str | Path | None = None) -> FastAPI:
     ):
         if db.get_setting(key) is None:
             db.set_setting(key, str(value))
+    db.merge_default_tag_vocabulary()
     secret = auth.get_or_create_secret(db, config.web.token_secret)
 
     if config.web.admin_password:

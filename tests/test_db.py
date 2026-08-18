@@ -327,3 +327,28 @@ def test_revoke_and_update_register_code_note(tmp_path):
     db.update_register_code_note("NOTE0003", "给张三")
     assert db.get_register_code("NOTE0003")["note"] == "给张三"
     db.close()
+
+
+def test_default_tag_rules_cover_market_topics():
+    from app.db import DEFAULT_TAG_RULES
+    from app.tagging import TAG_VOCABULARY_MAX
+
+    names = {r["tag"] for r in DEFAULT_TAG_RULES}
+    for name in ("宏观", "科技", "美股", "港股", "黄金", "大宗", "医药", "加密", "理念", "调仓"):
+        assert name in names
+    assert len(DEFAULT_TAG_RULES) <= TAG_VOCABULARY_MAX
+    assert all(r.get("keywords") for r in DEFAULT_TAG_RULES)
+
+
+def test_merge_default_tag_vocabulary_adds_missing_keeps_custom(tmp_path):
+    from app.db import DEFAULT_TAG_RULES, DB
+
+    db = DB(str(tmp_path / "t.db"))
+    db.set_tag_vocabulary([{"tag": "宏观", "keywords": ["只留央行"]}])
+    added = db.merge_default_tag_vocabulary()
+    assert added >= 1
+    tags = {r["tag"]: r["keywords"] for r in db.get_tag_vocabulary()}
+    assert tags["宏观"] == ["只留央行"]
+    for rule in DEFAULT_TAG_RULES:
+        assert rule["tag"] in tags
+    db.close()
