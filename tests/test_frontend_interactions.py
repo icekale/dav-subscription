@@ -608,6 +608,18 @@ def test_admin_kols_filter_controls_match_input_height():
     assert re.search(r"\.ak-platform-tabs \.platform-tab[^{]*\{[^}]*--control-height-2xl", css)
 
 
+def test_admin_kols_mobile_filters_and_actions_align():
+    """窄屏：筛选两列网格；操作钮等宽，奇数个时最后一个铺满，避免删除孤一块。"""
+    body = _fn_body("loadAdminKols")
+    assert "ak-search-btn" in body
+    assert "ak-clear-btn" in body
+    css = STYLE_CSS.read_text()
+    assert ".ak-filters #ak-q" in css
+    assert "last-child:nth-child(odd)" in css
+    assert ".ak-table td.ak-actions .btn-sm" in css
+    assert "margin-right: 0" in css
+
+
 def test_admin_kols_add_fields_have_accessible_names():
     """添加区控件要有可达名称，不能只靠 placeholder。"""
     body = _fn_body("loadAdminKols")

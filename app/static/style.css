@@ -440,16 +440,20 @@ textarea.form-control {
 .section-title { font-size: var(--text-title); font-weight: var(--font-weight-semibold); color: var(--color-text-strong); margin-top: 4px; }
 .section-meta { color: var(--color-text-muted); font-size: var(--text-xs); margin-top: 4px; }
 .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-.toolbar .btn-ghost,
-.toolbar .btn-sm {
-  height: var(--control-height-2xl);
-  box-sizing: border-box;
+@media (min-width: 769px) {
+  .toolbar .btn-ghost,
+  .toolbar .btn-sm {
+    height: var(--control-height-2xl);
+    box-sizing: border-box;
+  }
 }
 .ak-filters { margin-top: 12px; }
 .ak-platform-tabs { margin-top: 12px; }
-.ak-platform-tabs .platform-tab {
-  width: var(--control-height-2xl);
-  height: var(--control-height-2xl);
+@media (min-width: 769px) {
+  .ak-platform-tabs .platform-tab {
+    width: var(--control-height-2xl);
+    height: var(--control-height-2xl);
+  }
 }
 
 /* 抓取设置分组栅格：按抓取档位分组（基础轮询/雪球组合/自适应降频/次要大V/X通道/保活定时），
@@ -1610,11 +1614,38 @@ pre.content-cell { white-space: pre-wrap; overflow-wrap: break-word; min-width: 
   .ak-table td.ak-hide-mobile { display: none; }
   .ak-table td.ak-actions { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
   .ak-table td.ak-actions::before { content: none; }
-  .ak-table td.ak-actions .btn-sm { width: 100%; min-height: 44px; }
+  .ak-table td.ak-actions .btn-sm {
+    width: 100%;
+    height: 44px;
+    min-height: 44px;
+    margin-right: 0;
+    box-sizing: border-box;
+  }
+  .ak-table td.ak-actions .btn-sm:last-child:nth-child(odd) { grid-column: 1 / -1; }
   .ak-table .kol-check, .ak-table #ak-checkall { width: 20px; height: 20px; }
   .ak-table tr.ak-empty { display: block; }
   .ak-table tr.ak-empty td { display: block; }
   .ak-table tr.ak-empty td::before { content: none; }
+  .ak-filters {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    width: 100%;
+  }
+  .ak-filters #ak-q { grid-column: 1 / -1; width: auto !important; max-width: none; }
+  .ak-filters .form-control,
+  .ak-filters .btn-ghost {
+    width: 100%;
+    height: 44px;
+    min-height: 44px;
+    margin: 0;
+  }
+  .ak-platform-tabs { align-items: stretch; }
+  .ak-platform-tabs .platform-tab {
+    height: 44px;
+    min-height: 44px;
+    width: auto;
+  }
 }
 
 /* ---------- 全景概览 ---------- */

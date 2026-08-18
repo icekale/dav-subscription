@@ -3408,14 +3408,14 @@ async function loadAdminKols(opts) {
         <p class="section-meta" id="admin-kols-meta">共 ${state.adminKolsTotal} 个大V · 优先约 60 秒抓一次，次要走低频摘要</p></div>
         <div class="toolbar ak-filters">
           <input id="ak-q" class="form-control" style="width:200px" placeholder="昵称 / 外部ID" value="${escapeHtml(state.adminKolsQ || "")}" onkeydown="if(event.key==='Enter')adminKolsApplyFilter()">
-          <button type="button" class="btn-ghost" onclick="adminKolsApplyFilter()">搜索</button>
           <select id="ak-category" class="form-control" style="width:auto" onchange="adminKolsApplyFilter()"><option value="">全部分类</option>${catOptions}</select>
           <select id="ak-status" class="form-control" style="width:auto" onchange="adminKolsApplyFilter()">
             <option value="">全部状态</option>
             <option value="1" ${state.adminKolsStatus === "1" ? "selected" : ""}>启用</option>
             <option value="0" ${state.adminKolsStatus === "0" ? "selected" : ""}>停用</option>
           </select>
-          <button type="button" class="btn-ghost" onclick="adminKolsClearFilter()">清除</button>
+          <button type="button" class="btn-ghost ak-search-btn" onclick="adminKolsApplyFilter()">搜索</button>
+          <button type="button" class="btn-ghost ak-clear-btn" onclick="adminKolsClearFilter()">清除</button>
         </div>
         <div class="platform-tabs ak-platform-tabs" id="admin-kols-tabs"></div>
       </header>
