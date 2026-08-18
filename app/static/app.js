@@ -3340,6 +3340,7 @@ async function saveTwitterCookie() {
 }
 
 let wbQrTimer = null;
+let wbQrSeq = 0;
 
 async function startWeiboQr() {
   try {
@@ -3349,8 +3350,15 @@ async function startWeiboQr() {
         <img src="${escapeHtml(data.qrurl)}" alt="微博登录二维码" style="width:220px;height:220px">
       </div>
       <p class="muted" id="wb-qr-status" style="margin-top:10px">等待扫码…</p>`;
-    if (wbQrTimer) clearInterval(wbQrTimer);
-    wbQrTimer = setInterval(() => pollWeiboQr(data.qrid), 2000);
+    if (wbQrTimer) clearTimeout(wbQrTimer);
+    const seq = ++wbQrSeq;
+    const tick = async () => {
+      if (seq !== wbQrSeq) return;
+      const cont = await pollWeiboQr(data.qrid);
+      if (seq !== wbQrSeq || !cont) return;
+      wbQrTimer = setTimeout(tick, 2000);
+    };
+    wbQrTimer = setTimeout(tick, 2000);
   } catch (err) {
     flash(err.message, "error");
   }
@@ -3360,23 +3368,24 @@ async function pollWeiboQr(qrid) {
   try {
     const data = await api(`/api/admin/weibo-qr/status?qrid=${encodeURIComponent(qrid)}`);
     const statusEl = $("#wb-qr-status");
-    if (!statusEl) {
-      if (wbQrTimer) clearInterval(wbQrTimer);
-      return;
-    }
+    if (!statusEl) return false;
     if (data.status === "pending") {
       statusEl.textContent = "等待扫码…";
-    } else if (data.status === "scanned") {
+      return true;
+    }
+    if (data.status === "scanned") {
       statusEl.textContent = "已扫描，请在手机上确认登录";
-    } else if (data.status === "ok") {
-      if (wbQrTimer) clearInterval(wbQrTimer);
+      return true;
+    }
+    if (data.status === "ok") {
       statusEl.textContent = "登录成功，微博 Cookie 已自动保存";
       flash("微博 Cookie 已保存");
     }
+    return false;
   } catch (err) {
-    if (wbQrTimer) clearInterval(wbQrTimer);
     const statusEl = $("#wb-qr-status");
     if (statusEl) statusEl.textContent = "登录失败：" + err.message;
+    return false;
   }
 }
 

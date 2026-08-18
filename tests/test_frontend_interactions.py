@@ -866,3 +866,13 @@ def test_type_scale_uses_four_reading_roles():
         for match in re.finditer(rf"font-size:\s*{re.escape(size)}", css):
             window = css[max(0, match.start() - 80) : match.end()]
             assert "cube-nav" in window, f"{size} 只能用于图表刻度: {window!r}"
+
+def test_weibo_qr_poll_is_serial():
+    """微博扫码轮询必须等上一轮结束再调度下一轮，避免成功后被并发 404 盖成过期。"""
+    start = _fn_body("startWeiboQr")
+    poll = _fn_body("pollWeiboQr")
+    assert "setInterval" not in start
+    assert "setInterval" not in poll
+    assert "await pollWeiboQr(" in start
+    assert "setTimeout" in start.split("await pollWeiboQr", 1)[1]
+
