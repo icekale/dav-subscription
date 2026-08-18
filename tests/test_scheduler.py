@@ -3221,6 +3221,53 @@ def test_retry_push_sends_when_still_subscribed(monkeypatch):
     assert len(_retry_tg_instances[0].sent) == 1
 
 
+def test_retry_push_uses_latest_image_preference_without_mutating_queue(monkeypatch):
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.add_subscription(uid, kid)
+    scheduler = _retry_scheduler(db, monkeypatch)
+
+    hidden_post = make_post(kid)
+    hidden_post.images = ["https://img.example.com/hidden.jpg"]
+    db.insert_post(
+        "xueqiu", kid, hidden_post.external_id, hidden_post.title, hidden_post.content,
+        hidden_post.url, hidden_post.published_at, images=hidden_post.images,
+    )
+    scheduler.retry_queue.add(hidden_post, "telegram", uid)
+    hidden_item = next(iter(scheduler.retry_queue._items.values()))
+    db.set_subscription_hide_images(uid, kid, True)
+    _retry_tg_instances.clear()
+
+    scheduler._retry_push(hidden_item)
+
+    hidden_delivery = _retry_tg_instances[0].sent[0]
+    assert hidden_delivery is not hidden_post
+    assert hidden_delivery.images == []
+    assert hidden_item["post"] is hidden_post
+    assert hidden_post.images == ["https://img.example.com/hidden.jpg"]
+
+    visible_post = make_post(kid)
+    visible_post.external_id = "p2"
+    visible_post.images = ["https://img.example.com/visible.jpg"]
+    db.insert_post(
+        "xueqiu", kid, visible_post.external_id, visible_post.title, visible_post.content,
+        visible_post.url, visible_post.published_at, images=visible_post.images,
+    )
+    scheduler.retry_queue.add(visible_post, "telegram", uid)
+    visible_item = next(iter(scheduler.retry_queue._items.values()))
+    db.set_subscription_hide_images(uid, kid, False)
+    _retry_tg_instances.clear()
+
+    scheduler._retry_push(visible_item)
+
+    visible_delivery = _retry_tg_instances[0].sent[0]
+    assert visible_delivery is visible_post
+    assert visible_delivery.images == ["https://img.example.com/visible.jpg"]
+    assert visible_item["post"] is visible_post
+    assert visible_post.images == ["https://img.example.com/visible.jpg"]
+
+
 def test_retry_push_dnd_keyword_penetration(monkeypatch):
     """免打扰时段重试：关键词命中仍立即发送，不得改进行缓冲。"""
     db = make_db()

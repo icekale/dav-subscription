@@ -64,6 +64,31 @@ def test_db_migrates_subscription_secondary_column(tmp_path):
     assert "secondary" in cols
 
 
+def test_db_migrates_subscription_hide_images_column(tmp_path):
+    path = tmp_path / "legacy.db"
+    conn = sqlite3.connect(path)
+    conn.executescript(
+        """
+        CREATE TABLE subscriptions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            kol_id INTEGER NOT NULL,
+            type TEXT NOT NULL DEFAULT 'post',
+            favorite INTEGER NOT NULL DEFAULT 0,
+            secondary INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE (user_id, kol_id)
+        );
+        """
+    )
+    conn.close()
+
+    db = DB(str(path))
+    columns = {r["name"]: r for r in db._rows("PRAGMA table_info(subscriptions)")}
+    assert columns["hide_images"]["notnull"] == 1
+    assert columns["hide_images"]["dflt_value"] == "0"
+
+
 def test_set_subscription_secondary(tmp_path):
     db = DB(str(tmp_path / "t.db"))
     uid = db.add_user("u", "h", telegram_chat_id="111")
@@ -100,6 +125,33 @@ def test_list_subscriptions_returns_personal_secondary(tmp_path):
     assert subs and subs[0]["secondary"] == 1
 
 
+def test_subscription_hide_images_defaults_toggles_and_is_user_scoped(tmp_path):
+    db = DB(str(tmp_path / "t.db"))
+    first_uid = db.add_user("first", "h", telegram_chat_id="111")
+    second_uid = db.add_user("second", "h", telegram_chat_id="222")
+    kid = db.add_kol("xueqiu", "A", "hide-images")
+    db.add_subscription(first_uid, kid)
+    db.add_subscription(second_uid, kid)
+
+    assert db.get_subscription(first_uid, kid)["hide_images"] == 0
+    assert db.list_subscriptions(first_uid)[0]["hide_images"] == 0
+    assert {
+        row["id"]: row["hide_images"] for row in db.subscribers_of_kol(kid)
+    } == {first_uid: 0, second_uid: 0}
+
+    assert db.set_subscription_hide_images(first_uid, kid, True)
+    assert db.get_subscription(first_uid, kid)["hide_images"] == 1
+    assert db.get_subscription(second_uid, kid)["hide_images"] == 0
+    assert db.list_subscriptions(first_uid)[0]["hide_images"] == 1
+    assert {
+        row["id"]: row["hide_images"] for row in db.subscribers_of_kol(kid)
+    } == {first_uid: 1, second_uid: 0}
+
+    assert db.set_subscription_hide_images(first_uid, kid, False)
+    assert db.get_subscription(first_uid, kid)["hide_images"] == 0
+    assert not db.set_subscription_hide_images(first_uid, kid + 999, True)
+
+
 def test_post_tag_state_distinguishes_pending_from_no_match(tmp_path):
     db = DB(str(tmp_path / "t.db"))
     kid = db.add_kol("xueqiu", "测试", "tag-state")
@@ -127,19 +179,38 @@ def test_duplicate_kol_migration_merges_subscription_flags(tmp_path):
     path = tmp_path / "legacy.db"
     db = DB(str(path))
     uid = db.add_user("merge", "h")
+    other_uid = db.add_user("merge-other", "h")
     keep_id = db.add_kol("xueqiu", "A", "same")
     db.add_subscription(uid, keep_id, type="post")
+    db.add_subscription(other_uid, keep_id, type="post")
     db.close()
 
     conn = sqlite3.connect(path)
     conn.execute("DROP INDEX uq_kols_platform_external")
+    sub_columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(subscriptions)").fetchall()
+    }
+    if "hide_images" not in sub_columns:
+        conn.execute(
+            "ALTER TABLE subscriptions "
+            "ADD COLUMN hide_images INTEGER NOT NULL DEFAULT 0"
+        )
+    conn.execute(
+        "UPDATE subscriptions SET hide_images = 1 "
+        "WHERE user_id = ? AND kol_id = ?",
+        (other_uid, keep_id),
+    )
     duplicate_id = conn.execute(
         "INSERT INTO kols (platform, name, external_id) VALUES ('xueqiu', 'B', 'same')"
     ).lastrowid
-    conn.execute(
-        "INSERT INTO subscriptions (user_id, kol_id, type, favorite, secondary) "
-        "VALUES (?, ?, 'reply', 1, 1)",
-        (uid, duplicate_id),
+    conn.executemany(
+        "INSERT INTO subscriptions "
+        "(user_id, kol_id, type, favorite, secondary, hide_images) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        [
+            (uid, duplicate_id, "reply", 1, 1, 1),
+            (other_uid, duplicate_id, "post", 0, 0, 0),
+        ],
     )
     conn.commit()
     conn.close()
@@ -150,6 +221,54 @@ def test_duplicate_kol_migration_merges_subscription_flags(tmp_path):
     assert rows[0]["subscribe_type"] == "both"
     assert rows[0]["favorite"] == 1
     assert rows[0]["secondary"] == 1
+    assert rows[0]["hide_images"] == 1
+    assert migrated.list_subscriptions(other_uid)[0]["hide_images"] == 1
+
+
+def test_transfer_subscriptions_ors_hide_images_and_secondary(tmp_path):
+    db = DB(str(tmp_path / "t.db"))
+    columns = {r["name"] for r in db._rows("PRAGMA table_info(subscriptions)")}
+    if "hide_images" not in columns:
+        db._execute(
+            "ALTER TABLE subscriptions "
+            "ADD COLUMN hide_images INTEGER NOT NULL DEFAULT 0"
+        )
+    source_uid = db.add_user("source", "h")
+    target_uid = db.add_user("target", "h")
+    source_hidden = db.add_kol("xueqiu", "A", "source-hidden")
+    target_hidden = db.add_kol("xueqiu", "B", "target-hidden")
+    source_only = db.add_kol("xueqiu", "C", "source-only")
+    for kid in (source_hidden, target_hidden):
+        db.add_subscription(target_uid, kid)
+    for kid in (source_hidden, target_hidden, source_only):
+        db.add_subscription(source_uid, kid)
+    db._execute(
+        "UPDATE subscriptions SET hide_images = 1, secondary = 1 "
+        "WHERE user_id = ? AND kol_id IN (?, ?)",
+        (source_uid, source_hidden, source_only),
+    )
+    db._execute(
+        "UPDATE subscriptions SET hide_images = 1, secondary = 1 "
+        "WHERE user_id = ? AND kol_id = ?",
+        (target_uid, target_hidden),
+    )
+
+    db.transfer_subscriptions(source_uid, target_uid)
+
+    transferred = {
+        row["kol_id"]: (row["hide_images"], row["secondary"])
+        for row in db._rows(
+            "SELECT kol_id, hide_images, secondary FROM subscriptions "
+            "WHERE user_id = ?",
+            (target_uid,),
+        )
+    }
+    assert transferred == {
+        source_hidden: (1, 1),
+        target_hidden: (1, 1),
+        source_only: (1, 1),
+    }
+    assert db.list_subscriptions(source_uid) == []
 
 
 def test_kol_and_pending_request_unique_indexes(tmp_path):

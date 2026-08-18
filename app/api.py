@@ -426,6 +426,10 @@ class SubscriptionSecondaryIn(BaseModel):
     secondary: bool
 
 
+class SubscriptionHideImagesIn(BaseModel):
+    hide_images: bool
+
+
 class UserUpdate(BaseModel):
     is_admin: bool | None = None
     password: str | None = None
@@ -1435,6 +1439,18 @@ def create_api_router(
             raise HTTPException(status_code=404, detail="尚未订阅该大V")
         return {"ok": True}
 
+    @router.put("/subscriptions/{kol_id}/hide-images")
+    def set_subscription_hide_images(
+        kol_id: int,
+        body: SubscriptionHideImagesIn,
+        user: dict = Depends(get_current_user),
+    ):
+        if db.get_kol(kol_id) is None:
+            raise HTTPException(status_code=404, detail="大V不存在")
+        if not db.set_subscription_hide_images(user["id"], kol_id, body.hide_images):
+            raise HTTPException(status_code=404, detail="尚未订阅该大V")
+        return {"ok": True}
+
     @router.delete("/subscriptions/{kol_id}")
     def unsubscribe(kol_id: int, user: dict = Depends(get_current_user)):
         db.remove_subscription(user["id"], kol_id)
@@ -1500,7 +1516,11 @@ def create_api_router(
             not user["is_admin"] and kol["id"] not in db.visible_kol_ids(user["id"])
         ):
             raise HTTPException(status_code=404, detail="大V不存在")
-        return db.list_posts(limit=bounded_limit(limit), kol_id=kol_id)
+        posts = db.list_posts(limit=bounded_limit(limit), kol_id=kol_id)
+        subscription = db.get_subscription(user["id"], kol_id)
+        if subscription and subscription["hide_images"]:
+            return [{**post, "images": []} for post in posts]
+        return posts
 
     @router.get("/kols/{kol_id}/holdings")
     def kol_holdings(kol_id: int, user: dict = Depends(get_current_user)):

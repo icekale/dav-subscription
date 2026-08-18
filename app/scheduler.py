@@ -11,6 +11,7 @@ import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from datetime import datetime
 
 from .backup import run_scheduled
@@ -1851,6 +1852,11 @@ class Scheduler:
         ):
             self.retry_queue.drop(item)
             return
+        delivery_post = post
+        if item["user_id"] is not None:
+            subscription = self.db.get_subscription(item["user_id"], post.kol_id)
+            if subscription and subscription["hide_images"]:
+                delivery_post = replace(post, images=[])
         favorite = bool(
             item["user_id"] is not None
             and post.kol_id in self.db.subscribed_favorite_ids(item["user_id"])
@@ -1870,7 +1876,7 @@ class Scheduler:
             item["channel"], item["user_id"], favorite=favorite
         )
         try:
-            notifier.notify(post)
+            notifier.notify(delivery_post)
         finally:
             # 按用户重建的 notifier 持有独立 client，用完即关；
             # user_id 为 None 时复用全局 notifier，不能关它的连接

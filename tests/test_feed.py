@@ -113,6 +113,31 @@ def test_feed_route_requires_token_and_renders():
     assert resp.text.startswith("<?xml")
 
 
+def test_private_rss_hides_enclosure_per_subscription():
+    client = make_client()
+    hidden_headers, hidden_uid = _seed_user_and_sub(client)
+    db: DB = client.app.state.db
+    kid = db.list_kols()[0]["id"]
+    db.set_subscription_hide_images(hidden_uid, kid, True)
+    db.add_register_code("FEED03")
+    normal = client.post(
+        "/api/auth/register",
+        json={"username": "feed_images_normal", "password": "secret123", "code": "FEED03"},
+    ).json()
+    normal_headers = {"Authorization": f"Bearer {normal['token']}"}
+    db.add_subscription(normal["user"]["id"], kid)
+    hidden_token = client.get("/api/me", headers=hidden_headers).json()["feed_token"]
+    normal_token = client.get("/api/me", headers=normal_headers).json()["feed_token"]
+
+    hidden_xml = client.get(f"/api/feed/{hidden_token}.xml").text
+    normal_xml = client.get(f"/api/feed/{normal_token}.xml").text
+
+    assert "<enclosure" not in hidden_xml
+    assert "https://img.example.com/1.jpg" not in hidden_xml
+    assert "<enclosure" in normal_xml
+    assert "https://img.example.com/1.jpg" in normal_xml
+
+
 def test_feed_route_404_on_bad_token():
     client = make_client()
     resp = client.get("/api/feed/not-a-real-token.xml")

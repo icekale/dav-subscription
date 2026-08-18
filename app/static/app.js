@@ -16,7 +16,7 @@ const CHANNEL_ICONS = {
 };
 const CHANNEL_LABELS = { telegram: "Telegram", feishu: "飞书", wecom: "企业微信", bark: "Bark" };
 const USER_CHANNEL_KEYS = ["telegram", "feishu", "wecom", "bark"];
-const APP_VERSION = "1.12.15";
+const APP_VERSION = "1.12.16";
 const PLATFORM_TABS = ["", "xueqiu", "combination", "weibo", "twitter"];
 const TL_PLATFORMS = PLATFORM_TABS.map((p) => [p, p ? PLATFORM_LABELS[p] : "全部"]);
 const STAR_SVG = `<svg class="star-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5l2.95 5.98 6.6.96-4.78 4.66 1.13 6.58L12 17.6l-5.9 3.1 1.13-6.58L2.45 9.44l6.6-.96L12 2.5z"/></svg>`;
@@ -1392,7 +1392,14 @@ function renderRailRecs(recs) {
             <a class="tl-rail-rec-name" href="#/kol/${r.id}">${escapeHtml(r.name)}</a>
             <div class="tl-rail-rec-meta">${escapeHtml(PLATFORM_LABELS[r.platform] || r.platform)}${r.category_name ? " · " + escapeHtml(r.category_name) : ""}</div>
           </div>
-          <button type="button" class="btn-ghost" onclick="railSubscribe(${r.id}, this)">订阅</button>
+          <button type="button"
+            class="btn-ghost tl-rail-subscribe"
+            data-subscribed="0"
+            aria-label="订阅${escapeHtml(r.name)}"
+            onclick="railToggleSubscribe(${r.id}, this)">
+            <span class="tl-rail-subscribe-state">订阅</span>
+            <span class="tl-rail-subscribe-action" aria-hidden="true">退订</span>
+          </button>
         </div>`).join("")}
       <a class="tl-rail-more" href="#/search">显示更多</a>
     </section>`;
@@ -1410,17 +1417,40 @@ function renderRailTags(tags) {
     </section>`;
 }
 
-async function railSubscribe(kolId, btn) {
+async function railToggleSubscribe(kolId, btn) {
+  if (!btn || btn.disabled) return;
+  const subscribed = btn.dataset.subscribed === "1";
+  const name = btn.closest(".tl-rail-rec")?.querySelector(".tl-rail-rec-name")?.textContent || "该大V";
+  const restoreFocus = document.activeElement === btn && btn.matches(":focus-visible");
+  btn.disabled = true;
   try {
-    await api("/api/subscriptions", { method: "POST", body: JSON.stringify({ kol_id: kolId, type: "post" }) });
-    if (btn) {
-      btn.textContent = "已订阅";
-      btn.disabled = true;
+    if (subscribed) {
+      await api(`/api/subscriptions/${kolId}`, { method: "DELETE" });
+    } else {
+      await api("/api/subscriptions", {
+        method: "POST",
+        body: JSON.stringify({ kol_id: kolId, type: "post" }),
+      });
     }
-    if (state.user) state.user.subscription_count = (state.user.subscription_count || 0) + 1;
-    flash("已订阅");
+    const nextSubscribed = !subscribed;
+    btn.dataset.subscribed = nextSubscribed ? "1" : "0";
+    btn.classList.toggle("subscribed", nextSubscribed);
+    btn.setAttribute("aria-label", `${nextSubscribed ? "退订" : "订阅"}${name}`);
+    btn.title = nextSubscribed ? "点击退订" : "";
+    const stateLabel = btn.querySelector(".tl-rail-subscribe-state");
+    if (stateLabel) stateLabel.textContent = nextSubscribed ? "✓ 已订阅" : "订阅";
+    if (state.user) {
+      const delta = nextSubscribed ? 1 : -1;
+      state.user.subscription_count = Math.max(0, (state.user.subscription_count || 0) + delta);
+    }
+    flash(`已${nextSubscribed ? "订阅" : "退订"}「${name}」`);
   } catch (err) {
-    flash(err.message, "error");
+    flash(`${subscribed ? "退订" : "订阅"}「${name}」失败: ${err.message}`, "error");
+  } finally {
+    btn.disabled = false;
+    if (restoreFocus && btn.isConnected && document.activeElement === document.body) {
+      btn.focus({ preventScroll: true });
+    }
   }
 }
 
@@ -1619,10 +1649,10 @@ async function renderSearch(seq) {
     <section class="section-panel">
       <div class="search-bar" style="margin-bottom:16px">
         ${SEARCH_ICON}
-        <input id="search-input" placeholder="输入昵称或 ID，回车搜索" value="${escapeHtml(query)}" onkeydown="if(event.key==='Enter')doSearch()">
-        <button class="btn-ghost" onclick="doSearch()">搜索</button>
+        <input id="search-input" placeholder="输入昵称或 ID，回车搜索" value="${escapeHtml(query)}" onkeydown="if(event.key==='Enter')doSearch(routeRenderSeq)">
+        <button class="btn-ghost" onclick="doSearch(routeRenderSeq)">搜索</button>
       </div>
-      <div id="search-result" class="kol-grid"></div>
+      <div id="search-result" class="kol-grid">${emptyState("加载中…")}</div>
     </section>`;
   if (!state.user?.is_admin) {
     let cats = [];
@@ -1662,8 +1692,8 @@ async function renderSearch(seq) {
     $("#main").appendChild(myAskPanel);
     loadMyAsks(seq);
   }
-  if (query) doSearch(seq);
-  else $("#search-input").focus();
+  await doSearch(seq);
+  if (!query && routeStillActive(seq)) $("#search-input")?.focus();
 }
 
 
@@ -1743,20 +1773,29 @@ async function loadMyAsks(routeSeq) {
 }
 
 async function doSearch(routeSeq) {
-  const keyword = $("#search-input").value.trim().toLowerCase();
-  if (!keyword) return;
+  const input = $("#search-input");
+  if (!input) return;
+  const keyword = input.value.trim().toLowerCase();
   try {
     const kols = await api("/api/catalog");
-    if (!routeStillActive(routeSeq)) return; // 已切走：不写旧搜索结果
-    const hits = kols.filter(
-      (k) => k.name.toLowerCase().includes(keyword) || k.external_id.toLowerCase().includes(keyword)
-    );
-    $("#search-result").innerHTML = hits.length
+    if (!routeStillActive(routeSeq)) return;
+    state.catalog = kols;
+    const available = kols.filter((k) => !k.subscribed);
+    const hits = keyword
+      ? available.filter(
+          (k) => (k.name || "").toLowerCase().includes(keyword)
+            || (k.external_id || "").toLowerCase().includes(keyword)
+        )
+      : available;
+    const target = $("#search-result");
+    if (!target) return;
+    target.innerHTML = hits.length
       ? hits.map(kolCard).join("")
-      : emptyState("没有找到匹配的大V，可联系管理员添加");
+      : emptyState(keyword ? "没有匹配的未订阅大V" : "所有大V都已订阅");
   } catch (err) {
     if (!routeStillActive(routeSeq)) return;
-    $("#search-result").innerHTML = emptyState("搜索失败: " + err.message);
+    const target = $("#search-result");
+    if (target) target.innerHTML = emptyState("搜索失败: " + err.message);
   }
 }
 
@@ -1909,6 +1948,11 @@ async function toggleKolPageSubscribe(kolId) {
 
 // ---------- 推送设置 ----------
 let settingsPollTimer = null;
+let _kolImageSubscriptions = [];
+const _kolImagePendingIds = new Set();
+let _kolImageLoadGeneration = 0;
+let _kolImageDataRevision = 0;
+let _kolImageReloadNeeded = false;
 
 function stopSettingsPoll() {
   if (settingsPollTimer) {
@@ -2119,6 +2163,15 @@ async function renderSettings(seq) {
         </div>
         <p class="muted">适用场景：只关心某个大V聊的特定话题（如「只想要 ETF 相关的」）；命中即实时送达，不受免打扰影响。</p>
       </section>
+      <section class="section-panel">
+        <header class="section-head">
+          <div>
+            <h3 class="section-title">动态图片</h3>
+            <p class="section-meta">关闭某位大V的图片显示后，该大V的动态图片会从网页、推送和私有 RSS 中隐藏；头像仍会显示。仅影响当前账号。</p>
+          </div>
+        </header>
+        <div id="kol-images-settings" class="muted kol-images-state" role="status">正在加载已订阅大V…</div>
+      </section>
       </div>
       <div id="st-bind" class="settings-tab-panel">
       <section class="section-panel">
@@ -2325,8 +2378,157 @@ async function renderSettings(seq) {
     settingsPollTimer = setInterval(refreshSettingsStatus, 10000);
     switchSettingsTab(state.settingsTab || "push"); // 恢复上次所在分栏
     toggleDnd(); // 根据开关初始状态同步时段输入框的禁用/置灰
+    loadKolImageSettings(seq);
   } catch (err) {
     $("#main").innerHTML = emptyState(err.message);
+  }
+}
+
+function reloadKolImageSettingsIfNeeded() {
+  if (!_kolImageReloadNeeded || _kolImagePendingIds.size) return;
+  if (location.hash.replace(/^#\/?/, "").split("?")[0] !== "settings") return;
+  _kolImageReloadNeeded = false;
+  loadKolImageSettings(routeRenderSeq);
+}
+
+async function loadKolImageSettings(seq) {
+  const target = $("#kol-images-settings");
+  if (!target) return;
+  const loadGeneration = ++_kolImageLoadGeneration;
+  const loadRevision = _kolImageDataRevision;
+  target.className = "muted kol-images-state";
+  target.setAttribute("role", "status");
+  target.textContent = "正在加载已订阅大V…";
+  try {
+    const subscriptions = await api("/api/my/subscriptions");
+    if (loadGeneration !== _kolImageLoadGeneration || !routeStillActive(seq)) return;
+    if (loadRevision !== _kolImageDataRevision || _kolImagePendingIds.size) {
+      _kolImageReloadNeeded = true;
+      reloadKolImageSettingsIfNeeded();
+      return;
+    }
+    _kolImageReloadNeeded = false;
+    _kolImageSubscriptions = subscriptions;
+    renderKolImageSettings();
+  } catch (err) {
+    if (loadGeneration !== _kolImageLoadGeneration || !routeStillActive(seq)) return;
+    if (loadRevision !== _kolImageDataRevision || _kolImagePendingIds.size) {
+      _kolImageReloadNeeded = true;
+      reloadKolImageSettingsIfNeeded();
+      return;
+    }
+    _kolImageReloadNeeded = false;
+    const current = $("#kol-images-settings");
+    if (!current) return;
+    current.className = "kol-images-local-state";
+    current.setAttribute("role", "alert");
+    current.innerHTML = `
+      <p class="muted">加载失败: ${escapeHtml(err.message)}</p>
+      <button type="button" class="btn-ghost" onclick="loadKolImageSettings(routeRenderSeq)">重试</button>`;
+  }
+}
+
+function renderKolImageSettings() {
+  const target = $("#kol-images-settings");
+  if (!target) return;
+  target.className = "";
+  target.removeAttribute("role");
+  if (!_kolImageSubscriptions.length) {
+    target.innerHTML = emptyState(
+      "还没有订阅大V",
+      `<div><button type="button" class="btn-normal btn-add" onclick="location.hash='#/home'">去订阅广场</button></div>`
+    );
+    return;
+  }
+  const search = _kolImageSubscriptions.length >= 12
+    ? `<div class="search-bar kol-images-search">
+         ${SEARCH_ICON}
+         <input id="kol-images-search" type="search" aria-label="搜索已订阅大V"
+           placeholder="搜索已订阅大V" oninput="filterKolImageSettings()">
+       </div>`
+    : "";
+  target.innerHTML = `${search}<div id="kol-images-list" class="kol-images-list"></div>`;
+  filterKolImageSettings();
+}
+
+function filterKolImageSettings() {
+  const list = $("#kol-images-list");
+  if (!list) return;
+  const query = ($("#kol-images-search")?.value || "").trim().toLowerCase();
+  const filtered = query
+    ? _kolImageSubscriptions.filter((kol) => {
+        const platform = PLATFORM_LABELS[kol.platform] || kol.platform || "";
+        return [kol.name, kol.external_id, platform]
+          .some((value) => String(value || "").toLowerCase().includes(query));
+      })
+    : _kolImageSubscriptions;
+  list.innerHTML = filtered.length
+    ? filtered.map(kolImageSettingsRowHtml).join("")
+    : emptyState("没有匹配的已订阅大V");
+}
+
+function kolImageSettingsRowHtml(kol) {
+  const platform = PLATFORM_LABELS[kol.platform] || kol.platform || "";
+  return `
+    <div class="kol-images-row">
+      ${avatarHtml(kol.name, kol.avatar_url)}
+      <div class="kol-images-info">
+        <span class="kol-images-name" title="${escapeHtml(kol.name)}">${escapeHtml(kol.name)}</span>
+        <span class="kol-images-platform">${escapeHtml(platform)}</span>
+      </div>
+      <label class="switch kol-images-switch">
+        <input type="checkbox" ${!kol.hide_images ? "checked" : ""}
+          ${_kolImagePendingIds.has(kol.id) ? "disabled" : ""}
+          data-kol-id="${kol.id}"
+          aria-label="显示${escapeHtml(kol.name)}（${escapeHtml(platform)}）的动态图片"
+          onchange="toggleKolImages(${kol.id}, this)">
+        <span class="track"></span>
+        <span>显示</span>
+      </label>
+    </div>`;
+}
+
+async function toggleKolImages(kolId, input) {
+  if (!input || input.disabled || _kolImagePendingIds.has(kolId)) return;
+  const kol = _kolImageSubscriptions.find((item) => item.id === kolId);
+  if (!kol) return;
+  const seq = routeRenderSeq;
+  const show = input.checked;
+  const previousHideImages = kol.hide_images;
+  const restoreFocus = document.activeElement === input && input.matches(":focus-visible");
+  _kolImageDataRevision += 1;
+  _kolImagePendingIds.add(kolId);
+  kol.hide_images = !show;
+  input.disabled = true;
+  try {
+    await api(`/api/subscriptions/${kolId}/hide-images`, {
+      method: "PUT",
+      body: JSON.stringify({ hide_images: !show }),
+    });
+    if (!routeStillActive(seq)) return;
+    flash(`${show ? "已显示" : "已隐藏"}「${kol ? kol.name : "该大V"}」的动态图片`);
+  } catch (err) {
+    kol.hide_images = previousHideImages;
+    if (!routeStillActive(seq)) return;
+    input.checked = !previousHideImages;
+    flash("保存失败: " + err.message, "error");
+  } finally {
+    _kolImagePendingIds.delete(kolId);
+    _kolImageDataRevision += 1;
+    const isCurrentSettings = location.hash.replace(/^#\/?/, "").split("?")[0] === "settings";
+    if (!routeStillActive(seq) && isCurrentSettings) _kolImageReloadNeeded = true;
+    if (_kolImagePendingIds.size === 0 && _kolImageReloadNeeded) {
+      reloadKolImageSettingsIfNeeded();
+    } else if (routeStillActive(seq)) {
+      const mountedInput = document.querySelector(`#kol-images-list input[data-kol-id="${kolId}"]`);
+      if (mountedInput) {
+        mountedInput.checked = !kol.hide_images;
+        mountedInput.disabled = false;
+        if (restoreFocus && (document.activeElement === input || document.activeElement === document.body)) {
+          mountedInput.focus({ preventScroll: true });
+        }
+      }
+    }
   }
 }
 

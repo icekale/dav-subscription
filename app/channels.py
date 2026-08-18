@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 
 logger = logging.getLogger(__name__)
 
@@ -183,8 +184,9 @@ def deliver_post(
         keyword=keyword,
         db=db,
     )
+    delivery_post = replace(post, images=[]) if user.get("hide_images") else post
     try:
-        notifier.notify(post)
+        notifier.notify(delivery_post)
         db.add_push_log(post_id, channel, "success", user_id=user["id"])
     except Exception as exc:  # noqa: BLE001 - 单渠道失败不影响其他渠道/用户
         db.add_push_log(post_id, channel, "failed", str(exc), user_id=user["id"])
@@ -205,7 +207,7 @@ def deliver_post(
                             channel, user, notifiers_config, client=client,
                             favorite=favorite, keyword=keyword, db=db,
                         )
-                        notifier.notify(post)
+                        notifier.notify(delivery_post)
                         db.add_push_log(post_id, channel, "success", user_id=user["id"])
                         logger.info("飞书个人推送失败，已共享回退 user=%s", user["username"])
                         return

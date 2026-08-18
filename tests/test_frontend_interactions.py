@@ -56,6 +56,20 @@ def test_refresh_kols_view_covers_all_card_routes():
     assert "doSearch" in body
 
 
+def test_search_page_lists_only_unsubscribed_kols_without_query():
+    """显示更多进入搜索页后立即列出未订阅大V，交互搜索也必须携带当前路由令牌。"""
+    render = _fn_body("renderSearch")
+    search = _fn_body("doSearch")
+
+    assert "await doSearch(seq)" in render
+    assert render.count("doSearch(routeRenderSeq)") == 2
+    assert "if (!keyword) return" not in search
+    assert "kols.filter((k) => !k.subscribed)" in search
+    assert re.search(r"keyword\s*\?\s*available\.filter", search)
+    assert "所有大V都已订阅" in search
+    assert "没有匹配的未订阅大V" in search
+
+
 def test_kol_detail_page_subscribes_via_toggle_subscribe():
     """KOL 详情页的订阅按钮必须复用 toggleSubscribe（从而获得路由感知刷新）。"""
     src = APP_JS.read_text()
@@ -294,6 +308,243 @@ def test_settings_save_feedback_uses_flash():
     assert "flash(" in _fn_body("pasteCookieField")
 
 
+def test_kol_image_settings_is_fourth_push_section_and_loads_independently():
+    """动态图片卡片位于关键词后，并在设置页初始化完成后独立加载。"""
+    body = _fn_body("renderSettings")
+    push = body[body.index('id="st-push"'):body.index('id="st-bind"')]
+
+    assert push.count('<section class="section-panel">') == 4
+    assert push.index("关键词提醒") < push.index("动态图片")
+    for copy in ("网页", "推送", "私有 RSS", "头像仍会显示", "仅影响当前账号"):
+        assert copy in push
+    assert 'id="kol-images-settings"' in push
+    assert "正在加载已订阅大V" in push and 'class="muted' in push
+
+    restore = body.rindex('switchSettingsTab(state.settingsTab || "push")')
+    dnd = body.rindex("toggleDnd()")
+    loader = body.rindex("loadKolImageSettings(seq);")
+    assert restore < dnd < loader
+    assert "await loadKolImageSettings" not in body
+
+
+def test_kol_image_loader_is_route_guarded_local_and_retryable():
+    """订阅加载失败只替换动态图片卡片，且可用当前路由令牌重试。"""
+    load = _fn_body("loadKolImageSettings")
+    render = _fn_body("renderKolImageSettings")
+
+    assert 'api("/api/my/subscriptions")' in load
+    assert load.count("routeStillActive(seq)") >= 2
+    assert '$("#kol-images-settings")' in load
+    assert '$("#main").innerHTML' not in load
+    assert "加载失败:" in load
+    assert "重试" in load
+    assert "loadKolImageSettings(routeRenderSeq)" in load
+    assert "正在加载已订阅大V" in load
+
+    assert "emptyState(" in render
+    assert "还没有订阅大V" in render
+    assert "#/home" in render
+
+
+def test_kol_image_loader_latest_generation_and_revision_win():
+    """同路由并发 GET 只允许最新且未跨 mutation 的响应或错误落地。"""
+    src = APP_JS.read_text()
+    load = _fn_body("loadKolImageSettings")
+    error = load[load.index("catch"):]
+
+    for declaration in (
+        "let _kolImageLoadGeneration = 0",
+        "let _kolImageDataRevision = 0",
+        "let _kolImageReloadNeeded = false",
+    ):
+        assert declaration in src
+    assert "const loadGeneration = ++_kolImageLoadGeneration" in load
+    assert "const loadRevision = _kolImageDataRevision" in load
+    assert load.count("loadGeneration !== _kolImageLoadGeneration") >= 2
+    assert load.count("loadRevision !== _kolImageDataRevision") >= 2
+    assert load.count("_kolImagePendingIds.size") >= 2
+    assert load.count("routeStillActive(seq)") >= 2
+    assert load.index("loadGeneration !== _kolImageLoadGeneration") < load.index(
+        "_kolImageSubscriptions = subscriptions"
+    )
+    assert load.index("loadRevision !== _kolImageDataRevision") < load.index(
+        "_kolImageSubscriptions = subscriptions"
+    )
+    assert "_kolImageReloadNeeded = true" in load
+    assert "reloadKolImageSettingsIfNeeded()" in load
+    for guard in (
+        "loadGeneration !== _kolImageLoadGeneration",
+        "loadRevision !== _kolImageDataRevision",
+        "_kolImagePendingIds.size",
+        "routeStillActive(seq)",
+    ):
+        assert error.index(guard) < error.index("current.innerHTML")
+
+
+def test_kol_image_rows_reuse_avatar_platform_and_accessible_switch():
+    """紧凑行复用头像和开关，并以 !hide_images 映射可见状态。"""
+    row = _fn_body("kolImageSettingsRowHtml")
+
+    assert "kolCard" not in row
+    assert "avatarHtml(kol.name, kol.avatar_url)" in row
+    assert "escapeHtml(kol.name)" in row
+    assert "PLATFORM_LABELS[kol.platform]" in row
+    assert re.search(r"!\s*kol\.hide_images\s*\?\s*\"checked\"", row)
+    assert 'class="switch kol-images-switch"' in row
+    assert 'data-kol-id="${kol.id}"' in row
+    assert 'aria-label="显示${escapeHtml(kol.name)}（${escapeHtml(platform)}）的动态图片"' in row
+    assert "<span>显示</span>" in row
+    assert 'onchange="toggleKolImages(${kol.id}, this)"' in row
+    assert re.search(r"_kolImagePendingIds\.has\(kol\.id\)\s*\?\s*\"disabled\"", row)
+
+
+def test_kol_image_search_threshold_fields_and_local_results():
+    """十二个起显示搜索；过滤只重绘列表并覆盖名称、ID、平台。"""
+    render = _fn_body("renderKolImageSettings")
+    filter_body = _fn_body("filterKolImageSettings")
+
+    assert re.search(r"_kolImageSubscriptions\.length\s*>=\s*12", render)
+    assert 'placeholder="搜索已订阅大V"' in render
+    assert 'oninput="filterKolImageSettings()"' in render
+    assert 'id="kol-images-list"' in render
+
+    assert "kol.name" in filter_body
+    assert "kol.external_id" in filter_body
+    assert "PLATFORM_LABELS[kol.platform]" in filter_body
+    assert ".toLowerCase()" in filter_body
+    assert ".includes(query)" in filter_body
+    assert "没有匹配的已订阅大V" in filter_body
+    assert '$("#kol-images-list")' in filter_body
+    assert '$("#kol-images-settings")' not in filter_body
+
+
+def test_kol_image_toggle_is_inverse_guarded_and_rolls_back():
+    """切换即时保存反向 hide_images，进行中禁用，失败回滚并走 toast。"""
+    src = APP_JS.read_text()
+    body = _fn_body("toggleKolImages")
+
+    assert "const _kolImagePendingIds = new Set()" in src
+    assert "if (!input || input.disabled || _kolImagePendingIds.has(kolId)) return" in body
+    assert "const seq = routeRenderSeq" in body
+    assert "input.disabled = true" in body
+    assert "/api/subscriptions/${kolId}/hide-images" in body
+    assert re.search(r'method:\s*"PUT"', body)
+    assert "hide_images: !show" in body
+    assert body.count("routeStillActive(seq)") >= 2
+    assert "_kolImageSubscriptions.find" in body
+    assert "const previousHideImages = kol.hide_images" in body
+    assert "kol.hide_images = !show" in body
+    assert body.index("kol.hide_images = !show") < body.index("await api")
+    assert "kol.hide_images = previousHideImages" in body
+    assert "input.checked = !previousHideImages" in body
+    assert "mountedInput.disabled = false" in body
+    assert "_kolImagePendingIds.delete(kolId)" in body
+    assert body.index("_kolImagePendingIds.delete(kolId)") < body.rindex("routeStillActive(seq)")
+    assert 'flash(`${show ? "已显示" : "已隐藏"}' in body
+    assert 'flash("保存失败: " + err.message, "error")' in body
+    assert "alert(" not in body
+
+
+def test_kol_image_toggle_syncs_mounted_input_without_losing_keyboard_focus():
+    """普通 toggle 收尾原地同步当前行；仅键盘焦点仍在可见行时恢复。"""
+    body = _fn_body("toggleKolImages")
+    cleanup = body[body.index("finally"):]
+
+    focus_capture = (
+        'const restoreFocus = document.activeElement === input '
+        '&& input.matches(":focus-visible")'
+    )
+    assert focus_capture in body
+    assert body.index(focus_capture) < body.index("input.disabled = true")
+    assert 'document.querySelector(`#kol-images-list input[data-kol-id="${kolId}"]`)' in cleanup
+    assert "mountedInput.checked = !kol.hide_images" in cleanup
+    assert "mountedInput.disabled = false" in cleanup
+    focus_guard = (
+        "if (restoreFocus && (document.activeElement === input "
+        "|| document.activeElement === document.body))"
+    )
+    assert focus_guard in cleanup
+    assert "mountedInput.focus({ preventScroll: true })" in cleanup
+    assert "mountedInput.focus()" not in cleanup
+    assert "filterKolImageSettings()" not in cleanup
+
+
+def test_kol_image_toggle_recovers_stale_route_after_returning_to_settings():
+    """旧路由请求收尾时若已回到设置页，必须重拉服务端真值并解除新行禁用。"""
+    body = _fn_body("toggleKolImages")
+    reload_if_needed = _fn_body("reloadKolImageSettingsIfNeeded")
+    cleanup = body[body.index("finally"):]
+
+    assert "_kolImagePendingIds.delete(kolId)" in cleanup
+    assert 'location.hash.replace(/^#\\/?/, "").split("?")[0] === "settings"' in cleanup
+    assert "if (routeStillActive(seq))" in cleanup
+    assert "_kolImageReloadNeeded = true" in cleanup
+    assert "reloadKolImageSettingsIfNeeded()" in cleanup
+    assert cleanup.index("_kolImagePendingIds.delete(kolId)") < cleanup.index(
+        "reloadKolImageSettingsIfNeeded()"
+    )
+    assert "renderKolImageSettings()" not in cleanup
+    assert "loadKolImageSettings(routeRenderSeq)" in reload_if_needed
+
+
+def test_kol_image_same_route_pending_load_reloads_after_last_toggle():
+    """pending 期间作废 GET；最后一个 toggle 收尾时重拉，普通路径只同步当前行。"""
+    body = _fn_body("toggleKolImages")
+    cleanup = body[body.index("finally"):]
+    reload_if_needed = _fn_body("reloadKolImageSettingsIfNeeded")
+
+    assert body.count("_kolImageDataRevision += 1") >= 2
+    assert body.index("_kolImageDataRevision += 1") < body.index("await api")
+    assert "_kolImagePendingIds.size === 0 && _kolImageReloadNeeded" in cleanup
+    assert "reloadKolImageSettingsIfNeeded()" in cleanup
+    assert "else if (routeStillActive(seq))" in cleanup
+    assert "mountedInput.disabled = false" in cleanup
+    assert "filterKolImageSettings()" not in cleanup
+    assert "renderKolImageSettings()" not in cleanup
+
+    assert "if (!_kolImageReloadNeeded || _kolImagePendingIds.size)" in reload_if_needed
+    assert 'location.hash.replace(/^#\\/?/, "").split("?")[0] !== "settings"' in reload_if_needed
+    assert "_kolImageReloadNeeded = false" in reload_if_needed
+    assert "loadKolImageSettings(routeRenderSeq)" in reload_if_needed
+    assert reload_if_needed.index("_kolImageReloadNeeded = false") < reload_if_needed.index(
+        "loadKolImageSettings(routeRenderSeq)"
+    )
+
+
+def test_kol_image_css_is_compact_truncating_and_touchable():
+    """动态图片行保持 36px 头像、长名省略和至少 44px 开关目标。"""
+    css = STYLE_CSS.read_text()
+    container = re.search(r"#kol-images-settings\s*\{([^}]*)\}", css)
+    row = re.search(r"\.kol-images-row\s*\{([^}]*)\}", css)
+    avatar = re.search(r"\.kol-images-row \.kol-avatar\s*\{([^}]*)\}", css)
+    info = re.search(r"\.kol-images-info\s*\{([^}]*)\}", css)
+    name = re.search(r"\.kol-images-name\s*\{([^}]*)\}", css)
+    switch = re.search(r"\.kol-images-switch\s*\{([^}]*)\}", css)
+    empty = re.search(
+        r"#kol-images-settings > \.empty,\s*\.kol-images-list > \.empty\s*\{([^}]*)\}",
+        css,
+    )
+    empty_cta = re.search(
+        r"#kol-images-settings > \.empty \.btn-add,\s*"
+        r"\.kol-images-list > \.empty \.btn-add\s*\{([^}]*)\}",
+        css,
+    )
+
+    assert ".switch {" in css
+    assert container and "width: 100%" in container.group(1) and "max-width: 640px" in container.group(1)
+    assert "border:" not in container.group(1) and "box-shadow:" not in container.group(1)
+    assert row and "display: flex" in row.group(1) and "min-height: 44px" in row.group(1)
+    assert avatar and "width: 36px" in avatar.group(1) and "height: 36px" in avatar.group(1)
+    assert info and "min-width: 0" in info.group(1)
+    assert name and "overflow: hidden" in name.group(1)
+    assert "text-overflow: ellipsis" in name.group(1)
+    assert "white-space: nowrap" in name.group(1)
+    assert switch and "min-height: 44px" in switch.group(1)
+    assert re.search(r"\.kol-images-switch input:disabled\s*~\s*span\s*\{[^}]*opacity:", css)
+    assert empty and "padding: 24px" in empty.group(1)
+    assert empty_cta and "margin-top: 12px" in empty_cta.group(1)
+
+
 def test_stats_cookie_repair_deep_link():
     """Cookie 失效要从总览一键进 Cookie 管理，并吃 #/admin/stats?tab=cookies。"""
     src = APP_JS.read_text()
@@ -411,6 +662,85 @@ def test_timeline_wide_rail_markup():
     assert ".tl-rail" in css
     assert "min-width: 1280px" in css or "min-width:1280px" in css
     assert "max-width: 1279px" in css or "max-width:1279px" in css
+
+
+def test_timeline_rail_subscription_button_toggles_in_place():
+    """推荐按钮用自身状态在 POST/DELETE 间切换，不确认、不刷新推荐列表。"""
+    render = _fn_body("renderRailRecs")
+    assert 'data-subscribed="0"' in render
+    assert "railToggleSubscribe" in render
+    assert "tl-rail-subscribe-state" in render
+    assert "tl-rail-subscribe-action" in render
+
+    toggle = _fn_body("railToggleSubscribe")
+    assert 'method: "POST"' in toggle
+    assert 'method: "DELETE"' in toggle
+    assert "/api/subscriptions/${kolId}" in toggle
+    assert "confirm(" not in toggle
+    assert "btn.disabled = true" in toggle
+    assert "btn.disabled = false" in toggle
+    assert 'classList.toggle("subscribed", nextSubscribed)' in toggle
+    assert "renderRailRecs(" not in toggle
+    assert (
+        'flash(`${subscribed ? "退订" : "订阅"}「${name}」失败: ${err.message}`, "error")'
+        in toggle
+    )
+
+
+def test_timeline_rail_subscription_button_restores_keyboard_focus_safely():
+    """原生 disabled 后仅在键盘焦点掉到 body 时恢复，不抢走用户的新焦点。"""
+    toggle = _fn_body("railToggleSubscribe")
+    focus_capture = (
+        'const restoreFocus = document.activeElement === btn '
+        '&& btn.matches(":focus-visible")'
+    )
+    assert "if (!btn || btn.disabled) return" in toggle
+    assert focus_capture in toggle
+    assert toggle.index(focus_capture) < toggle.index("btn.disabled = true")
+
+    cleanup = toggle[toggle.index("finally"):]
+    focus_guard = (
+        "if (restoreFocus && btn.isConnected "
+        "&& document.activeElement === document.body)"
+    )
+    assert "btn.disabled = false" in cleanup
+    assert focus_guard in cleanup
+    assert cleanup.index("btn.disabled = false") < cleanup.index(focus_guard)
+    assert "btn.focus({ preventScroll: true })" in cleanup
+    assert "btn.focus()" not in cleanup
+
+
+def test_timeline_rail_subscription_button_has_quiet_fixed_states():
+    """推荐按钮固定宽度；已订阅用现有淡蓝令牌，悬停和键盘聚焦显示退订。"""
+    css = STYLE_CSS.read_text()
+    rule = re.search(r"\.tl-rail-subscribe\s*\{([^}]*)\}", css)
+    assert rule and "width: 72px" in rule.group(1)
+    missing_label_layout = [
+        declaration
+        for declaration in ("padding: 0 6px", "white-space: nowrap")
+        if declaration not in rule.group(1)
+    ]
+    assert not missing_label_layout
+    subscribed = re.search(r"\.tl-rail-subscribe\.subscribed\s*\{([^}]*)\}", css)
+    assert subscribed and "background: var(--color-accent-soft)" in subscribed.group(1)
+    assert "color: var(--color-text-strong)" in subscribed.group(1)
+    assert "color: var(--color-accent-text)" not in subscribed.group(1)
+    assert ".tl-rail-subscribe.subscribed:hover .tl-rail-subscribe-action" in css
+    assert ".tl-rail-subscribe.subscribed:focus-visible .tl-rail-subscribe-action" in css
+    assert ".tl-rail-subscribe.subscribed:hover .tl-rail-subscribe-state" in css
+    assert ".tl-rail-subscribe.subscribed:focus-visible .tl-rail-subscribe-state" in css
+    state_swap = re.search(
+        r"\.tl-rail-subscribe\.subscribed:hover \.tl-rail-subscribe-state,\s*"
+        r"\.tl-rail-subscribe\.subscribed:focus-visible \.tl-rail-subscribe-state\s*\{([^}]*)\}",
+        css,
+    )
+    action_swap = re.search(
+        r"\.tl-rail-subscribe\.subscribed:hover \.tl-rail-subscribe-action,\s*"
+        r"\.tl-rail-subscribe\.subscribed:focus-visible \.tl-rail-subscribe-action\s*\{([^}]*)\}",
+        css,
+    )
+    assert state_swap and "display: none" in state_swap.group(1)
+    assert action_swap and "display: inline" in action_swap.group(1)
 
 
 def test_timeline_rail_fills_main_and_survives_resize():
@@ -867,6 +1197,7 @@ def test_type_scale_uses_four_reading_roles():
             window = css[max(0, match.start() - 80) : match.end()]
             assert "cube-nav" in window, f"{size} 只能用于图表刻度: {window!r}"
 
+
 def test_weibo_qr_poll_is_serial():
     """微博扫码轮询必须等上一轮结束再调度下一轮，避免成功后被并发 404 盖成过期。"""
     start = _fn_body("startWeiboQr")
@@ -875,4 +1206,3 @@ def test_weibo_qr_poll_is_serial():
     assert "setInterval" not in poll
     assert "await pollWeiboQr(" in start
     assert "setTimeout" in start.split("await pollWeiboQr", 1)[1]
-

@@ -256,6 +256,7 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     kol_id INTEGER NOT NULL,
     type TEXT NOT NULL DEFAULT 'post',
     favorite INTEGER NOT NULL DEFAULT 0,
+    hide_images INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE (user_id, kol_id)
 );
@@ -446,6 +447,10 @@ class DB:
             self._conn.execute(
                 "ALTER TABLE subscriptions ADD COLUMN secondary INTEGER NOT NULL DEFAULT 0"
             )
+        if "hide_images" not in sub_cols:
+            self._conn.execute(
+                "ALTER TABLE subscriptions ADD COLUMN hide_images INTEGER NOT NULL DEFAULT 0"
+            )
         cols = {row["name"] for row in self._rows("PRAGMA table_info(kols)")}
         if "category_id" not in cols:
             self._conn.execute("ALTER TABLE kols ADD COLUMN category_id INTEGER")
@@ -564,11 +569,12 @@ class DB:
             ]
             for duplicate_id in duplicate_ids:
                 for subscription in self._rows(
-                    "SELECT user_id, type, favorite, secondary FROM subscriptions WHERE kol_id = ?",
+                    "SELECT user_id, type, favorite, secondary, hide_images "
+                    "FROM subscriptions WHERE kol_id = ?",
                     (duplicate_id,),
                 ):
                     existing_rows = self._rows(
-                        "SELECT type, favorite, secondary FROM subscriptions "
+                        "SELECT type, favorite, secondary, hide_images FROM subscriptions "
                         "WHERE user_id = ? AND kol_id = ?",
                         (subscription["user_id"], keep_id),
                     )
@@ -580,12 +586,14 @@ class DB:
                             else "both"
                         )
                         self._conn.execute(
-                            "UPDATE subscriptions SET type = ?, favorite = ?, secondary = ? "
+                            "UPDATE subscriptions SET type = ?, favorite = ?, secondary = ?, "
+                            "hide_images = ? "
                             "WHERE user_id = ? AND kol_id = ?",
                             (
                                 subscribe_type,
                                 max(existing["favorite"], subscription["favorite"]),
                                 max(existing["secondary"], subscription["secondary"]),
+                                max(existing["hide_images"], subscription["hide_images"]),
                                 subscription["user_id"],
                                 keep_id,
                             ),
@@ -593,13 +601,15 @@ class DB:
                     else:
                         self._conn.execute(
                             "INSERT INTO subscriptions "
-                            "(user_id, kol_id, type, favorite, secondary) VALUES (?, ?, ?, ?, ?)",
+                            "(user_id, kol_id, type, favorite, secondary, hide_images) "
+                            "VALUES (?, ?, ?, ?, ?, ?)",
                             (
                                 subscription["user_id"],
                                 keep_id,
                                 subscription["type"],
                                 subscription["favorite"],
                                 subscription["secondary"],
+                                subscription["hide_images"],
                             ),
                         )
                 self._conn.execute("DELETE FROM subscriptions WHERE kol_id = ?", (duplicate_id,))
@@ -1456,7 +1466,7 @@ class DB:
     def list_subscriptions(self, user_id: int) -> list[dict]:
         rows = self._rows(
             "SELECT k.*, s.type AS subscribe_type, s.favorite AS favorite, "
-            "s.secondary AS sub_secondary, "
+            "s.secondary AS sub_secondary, s.hide_images AS hide_images, "
             "c.name AS category_name, "
             "s.created_at AS subscribed_at "
             "FROM subscriptions s JOIN kols k ON k.id = s.kol_id "
@@ -1601,7 +1611,7 @@ class DB:
         """该大V的订阅者（启用通知且绑定了渠道的用户）。"""
         return self._rows(
             "SELECT u.*, s.type AS subscribe_type, s.favorite AS favorite, "
-            "s.secondary AS secondary FROM subscriptions s "
+            "s.secondary AS secondary, s.hide_images AS hide_images FROM subscriptions s "
             "JOIN users u ON u.id = s.user_id "
             "JOIN kols k ON k.id = s.kol_id "
             "WHERE s.kol_id = ? AND u.notify_enabled = 1 "
@@ -1612,9 +1622,9 @@ class DB:
         )
 
     def get_subscription(self, user_id: int, kol_id: int) -> dict | None:
-        """单个订阅记录（type/favorite/secondary），未订阅返回 None。"""
+        """单个订阅记录（type/favorite/secondary/hide_images），未订阅返回 None。"""
         rows = self._rows(
-            "SELECT type, favorite, secondary FROM subscriptions "
+            "SELECT type, favorite, secondary, hide_images FROM subscriptions "
             "WHERE user_id = ? AND kol_id = ?",
             (user_id, kol_id),
         )
@@ -1641,6 +1651,15 @@ class DB:
             cur = self._conn.execute(
                 "UPDATE subscriptions SET secondary = ? WHERE user_id = ? AND kol_id = ?",
                 (1 if secondary else 0, user_id, kol_id),
+            )
+            self._conn.commit()
+            return cur.rowcount > 0
+
+    def set_subscription_hide_images(self, user_id: int, kol_id: int, hide_images: bool) -> bool:
+        with self._lock:
+            cur = self._conn.execute(
+                "UPDATE subscriptions SET hide_images = ? WHERE user_id = ? AND kol_id = ?",
+                (1 if hide_images else 0, user_id, kol_id),
             )
             self._conn.commit()
             return cur.rowcount > 0
@@ -1698,25 +1717,46 @@ class DB:
             try:
                 self._conn.execute("BEGIN")
                 rows = self._conn.execute(
-                    "SELECT kol_id, type, favorite FROM subscriptions WHERE user_id = ?",
+                    "SELECT kol_id, type, favorite, secondary, hide_images "
+                    "FROM subscriptions WHERE user_id = ?",
                     (from_user_id,),
                 ).fetchall()
                 for row in rows:
                     existing = self._conn.execute(
-                        "SELECT type, favorite FROM subscriptions WHERE user_id = ? AND kol_id = ?",
+                        "SELECT type, favorite, secondary, hide_images FROM subscriptions "
+                        "WHERE user_id = ? AND kol_id = ?",
                         (to_user_id, row["kol_id"]),
                     ).fetchone()
                     if existing is None:
                         self._conn.execute(
-                            "INSERT INTO subscriptions (user_id, kol_id, type, favorite) VALUES (?, ?, ?, ?)",
-                            (to_user_id, row["kol_id"], row["type"] or "post", row["favorite"]),
+                            "INSERT INTO subscriptions "
+                            "(user_id, kol_id, type, favorite, secondary, hide_images) "
+                            "VALUES (?, ?, ?, ?, ?, ?)",
+                            (
+                                to_user_id,
+                                row["kol_id"],
+                                row["type"] or "post",
+                                row["favorite"],
+                                row["secondary"],
+                                row["hide_images"],
+                            ),
                         )
                     else:
                         merged = _merge_sub_types(row["type"], existing["type"])
                         favorite = 1 if (row["favorite"] or existing["favorite"]) else 0
+                        secondary = max(row["secondary"], existing["secondary"])
+                        hide_images = max(row["hide_images"], existing["hide_images"])
                         self._conn.execute(
-                            "UPDATE subscriptions SET type = ?, favorite = ? WHERE user_id = ? AND kol_id = ?",
-                            (merged, favorite, to_user_id, row["kol_id"]),
+                            "UPDATE subscriptions SET type = ?, favorite = ?, secondary = ?, "
+                            "hide_images = ? WHERE user_id = ? AND kol_id = ?",
+                            (
+                                merged,
+                                favorite,
+                                secondary,
+                                hide_images,
+                                to_user_id,
+                                row["kol_id"],
+                            ),
                         )
                 self._conn.execute(
                     "DELETE FROM subscriptions WHERE user_id = ?", (from_user_id,)
@@ -2028,16 +2068,21 @@ class DB:
         if since_id:
             conds.append("p.id > ?")
             params.append(since_id)
-        return _normalize_post_tags(_normalize_post_images(self._rows(
+        rows = _normalize_post_tags(_normalize_post_images(self._rows(
             "SELECT p.*, k.name AS kol_name, k.category_id AS category_id, "
             "k.avatar_url AS avatar_url, c.name AS category_name, "
-            "COALESCE(s.favorite, 0) AS favorite FROM posts p "
+            "COALESCE(s.favorite, 0) AS favorite, "
+            "COALESCE(s.hide_images, 0) AS _hide_images FROM posts p "
             "JOIN kols k ON k.id = p.kol_id "
             "LEFT JOIN categories c ON c.id = k.category_id "
             "LEFT JOIN subscriptions s ON s.kol_id = p.kol_id AND s.user_id = ? "
             f"WHERE {' AND '.join(conds)} ORDER BY p.id DESC LIMIT ? OFFSET ?",
             (*params, limit, offset),
         )))
+        for row in rows:
+            if row.pop("_hide_images"):
+                row["images"] = []
+        return rows
 
     def list_daily_posts(
         self, kol_ids: list[int], since_ts: int, limit: int = 15, user_id: int | None = None

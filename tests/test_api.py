@@ -1078,6 +1078,89 @@ def test_secondary_api():
     assert next(k for k in subs if k["id"] == kid)["secondary"] == 1
 
 
+def test_hide_images_api_defaults_toggles_and_is_subscription_scoped():
+    client = make_client()
+    admin = auth_headers(client)
+    first_headers = user_headers(client, "hide-images-first")
+    second_headers = user_headers(client, "hide-images-second")
+    kid = client.post(
+        "/api/kols",
+        headers=admin,
+        json={
+            "platform": "xueqiu",
+            "name": "A",
+            "external_id": "hide-images-1",
+        },
+    ).json()["id"]
+    other_kid = client.post(
+        "/api/kols",
+        headers=admin,
+        json={
+            "platform": "xueqiu",
+            "name": "B",
+            "external_id": "hide-images-2",
+        },
+    ).json()["id"]
+    for headers in (first_headers, second_headers):
+        assert client.post(
+            "/api/subscriptions", headers=headers, json={"kol_id": kid}
+        ).status_code == 200
+
+    first_sub = client.get(
+        "/api/my/subscriptions", headers=first_headers
+    ).json()[0]
+    second_sub = client.get(
+        "/api/my/subscriptions", headers=second_headers
+    ).json()[0]
+    assert first_sub["hide_images"] == 0
+    assert second_sub["hide_images"] == 0
+
+    response = client.put(
+        f"/api/subscriptions/{kid}/hide-images",
+        headers=first_headers,
+        json={"hide_images": True},
+    )
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+    assert client.get(
+        "/api/my/subscriptions", headers=first_headers
+    ).json()[0]["hide_images"] == 1
+    assert client.get(
+        "/api/my/subscriptions", headers=second_headers
+    ).json()[0]["hide_images"] == 0
+
+    response = client.put(
+        f"/api/subscriptions/{kid}/hide-images",
+        headers=first_headers,
+        json={"hide_images": False},
+    )
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+    assert client.get(
+        "/api/my/subscriptions", headers=first_headers
+    ).json()[0]["hide_images"] == 0
+
+    assert client.put(
+        f"/api/subscriptions/{other_kid}/hide-images",
+        headers=first_headers,
+        json={"hide_images": True},
+    ).status_code == 404
+    assert client.put(
+        "/api/subscriptions/999999/hide-images",
+        headers=first_headers,
+        json={"hide_images": True},
+    ).status_code == 404
+
+    assert client.delete(
+        f"/api/subscriptions/{kid}", headers=first_headers
+    ).status_code == 200
+    assert client.put(
+        f"/api/subscriptions/{kid}/hide-images",
+        headers=first_headers,
+        json={"hide_images": True},
+    ).status_code == 404
+
+
 def test_change_password_api():
     client = make_client()
     headers = user_headers(client, "pwuser")
@@ -2397,6 +2480,62 @@ def test_subscription_flow():
     )
     assert resp.status_code == 200
     assert resp.json()["telegram_chat_id"] == "tg123"
+
+
+def test_feed_hide_images_is_user_scoped_and_keeps_stored_images():
+    client = make_client()
+    db = client.app.state.db
+    kid = db.add_kol("xueqiu", "图片大V", "feed-images")
+    hidden = register(client, "feed_images_hidden").json()
+    visible = register(client, "feed_images_visible").json()
+    hidden_headers = {"Authorization": f"Bearer {hidden['token']}"}
+    visible_headers = {"Authorization": f"Bearer {visible['token']}"}
+    db.add_subscription(hidden["user"]["id"], kid)
+    db.add_subscription(visible["user"]["id"], kid)
+    db.set_subscription_hide_images(hidden["user"]["id"], kid, True)
+    images = ["https://img.example.com/1.jpg", "https://img.example.com/2.jpg"]
+    post_id = db.insert_post(
+        "xueqiu", kid, "feed-images-post", "标题", "正文", "https://example.com/post", "",
+        images=images,
+    )
+
+    hidden_post = client.get("/api/my/feed", headers=hidden_headers).json()[0]
+    visible_post = client.get("/api/my/feed", headers=visible_headers).json()[0]
+
+    assert hidden_post["images"] == []
+    assert "hide_images" not in hidden_post
+    assert visible_post["images"] == images
+    assert json.loads(db.get_post(post_id)["images"]) == images
+
+
+def test_kol_posts_hide_images_only_for_subscribed_user():
+    client = make_client()
+    db = client.app.state.db
+    kid = db.add_kol("xueqiu", "详情图片大V", "kol-post-images")
+    hidden = register(client, "kol_images_hidden").json()
+    visible = register(client, "kol_images_visible").json()
+    unsubscribed = register(client, "kol_images_unsubscribed").json()
+    hidden_headers = {"Authorization": f"Bearer {hidden['token']}"}
+    visible_headers = {"Authorization": f"Bearer {visible['token']}"}
+    unsubscribed_headers = {"Authorization": f"Bearer {unsubscribed['token']}"}
+    db.add_subscription(hidden["user"]["id"], kid)
+    db.add_subscription(visible["user"]["id"], kid)
+    db.set_subscription_hide_images(hidden["user"]["id"], kid, True)
+    images = ["https://img.example.com/detail.jpg"]
+    db.insert_post(
+        "xueqiu", kid, "kol-images-post", "标题", "正文", "https://example.com/post", "",
+        images=images,
+    )
+
+    hidden_posts = client.get(f"/api/kols/{kid}/posts", headers=hidden_headers).json()
+    visible_posts = client.get(f"/api/kols/{kid}/posts", headers=visible_headers).json()
+    unsubscribed_posts = client.get(
+        f"/api/kols/{kid}/posts", headers=unsubscribed_headers
+    ).json()
+
+    assert hidden_posts[0]["images"] == []
+    assert visible_posts[0]["images"] == images
+    assert unsubscribed_posts[0]["images"] == images
 
 
 def test_my_feed_filters_and_pagination():

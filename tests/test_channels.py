@@ -42,6 +42,7 @@ def make_post() -> Post:
     return Post(
         platform="xueqiu", kol_id=1, kol_name="A",
         external_id="p1", title="t", content="c", url="u", published_at="",
+        images=["https://img.example.com/1.jpg"],
     )
 
 
@@ -125,6 +126,28 @@ def test_deliver_post_success_writes_log(monkeypatch):
     assert logs == [(7, "telegram", "success", 1)]
 
 
+def test_deliver_post_hides_images_in_copy_without_mutating_original(monkeypatch):
+    db = SimpleNamespace(add_push_log=lambda *args, **kwargs: None)
+    delivered = []
+
+    import app.channels as channels_mod
+
+    monkeypatch.setattr(
+        channels_mod,
+        "build_channel_notifier",
+        lambda *args, **kwargs: SimpleNamespace(notify=delivered.append),
+    )
+    post = make_post()
+
+    deliver_post(
+        db, 7, post, make_user(hide_images=True), "telegram", make_config(), client=None,
+    )
+
+    assert delivered[0] is not post
+    assert delivered[0].images == []
+    assert post.images == ["https://img.example.com/1.jpg"]
+
+
 def test_deliver_post_failure_writes_log_and_alerts(monkeypatch):
     db = SimpleNamespace()
     logs = []
@@ -142,12 +165,58 @@ def test_deliver_post_failure_writes_log_and_alerts(monkeypatch):
     monkeypatch.setattr(channels_mod, "build_channel_notifier", lambda *a, **k: Boom())
     retry = SimpleNamespace(add=lambda post, channel, user_id: None)
     retry_calls = []
-    retry.add = lambda post, channel, user_id: retry_calls.append((channel, user_id))
+    retry.add = lambda post, channel, user_id: retry_calls.append((post, channel, user_id))
+    post = make_post()
 
     deliver_post(
-        db, 7, make_post(), make_user(), "telegram", make_config(), client=None,
+        db, 7, post, make_user(hide_images=True), "telegram", make_config(), client=None,
         retry_queue=retry, alert_notifiers=[], alert_cb=lambda db, notifiers, msg: alerts.append(msg),
     )
     assert any(c == "telegram" and s == "failed" for _, c, s in logs)
-    assert retry_calls == [("telegram", 1)]
+    assert retry_calls[0][0] is post
+    assert retry_calls[0][1:] == ("telegram", 1)
+    assert post.images == ["https://img.example.com/1.jpg"]
     assert alerts and "channel=telegram" in alerts[0]
+
+
+def test_deliver_post_feishu_fallback_reuses_hidden_copy(monkeypatch):
+    db = SimpleNamespace(add_push_log=lambda *args, **kwargs: None)
+    received = []
+
+    class FailingNotifier:
+        def notify(self, post):
+            received.append(post)
+            raise RuntimeError("code=230101")
+
+    class FallbackNotifier:
+        def notify(self, post):
+            received.append(post)
+
+    import app.channels as channels_mod
+    from app import feishu_personal
+
+    notifiers = iter((FailingNotifier(), FallbackNotifier()))
+    monkeypatch.setattr(
+        channels_mod, "build_channel_notifier", lambda *args, **kwargs: next(notifiers)
+    )
+    monkeypatch.setattr(
+        feishu_personal, "resolve_personal_target", lambda *args, **kwargs: {"chat_id": "c"}
+    )
+    monkeypatch.setattr(feishu_personal, "is_definitive_feishu_error", lambda exc: True)
+    monkeypatch.setattr(feishu_personal, "mark_personal_degraded", lambda *args: None)
+    post = make_post()
+
+    deliver_post(
+        db,
+        7,
+        post,
+        make_user(feishu_open_id="o", hide_images=True),
+        "feishu",
+        make_config(),
+        client=None,
+    )
+
+    assert received[0] is received[1]
+    assert received[0] is not post
+    assert received[0].images == []
+    assert post.images == ["https://img.example.com/1.jpg"]
