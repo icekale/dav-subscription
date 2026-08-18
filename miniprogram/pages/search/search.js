@@ -17,6 +17,26 @@ Page({
       { value: "twitter", label: "X" },
     ],
     askLink: "",
+    askCategories: [{ id: 0, name: "请选择分类" }],
+    askCategoryIndex: 0,
+    askCategoryId: 0,
+  },
+
+  onShow() {
+    this.loadCategories();
+  },
+
+  async loadCategories() {
+    try {
+      const cats = await request("/api/categories");
+      this.setData({
+        askCategories: [{ id: 0, name: "请选择分类" }, ...cats],
+        askCategoryIndex: 0,
+        askCategoryId: 0,
+      });
+    } catch (err) {
+      this.setData({ askCategories: [{ id: 0, name: "请选择分类" }] });
+    }
   },
 
   onInput(e) {
@@ -36,19 +56,29 @@ Page({
     this.setData({ askLink: e.detail.value });
   },
 
+  onAskCategory(e) {
+    const index = Number(e.detail.value);
+    const cat = this.data.askCategories[index];
+    this.setData({ askCategoryIndex: index, askCategoryId: cat ? cat.id : 0 });
+  },
+
   async submitAsk() {
     const external_id = this.data.askLink.trim();
     if (!external_id) {
       wx.showToast({ title: "请填写大V主页链接或ID", icon: "none" });
       return;
     }
+    if (!this.data.askCategoryId) {
+      wx.showToast({ title: "请选择分类", icon: "none" });
+      return;
+    }
     try {
       await request("/api/kol-requests", {
         method: "POST",
-        data: { platform: this.data.askPlatform, external_id },
+        data: { platform: this.data.askPlatform, external_id, category_id: this.data.askCategoryId },
       });
       wx.showToast({ title: "已提交，等待管理员审批", icon: "success" });
-      this.setData({ showAsk: false, askLink: "" });
+      this.setData({ showAsk: false, askLink: "", askCategoryIndex: 0, askCategoryId: 0 });
     } catch (err) {
       wx.showToast({ title: err.message, icon: "none" });
     }

@@ -36,16 +36,21 @@ def test_ask_creates_request_and_list_filters_private():
     assert f"{public_id}. 公开" in list_text
     assert f"{private_id}. 私有" not in list_text
 
-    # 普通用户 /ask 提交申请
+    db.add_category("宏观")
+    # 普通用户 /ask 必须带分类
     bot.handle("telegram_chat_id", "111", "u1", "/ask https://xueqiu.com/u/77777")
+    assert "分类" in sent[-1]
+    # 带分类后提交申请
+    bot.handle("telegram_chat_id", "111", "u1", "/ask https://xueqiu.com/u/77777 宏观")
     assert "已提交申请" in sent[-1]
     requests = db.list_kol_requests(status="pending")
     assert len(requests) == 1
     assert requests[0]["platform"] == "xueqiu" and requests[0]["external_id"] == "77777"
     assert requests[0]["user_id"] == 1  # u1 是第一个自动创建的用户
+    assert requests[0]["category_name"] == "宏观"
 
     # 重复 /ask 被拦截
-    bot.handle("telegram_chat_id", "111", "u1", "/ask https://xueqiu.com/u/77777")
+    bot.handle("telegram_chat_id", "111", "u1", "/ask https://xueqiu.com/u/77777 宏观")
     assert "处理中" in sent[-1]
 
     # 普通用户无法订阅不可见的私有大V

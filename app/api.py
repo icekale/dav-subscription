@@ -358,6 +358,7 @@ class KolRequestIn(BaseModel):
     platform: str
     external_id: str
     name: str = ""
+    category_id: int | None = None
 
 
 class RegisterCodeGenIn(BaseModel):
@@ -584,6 +585,8 @@ def _do_approve_kol_request(
         name = name or profile.get("name") or ""
         avatar_url = profile.get("avatar_url") or ""
     name = name or f"{req['platform']}_{req['external_id']}"
+    if category_id is None:
+        category_id = req.get("category_id")
     if category_id is not None and db.get_category(category_id) is None:
         raise HTTPException(status_code=400, detail="分类不存在")
     try:
@@ -1522,8 +1525,12 @@ def create_api_router(
         external_id, err = _normalize_kol_request_input(body.platform, body.external_id)
         if err:
             raise HTTPException(status_code=400, detail=err)
+        if body.category_id is None:
+            raise HTTPException(status_code=400, detail="请选择分类")
         try:
-            request_id = db.add_kol_request(body.platform, external_id, user["id"], name=body.name)
+            request_id = db.add_kol_request(
+                body.platform, external_id, user["id"], name=body.name, category_id=body.category_id
+            )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from None
         # 通知管理员有新申请（通知失败不影响申请提交）

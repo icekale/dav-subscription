@@ -37,7 +37,8 @@ def test_bot_group_callback_cannot_use_bound_admin_identity():
     db = DB(Path(tempfile.mkdtemp()) / "bot.db")
     admin_id = db.add_user("admin01", "hash", is_admin=True, telegram_chat_id="-1001")
     requester_id = db.add_user("requester", "hash")
-    request_id = db.add_kol_request("xueqiu", "123", requester_id, "待审批")
+    cid = db.add_category("宏观")
+    request_id = db.add_kol_request("xueqiu", "123", requester_id, "待审批", category_id=cid)
     bot = TelegramBot(db, "test_token", "secret")
     calls = []
     bot._call = lambda method, **params: calls.append((method, params))

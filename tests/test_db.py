@@ -158,9 +158,10 @@ def test_kol_and_pending_request_unique_indexes(tmp_path):
     db.add_kol("xueqiu", "A", "same")
     with pytest.raises(ValueError):
         db.add_kol("xueqiu", "B", "same")
-    db.add_kol_request("weibo", "same", uid)
+    cid = db.add_category("宏观")
+    db.add_kol_request("weibo", "same", uid, category_id=cid)
     with pytest.raises(ValueError):
-        db.add_kol_request("weibo", "same", uid)
+        db.add_kol_request("weibo", "same", uid, category_id=cid)
 
     indexes = {r["name"] for r in db._rows("PRAGMA index_list(kols)")}
     assert "uq_kols_platform_external" in indexes

@@ -613,15 +613,57 @@ def test_version_api(monkeypatch):
     assert "github.com" in data["url"]
 
 
+def test_kol_request_requires_category(monkeypatch):
+    """用户申请必须带已有分类；审批沿用申请上的分类。"""
+    monkeypatch.setattr("app.api.resolve_profile", lambda uid, cookie="": {})
+    client = make_client()
+    db = client.app.state.db
+    headers = user_headers(client, "askcatreq")
+    admin = auth_headers(client)
+    cid = db.add_category("宏观")
+
+    missing = client.post(
+        "/api/kol-requests",
+        headers=headers,
+        json={"platform": "xueqiu", "external_id": "90001"},
+    )
+    assert missing.status_code == 400
+    assert "分类" in missing.json()["detail"]
+
+    bad = client.post(
+        "/api/kol-requests",
+        headers=headers,
+        json={"platform": "xueqiu", "external_id": "90002", "category_id": 99999},
+    )
+    assert bad.status_code == 400
+    assert "分类" in bad.json()["detail"]
+
+    ok = client.post(
+        "/api/kol-requests",
+        headers=headers,
+        json={"platform": "xueqiu", "external_id": "90003", "category_id": cid},
+    )
+    assert ok.status_code == 200
+    pending = client.get("/api/admin/kol-requests?status=pending", headers=admin).json()
+    assert pending[0]["category_id"] == cid
+    assert pending[0]["category_name"] == "宏观"
+    approved = client.post(f"/api/admin/kol-requests/{pending[0]['id']}/approve", headers=admin)
+    assert approved.status_code == 200
+    assert approved.json()["category_id"] == cid
+
+
 def test_kol_request_input_validation():
     """申请输入过滤：无效信息拒绝、平台链接自动甄别并提示纠错。"""
     client = make_client()
     headers = user_headers(client, "valuser")
     db = client.app.state.db
+    cid = db.add_category("宏观")
 
     def submit(platform, external_id):
         return client.post(
-            "/api/kol-requests", headers=headers, json={"platform": platform, "external_id": external_id}
+            "/api/kol-requests",
+            headers=headers,
+            json={"platform": platform, "external_id": external_id, "category_id": cid},
         )
 
     def bad(platform, external_id, hint):
@@ -683,10 +725,11 @@ def test_kol_request_notifies_admins(monkeypatch):
 
     monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FakeTG)
     headers = user_headers(client, "requser")
+    cid = client.app.state.db.add_category("宏观")
     resp = client.post(
         "/api/kol-requests",
         headers=headers,
-        json={"platform": "xueqiu", "external_id": "https://xueqiu.com/u/999999"},
+        json={"platform": "xueqiu", "external_id": "https://xueqiu.com/u/999999", "category_id": cid},
     )
     assert resp.status_code == 200
     assert any("新的大V添加申请" in t and "999999" in t for t, _ in sent)
@@ -719,10 +762,11 @@ def test_kol_request_notify_tg_only_when_bound(monkeypatch):
     monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FakeTG)
     monkeypatch.setattr("app.notifiers.feishu.FeishuNotifier", FakeFS)
     headers = user_headers(client, "requser2")
+    cid = client.app.state.db.add_category("宏观")
     resp = client.post(
         "/api/kol-requests",
         headers=headers,
-        json={"platform": "xueqiu", "external_id": "https://xueqiu.com/u/777777"},
+        json={"platform": "xueqiu", "external_id": "https://xueqiu.com/u/777777", "category_id": cid},
     )
     assert resp.status_code == 200
     assert len(sent_tg) == 1 and sent_fs == []  # 已绑 TG 不再重复推飞书
@@ -747,7 +791,8 @@ def test_approve_garbage_request_returns_clear_error():
     u = register(client, "garbuser", "pass123456")
     db = client.app.state.db
     # 绕过提交校验，直接构造老式垃圾申请（雪球昵称而非数字 ID）
-    req_id = db.add_kol_request("xueqiu", "两刀插肋", u.json()["user"]["id"])
+    cid = db.add_category("宏观")
+    req_id = db.add_kol_request("xueqiu", "两刀插肋", u.json()["user"]["id"], category_id=cid)
     resp = client.post(f"/api/admin/kol-requests/{req_id}/approve", headers=admin_headers)
     assert resp.status_code == 400, resp.text
     detail = resp.json()["detail"]
@@ -763,7 +808,8 @@ def test_approve_legacy_at_twitter_request(monkeypatch):
     admin_headers = auth_headers(client)
     u = register(client, "atuser", "pass123456")
     db = client.app.state.db
-    req_id = db.add_kol_request("twitter", "@elonmusk", u.json()["user"]["id"])
+    cid = db.add_category("宏观")
+    req_id = db.add_kol_request("twitter", "@elonmusk", u.json()["user"]["id"], category_id=cid)
     resp = client.post(f"/api/admin/kol-requests/{req_id}/approve", headers=admin_headers)
     assert resp.status_code == 200, resp.text
     assert db.get_kol_by_external("twitter", "@elonmusk") is not None
@@ -797,10 +843,11 @@ def test_kol_request_tg_fail_falls_back_to_feishu(monkeypatch):
     monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FailTG)
     monkeypatch.setattr("app.notifiers.feishu.FeishuNotifier", FakeFS)
     headers = user_headers(client, "requser3")
+    cid = client.app.state.db.add_category("宏观")
     resp = client.post(
         "/api/kol-requests",
         headers=headers,
-        json={"platform": "xueqiu", "external_id": "https://xueqiu.com/u/666666"},
+        json={"platform": "xueqiu", "external_id": "https://xueqiu.com/u/666666", "category_id": cid},
     )
     assert resp.status_code == 200
     assert len(sent_fs) == 1  # TG 失败后回退飞书
@@ -816,7 +863,8 @@ def test_tg_callback_approve_reject_kol_request(monkeypatch):
     db.update_user(admin["id"], telegram_chat_id="111")
     u = register(client, "askuser", "pass123456")
     uid = u.json()["user"]["id"]
-    req_id = db.add_kol_request("xueqiu", "888888", uid)
+    cid = db.add_category("宏观")
+    req_id = db.add_kol_request("xueqiu", "888888", uid, category_id=cid)
 
     from app.telegram_bot import TelegramBot
 
@@ -848,7 +896,7 @@ def test_tg_callback_approve_reject_kol_request(monkeypatch):
     assert any(m == "editMessageText" and "已通过" in p.get("text", "") for m, p in calls)
 
     # 管理员点「拒绝」
-    req2 = db.add_kol_request("xueqiu", "888889", uid)
+    req2 = db.add_kol_request("xueqiu", "888889", uid, category_id=cid)
     click("111", f"reject:{req2}")
     assert db.get_kol_request(req2)["status"] == "rejected"
     assert any(m == "editMessageText" and "已拒绝" in p.get("text", "") for m, p in calls)
@@ -874,7 +922,7 @@ def test_tg_callback_approve_kol_request_with_category(monkeypatch):
     u = register(client, "askcat", "pass123456")
     uid = u.json()["user"]["id"]
     cat_id = db.add_category("宏观")
-    req_id = db.add_kol_request("xueqiu", "777777", uid, "待分类大V")
+    req_id = db.add_kol_request("xueqiu", "777777", uid, "待分类大V", category_id=cat_id)
 
     from app.telegram_bot import TelegramBot
 
@@ -1541,18 +1589,19 @@ def test_kol_request_flow(monkeypatch):
     u1 = register(client, "user01", "pass123456")
     u_headers = {"Authorization": f"Bearer {u1.json()['token']}"}
 
+    cid = client.app.state.db.add_category("宏观")
     # 用户提交申请（雪球主页链接自动提取 UID）
     resp = client.post(
         "/api/kol-requests",
         headers=u_headers,
-        json={"platform": "xueqiu", "external_id": "https://xueqiu.com/u/55555"},
+        json={"platform": "xueqiu", "external_id": "https://xueqiu.com/u/55555", "category_id": cid},
     )
     assert resp.status_code == 200
     # 重复申请被拦截
     resp = client.post(
         "/api/kol-requests",
         headers=u_headers,
-        json={"platform": "xueqiu", "external_id": "55555"},
+        json={"platform": "xueqiu", "external_id": "55555", "category_id": cid},
     )
     assert resp.status_code == 400 and "处理中" in resp.json()["detail"]
     # 已存在的大V不允许申请
@@ -1560,7 +1609,7 @@ def test_kol_request_flow(monkeypatch):
     resp = client.post(
         "/api/kol-requests",
         headers=u_headers,
-        json={"platform": "weibo", "external_id": "66666"},
+        json={"platform": "weibo", "external_id": "66666", "category_id": cid},
     )
     assert resp.status_code == 400 and "已在目录中" in resp.json()["detail"]
 
@@ -2602,10 +2651,11 @@ def test_approve_request_auto_resolves_name_and_avatar(monkeypatch):
     admin_headers = auth_headers(client)
     u1 = register(client, "user01", "pass123456")
     u_headers = {"Authorization": f"Bearer {u1.json()['token']}"}
+    cid = client.app.state.db.add_category("宏观")
     client.post(
         "/api/kol-requests",
         headers=u_headers,
-        json={"platform": "xueqiu", "external_id": "https://xueqiu.com/u/55555"},
+        json={"platform": "xueqiu", "external_id": "https://xueqiu.com/u/55555", "category_id": cid},
     )
     monkeypatch.setattr(
         "app.api.resolve_profile",

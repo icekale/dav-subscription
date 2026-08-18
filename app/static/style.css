@@ -1401,7 +1401,7 @@ pre.content-cell { white-space: pre-wrap; overflow-wrap: break-word; min-width: 
   pointer-events: none;
   animation: toast-in 0.18s ease-out;
 }
-.toast.success { background: var(--color-success-strong); }
+.toast.success { background: var(--color-accent); }
 .toast.error { background: var(--color-danger-strong); }
 .toast.hide { opacity: 0; transition: opacity 0.3s ease; }
 @keyframes toast-in {

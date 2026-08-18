@@ -13,6 +13,9 @@
     <picker range="{{askPlatforms}}" range-key="label" bindchange="onAskPlatform" value="{{askPlatformIndex}}">
       <view class="input picker">平台：{{askPlatforms[askPlatformIndex].label}}</view>
     </picker>
+    <picker range="{{askCategories}}" range-key="name" bindchange="onAskCategory" value="{{askCategoryIndex}}">
+      <view class="input picker" style="margin-top:16rpx">分类：{{askCategories[askCategoryIndex].name}}</view>
+    </picker>
     <input class="input" style="margin-top:16rpx" placeholder="大V主页链接或UID" value="{{askLink}}" bindinput="onAskLink" />
     <button class="btn btn-primary" style="margin-top:20rpx" bindtap="submitAsk">提交申请</button>
   </view>

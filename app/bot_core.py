@@ -14,7 +14,7 @@ HELP_TEXT = (
     "/sub 1 / 雪球/微博主页链接 / UID — 订阅大V\n"
     "　可选：/sub 1 reply（只订回复）/ /sub 1 both（帖子+回复）\n"
     "/unsub 1 / 雪球/微博主页链接 / UID — 取消订阅\n"
-    "/ask 主页链接/UID — 申请添加大V，管理员审批\n"
+    "/ask 主页链接/UID 分类名 — 申请添加大V，管理员审批\n"
     "/mysubs — 我的订阅（带退订/改类型按钮）\n"
     "/bind 6位绑定码 — 绑定网页/小程序账号\n"
     "📌 飞书用户请在本机器人的「私聊」会话使用，群聊不会推送新帖\n"
@@ -198,23 +198,35 @@ class SubscriptionBot:
     def _ask(self, user, identity_type: str, identity: str, arg: str) -> None:
         arg = arg.strip()
         if not arg:
-            self.send(identity_type, identity, "用法：/ask 大V主页链接或UID\n管理员审批通过后即可在 /list 中订阅")
+            self.send(identity_type, identity, "用法：/ask 大V主页链接或UID 分类名\n管理员审批通过后即可在 /list 中订阅")
             return
-        platform, external_id = "xueqiu", arg
-        xueqiu_match = re.search(r"xueqiu\.com/(?:u/)?(\d+)", arg)
-        combination_match = re.search(r"xueqiu\.com/P/(ZH\d+)|(?:^|\s)(ZH\d+)", arg)
-        weibo_match = re.search(r"weibo\.com/u/(\d+)", arg)
+        parts = arg.split(None, 1)
+        link, cat_name = parts[0], parts[1].strip() if len(parts) > 1 else ""
+        cats = self.db.list_categories()
+        if not cat_name:
+            names = "、".join(c["name"] for c in cats) or "（暂无分类，请联系管理员）"
+            self.send(identity_type, identity, f"请指定分类，例如：/ask {link} 宏观\n可选分类：{names}")
+            return
+        cat = next((c for c in cats if c["name"] == cat_name), None)
+        if cat is None:
+            names = "、".join(c["name"] for c in cats) or "（暂无）"
+            self.send(identity_type, identity, f"分类不存在。可选分类：{names}")
+            return
+        platform, external_id = "xueqiu", link
+        xueqiu_match = re.search(r"xueqiu\.com/(?:u/)?(\d+)", link)
+        combination_match = re.search(r"xueqiu\.com/P/(ZH\d+)|(?:^|\s)(ZH\d+)", link)
+        weibo_match = re.search(r"weibo\.com/u/(\d+)", link)
         if xueqiu_match:
             platform, external_id = "xueqiu", xueqiu_match.group(1)
         elif combination_match:
             platform, external_id = "combination", (combination_match.group(1) or combination_match.group(2))
         elif weibo_match:
             platform, external_id = "weibo", weibo_match.group(1)
-        elif not arg.isdigit():
+        elif not link.isdigit():
             self.send(identity_type, identity, "未识别到有效链接，请发大V主页链接或UID")
             return
         try:
-            self.db.add_kol_request(platform, external_id, user["id"])
+            self.db.add_kol_request(platform, external_id, user["id"], category_id=cat["id"])
         except ValueError as exc:
             self.send(identity_type, identity, str(exc))
             return

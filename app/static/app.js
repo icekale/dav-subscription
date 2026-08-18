@@ -1512,6 +1512,10 @@ async function renderSearch(seq) {
       <div id="search-result" class="kol-grid"></div>
     </section>`;
   if (!state.user?.is_admin) {
+    let cats = [];
+    try { cats = await api("/api/categories"); } catch (err) { cats = []; }
+    if (!routeStillActive(seq)) return;
+    const catOptions = cats.map((c) => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
     const askSection = document.createElement("div");
     askSection.innerHTML = `
       <section class="section-panel">
@@ -1525,6 +1529,9 @@ async function renderSearch(seq) {
             <option value="combination">雪球组合</option>
             <option value="weibo">微博</option>
             <option value="twitter">X</option>
+          </select>
+          <select id="ask-category" class="form-control" style="margin:0;width:auto" aria-label="分类" required>
+            <option value="">请选择分类</option>${catOptions}
           </select>
           <input id="ask-link" class="form-control" style="margin:0;flex:1;min-width:220px" placeholder="大V主页链接或 ID" oninput="onAskLinkInput()">
           <button class="btn-normal" onclick="submitAsk()">提交申请</button>
@@ -1577,14 +1584,19 @@ function showAskResult(msg, isError) {
 
 async function submitAsk() {
   const external_id = $("#ask-link").value.trim();
+  const category_id = $("#ask-category") && $("#ask-category").value;
   if (!external_id) {
     showAskResult("请填写大V主页链接或 ID", true);
+    return;
+  }
+  if (!category_id) {
+    showAskResult("请选择分类", true);
     return;
   }
   try {
     await api("/api/kol-requests", {
       method: "POST",
-      body: JSON.stringify({ platform: $("#ask-platform").value, external_id }),
+      body: JSON.stringify({ platform: $("#ask-platform").value, external_id, category_id: Number(category_id) }),
     });
     $("#ask-link").value = "";
     showAskResult("已提交 ✅ 管理员审批通过后会自动出现在订阅广场", false);
@@ -1601,11 +1613,12 @@ async function loadMyAsks(routeSeq) {
     const statusMap = { pending: "待审批", approved: "已通过 ✅", rejected: "已拒绝" };
     $("#my-asks").innerHTML = asks.length
       ? `<div class="table-wrap"><table>
-          <thead><tr><th scope="col">平台</th><th scope="col">外部 ID</th><th scope="col">状态</th><th scope="col">提交时间</th></tr></thead>
+          <thead><tr><th scope="col">平台</th><th scope="col">外部 ID</th><th scope="col">分类</th><th scope="col">状态</th><th scope="col">提交时间</th></tr></thead>
           <tbody>${asks.map((a) => `
             <tr>
               <td>${PLATFORM_LABELS[a.platform] || escapeHtml(a.platform)}</td>
               <td>${escapeHtml(a.external_id)}</td>
+              <td>${escapeHtml(a.category_name || "—")}</td>
               <td class="${a.status === "approved" ? "status-ok" : a.status === "rejected" ? "status-fail" : ""}">${statusMap[a.status] || escapeHtml(a.status)}</td>
               <td>${escapeHtml(fmtDbTime(a.created_at))}</td>
             </tr>`).join("")}</tbody>
@@ -3822,11 +3835,12 @@ async function loadAdminRequests() {
   }
   const done = all.filter((r) => r.status !== "pending");
   const pendingRows = requests.length === 0
-    ? `<tr><td colspan="7" class="muted">暂无待审批申请</td></tr>`
+    ? `<tr><td colspan="8" class="muted">暂无待审批申请</td></tr>`
     : requests.map((r) => `
         <tr>
           <td>${r.id}</td><td>${PLATFORM_LABELS[r.platform] || r.platform}</td>
           <td>${escapeHtml(r.name || "（未填）")}</td><td>${escapeHtml(r.external_id)}</td>
+          <td>${escapeHtml(r.category_name || "—")}</td>
           <td>${escapeHtml(r.requester || r.user_id)}</td><td>${escapeHtml(fmtDbTime(r.created_at))}</td>
           <td>
             <button class="btn-sm" onclick="adminApproveRequest(${r.id})">通过</button>
@@ -3834,11 +3848,12 @@ async function loadAdminRequests() {
           </td>
         </tr>`).join("");
   const historyRows = done.length === 0
-    ? `<tr><td colspan="7" class="muted">暂无处理记录</td></tr>`
+    ? `<tr><td colspan="8" class="muted">暂无处理记录</td></tr>`
     : done.map((r) => `
         <tr>
           <td>${r.id}</td><td>${PLATFORM_LABELS[r.platform] || r.platform}</td>
           <td>${escapeHtml(r.name || "（未填）")}</td><td>${escapeHtml(r.external_id)}</td>
+          <td>${escapeHtml(r.category_name || "—")}</td>
           <td>${escapeHtml(r.requester || r.user_id)}</td>
           <td class="${r.status === "approved" ? "status-ok" : "status-fail"}">${r.status === "approved" ? "已通过" : "已拒绝"}</td>
           <td>${escapeHtml(fmtDbTime(r.handled_at))}</td>
@@ -3850,7 +3865,7 @@ async function loadAdminRequests() {
       <p class="section-meta">用户申请添加的大V，审批通过后进入订阅广场。</p></div></header>
       <div class="table-wrap">
         <table>
-          <thead><tr><th scope="col">ID</th><th scope="col">平台</th><th scope="col">昵称</th><th scope="col">外部ID</th><th scope="col">申请人</th><th scope="col">申请时间</th><th scope="col">操作</th></tr></thead>
+          <thead><tr><th scope="col">ID</th><th scope="col">平台</th><th scope="col">昵称</th><th scope="col">外部ID</th><th scope="col">分类</th><th scope="col">申请人</th><th scope="col">申请时间</th><th scope="col">操作</th></tr></thead>
           <tbody>${pendingRows}</tbody>
         </table>
       </div>
@@ -3859,7 +3874,7 @@ async function loadAdminRequests() {
       <header class="section-head"><div><h3 class="section-title">处理记录</h3></div></header>
       <div class="table-wrap">
         <table>
-          <thead><tr><th scope="col">ID</th><th scope="col">平台</th><th scope="col">昵称</th><th scope="col">外部ID</th><th scope="col">申请人</th><th scope="col">状态</th><th scope="col">处理时间</th></tr></thead>
+          <thead><tr><th scope="col">ID</th><th scope="col">平台</th><th scope="col">昵称</th><th scope="col">外部ID</th><th scope="col">分类</th><th scope="col">申请人</th><th scope="col">状态</th><th scope="col">处理时间</th></tr></thead>
           <tbody>${historyRows}</tbody>
         </table>
       </div>

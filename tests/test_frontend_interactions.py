@@ -235,6 +235,25 @@ def test_dnd_save_button_aligns_left_with_other_settings_buttons():
     assert "dnd-result" not in dnd_block[:400], "保存反馈应走 toast，不要在按钮旁放结果 span"
 
 
+def test_success_toast_uses_accent_not_green():
+    """日常成功 toast 走克制蓝，不占成功绿。"""
+    css = STYLE_CSS.read_text()
+    block = re.search(r"\.toast\.success\s*\{([^}]*)\}", css)
+    assert block, "未找到 .toast.success"
+    assert "color-accent" in block.group(1)
+    assert "color-success" not in block.group(1)
+
+
+def test_submit_ask_requires_category():
+    """申请表有分类框，提交必须带 category_id。"""
+    body = _fn_body("submitAsk")
+    assert "ask-category" in body
+    assert "category_id" in body
+    assert "请选择分类" in body
+    render = _fn_body("renderSearch")
+    assert "ask-category" in render
+
+
 def test_settings_save_feedback_uses_flash():
     """推送设置保存/失败统一走 flash toast，不再用 alert 或行内「已保存 ✅」。"""
     src = APP_JS.read_text()

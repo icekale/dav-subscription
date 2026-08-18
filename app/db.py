@@ -174,6 +174,7 @@ CREATE TABLE IF NOT EXISTS kol_requests (
     name TEXT NOT NULL DEFAULT '',
     external_id TEXT NOT NULL,
     user_id INTEGER NOT NULL,
+    category_id INTEGER,
     status TEXT NOT NULL DEFAULT 'pending',
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     handled_at TEXT
@@ -512,6 +513,9 @@ class DB:
             self._conn.execute(
                 "ALTER TABLE kols ADD COLUMN baseline_ready INTEGER NOT NULL DEFAULT 1"
             )
+        req_cols = {row["name"] for row in self._rows("PRAGMA table_info(kol_requests)")}
+        if "category_id" not in req_cols:
+            self._conn.execute("ALTER TABLE kol_requests ADD COLUMN category_id INTEGER")
         ev_cols = {row["name"] for row in self._rows("PRAGMA table_info(source_events)")}
         if "ok_count" not in ev_cols:
             self._conn.execute(
@@ -942,9 +946,15 @@ class DB:
         return {r["id"] for r in rows}
 
     # ---- 求添加申请 ----
-    def add_kol_request(self, platform: str, external_id: str, user_id: int, name: str = "") -> int:
+    def add_kol_request(
+        self, platform: str, external_id: str, user_id: int, name: str = "", category_id: int | None = None
+    ) -> int:
         if platform not in ALLOWED_PLATFORMS:
             raise ValueError(f"不支持的平台: {platform}")
+        if category_id is None:
+            raise ValueError("请选择分类")
+        if self.get_category(category_id) is None:
+            raise ValueError("分类不存在")
         if self._rows(
             "SELECT id FROM kol_requests WHERE platform = ? AND external_id = ? AND status = 'pending'",
             (platform, external_id),
@@ -957,16 +967,18 @@ class DB:
             raise ValueError("该大V已在目录中，直接订阅即可")
         try:
             return self._execute(
-                "INSERT INTO kol_requests (platform, name, external_id, user_id) VALUES (?, ?, ?, ?)",
-                (platform, name.strip(), external_id, user_id),
+                "INSERT INTO kol_requests (platform, name, external_id, user_id, category_id) VALUES (?, ?, ?, ?, ?)",
+                (platform, name.strip(), external_id, user_id, category_id),
             )
         except sqlite3.IntegrityError:
             raise ValueError("该大V的申请已在处理中") from None
 
     def list_kol_requests(self, status: str | None = None) -> list[dict]:
         sql = (
-            "SELECT r.*, u.username AS requester FROM kol_requests r "
-            "LEFT JOIN users u ON u.id = r.user_id"
+            "SELECT r.*, u.username AS requester, c.name AS category_name "
+            "FROM kol_requests r "
+            "LEFT JOIN users u ON u.id = r.user_id "
+            "LEFT JOIN categories c ON c.id = r.category_id"
         )
         params: tuple = ()
         if status:
