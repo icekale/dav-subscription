@@ -1709,7 +1709,6 @@ pre.content-cell { white-space: pre-wrap; overflow-wrap: break-word; min-width: 
   .home-head { margin-bottom: 10px; position: relative; }
   .home-head .section-title { margin-top: 0; }
   .home-head .section-meta { margin-top: 2px; }
-  .home-filter > summary { position: absolute; top: 0; right: 0; }
   .home-filter-content { display: grid; gap: 10px; margin-top: 12px; }
   .home-search-bar { min-height: 44px; }
   .home-filter-content .home-cats {
@@ -1733,40 +1732,32 @@ pre.content-cell { white-space: pre-wrap; overflow-wrap: break-word; min-width: 
   .topbar-title h2 { display: none; }
   .page-main { padding: 16px 14px calc(74px + env(safe-area-inset-bottom)); --page-pad-x: 14px; }
   .platform-tabs { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; }
-  /* 动态/订阅：一行 6 等宽图标角标（5 平台 + 筛选/星标），不再带字换行 */
-  .tl-filterbar-top,
-  .mysubs-mobile-filters {
+  /* 动态/订阅/广场：一行 6 等宽图标角标 */
+  .icon-badge-bar {
     display: grid;
     grid-template-columns: repeat(6, minmax(0, 1fr));
     gap: 8px;
     width: 100%;
-    flex-direction: row;
-    align-items: stretch;
   }
-  .tl-filterbar .tl-pills,
-  .mysubs-mobile-filters .tl-pills,
-  .tl-actions { display: contents; }
-  .tl-filterbar .tl-pill,
-  .mysubs-mobile-filters .tl-pill,
-  .tl-actions button,
-  .mysubs-mobile-filters .fav-toggle {
+  .icon-badge-bar .tl-pills,
+  .icon-badge-bar .tl-actions { display: contents; }
+  .icon-badge-bar .tl-pill,
+  .icon-badge-bar > .fav-toggle,
+  .icon-badge-bar .tl-actions button {
     width: 100%;
     min-width: 0;
     padding: 0;
     border-radius: var(--radius-control);
     justify-content: center;
   }
-  .tl-filterbar .tl-pill span,
-  .mysubs-mobile-filters .tl-pill span { display: none; }
-  .tl-filterbar .tl-pill .pt-icon,
-  .mysubs-mobile-filters .tl-pill .pt-icon { width: 20px; height: 20px; }
-  .tl-actions button { font-size: 0; gap: 0; }
-  .tl-actions .funnel-icon { width: 20px; height: 20px; }
-  .mysubs-mobile-filters .fav-toggle {
-    font-size: 0;
-    gap: 0;
-  }
-  .mysubs-mobile-filters .fav-toggle .star-icon { width: 20px; height: 20px; }
+  .icon-badge-bar .tl-pill span { display: none; }
+  .icon-badge-bar .tl-pill .pt-icon { width: 20px; height: 20px; }
+  .icon-badge-bar > .fav-toggle,
+  .icon-badge-bar .tl-actions button { font-size: 0; gap: 0; }
+  .icon-badge-bar .funnel-icon,
+  .icon-badge-bar .star-icon { width: 20px; height: 20px; }
+  .home-filter-content[hidden] { display: none; }
+  .home-head .icon-badge-bar { margin-top: 10px; }
   .tl-new-badge-btn { min-height: 44px; overflow: visible; }
   .kol-item { flex-wrap: wrap; }
   .kol-item .btn-sub { width: 100%; min-height: 44px; }

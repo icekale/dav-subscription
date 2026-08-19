@@ -313,10 +313,10 @@ def test_mobile_mysubs_filter_is_six_equal_44px_targets():
     assert "特别关注" in _fn_body("mysubsMobileFiltersHtml")
     assert 'aria-label="特别关注"' in _fn_body("mysubsMobileFiltersHtml")
     assert 'aria-label="筛选"' in _fn_body("renderTimeline")
-    assert ".tl-filterbar .tl-pill span" in css and "display: none" in css
-    assert ".mysubs-mobile-filters .tl-pill span" in css
-    assert ".mysubs-mobile-filters .fav-toggle" in css and "font-size: 0" in css
-    assert ".tl-actions button" in css and "font-size: 0" in css
+    assert ".icon-badge-bar .tl-pill span" in css and "display: none" in css
+    assert ".icon-badge-bar > .fav-toggle" in css and "font-size: 0" in css
+    assert 'class="icon-badge-bar"' in _fn_body("renderHome")
+    assert 'class="tl-filterbar-top icon-badge-bar"' in _fn_body("renderTimeline")
     # 不再把筛选条竖着堆成两行
     mobile = re.search(r"@media \(max-width: 768px\) \{(.*)\}\s*/\* ----------", css, re.DOTALL)
     body = mobile.group(1) if mobile else css
@@ -328,20 +328,26 @@ def test_mobile_mysubs_filter_is_six_equal_44px_targets():
 # ---- 订阅广场移动端头部密度 ----
 
 def test_mobile_home_filter_reuses_native_and_shared_controls():
-    """移动端用原生折叠和共享角标；桌面筛选保持完整。"""
+    """广场移动端与订阅/动态同一行角标；搜索分类收进漏斗。"""
     render = _fn_body("renderHome")
     mobile_platforms = _fn_body("homeMobilePlatformsHtml")
     pick = _fn_body("homePickMobilePlatform")
+    toggle = _fn_body("homeToggleFilter")
 
-    for marker in ('<details class="home-filter"', '<summary id="home-filter-toggle"',
-                   'id="home-search"', 'id="platform-tabs"', 'id="home-cats"'):
+    for marker in ('class="icon-badge-bar"', 'id="home-filter-toggle"',
+                   'id="home-search"', 'id="platform-tabs"', 'id="home-cats"',
+                   'id="home-filter-panel"'):
         assert marker in render
+    assert "<details" not in render
     assert "platformShortLabel(p)" in mobile_platforms
     assert "<span>${short}</span>" in mobile_platforms
     assert "homePickMobilePlatform('${p}')" in mobile_platforms
     assert "state.platform = platform" in pick
-    assert "panel.open = false" in pick
+    assert "homeToggleFilter()" in render
+    assert 'toggleAttribute("hidden"' in toggle
     assert "loadHomeKols(routeRenderSeq)" in pick
+    assert "state.homeQ || state.homeCategory" in _fn_body("homeHasFilters")
+    assert "state.platform" not in _fn_body("homeHasFilters")
 
 
 # ---- 设置页保存按钮对齐 ----

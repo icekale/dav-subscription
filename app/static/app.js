@@ -20,7 +20,7 @@ const CHANNEL_ICONS = {
 };
 const CHANNEL_LABELS = { telegram: "Telegram", feishu: "飞书", wecom: "企业微信", bark: "Bark" };
 const USER_CHANNEL_KEYS = ["telegram", "feishu", "wecom", "bark"];
-const APP_VERSION = "1.12.20";
+const APP_VERSION = "1.12.21";
 const PLATFORM_TABS = ["", "xueqiu", "combination", "weibo", "twitter"];
 const STATS_TABS = ["overview", "health", "config", "cookies", "proxies"];
 const TL_PLATFORMS = PLATFORM_TABS.map((p) => [p, p ? PLATFORM_LABELS[p] : "全部"]);
@@ -431,7 +431,16 @@ function emptyState(text, actionHtml = "") {
 }
 
 function homeHasFilters() {
-  return !!(state.homeQ || state.platform || state.homeCategory);
+  return !!(state.homeQ || state.homeCategory);
+}
+
+function homeToggleFilter() {
+  const panel = $("#home-filter-panel");
+  const btn = $("#home-filter-toggle");
+  if (!panel || !btn) return;
+  const open = panel.hasAttribute("hidden");
+  panel.toggleAttribute("hidden", !open);
+  btn.setAttribute("aria-expanded", String(open));
 }
 
 function homeMobilePlatformsHtml() {
@@ -451,8 +460,6 @@ async function homePickMobilePlatform(platform) {
   state.platform = platform;
   const platforms = $("#home-mobile-platforms");
   if (platforms) platforms.innerHTML = homeMobilePlatformsHtml();
-  const panel = $("#home-filter-panel");
-  if (panel) panel.open = false;
   await loadHomeKols(routeRenderSeq);
 }
 
@@ -510,22 +517,22 @@ async function renderHome(seq) {
           <p class="section-meta" id="catalog-meta">加载中…</p>
         </div>
         ${mobileHome ? `
-          <details class="home-filter" id="home-filter-panel">
-            <summary id="home-filter-toggle" class="fav-toggle ${homeHasFilters() ? "has-filter" : ""}">${FILTER_ICON}筛选</summary>
-            <div class="home-filter-content">
-              <div class="search-bar home-search-bar">
-                ${SEARCH_ICON}
-                <input id="home-search" placeholder="搜索昵称或 ID" value="${escapeHtml(state.homeQ || "")}" oninput="homeSearch(this.value)">
-              </div>
-              <div class="tl-pills" id="home-mobile-platforms" role="radiogroup" aria-label="平台">
-                ${homeMobilePlatformsHtml()}
-              </div>
-              <div class="home-cats" id="home-cats"></div>
-              <div class="home-filter-actions">
-                <button class="btn-ghost" onclick="homeResetFilters()">清除筛选</button>
-              </div>
+          <div class="icon-badge-bar" id="home-mobile-bar">
+            <div class="tl-pills" id="home-mobile-platforms" role="radiogroup" aria-label="平台">
+              ${homeMobilePlatformsHtml()}
             </div>
-          </details>` : `
+            <button type="button" id="home-filter-toggle" class="fav-toggle ${homeHasFilters() ? "has-filter" : ""}" aria-label="筛选" aria-expanded="false" aria-controls="home-filter-panel" onclick="homeToggleFilter()">${FILTER_ICON}筛选</button>
+          </div>
+          <div class="home-filter-content" id="home-filter-panel" hidden>
+            <div class="search-bar home-search-bar">
+              ${SEARCH_ICON}
+              <input id="home-search" placeholder="搜索昵称或 ID" value="${escapeHtml(state.homeQ || "")}" oninput="homeSearch(this.value)">
+            </div>
+            <div class="home-cats" id="home-cats"></div>
+            <div class="home-filter-actions">
+              <button class="btn-ghost" onclick="homeResetFilters()">清除筛选</button>
+            </div>
+          </div>` : `
           <div class="toolbar" style="margin-top:12px">
             <div class="search-bar" style="flex:1;min-width:220px">
               ${SEARCH_ICON}
@@ -806,14 +813,14 @@ async function renderMySubs(seq) {
   setPageTitle("我的订阅");
   const mobileFilter = isMobileTimelineFilter();
   $("#main").innerHTML = `
-    <section class="section-panel">
-      <header class="section-head">
+    <section class="section-panel${mobileFilter ? " home-panel" : ""}">
+      <header class="section-head home-head">
         <div>
           <h3 class="section-title">已订阅</h3>
         </div>
       </header>
       <div class="toolbar" style="margin:12px 0 16px">
-        <div class="${mobileFilter ? "mysubs-mobile-filters" : "platform-tabs"}" id="mysubs-tabs"></div>
+        <div class="${mobileFilter ? "icon-badge-bar mysubs-mobile-filters" : "platform-tabs"}" id="mysubs-tabs"></div>
         ${mobileFilter ? "" : `<button id="mysubs-fav-toggle" class="fav-toggle ${state.mysubsFavorite ? "fav-on" : ""}" onclick="toggleMySubsFav()">${STAR_SVG} 特别关注</button>`}
       </div>
       <div id="mysubs-list" class="kol-grid"></div>
@@ -1030,7 +1037,7 @@ async function renderTimeline(seq) {
     <div class="tl-layout">
     <div class="tl-main">
     <div class="tl-filterbar" id="tl-filterbar">
-      <div class="tl-filterbar-top">
+      <div class="tl-filterbar-top icon-badge-bar">
         <div class="tl-pills" id="tl-pills" role="radiogroup" aria-label="平台">${tlPillsHtml()}</div>
         ${wide ? "" : `<div class="tl-actions">
           <button id="tl-filter-toggle" class="fav-toggle ${tlPanelFilterOn() ? "has-filter" : ""}" aria-label="筛选" aria-expanded="false" aria-controls="tl-filter-panel" onclick="tlFilterPanel()">${FILTER_ICON}筛选</button>
