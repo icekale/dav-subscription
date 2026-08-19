@@ -63,23 +63,38 @@ def digest_body(post: Post, full: bool, max_chars: int = 120, full_limit: int = 
     return flat[:max_chars].rstrip() + "…"
 
 
-def format_published_at(raw: str) -> str:
-    """把时间戳（毫秒/秒）或 RFC2822（X/微博）格式化为可读时间，其他格式原样返回。"""
+def parse_published_at(raw: str) -> datetime | None:
+    """时间戳 / RFC2822 / 常见日期串 → 北京时间；解析失败返回 None。"""
     raw = (raw or "").strip()
+    if not raw:
+        return None
     if raw.isdigit():
         ts = int(raw)
         ts = ts / 1000 if ts > 1e12 else ts
         try:
-            return datetime.fromtimestamp(ts, tz=CN_TZ).strftime("%Y-%m-%d %H:%M")
-        except (ValueError, OSError):
-            return raw
+            return datetime.fromtimestamp(ts, tz=CN_TZ)
+        except (ValueError, OSError, OverflowError):
+            return None
     try:
         dt = email.utils.parsedate_to_datetime(raw)
+        if dt is not None:
+            return dt.astimezone(CN_TZ)
     except (TypeError, ValueError):
-        return raw
-    if dt is None:
-        return raw
-    return dt.astimezone(CN_TZ).strftime("%Y-%m-%d %H:%M")
+        pass
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S%z"):
+        try:
+            dt = datetime.strptime(raw, fmt)
+            return dt if dt.tzinfo else dt.replace(tzinfo=CN_TZ)
+        except ValueError:
+            continue
+    return None
+
+
+def format_published_at(raw: str) -> str:
+    """把时间戳（毫秒/秒）或 RFC2822（X/微博）格式化为可读时间，其他格式原样返回。"""
+    raw = (raw or "").strip()
+    dt = parse_published_at(raw)
+    return dt.strftime("%Y-%m-%d %H:%M") if dt else raw
 
 
 class ThreadLocalClient:

@@ -116,11 +116,6 @@ SECONDARY_DIGEST_INTERVAL_SECONDS = 3600
 SECONDARY_MIN_DIGEST_COUNT = 1
 
 
-def _frequency_setting(db: DB, key: str, default: int) -> int:
-    """采集频率：非法或 <=0 时回落默认值。"""
-    return _polling_setting(db, key, default, positive=True)
-
-
 def _in_x_fallback(db: DB) -> bool:
     """X 直抓当前是否处于失败状态（最近一次失败晚于最近一次直抓成功）。"""
     fallback_at = db.get_setting("x_direct_last_fallback_at")
@@ -144,24 +139,24 @@ def _effective_interval(
     各档位数值可在后台「数据源」页调参。
     """
     if kol["platform"] == "combination":
-        base = _frequency_setting(db, "config_combination_base_seconds", COMBINATION_BASE_SECONDS)
-        cap = _frequency_setting(
-            db, "config_combination_idle_cap_seconds", COMBINATION_IDLE_CAP_SECONDS
+        base = _polling_setting(db, "config_combination_base_seconds", COMBINATION_BASE_SECONDS, positive=True)
+        cap = _polling_setting(
+            db, "config_combination_idle_cap_seconds", COMBINATION_IDLE_CAP_SECONDS, positive=True
         )
     else:
         if kol.get("priority"):
             base = priority_interval_seconds
-            cap = _frequency_setting(db, "config_priority_idle_cap_seconds", PRIORITY_IDLE_CAP_SECONDS)
+            cap = _polling_setting(db, "config_priority_idle_cap_seconds", PRIORITY_IDLE_CAP_SECONDS, positive=True)
         elif kol.get("secondary"):
-            base = _frequency_setting(db, "config_secondary_base_seconds", SECONDARY_BASE_SECONDS)
-            cap = _frequency_setting(db, "config_secondary_idle_cap_seconds", SECONDARY_IDLE_CAP_SECONDS)
+            base = _polling_setting(db, "config_secondary_base_seconds", SECONDARY_BASE_SECONDS, positive=True)
+            cap = _polling_setting(db, "config_secondary_idle_cap_seconds", SECONDARY_IDLE_CAP_SECONDS, positive=True)
         else:
             base = interval_seconds
-            cap = _frequency_setting(db, "config_normal_idle_cap_seconds", NORMAL_IDLE_CAP_SECONDS)
+            cap = _polling_setting(db, "config_normal_idle_cap_seconds", NORMAL_IDLE_CAP_SECONDS, positive=True)
     empty = min(state.empty_rounds.get(kol["id"], 0), 6)
     effective = min(base * (2**empty), cap)
     if kol["platform"] == "twitter" and db is not None and _in_x_fallback(db):
-        x_cap = _frequency_setting(db, "config_x_fallback_cap_seconds", X_FALLBACK_CAP_SECONDS)
+        x_cap = _polling_setting(db, "config_x_fallback_cap_seconds", X_FALLBACK_CAP_SECONDS, positive=True)
         effective = min(effective * 4, x_cap)  # 直抓失败期放慢，避免空打已挂的接口
     return effective
 
@@ -1215,7 +1210,9 @@ def _scheduler_loop_delay(
     永远等不到下一次调用，优先间隔形同虚设。由 poll_once 的内部到期判断决定
     每个 KOL 本轮是否抓取，这里只负责把轮询节奏提到最短间隔。
     """
-    combination_base = _frequency_setting(db, "config_combination_base_seconds", COMBINATION_BASE_SECONDS)
+    combination_base = _polling_setting(
+        db, "config_combination_base_seconds", COMBINATION_BASE_SECONDS, positive=True
+    )
     base = min(interval_seconds, priority_interval_seconds, combination_base)
     base = max(base, 1)  # 防御：非法配置（0/负值）不能退化成忙轮询
     return base + random.uniform(0, jitter_seconds)
@@ -1287,19 +1284,6 @@ def probe_xueqiu(db: DB, notifiers: list[Notifier], source_config) -> None:
         client.close()
 
 
-def _merge_cookie_string(old: str, client, prefer_domain: str) -> str:
-    """合并旧 cookie 与本次响应下发的 cookie（同名多域时优先 prefer_domain 的新值）。"""
-    items: dict[str, str] = {}
-    for part in (old or "").split(";"):
-        if "=" in part:
-            key, value = part.strip().split("=", 1)
-            items[key] = value
-    for cookie in client.cookies.jar:
-        if prefer_domain in (cookie.domain or "") or cookie.name not in items:
-            items[cookie.name] = cookie.value
-    return "; ".join(f"{k}={v}" for k, v in items.items())
-
-
 def _alert_cookie_keepalive(db: DB, notifiers: list[Notifier], label: str, detail: str = "") -> None:
     now = int(time.time())
     last = db.get_setting(COOKIE_KEEPALIVE_ALERT_KEY)
@@ -1329,6 +1313,7 @@ def keepalive_xueqiu_cookie(
         XUEQIU_COOKIE_KEY,
         XUEQIU_COOKIE_TIME_KEY,
         XUEQIU_TIMELINE_URL,
+        merge_cookie_strings,
     )
 
     cookie = db.get_setting(XUEQIU_COOKIE_KEY) or source_config.cookie
@@ -1377,7 +1362,7 @@ def keepalive_xueqiu_cookie(
             _alert_cookie_keepalive(db, notifiers, "雪球", f"timeline HTTP {status}")
             return
         # 会话有效：合并本次响应下发的 cookie（一般无新 token，原样保留），更新状态
-        new_cookie = _merge_cookie_string(cookie, client, "xueqiu.com")
+        new_cookie = merge_cookie_strings(cookie, client.cookies, "xueqiu.com")
         if new_cookie:
             db.set_setting(XUEQIU_COOKIE_KEY, new_cookie)
             db.set_setting(XUEQIU_COOKIE_TIME_KEY, str(int(time.time())))
@@ -1421,7 +1406,9 @@ def keepalive_weibo_cookie(db: DB, notifiers: list[Notifier], weibo_config, clie
         resp = client.get("https://weibo.com/")
         # 会话有效：最终停留在 weibo.com（未登录会被 302 到 passport 登录页）
         if resp.status_code == 200 and "passport.weibo.com" not in str(resp.url):
-            new_cookie = _merge_cookie_string(cookie, client, "weibo.com")
+            from .fetchers.xueqiu import merge_cookie_strings
+
+            new_cookie = merge_cookie_strings(cookie, client.cookies, "weibo.com")
             if new_cookie:
                 db.set_setting(WEIBO_COOKIE_KEY, new_cookie)
                 db.set_setting(WEIBO_COOKIE_TIME_KEY, str(int(time.time())))

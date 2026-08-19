@@ -8,52 +8,19 @@
 from __future__ import annotations
 
 import html
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from email.utils import format_datetime
 from xml.etree import ElementTree
 
-from .fetchers.base import PLATFORM_LABELS
-
-_TZ_CST = timezone(timedelta(hours=8))
-
-
-def _parse_ts(raw: str) -> datetime | None:
-    """把项目内的各种时间字符串解析成带时区的 datetime（固定东八区）。"""
-    raw = (raw or "").strip()
-    if not raw:
-        return None
-    if raw.isdigit():
-        ts = int(raw)
-        ts = ts / 1000 if ts > 1e12 else float(ts)
-        try:
-            return datetime.fromtimestamp(ts, _TZ_CST)
-        except (OverflowError, OSError, ValueError):
-            return None
-    for fmt in (
-        "%Y-%m-%d %H:%M:%S",
-        "%Y-%m-%d %H:%M",
-        "%Y-%m-%dT%H:%M:%S",
-        "%Y-%m-%dT%H:%M:%S%z",
-    ):
-        try:
-            dt = datetime.strptime(raw, fmt)
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=_TZ_CST)
-            return dt
-        except ValueError:
-            continue
-    try:
-        from email.utils import parsedate_to_datetime
-
-        return parsedate_to_datetime(raw)
-    except (TypeError, ValueError):
-        return None
+from .fetchers.base import CN_TZ, PLATFORM_LABELS, parse_published_at
 
 
 def _pub_date(post: dict) -> str:
-    dt = _parse_ts(post.get("published_at") or "") or _parse_ts(post.get("fetched_at") or "")
+    dt = parse_published_at(post.get("published_at") or "") or parse_published_at(
+        post.get("fetched_at") or ""
+    )
     if dt is None:
-        return format_datetime(datetime.now(_TZ_CST))
+        return format_datetime(datetime.now(CN_TZ))
     return format_datetime(dt)
 
 

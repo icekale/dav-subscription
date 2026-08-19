@@ -248,7 +248,7 @@ docker compose up -d --build
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements.txt pytest
 cp config.example.yaml config.yaml   # 填入本地配置
 uvicorn app.main:app --reload
 ```

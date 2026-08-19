@@ -12,6 +12,7 @@ backups/
 .pi-subagents/
 .zcode/
 .worktrees/
+.impeccable/
 
 
 # 本地一次性调试脚本（不入库）

@@ -11,7 +11,7 @@ queryId 由 X 前端轮换，启动后每 6 小时自动从前端 main bundle �
 （_graphql 不带 guest 头也 200）。因此：
 - HTTP 客户端从 httpx 换成 curl_cffi.Session(impersonate=chrome124)；
 - 删掉 guest token 获取逻辑（guest/activate 已被 CF 锁死，属于无效请求）。
-curl_cffi.Session 非线程安全：生产同平台 2 并发共享 fetcher，用 threading.local
+curl_cffi.Session 非线程安全：生产同平台 2 并发共享 fetcher，用 ThreadLocalClient
 每线程懒建一个 session；外部注入的 client（测试 mock / 解析头像）直接复用。
 """
 
@@ -30,7 +30,7 @@ from curl_cffi import requests as cffi
 from curl_cffi.requests.errors import RequestsError
 
 from ..avatar_cache import cache_avatar
-from .base import Fetcher, Post, format_published_at
+from .base import Fetcher, Post, ThreadLocalClient, format_published_at
 
 logger = logging.getLogger(__name__)
 
@@ -294,23 +294,20 @@ class TwitterFetcher(Fetcher):
     def __init__(self, source_config=None, db=None, client=None):
         super().__init__(source_config)
         self.db = db
-        self._client = client  # 外部注入（测试 mock / 头像解析）时复用；None 则按线程懒建
-        self._thread_local = threading.local()
         self._user_ids: dict[str, str] = {}
 
-    def _client_for(self):
-        """curl_cffi.Session 非线程安全：每线程懒建一个；外部注入的 client 直接复用。"""
-        if self._client is not None:
-            return self._client
-        sess = getattr(self._thread_local, "session", None)
-        if sess is None:
+        def _make():
             from ..proxy import acquire_client_proxy, attach_proxy
 
             proxy, pid = acquire_client_proxy(self.db, "twitter")
             sess = cffi.Session(impersonate="chrome124", timeout=25, proxy=proxy)
             attach_proxy(sess, pid)
-            self._thread_local.session = sess
-        return sess
+            return sess
+
+        self._http = ThreadLocalClient(_make, injected=client)
+
+    def _client_for(self):
+        return self._http.get()
 
     def fetch(self, kol: dict) -> list[Post]:
         """X 直抓；失败按错误类型分流后抛出，不再走备用内容通道。

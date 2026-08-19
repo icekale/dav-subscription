@@ -351,28 +351,17 @@ def attach_proxy(client, proxy_id: int | None) -> None:
 
 def current_fetcher_client(fetcher):
     http = getattr(fetcher, "_http", None)
-    if http is not None:
-        if http._injected is not None:
-            return http._injected
-        return getattr(http._local, "client", None)
-    if getattr(fetcher, "_client", None) is not None:
-        return fetcher._client
-    local = getattr(fetcher, "_thread_local", None)
-    if local is not None:
-        return getattr(local, "session", None)
-    return None
+    if http is None:
+        return None
+    if http._injected is not None:
+        return http._injected
+    return getattr(http._local, "client", None)
 
 
 def reset_fetcher_proxy(fetcher) -> None:
     http = getattr(fetcher, "_http", None)
     if http is not None:
         http.reset()
-        return
-    if getattr(fetcher, "_client", None) is not None:
-        return
-    local = getattr(fetcher, "_thread_local", None)
-    if local is not None:
-        local.session = None
 
 
 def note_fetch_proxy(fetcher, ok: bool, error: str = "") -> None:

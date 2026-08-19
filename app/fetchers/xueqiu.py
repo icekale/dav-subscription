@@ -125,11 +125,12 @@ def _is_waf_html(resp: httpx.Response) -> bool:
     )
 
 
-def merge_cookie_strings(old: str, cookies) -> str:
+def merge_cookie_strings(old: str, cookies, prefer_domain: str = "") -> str:
     """把旧 Cookie 与本次会话新下发的 cookie 合并（同名以新值为准）。
 
     雪球首页刷新只会回发部分 token（如 xq_a_token），直接覆盖会丢掉
     u / device_id / xqat 等其他会话字段，合并可完整保留登录态。
+    prefer_domain 非空时，同名多域只覆盖匹配该域的新值。
     """
     items: dict[str, str] = {}
     for part in (old or "").split(";"):
@@ -138,7 +139,9 @@ def merge_cookie_strings(old: str, cookies) -> str:
             items[key] = value
     jar = getattr(cookies, "jar", cookies)
     for cookie in jar:
-        items[cookie.name] = cookie.value
+        domain = getattr(cookie, "domain", "") or ""
+        if not prefer_domain or prefer_domain in domain or cookie.name not in items:
+            items[cookie.name] = cookie.value
     return "; ".join(f"{k}={v}" for k, v in items.items())
 
 

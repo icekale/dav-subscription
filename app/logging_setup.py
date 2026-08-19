@@ -29,8 +29,6 @@ class RingBufferHandler(logging.Handler):
             pass
 
 
-LEVEL_RANK = {"DEBUG": 10, "INFO": 20, "WARNING": 30, "ERROR": 40, "CRITICAL": 50}
-
 # WARNING+ 持久化 sink（由 create_app 注入 DB 写入函数；未注入时丢弃）
 _error_sink = None
 
@@ -64,11 +62,13 @@ def recent_logs(limit: int = 200, level: str | None = None, q: str | None = None
     if level:
         want = level.upper()
         exact = want == "DEBUG"  # DEBUG 行最稀缺且不会混入上级日志，选它时只显示 DEBUG
-        min_rank = LEVEL_RANK.get(want, 0)
+        min_rank = getattr(logging, want, 0)
+        if not isinstance(min_rank, int):
+            min_rank = 0
         lines = [
             line for line in lines
             if (r := _line_rank(line)) is not None
-            and (r == LEVEL_RANK["DEBUG"] if exact else r >= min_rank)
+            and (r == logging.DEBUG if exact else r >= min_rank)
         ]
     if q:
         needle = q.lower()
@@ -79,9 +79,10 @@ def recent_logs(limit: int = 200, level: str | None = None, q: str | None = None
 def _line_rank(line: str) -> int | None:
     # 日志格式：2026-08-05 22:14:58.091 LEVEL app.name [thread] message
     try:
-        return LEVEL_RANK.get(line.split()[2].upper())
+        level = getattr(logging, line.split()[2].upper(), None)
     except (IndexError, AttributeError):
         return None
+    return level if isinstance(level, int) else None
 
 
 def setup_logging(level: str | None = None, log_file: str | None = None) -> None:
