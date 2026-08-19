@@ -11,13 +11,16 @@ colors:
   ink: "#1d1d1f"
   ink-strong: "#222c3c"
   muted: "#6e6e73"
+  muted-soft: "rgba(100, 116, 139, 0.14)"
   faint: "#667080"
   line: "rgba(12, 18, 34, 0.1)"
-  success: "#16a34a"
+  success: "#3a6e4b"
   warning: "#d97706"
   danger: "#dc2626"
   data-up: "#b05b63"
   data-down: "#23714a"
+  data-up-soft: "color-mix(in srgb, #b05b63 14%, transparent)"
+  data-down-soft: "color-mix(in srgb, #23714a 14%, transparent)"
   white: "#ffffff"
 typography:
   display:
@@ -99,15 +102,15 @@ components:
     textColor: "{colors.ink}"
     typography: "{typography.label}"
     rounded: "{rounded.pill}"
-    padding: "0 14px"
-    height: "38px"
+    padding: "0 12px"
+    height: "44px"
   chip-selected:
     backgroundColor: "{colors.primary}"
     textColor: "{colors.white}"
     typography: "{typography.label}"
     rounded: "{rounded.pill}"
-    padding: "0 14px"
-    height: "38px"
+    padding: "0 12px"
+    height: "44px"
   nav-item-active:
     backgroundColor: "{colors.primary-soft}"
     textColor: "{colors.primary-text}"
@@ -160,13 +163,14 @@ V Push 是一台安静的控制台：用户在桌面或手机上打开它，快�
 - **纸面** (`{colors.surface}`): 卡片、输入、未选中胶囊。
 - **墨** (`{colors.ink}` / `{colors.ink-strong}`): 正文与标题。
 - **雾灰** (`{colors.muted}`): 时间、辅助说明。
+- **雾灰软底** (`{colors.muted-soft}`): 次要铃铛已降频时的浅底。深色改用更高透明的同色相。
 - **淡灰** (`{colors.faint}`): 分组标签、更弱的元信息。
 - **线** (`{colors.line}`): 默认 1px 分隔。更强/更弱用同一色相加减透明度，不另开灰。
 
 ### Semantic
 
-- **成功绿 / 警告橙 / 危险红**: 只表示订阅成功、降级、失败。不拿来做品牌装饰。
-- **数据红 / 数据绿** (`{colors.data-up}` / `{colors.data-down}`): 仅组合净值。A 股惯例红涨绿跌，与成功/危险语义色分开。
+- **成功绿 / 警告橙 / 危险红**: 只表示订阅成功、降级、失败。不拿来做品牌装饰。成功绿用鼠尾草 `{colors.success}`，不用高饱和交通灯绿。
+- **数据红 / 数据绿** (`{colors.data-up}` / `{colors.data-down}`): 仅组合净值。A 股惯例红涨绿跌，与成功/危险语义色分开。面积用 `{colors.data-up-soft}` / `{colors.data-down-soft}`。
 - **平台色**（雪球、微博、X、Telegram、飞书、企微）: 只给图标上色。不进按钮、不进大面积底。
 
 深色主题换画布为 `#0f1115`、纸面 `#171a20`、正文 `#e4e6eb`；浅底蓝字提到 `#5a9bf5`。实底主色保持浅色值，因为按钮上的白字对比是按浅色算的。
@@ -236,7 +240,7 @@ V Push 是一台安静的控制台：用户在桌面或手机上打开它，快�
 
 ### Chips
 
-- **Style:** 胶囊、纸面、1px 线。分类芯片 12px 高 32px；时间线平台胶囊 13px 高 38px。
+- **Style:** 胶囊、纸面、1px 线。分类芯片 12px 高 32px；时间线/订阅平台胶囊 13px 高 44px，一律图标+短字（组合不写全称），选中只换克制蓝实底。
 - **State:** 未选中墨/线；悬停线与字转克制蓝；选中实底白字。星标/次要开关选中用软底 + 蓝字，不走实心，避免一排蓝块。
 
 ### Cards / Containers
@@ -266,7 +270,7 @@ V Push 是一台安静的控制台：用户在桌面或手机上打开它，快�
 
 ### KOL card (signature)
 
-纸面卡片、20px 圆角。头像可用品牌渐变（上 `#2a86ff` 到主色）或缓存图。主操作与星标/删除在同一 44px 行。
+纸面卡片、20px 圆角。头像可用品牌渐变（上主色强 `#1668e0` 到更深 `#1258c4`，白字 ≥4.5:1）或缓存图。主操作与星标/删除在同一 44px 行。
 
 ## Do's and Don'ts
 

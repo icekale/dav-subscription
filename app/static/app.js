@@ -20,7 +20,7 @@ const CHANNEL_ICONS = {
 };
 const CHANNEL_LABELS = { telegram: "Telegram", feishu: "飞书", wecom: "企业微信", bark: "Bark" };
 const USER_CHANNEL_KEYS = ["telegram", "feishu", "wecom", "bark"];
-const APP_VERSION = "1.12.18";
+const APP_VERSION = "1.12.19";
 const PLATFORM_TABS = ["", "xueqiu", "combination", "weibo", "twitter"];
 const STATS_TABS = ["overview", "health", "config", "cookies", "proxies"];
 const TL_PLATFORMS = PLATFORM_TABS.map((p) => [p, p ? PLATFORM_LABELS[p] : "全部"]);
@@ -2537,12 +2537,17 @@ function statsTabFromHash() {
 function switchStatsTab(name) {
   // 数据源页分段导航：监控总览 / 大V健康 / 抓取设置 / Cookie 管理 / 代理
   if (!STATS_TABS.includes(name)) name = "overview";
-  document.querySelectorAll(".settings-tab").forEach((b) =>
-    b.classList.toggle("active", b.dataset.tab === name)
-  );
+  document.querySelectorAll(".settings-tab[data-tab]").forEach((b) => {
+    const on = b.dataset.tab === name;
+    b.classList.toggle("active", on);
+    if (STATS_TABS.includes(b.dataset.tab)) b.setAttribute("aria-selected", String(on));
+  });
   STATS_TABS.forEach((t) => {
     const el = document.getElementById("st-" + t);
-    if (el) el.style.display = t === name ? "" : "none";
+    if (!el) return;
+    const on = t === name;
+    el.style.display = on ? "" : "none";
+    el.hidden = !on;
   });
   const next = name === "overview" ? "#/admin/stats" : `#/admin/stats?tab=${name}`;
   if (location.hash !== next) history.replaceState(null, "", next);
@@ -3144,13 +3149,13 @@ async function loadAdminStats() {
   const tw = s.twitter_cookie || {};
   $("#admin-body").innerHTML = `
     <div class="settings-tabs" role="tablist" aria-label="数据源管理">
-      <button class="settings-tab active" data-tab="overview" onclick="switchStatsTab('overview')">监控总览</button>
-      <button class="settings-tab" data-tab="health" onclick="switchStatsTab('health')">大V健康</button>
-      <button class="settings-tab" data-tab="config" onclick="switchStatsTab('config')">抓取设置</button>
-      <button class="settings-tab" data-tab="cookies" onclick="switchStatsTab('cookies')">Cookie 管理</button>
-      <button class="settings-tab" data-tab="proxies" onclick="switchStatsTab('proxies')">代理</button>
+      <button type="button" class="settings-tab active" role="tab" id="tab-overview" aria-selected="true" aria-controls="st-overview" data-tab="overview" onclick="switchStatsTab('overview')">监控总览</button>
+      <button type="button" class="settings-tab" role="tab" id="tab-health" aria-selected="false" aria-controls="st-health" data-tab="health" onclick="switchStatsTab('health')">大V健康</button>
+      <button type="button" class="settings-tab" role="tab" id="tab-config" aria-selected="false" aria-controls="st-config" data-tab="config" onclick="switchStatsTab('config')">抓取设置</button>
+      <button type="button" class="settings-tab" role="tab" id="tab-cookies" aria-selected="false" aria-controls="st-cookies" data-tab="cookies" onclick="switchStatsTab('cookies')">Cookie 管理</button>
+      <button type="button" class="settings-tab" role="tab" id="tab-proxies" aria-selected="false" aria-controls="st-proxies" data-tab="proxies" onclick="switchStatsTab('proxies')">代理</button>
     </div>
-    <div id="st-overview" class="settings-tab-panel">
+    <div id="st-overview" class="settings-tab-panel" role="tabpanel" aria-labelledby="tab-overview">
       <section class="section-panel">
         <header class="section-head">
           <div><h3 class="section-title">数据源稳定性</h3>
@@ -3176,14 +3181,14 @@ async function loadAdminStats() {
         <div id="source-events"></div>
       </section>
     </div>
-    <div id="st-health" class="settings-tab-panel" style="display:none">
+    <div id="st-health" class="settings-tab-panel" role="tabpanel" aria-labelledby="tab-health" style="display:none">
       <section class="section-panel">
         <header class="section-head"><div><h3 class="section-title">大V抓取健康</h3>
         <p class="section-meta">按「最近抓到新帖时间」从旧到新排列，顶部即长期无更新的候选排查对象。</p></div></header>
         <div id="kol-health"></div>
       </section>
     </div>
-    <div id="st-config" class="settings-tab-panel" style="display:none">
+    <div id="st-config" class="settings-tab-panel" role="tabpanel" aria-labelledby="tab-config" style="display:none">
       <section class="section-panel">
         <header class="section-head">
           <div><h3 class="section-title">抓取设置</h3>
@@ -3291,7 +3296,7 @@ async function loadAdminStats() {
         </div>
       </section>
     </div>
-    <div id="st-cookies" class="settings-tab-panel" style="display:none">
+    <div id="st-cookies" class="settings-tab-panel" role="tabpanel" aria-labelledby="tab-cookies" style="display:none">
       <div id="cookie-repair-inline"></div>
       <section class="section-panel">
         <header class="section-head">
@@ -3324,7 +3329,7 @@ async function loadAdminStats() {
         </div>
       </section>
     </div>
-    <div id="st-proxies" class="settings-tab-panel" style="display:none"></div>`;
+    <div id="st-proxies" class="settings-tab-panel" role="tabpanel" aria-labelledby="tab-proxies" style="display:none"></div>`;
   renderStatsData(s);
   switchStatsTab(statsTabFromHash());
   statsTimer = setInterval(async () => {
@@ -3497,14 +3502,29 @@ function proxyStatusLabel(status) {
   return { unknown: "未测", ok: "可用", dead: "失效" }[status] || "未知";
 }
 
+function proxyStatusClass(status) {
+  return { ok: "status-ok", dead: "status-fail" }[status] || "";
+}
+
 function proxyOptionLabel(row) {
   const auth = row.username ? `${escapeHtml(row.username)}@` : "";
   return `#${row.id} ${row.protocol} ${auth}${escapeHtml(row.host)}:${row.port}`;
 }
 
+function proxyBusy(btn, on) {
+  if (!btn) return false;
+  if (on && btn.disabled) return true;
+  btn.disabled = on;
+  return false;
+}
+
 async function loadProxyAdmin() {
   const box = $("#st-proxies");
   if (!box) return;
+  const drafts = {};
+  document.querySelectorAll("textarea[id^='pp-import-']").forEach((el) => {
+    if (el.value) drafts[el.id] = el.value;
+  });
   try {
     const [routes, pools, proxies] = await Promise.all([
       api("/api/admin/proxy-routes"),
@@ -3512,6 +3532,10 @@ async function loadProxyAdmin() {
       api("/api/admin/proxies"),
     ]);
     box.innerHTML = renderProxyAdmin(routes, pools.items || [], proxies.items || []);
+    Object.entries(drafts).forEach(([id, text]) => {
+      const el = document.getElementById(id);
+      if (el) el.value = text;
+    });
     ["xueqiu", "combination", "weibo", "twitter"].forEach((p) => {
       const r = routes[p] || {};
       if (r.pool_id && $(`#pr-${p}-pool`)) $(`#pr-${p}-pool`).value = String(r.pool_id);
@@ -3519,63 +3543,78 @@ async function loadProxyAdmin() {
       syncProxyRouteInputs(p);
     });
   } catch (err) {
-    box.innerHTML = `<p class="muted">${escapeHtml(err.message || "加载代理失败")}</p>`;
+    box.innerHTML = `<p class="muted">${escapeHtml(err.message || "加载代理失败")}</p>
+      <div class="toolbar"><button type="button" class="btn-ghost" onclick="loadProxyAdmin()">重试</button></div>`;
   }
 }
 
 function renderProxyAdmin(routes, pools, proxies) {
   const platforms = ["xueqiu", "combination", "weibo", "twitter"];
-  const poolOpts = pools.map((p) => `<option value="${p.id}">${escapeHtml(p.name)}（${p.proxy_count}）</option>`).join("");
-  const proxyOpts = proxies.map((p) => `<option value="${p.id}">${proxyOptionLabel(p)}</option>`).join("");
+  const poolOpts = pools.length
+    ? pools.map((p) => `<option value="${p.id}">${escapeHtml(p.name)}（${p.proxy_count}）</option>`).join("")
+    : `<option value="">先创建代理池</option>`;
+  const proxyOpts = proxies.length
+    ? proxies.map((p) => `<option value="${p.id}">${proxyOptionLabel(p)}</option>`).join("")
+    : `<option value="">先导入或提取代理</option>`;
   const routeRows = platforms.map((p) => {
     const r = routes[p] || { mode: "direct" };
-    return `<label class="cfg-field">
-      <span>${PLATFORM_LABELS[p]}</span>
-      <select id="pr-${p}-mode" class="form-control" onchange="syncProxyRouteInputs('${p}')">
-        <option value="direct"${r.mode === "direct" ? " selected" : ""}>直连</option>
-        <option value="pool"${r.mode === "pool" ? " selected" : ""}>指定池</option>
-        <option value="proxy"${r.mode === "proxy" ? " selected" : ""}>指定代理</option>
-      </select>
-      <select id="pr-${p}-pool" class="form-control"${r.mode === "pool" ? "" : " hidden"}>
-        ${poolOpts}
-      </select>
-      <select id="pr-${p}-proxy" class="form-control"${r.mode === "proxy" ? "" : " hidden"}>
-        ${proxyOpts}
-      </select>
-    </label>`;
+    const label = PLATFORM_LABELS[p];
+    return `<div class="proxy-route">
+      <label class="cfg-field">
+        <span>${label}</span>
+        <select id="pr-${p}-mode" class="form-control" onchange="syncProxyRouteInputs('${p}')">
+          <option value="direct"${r.mode === "direct" ? " selected" : ""}>直连</option>
+          <option value="pool"${r.mode === "pool" ? " selected" : ""}>指定池</option>
+          <option value="proxy"${r.mode === "proxy" ? " selected" : ""}>指定代理</option>
+        </select>
+      </label>
+      <label class="cfg-field" id="pr-${p}-pool-wrap"${r.mode === "pool" ? "" : " hidden"}>
+        <span>代理池</span>
+        <select id="pr-${p}-pool" class="form-control" aria-label="${label} 代理池">${poolOpts}</select>
+      </label>
+      <label class="cfg-field" id="pr-${p}-proxy-wrap"${r.mode === "proxy" ? "" : " hidden"}>
+        <span>指定代理</span>
+        <select id="pr-${p}-proxy" class="form-control" aria-label="${label} 指定代理">${proxyOpts}</select>
+      </label>
+    </div>`;
   }).join("");
   const poolCards = pools.map((p) => {
     const rows = proxies.filter((x) => x.pool_id === p.id);
-    const lines = rows.map((x) => `<tr>
-      <td>${escapeHtml(x.protocol)}</td>
-      <td>${escapeHtml(x.host)}:${x.port}</td>
-      <td>${escapeHtml(x.username || "—")}</td>
-      <td>${escapeHtml(proxyStatusLabel(x.status))}</td>
-      <td>${x.source === "extract" ? "提取" : "手动"}</td>
-      <td>${x.expires_at ? fmtTs(x.expires_at) : "—"}</td>
-      <td>
-        <button type="button" class="btn-ghost" onclick="testProxyNode(${x.id})">测试</button>
-        <button type="button" class="btn-ghost" onclick="deleteProxyNode(${x.id})">删除</button>
+    const lines = rows.map((x) => {
+      const statusClass = proxyStatusClass(x.status);
+      return `<tr>
+      <td class="ak-hide-mobile" data-label="协议">${escapeHtml(x.protocol)}</td>
+      <td data-label="地址">${escapeHtml(x.host)}:${x.port}</td>
+      <td class="ak-hide-mobile" data-label="账号">${escapeHtml(x.username || "—")}</td>
+      <td data-label="状态"${statusClass ? ` class="${statusClass}"` : ""}>${escapeHtml(proxyStatusLabel(x.status))}</td>
+      <td class="ak-hide-mobile" data-label="来源">${x.source === "extract" ? "提取" : "手动"}</td>
+      <td data-label="过期">${x.expires_at ? fmtTs(x.expires_at) : "—"}</td>
+      <td class="ak-actions" data-label="操作">
+        <button type="button" class="btn-sm" data-proxy-test="${x.id}" onclick="testProxyNode(${x.id})">测试</button>
+        <button type="button" class="btn-sm danger" onclick="deleteProxyNode(${x.id})">删除</button>
       </td>
-    </tr>`).join("");
+    </tr>`;
+    }).join("");
     const extract = p.kind === "extract"
-      ? `<p class="section-meta">提取 ${escapeHtml(p.extract_url || "未填")}${p.last_error ? ` · 上次错误 ${escapeHtml(p.last_error)}` : ""}</p>
-         <div class="toolbar"><button type="button" class="btn-ghost" onclick="extractProxyPool(${p.id})">立即提取</button></div>`
+      ? `<p class="section-meta proxy-extract-url">提取 ${escapeHtml(p.extract_url || "未填")}${p.last_error ? ` · 上次错误 ${escapeHtml(p.last_error)}` : ""}</p>
+         <div class="toolbar"><button type="button" class="btn-ghost" data-proxy-extract="${p.id}" onclick="extractProxyPool(${p.id})">立即提取</button></div>`
       : "";
     return `<section class="section-panel">
-      <header class="section-head"><div>
+      <header class="section-head rc-list-head"><div>
         <h3 class="section-title">${escapeHtml(p.name)} <span class="hint">${p.kind === "extract" ? "提取池" : "静态池"} · ${escapeHtml(p.protocol)}</span></h3>
         ${extract}
       </div>
-      <button type="button" class="btn-ghost" onclick="deleteProxyPool(${p.id})">删除池</button></header>
-      <textarea id="pp-import-${p.id}" class="form-control cookie-paste" rows="3" placeholder="host:port 或 socks5://user:pass@host:port，一行一条"></textarea>
-      <div class="toolbar" style="margin-top:12px">
-        <button type="button" class="btn-normal" onclick="importProxyPool(${p.id})">导入</button>
+      <button type="button" class="btn-ghost danger" onclick="deleteProxyPool(${p.id})">删除池</button></header>
+      <label class="form-label" for="pp-import-${p.id}"><span>导入节点</span>
+        <textarea id="pp-import-${p.id}" class="form-control cookie-paste proxy-import" rows="3" placeholder="host:port 或 socks5://user:pass@host:port，一行一条"></textarea>
+      </label>
+      <div class="toolbar">
+        <button type="button" class="btn-normal" data-proxy-import="${p.id}" onclick="importProxyPool(${p.id})">导入</button>
       </div>
-      <div class="table-wrap" style="margin-top:16px">
-        <table>
-          <thead><tr><th>协议</th><th>地址</th><th>账号</th><th>状态</th><th>来源</th><th>过期</th><th></th></tr></thead>
-          <tbody>${lines || `<tr><td colspan="7" class="muted">还没有节点</td></tr>`}</tbody>
+      <div class="table-wrap proxy-nodes-wrap">
+        <table class="ak-table proxy-nodes">
+          <thead><tr><th>协议</th><th>地址</th><th>账号</th><th>状态</th><th>来源</th><th>过期</th><th>操作</th></tr></thead>
+          <tbody>${lines || `<tr class="ak-empty"><td colspan="7" class="muted">还没有节点，先导入或提取。</td></tr>`}</tbody>
         </table>
       </div>
     </section>`;
@@ -3587,7 +3626,7 @@ function renderProxyAdmin(routes, pools, proxies) {
         <p class="section-meta">按平台选择直连、指定池或指定代理。组合与雪球常同出口，但不强制绑定。池空时本轮抓取失败，不会偷偷直连。</p>
       </div></header>
       <div class="cfg-fields">${routeRows}</div>
-      <div class="cfg-save-row"><button type="button" class="btn-normal" onclick="saveProxyRoutes()">保存出口</button></div>
+      <div class="cfg-save-row"><button type="button" class="btn-normal" id="pr-save" onclick="saveProxyRoutes()">保存出口</button></div>
     </section>
     <section class="section-panel">
       <header class="section-head"><div>
@@ -3595,7 +3634,7 @@ function renderProxyAdmin(routes, pools, proxies) {
         <p class="section-meta">静态池粘贴导入；提取池填商家提取 URL（一行一个 IP），按过期秒数刷新。</p>
       </div></header>
       <div class="cfg-fields">
-        <label class="cfg-field"><span>名称</span><input id="pp-name" class="form-control" placeholder="海外S5"></label>
+        <label class="cfg-field"><span>名称</span><input id="pp-name" class="form-control" maxlength="40" placeholder="海外S5"></label>
         <label class="cfg-field"><span>类型</span>
           <select id="pp-kind" class="form-control" onchange="syncProxyPoolForm()">
             <option value="static">静态</option>
@@ -3612,17 +3651,17 @@ function renderProxyAdmin(routes, pools, proxies) {
         <label class="cfg-field" id="pp-expire-wrap" hidden><span>过期<span class="cfg-unit">秒</span></span><input id="pp-expire" type="number" class="form-control" min="0" value="300"></label>
         <label class="cfg-field" id="pp-refresh-wrap" hidden><span>刷新<span class="cfg-unit">秒</span></span><input id="pp-refresh" type="number" class="form-control" min="0" value="180"></label>
       </div>
-      <div class="cfg-save-row"><button type="button" class="btn-normal" onclick="createProxyPool()">创建</button></div>
+      <div class="cfg-save-row"><button type="button" class="btn-normal" id="pp-create" onclick="createProxyPool()">创建</button></div>
     </section>
     ${poolCards || `<p class="muted">还没有代理池。先创建一个，再导入或提取。</p>`}`;
 }
 
 function syncProxyRouteInputs(platform) {
   const mode = $(`#pr-${platform}-mode`)?.value;
-  const pool = $(`#pr-${platform}-pool`);
-  const proxy = $(`#pr-${platform}-proxy`);
-  if (pool) pool.hidden = mode !== "pool";
-  if (proxy) proxy.hidden = mode !== "proxy";
+  const poolWrap = $(`#pr-${platform}-pool-wrap`);
+  const proxyWrap = $(`#pr-${platform}-proxy-wrap`);
+  if (poolWrap) poolWrap.hidden = mode !== "pool";
+  if (proxyWrap) proxyWrap.hidden = mode !== "proxy";
 }
 
 function syncProxyPoolForm() {
@@ -3635,28 +3674,58 @@ function syncProxyPoolForm() {
 
 async function saveProxyRoutes() {
   const body = {};
-  ["xueqiu", "combination", "weibo", "twitter"].forEach((p) => {
+  for (const p of ["xueqiu", "combination", "weibo", "twitter"]) {
     const mode = $(`#pr-${p}-mode`).value;
     body[p] = { mode };
-    if (mode === "pool") body[p].pool_id = Number($(`#pr-${p}-pool`).value);
-    if (mode === "proxy") body[p].proxy_id = Number($(`#pr-${p}-proxy`).value);
-  });
+    if (mode === "pool") {
+      const poolId = $(`#pr-${p}-pool`).value;
+      if (!poolId) {
+        flash("请先创建代理池", "error");
+        return;
+      }
+      body[p].pool_id = Number(poolId);
+    }
+    if (mode === "proxy") {
+      const proxyId = $(`#pr-${p}-proxy`).value;
+      if (!proxyId) {
+        flash("请先导入或提取代理", "error");
+        return;
+      }
+      body[p].proxy_id = Number(proxyId);
+    }
+  }
+  const btn = $("#pr-save");
+  if (proxyBusy(btn, true)) return;
   try {
     await api("/api/admin/proxy-routes", { method: "PUT", body: JSON.stringify(body) });
     flash("抓取出口已保存");
     loadProxyAdmin();
   } catch (err) {
     flash(err.message || "保存失败", "error");
+  } finally {
+    if (btn && document.body.contains(btn)) btn.disabled = false;
   }
 }
 
 async function createProxyPool() {
+  const name = $("#pp-name").value.trim();
+  if (!name) {
+    flash("请填写代理池名称", "error");
+    return;
+  }
+  const kind = $("#pp-kind").value;
+  if (kind === "extract" && !$("#pp-extract-url").value.trim()) {
+    flash("提取池需要填写提取 URL", "error");
+    return;
+  }
+  const btn = $("#pp-create");
+  if (proxyBusy(btn, true)) return;
   try {
     await api("/api/admin/proxy-pools", {
       method: "POST",
       body: JSON.stringify({
-        name: $("#pp-name").value,
-        kind: $("#pp-kind").value,
+        name,
+        kind,
         protocol: $("#pp-protocol").value,
         extract_url: $("#pp-extract-url").value,
         expire_seconds: Number($("#pp-expire").value || 0),
@@ -3667,30 +3736,46 @@ async function createProxyPool() {
     loadProxyAdmin();
   } catch (err) {
     flash(err.message || "创建失败", "error");
+  } finally {
+    if (btn && document.body.contains(btn)) btn.disabled = false;
   }
 }
 
 async function importProxyPool(poolId) {
   const text = $(`#pp-import-${poolId}`)?.value || "";
+  if (!text.trim()) {
+    flash("请先粘贴要导入的代理", "error");
+    return;
+  }
+  const btn = document.querySelector(`[data-proxy-import="${poolId}"]`);
+  if (proxyBusy(btn, true)) return;
   try {
     const result = await api(`/api/admin/proxy-pools/${poolId}/import`, {
       method: "POST",
       body: JSON.stringify({ text }),
     });
+    const ta = $(`#pp-import-${poolId}`);
+    if (ta) ta.value = "";
     flash(`导入 ${result.imported} 条`);
     loadProxyAdmin();
   } catch (err) {
     flash(err.message || "导入失败", "error");
+  } finally {
+    if (btn && document.body.contains(btn)) btn.disabled = false;
   }
 }
 
 async function extractProxyPool(poolId) {
+  const btn = document.querySelector(`[data-proxy-extract="${poolId}"]`);
+  if (proxyBusy(btn, true)) return;
   try {
     const result = await api(`/api/admin/proxy-pools/${poolId}/extract`, { method: "POST" });
     flash(`提取 ${result.imported} 条`);
     loadProxyAdmin();
   } catch (err) {
     flash(err.message || "提取失败", "error");
+  } finally {
+    if (btn && document.body.contains(btn)) btn.disabled = false;
   }
 }
 
@@ -3706,6 +3791,7 @@ async function deleteProxyPool(poolId) {
 }
 
 async function deleteProxyNode(proxyId) {
+  if (!confirm("删除后需要重新导入。确定删除这个节点？")) return;
   try {
     await api(`/api/admin/proxies/${proxyId}`, { method: "DELETE" });
     flash("已删除");
@@ -3716,11 +3802,15 @@ async function deleteProxyNode(proxyId) {
 }
 
 async function testProxyNode(proxyId) {
+  const btn = document.querySelector(`[data-proxy-test="${proxyId}"]`);
+  if (proxyBusy(btn, true)) return;
   try {
     const result = await api(`/api/admin/proxies/${proxyId}/test`, { method: "POST" });
-    flash(result.ok ? "探测成功" : (result.error || `探测失败 ${result.status_code || ""}`), result.ok ? "success" : "error");
+    flash(result.ok ? "测试成功" : (result.error || `测试失败 ${result.status_code || ""}`), result.ok ? "success" : "error");
+    await loadProxyAdmin();
   } catch (err) {
-    flash(err.message || "探测失败", "error");
+    flash(err.message || "测试失败", "error");
+    if (btn && document.body.contains(btn)) btn.disabled = false;
   }
 }
 

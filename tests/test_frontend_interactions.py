@@ -30,6 +30,20 @@ def _fn_body(name: str) -> str:
     return src[start:i]
 
 
+def _media_block(css: str, query: str) -> str:
+    idx = css.find(query)
+    assert idx != -1, f"缺少 {query}"
+    start = css.find("{", idx)
+    depth, i = 1, start + 1
+    while depth and i < len(css):
+        if css[i] == "{":
+            depth += 1
+        elif css[i] == "}":
+            depth -= 1
+        i += 1
+    return css[start:i]
+
+
 def test_toggle_subscribe_refreshes_by_route_not_home():
     """toggleSubscribe 成功后必须调用 refreshKolsView，不得无条件 renderHomeList。"""
     body = _fn_body("toggleSubscribe")
@@ -639,6 +653,53 @@ def test_stats_proxies_tab():
     assert "loadProxyAdmin()" in _fn_body("switchStatsTab")
     assert "/api/admin/proxy-routes" in src
     assert "/api/admin/proxy-pools" in src
+
+
+def test_stats_tabs_expose_tab_aria():
+    """数据源分段导航与注册码页同一套 tab 语义。"""
+    src = APP_JS.read_text()
+    assert 'role="tab" id="tab-overview" aria-selected="true" aria-controls="st-overview"' in src
+    assert 'aria-controls="st-proxies"' in src
+    assert 'role="tabpanel" aria-labelledby="tab-proxies"' in src
+    switch = _fn_body("switchStatsTab")
+    assert 'setAttribute("aria-selected"' in switch
+
+
+def test_proxy_admin_labels_and_mobile_table():
+    """出口下拉各有标签；导入有可见 label；节点表走大V表的手机卡片约定。"""
+    render = _fn_body("renderProxyAdmin")
+    assert "代理池" in render
+    assert "指定代理" in render
+    assert "导入节点" in render
+    assert "<th>操作</th>" in render
+    assert 'class="ak-table proxy-nodes"' in render
+    assert 'data-label="地址"' in render
+    assert 'class="ak-actions"' in render
+    assert 'class="btn-sm"' in render
+    assert "ak-hide-mobile" in render
+    assert 'class="ak-empty"' in render
+    assert "还没有节点，先导入或提取。" in render
+    css = STYLE_CSS.read_text()
+    assert ".ak-table td::before" in css
+    wide = _media_block(css, "@media (max-width: 1280px)")
+    assert ".ak-table.proxy-nodes thead" in wide
+    assert ".proxy-route" in wide
+
+
+def test_proxy_admin_hardens_write_paths():
+    """探测后回写列表、写操作防连点，空池不能存指定池，删节点要确认。"""
+    test_fn = _fn_body("testProxyNode")
+    assert "loadProxyAdmin()" in test_fn
+    assert "btn.disabled" in test_fn
+    save = _fn_body("saveProxyRoutes")
+    assert "请先创建代理池" in save
+    assert "请先导入或提取代理" in save
+    delete_node = _fn_body("deleteProxyNode")
+    assert "confirm(" in delete_node
+    create = _fn_body("createProxyPool")
+    assert "请填写代理池名称" in create
+    load = _fn_body("loadProxyAdmin")
+    assert "textarea[id^='pp-import-']" in load
 
 
 def test_stats_cookie_repair_deep_link():
