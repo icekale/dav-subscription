@@ -1220,6 +1220,14 @@ def test_type_scale_uses_four_reading_roles():
             assert "cube-nav" in window, f"{size} 只能用于图表刻度: {window!r}"
 
 
+def test_success_token_is_muted_sage():
+    """成功色用鼠尾草绿，不用高饱和交通灯绿。"""
+    tokens = (APP_JS.parent / "vendor" / "design-tokens.css").read_text()
+    assert "--color-success: #3a6e4b;" in tokens
+    assert "#16a34a" not in tokens
+    assert "rgba(52, 199, 123" not in tokens
+
+
 def test_admin_chart_system_uses_tokens_and_external_rate_label():
     """管理端图表：净值面积走数据色、成功率数字在条外、趋势有名称、KPI 有 class。"""
     src = APP_JS.read_text()

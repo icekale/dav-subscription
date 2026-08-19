@@ -45,7 +45,7 @@
   --color-line: rgba(12, 18, 34, 0.1);
   --color-line-strong: rgba(12, 18, 34, 0.16);
   --color-line-soft: rgba(12, 18, 34, 0.06);
-  --color-line-success: rgba(22, 163, 74, 0.45);
+  --color-line-success: rgba(58, 110, 75, 0.4);
   --color-line-danger: rgba(220, 38, 38, 0.3);
 
   --color-accent: #1f74ee;
@@ -63,9 +63,9 @@
   --color-brand-telegram: #26a5e4;
   --color-brand-feishu: #3370ff;
   --color-brand-wecom: #07c160;
-  --color-success: #16a34a;
-  --color-success-strong: #15803d;
-  --color-success-soft: rgba(22, 163, 74, 0.12);
+  --color-success: #3a6e4b;
+  --color-success-strong: #2f5a3d;
+  --color-success-soft: rgba(58, 110, 75, 0.14);
   --color-danger: #dc2626;
   --color-danger-strong: #b91c1c;
   --color-danger-soft: rgba(220, 38, 38, 0.12);
@@ -129,8 +129,9 @@
 
 /* ---------- 深色模式 ----------
    JS 统一驱动（localStorage + prefers-color-scheme）切换 html.theme-dark。
-   主色 accent/success/danger/warning 保持浅色值——它们的对比度是为白字设计的，
-   深色下按钮文字对比度不变；这里覆盖的是背景/文字/描边/徽章/阴影家族。 */
+   主色 accent/danger/warning 保持浅色值——它们的对比度是为白字设计的，
+   深色下按钮文字对比度不变。成功绿改为鼠尾草，深色单独提亮以保证字色对比。
+   这里覆盖的是背景/文字/描边/徽章/阴影家族。 */
 :root.theme-dark {
   color-scheme: dark;
 
@@ -164,14 +165,16 @@
   --color-line: rgba(255, 255, 255, 0.1);
   --color-line-strong: rgba(255, 255, 255, 0.16);
   --color-line-soft: rgba(255, 255, 255, 0.06);
-  --color-line-success: rgba(52, 199, 123, 0.5);
+  --color-line-success: rgba(106, 155, 120, 0.4);
   --color-line-danger: rgba(248, 113, 113, 0.4);
 
   /* accent soft（主色值保持，soft 背景深色化） */
   --color-accent-soft: rgba(64, 145, 255, 0.16);
   /* 强调色文字：深底上 #1668e0 对比不足（3.4:1），提亮到 #5a9bf5（6.2:1） */
   --color-accent-text: #5a9bf5;
-  --color-success-soft: rgba(52, 199, 123, 0.16);
+  --color-success: #6a9b78;
+  --color-success-strong: #82b08e;
+  --color-success-soft: rgba(106, 155, 120, 0.18);
   --color-warning-soft: rgba(241, 165, 60, 0.16);
   --color-danger-soft: rgba(248, 113, 113, 0.16);
 
