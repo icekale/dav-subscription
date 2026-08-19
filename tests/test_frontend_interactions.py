@@ -1220,6 +1220,27 @@ def test_type_scale_uses_four_reading_roles():
             assert "cube-nav" in window, f"{size} 只能用于图表刻度: {window!r}"
 
 
+def test_admin_chart_system_uses_tokens_and_external_rate_label():
+    """管理端图表：净值面积走数据色、成功率数字在条外、趋势有名称、KPI 有 class。"""
+    src = APP_JS.read_text()
+    css = STYLE_CSS.read_text()
+    assert "var(--color-data-positive-soft)" in src
+    assert "var(--color-data-negative-soft)" in src
+    assert "rgba(230,67,64" not in src
+    rate = _fn_body("rateBar")
+    assert "rate-row" in rate
+    assert "rate-label" in rate
+    assert "background:${color}" not in rate
+    assert "aria-label" in _fn_body("loadAdminDashboard")
+    assert 'class="dash-stat"' in _fn_body("statCard")
+    assert ".dash-stats" in css
+    assert ".dash-split" in css
+    assert "grid-template-columns: minmax(0, 1fr) auto" in css
+    assert "qr-frame" in src
+    assert 'class="qr-card"' in _fn_body("startWeiboQr")
+    assert "onclick=\"loadAdminDashboard()\"" in _fn_body("loadAdminDashboard")
+
+
 def test_weibo_qr_poll_is_serial():
     """微博扫码轮询必须等上一轮结束再调度下一轮，避免成功后被并发 404 盖成过期。"""
     start = _fn_body("startWeiboQr")

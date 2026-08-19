@@ -68,11 +68,14 @@
   --color-success-soft: rgba(22, 163, 74, 0.12);
   --color-danger: #dc2626;
   --color-danger-strong: #b91c1c;
+  --color-danger-soft: rgba(220, 38, 38, 0.12);
   --color-warning: #d97706;
   --color-warning-strong: #b45309;
   --color-warning-soft: rgba(217, 119, 6, 0.12);
   --color-data-positive: #b05b63;
   --color-data-negative: #23714a;
+  --color-data-positive-soft: color-mix(in srgb, var(--color-data-positive) 14%, transparent);
+  --color-data-negative-soft: color-mix(in srgb, var(--color-data-negative) 14%, transparent);
 
   --color-badge-idle-bg: #eff1f4;
   --color-badge-idle-text: #5d6372;
@@ -170,6 +173,7 @@
   --color-accent-text: #5a9bf5;
   --color-success-soft: rgba(52, 199, 123, 0.16);
   --color-warning-soft: rgba(241, 165, 60, 0.16);
+  --color-danger-soft: rgba(248, 113, 113, 0.16);
 
   /* 平台品牌色（深色下 X 黑色不可见 → 浅灰） */
   --color-brand-xueqiu: #4a9aff;

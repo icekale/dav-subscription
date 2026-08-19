@@ -1910,7 +1910,7 @@ function navChartSvg(series, benchmark) {
   const up = series[series.length - 1].value >= series[0].value;
   const cssVar = up ? "--color-data-positive" : "--color-data-negative";
   const color = getComputedStyle(document.documentElement).getPropertyValue(cssVar).trim() || (up ? "#b05b63" : "#23714a");
-  const muted = getComputedStyle(document.documentElement).getPropertyValue("--color-text-muted").trim() || "#8a8a8a";
+  const muted = getComputedStyle(document.documentElement).getPropertyValue("--color-text-muted").trim() || "#6e6e73";
   const base = (H - padB).toFixed(1);
   const area = `M${X(0).toFixed(1)},${base} L${pts.replace(/ /g, " L")} L${X(cube.length - 1).toFixed(1)},${base} Z`;
   const grid = [0, 1, 2, 3].map((i) => {
@@ -1924,7 +1924,7 @@ function navChartSvg(series, benchmark) {
     : "";
   return `<svg viewBox="0 0 ${W} ${H}" class="cube-nav-svg" role="img" aria-label="净值曲线">
     ${grid}
-    <path d="${area}" fill="${up ? "rgba(230,67,64,0.12)" : "rgba(7,193,96,0.12)"}"/>
+    <path d="${area}" fill="${up ? "var(--color-data-positive-soft)" : "var(--color-data-negative-soft)"}"/>
     ${benchLine}
     <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
     <text x="${padL}" y="${H - 6}" class="cube-nav-date">${escapeHtml(first.date)}</text>
@@ -2653,8 +2653,8 @@ function fsPersonalStateHtml() {
   const uri = st.verificationUri || "";
   return `<div id="fs-personal-flow">
     <div style="text-align:center;padding:8px 0 12px">
-      ${st.qrUri ? `<img src="${st.qrUri}" alt="扫码二维码" style="width:190px;height:190px;border-radius:10px;background:#fff;padding:8px;box-shadow:var(--shadow-card, 0 1px 3px rgba(0,0,0,.12))">` : ""}
-      <p class="muted" style="margin-top:8px">用飞书「扫一扫」扫码；或点链接打开：
+      ${st.qrUri ? `<img class="qr-frame" src="${st.qrUri}" alt="扫码二维码">` : ""}
+      <p class="muted qr-status">用飞书「扫一扫」扫码；或点链接打开：
         <a href="${escapeHtml(uri)}" target="_blank" rel="noopener">${escapeHtml(uri)}</a>
       </p>
     </div>
@@ -3139,10 +3139,12 @@ function fmtDbTime(s) {
 
 function rateBar(rate) {
   if (rate === null || rate === undefined) return `<span class="muted">暂无数据</span>`;
-  const color = rate >= 95 ? "var(--color-success)" : rate >= 70 ? "var(--color-warning)" : "var(--color-danger)";
+  const tone = rate >= 95 ? "ok" : rate >= 70 ? "warn" : "fail";
   return `
-    <div class="rate-bar">
-      <div class="rate-fill" style="width:${Math.min(100, Math.max(0, rate))}%;background:${color}"></div>
+    <div class="rate-row">
+      <div class="rate-bar">
+        <div class="rate-fill ${tone}" style="width:${Math.min(100, Math.max(0, rate))}%"></div>
+      </div>
       <span class="rate-label">${rate}%</span>
     </div>`;
 }
@@ -3320,7 +3322,7 @@ async function loadAdminStats() {
         <div>
           <button type="button" class="btn-normal" onclick="startWeiboQr()">微博扫码登录</button>
         </div>
-        <div id="wb-qr-box" style="margin-top:16px"></div>
+        <div id="wb-qr-box" class="qr-box"></div>
       </section>
       <section class="section-panel">
         <header class="section-head">
@@ -3358,7 +3360,7 @@ function renderStatsData(s) {
   if (cookieInline) cookieInline.innerHTML = banner;
   if (cards) {
     cards.innerHTML = `
-      <div class="row" style="gap:16px;flex-wrap:wrap">
+      <div class="dash-stats">
         ${statCard("轮询间隔", `${s.polling_interval_seconds} 秒`)}
         ${statCard("最近抓取", fmtTs(s.last_poll_at))}
         ${statCard("抓取耗时", s.last_poll_duration_ms ? `${(Number(s.last_poll_duration_ms) / 1000).toFixed(1)} 秒` : "-")}
@@ -3547,10 +3549,10 @@ async function startWeiboQr() {
   try {
     const data = await api("/api/admin/weibo-qr/start", { method: "POST" });
     $("#wb-qr-box").innerHTML = `
-      <div style="display:inline-block;padding:16px;background:#fff;border-radius:var(--radius-control)">
-        <img src="${escapeHtml(data.qrurl)}" alt="微博登录二维码" style="width:220px;height:220px">
+      <div class="qr-card">
+        <img src="${escapeHtml(data.qrurl)}" alt="微博登录二维码" width="220" height="220">
       </div>
-      <p class="muted" id="wb-qr-status" style="margin-top:10px">等待扫码…</p>`;
+      <p class="muted qr-status" id="wb-qr-status">等待扫码…</p>`;
     if (wbQrTimer) clearTimeout(wbQrTimer);
     const seq = ++wbQrSeq;
     const tick = async () => {
@@ -3592,9 +3594,9 @@ async function pollWeiboQr(qrid) {
 
 function statCard(label, value) {
   return `
-    <div style="flex:1;min-width:150px;background:var(--color-bg-muted);border-radius:var(--radius-control);padding:16px 18px">
-      <div style="font-size:var(--text-xs);color:var(--color-text-muted)">${escapeHtml(label)}</div>
-      <div style="font-size:var(--text-title);font-weight:var(--font-weight-semibold);font-variant-numeric:tabular-nums;color:var(--color-text-strong);margin-top:6px">${escapeHtml(String(value))}</div>
+    <div class="dash-stat">
+      <div class="dash-stat-label">${escapeHtml(label)}</div>
+      <div class="dash-stat-value">${escapeHtml(String(value))}</div>
     </div>`;
 }
 
@@ -3612,12 +3614,13 @@ async function loadAdminDashboard() {
     const trend = pu.trend_14d || [];
     const maxPushed = Math.max(1, ...trend.map((t) => t.pushed));
     const trendHtml = trend.length
-      ? `<div class="dash-trend">${trend.map((t) => {
+      ? `<div class="dash-trend" role="list" aria-label="近 14 天推送趋势">${trend.map((t) => {
           const fail = Math.max(0, t.pushed - t.ok);
           // 红/绿分别按失败数/成功数相对最大值定高，二者之和 = 总推送量高度，不会溢出
           const failPct = Math.floor((fail / maxPushed) * 100);
           const okPct = Math.floor((t.ok / maxPushed) * 100);
-          return `<div class="dash-trend-col" title="${escapeHtml(t.date)}：推送 ${t.pushed} 条，成功 ${t.ok}，失败 ${fail}">
+          const tip = `${t.date}：推送 ${t.pushed} 条，成功 ${t.ok}，失败 ${fail}`;
+          return `<div class="dash-trend-col" role="listitem" title="${escapeHtml(tip)}" aria-label="${escapeHtml(tip)}">
             <div class="dash-trend-bar">
               <div class="dash-trend-fail" style="height:${failPct}%"></div>
               <div class="dash-trend-ok" style="height:${okPct}%"></div>
@@ -3688,7 +3691,7 @@ async function loadAdminDashboard() {
       <section class="section-panel">
         <header class="section-head"><div><h3 class="section-title">核心指标</h3>
         <p class="section-meta">用户、订阅与推送的业务总览（推送统计为近 7 天）。</p></div></header>
-        <div style="display:flex;gap:12px;flex-wrap:wrap">
+        <div class="dash-stats">
           ${statCard("注册用户", u.total || 0)}
           ${statCard("绑定渠道用户", u.bound || 0)}
           ${statCard("订阅数", s.total || 0)}
@@ -3702,13 +3705,13 @@ async function loadAdminDashboard() {
         <p class="section-meta">每日推送条数（绿色=成功，红色=失败）。</p></div></header>
         ${trendHtml}
       </section>
-      <div style="display:flex;gap:14px;flex-wrap:wrap">
-        <section class="section-panel" style="flex:1;min-width:300px">
+      <div class="dash-split">
+        <section class="section-panel">
           <header class="section-head"><div><h3 class="section-title">帖子来源分布</h3>
           <p class="section-meta">累计抓取帖子按平台。</p></div></header>
           ${platformRows || `<p class="muted">暂无帖子</p>`}
         </section>
-        <section class="section-panel" style="flex:1;min-width:300px">
+        <section class="section-panel">
           <header class="section-head"><div><h3 class="section-title">渠道推送成功率（7 天）</h3>
           <p class="section-meta">各渠道成功/总数与成功率。</p></div></header>
           ${channelRows || `<p class="muted">近 7 天暂无推送</p>`}
@@ -3723,11 +3726,12 @@ async function loadAdminDashboard() {
             <tbody>${srcRows}</tbody>
           </table>
         </div>
-        ${eventRows ? `<div style="margin-top:12px">${eventRows}</div>` : ""}
+        ${eventRows ? `<div class="dash-events">${eventRows}</div>` : ""}
       </section>`;
   } catch (err) {
     if (!routeStillActive(_adminRenderSeq)) return;
-    $("#admin-body").innerHTML = emptyState("加载失败: " + err.message);
+    $("#admin-body").innerHTML = emptyState("加载失败: " + err.message,
+      `<div><button class="btn-normal" onclick="loadAdminDashboard()">重试</button></div>`);
   }
 }
 
