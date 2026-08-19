@@ -400,19 +400,13 @@ def test_combination_fetch_parses_rebalancing():
         ]
     }
 
-    search_payload = {
-        "list": [
-            {
-                "symbol": "ZH3623878",
-                "name": "伯言-A股",
-                "annualized_gain_rate": 27.13,
-                "net_value": 1.8472,
-                "owner": {"screen_name": "伯言2020", "photo_domain": "//xavatar.imedao.com/", "profile_image_url": "community/a.jpg"},
-            }
-        ]
+    quote_payload = {
+        "data": {
+            "net_value": 1.8472,
+            "day_percent_gain": 0.55,
+            "annualized_gain": "27.13",
+        }
     }
-
-    quote_payload = {"data": {"net_value": 1.8472, "day_percent_gain": 0.55}}
     holdings_payload = {
         "data": {
             "holdings": [
@@ -443,8 +437,7 @@ def test_combination_fetch_parses_rebalancing():
             return httpx.Response(200, json=holdings_payload)
         if request.url.path == "/cubes/nav_daily/all.json":
             return httpx.Response(200, json=nav_payload)
-        assert request.url.path == "/query/v1/cube/search.json"
-        return httpx.Response(200, json=search_payload)
+        raise AssertionError(f"调仓抓取不应再打 {request.url.path}")
 
     client = httpx.Client(transport=httpx.MockTransport(handler))
     fetcher = CombinationFetcher(
@@ -459,9 +452,10 @@ def test_combination_fetch_parses_rebalancing():
     assert p.platform == "combination"
     assert p.url == "https://xueqiu.com/P/ZH3623878"
     assert "年化 27.1%" in p.content and "净值 1.847" in p.content
-    # 调仓卡附当日涨跌（quote 快照，取 fetch 前刷新到的最新值）
+    assert "99.9" not in p.content and "9.999" not in p.content
+    # 调仓卡今日/年化/净值都取 quote，不取搜索
     assert "今日 +0.55%" in p.content
-    assert p.detail["stats"][0] == ("今日", "+0.55%")
+    assert p.detail["stats"] == [("今日", "+0.55%"), ("年化", "27.1%"), ("净值", "1.847")]
     assert "🗑 永杉锂业 清仓 21.1%" in p.content
     assert "➕ 贵州茅台 0.0% → 5.2%" in p.content
     # 现金取 cash_value/净值（真实现金 0.0%），不显示接口伪值 80.0%
@@ -574,15 +568,24 @@ def test_combination_parse_helpers_accept_known_shapes():
     assert parse_quote({"net_value": 1.2, "day_percent_gain": 0.5}) == {
         "net_value": 1.2,
         "day_percent_gain": 0.5,
+        "annualized_gain": None,
     }
     assert parse_quote({"data": {"net_value": 1.2, "percent": 0.5}})["day_percent_gain"] == 0.5
     real = parse_quote(
-        {"ZH3623878": {"symbol": "ZH3623878", "net_value": "1.4207", "daily_gain": "2.35"}}
+        {
+            "ZH3623878": {
+                "symbol": "ZH3623878",
+                "net_value": "1.4299",
+                "daily_gain": "0.15",
+                "annualized_gain": "42.99",
+            }
+        }
     )
-    assert real == {"net_value": 1.4207, "day_percent_gain": 2.35}
+    assert real == {"net_value": 1.4299, "day_percent_gain": 0.15, "annualized_gain": 42.99}
     assert parse_quote({"ZH3623878": {"net_value": "abc", "daily_gain": "x"}}) == {
         "net_value": None,
         "day_percent_gain": None,
+        "annualized_gain": None,
     }
     assert parse_quote({}).get("day_percent_gain") is None
 

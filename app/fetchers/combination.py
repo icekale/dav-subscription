@@ -1,6 +1,6 @@
 """雪球组合调仓抓取：订阅组合后推送每次调仓（持仓比例变化）。
 
-同时抓取组合快照（quote 实时净值/今日涨跌、current 当前持仓、nav 净值序列）
+同时抓取组合快照（quote 实时净值/今日涨跌/年化、current 当前持仓、nav 净值序列）
 写入 cube_snapshots 表，供详情页展示；快照失败不阻断调仓推送。
 """
 from __future__ import annotations
@@ -114,9 +114,10 @@ def _num(v):
 def parse_quote(data) -> dict:
     """解析 cubes/quote.json 响应。
 
-    真实结构（实测 2026-08）：顶层 {symbol: {net_value, daily_gain}}，值为字符串；
-    兼容 {"data": {...}} 与 day_percent_gain/percent 旧猜测。
+    真实结构（实测 2026-08）：顶层 {symbol: {net_value, daily_gain, annualized_gain}}，值为字符串；
+    兼容 {"data": {...}} 与 day_percent_gain/percent、annualized_gain_rate 旧猜测。
     """
+    empty = {"net_value": None, "day_percent_gain": None, "annualized_gain": None}
     if isinstance(data, dict) and isinstance(data.get("data"), dict):
         data = data["data"]
     # 顶层 {symbol: {...}} 字典：取第一个非空元素
@@ -126,14 +127,22 @@ def parse_quote(data) -> dict:
                 data = v
                 break
     if not isinstance(data, dict):
-        return {"net_value": None, "day_percent_gain": None}
+        return empty
     day = None
     for key in ("daily_gain", "day_percent_gain", "percent"):
         day = _num(data.get(key))
         if day is not None:
             break
-    net = _num(data.get("net_value"))
-    return {"net_value": net, "day_percent_gain": day}
+    annual = None
+    for key in ("annualized_gain", "annualized_gain_rate"):
+        annual = _num(data.get(key))
+        if annual is not None:
+            break
+    return {
+        "net_value": _num(data.get("net_value")),
+        "day_percent_gain": day,
+        "annualized_gain": annual,
+    }
 
 
 def parse_holdings(data) -> list[dict]:
@@ -346,7 +355,7 @@ class CombinationFetcher(Fetcher):
         self._refresh_snapshots(kol["id"], cube_symbol)
         name = kol["name"]
         posts = []
-        profile = resolve_combination_profile(cube_symbol, client=self.client)
+        # 今日/年化/净值只信 quote.json；搜索接口盘中会滞后，不能用来填调仓卡
         quote = parse_quote(
             (self.db.get_cube_snapshot(kol["id"], "quote") or {}).get("payload") or {}
         )
@@ -356,10 +365,10 @@ class CombinationFetcher(Fetcher):
             d = quote["day_percent_gain"]
             sign = "+" if d >= 0 else ""
             parts.append(f"今日 {sign}{d:.2f}%")
-        if profile.get("annualized_gain"):
-            parts.append(f"年化 {profile['annualized_gain']:.1f}%")
-        if profile.get("net_value"):
-            parts.append(f"净值 {profile['net_value']:.3f}")
+        if quote.get("annualized_gain") is not None:
+            parts.append(f"年化 {quote['annualized_gain']:.1f}%")
+        if quote.get("net_value") is not None:
+            parts.append(f"净值 {quote['net_value']:.3f}")
         if parts:
             stats_line = " · ".join(parts)
         for item in (data or {}).get("list") or []:
@@ -403,7 +412,7 @@ class CombinationFetcher(Fetcher):
             # 接口的 cash 字段对「只列变动」的记录是伪值（100 − Σ变动targets，如新建后显示
             # 现金 81%，实际 0%）；cash_value 才是组合内真实现金（按净值计），现金占比 = cash_value / 净值。
             cash_value = item.get("cash_value")
-            cube_net = profile.get("net_value")
+            cube_net = quote.get("net_value")
             cash_pct = (
                 f"{cash_value / cube_net * 100:.1f}%"
                 if isinstance(cash_value, (int, float)) and cube_net
@@ -431,8 +440,8 @@ class CombinationFetcher(Fetcher):
                             (k, v)
                             for k, v in (
                                 ("今日", f"{quote['day_percent_gain']:+.2f}%" if quote.get("day_percent_gain") is not None else ""),
-                                ("年化", f"{profile['annualized_gain']:.1f}%" if profile.get("annualized_gain") else ""),
-                                ("净值", f"{profile['net_value']:.3f}" if profile.get("net_value") else ""),
+                                ("年化", f"{quote['annualized_gain']:.1f}%" if quote.get("annualized_gain") is not None else ""),
+                                ("净值", f"{quote['net_value']:.3f}" if quote.get("net_value") is not None else ""),
                             )
                             if v
                         ],
