@@ -449,12 +449,6 @@ textarea.form-control {
 }
 .ak-filters { margin-top: 12px; }
 .ak-platform-tabs { margin-top: 12px; }
-@media (min-width: 769px) {
-  .ak-platform-tabs .platform-tab {
-    width: var(--control-height-2xl);
-    height: var(--control-height-2xl);
-  }
-}
 
 /* 抓取设置分组栅格：按抓取档位分组（基础轮询/雪球组合/自适应降频/次要大V/X通道/保活定时），
    固定两列（6 组 = 3 行 × 2 列），避免超宽屏 auto-fit 无限加列把卡片拉成横排一长条；窄屏折单列 */
@@ -578,28 +572,51 @@ textarea.form-control {
   height: 0;
   width: 0;
 }
-.platform-tab {
+.platform-tab,
+.tl-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 44px;
+  min-height: 44px;
+  padding: 0 12px;
   border: var(--border-strong);
   border-radius: var(--radius-pill);
   background: var(--color-surface);
   color: var(--color-text);
-  width: 36px;
-  height: 36px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  transition: all var(--ease-standard);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: border-color var(--ease-standard), background var(--ease-standard), color var(--ease-standard);
 }
-.platform-tab:hover { border-color: var(--color-accent-text); color: var(--color-accent-text); }
-.platform-tab.selected { background: var(--color-accent); border-color: var(--color-accent-text); color: var(--color-white); }
-.platform-tab.selected .pt-icon { filter: brightness(0) invert(1); }
-.pt-label { display: none; }
-.pt-icon { width: 18px; height: 18px; }
-.platform-tab[data-platform="xueqiu"]:not(.selected) .pt-icon { color: var(--color-brand-xueqiu); }
-.platform-tab[data-platform="combination"]:not(.selected) .pt-icon { color: var(--color-accent-text); }
-.platform-tab[data-platform="weibo"]:not(.selected) .pt-icon { color: var(--color-brand-weibo); }
-.platform-tab[data-platform="twitter"]:not(.selected) .pt-icon { color: var(--color-brand-twitter); }
+.platform-tab:hover,
+.tl-pill:hover { border-color: var(--color-accent-text); color: var(--color-accent-text); }
+.platform-tab:focus-visible,
+.tl-pill:focus-visible {
+  outline: 2px solid var(--color-accent-text);
+  outline-offset: 2px;
+}
+.platform-tab.selected,
+.tl-pill.selected {
+  background: var(--color-accent);
+  border-color: var(--color-accent-text);
+  color: var(--color-white);
+  font-weight: var(--font-weight-semibold);
+}
+.platform-tab.selected .pt-icon,
+.tl-pill.selected .pt-icon { filter: brightness(0) invert(1); }
+.pt-label { display: inline; }
+.pt-icon { width: 16px; height: 16px; flex-shrink: 0; }
+.platform-tab[data-platform="xueqiu"]:not(.selected) .pt-icon,
+.tl-pill[data-platform="xueqiu"]:not(.selected) .pt-icon { color: var(--color-brand-xueqiu); }
+.platform-tab[data-platform="combination"]:not(.selected) .pt-icon,
+.tl-pill[data-platform="combination"]:not(.selected) .pt-icon { color: var(--color-accent-text); }
+.platform-tab[data-platform="weibo"]:not(.selected) .pt-icon,
+.tl-pill[data-platform="weibo"]:not(.selected) .pt-icon { color: var(--color-brand-weibo); }
+.platform-tab[data-platform="twitter"]:not(.selected) .pt-icon,
+.tl-pill[data-platform="twitter"]:not(.selected) .pt-icon { color: var(--color-brand-twitter); }
 
 /* 搜索 */
 .search-bar {
@@ -986,25 +1003,7 @@ body.lightbox-open { overflow: hidden; }
 .admin-sk-table-row { display: flex; gap: 12px; }
 .admin-sk-table-row .admin-sk-line { flex: 1; }
 .tl-filterbar-top { display: flex; align-items: center; gap: 10px; }
-.tl-pills { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; min-width: 0; }
-.tl-pill {
-  display: inline-flex; align-items: center; gap: 6px;
-  height: 38px; padding: 0 14px;
-  border: var(--border-strong); border-radius: var(--radius-pill);
-  background: var(--color-surface); color: var(--color-text);
-  font-size: var(--text-sm); cursor: pointer; white-space: nowrap; flex-shrink: 0;
-  transition: all var(--ease-standard);
-}
-.tl-pill-icon { width: 38px; padding: 0; justify-content: center; }
-.tl-pill-icon .pt-icon { width: 16px; height: 16px; }
-.tl-pill:hover { border-color: var(--color-accent-text); color: var(--color-accent-text); }
-.tl-pill.selected { background: var(--color-accent); border-color: var(--color-accent-text); color: var(--color-white); font-weight: var(--font-weight-semibold); }
-.tl-pill.selected .pt-icon { filter: brightness(0) invert(1); }
-.tl-pill .pt-icon { width: 14px; height: 14px; }
-.tl-pill[data-platform="xueqiu"]:not(.selected) .pt-icon { color: var(--color-brand-xueqiu); }
-.tl-pill[data-platform="combination"]:not(.selected) .pt-icon { color: var(--color-accent-text); }
-.tl-pill[data-platform="weibo"]:not(.selected) .pt-icon { color: var(--color-brand-weibo); }
-.tl-pill[data-platform="twitter"]:not(.selected) .pt-icon { color: var(--color-brand-twitter); }
+.tl-pills { display: flex; flex-wrap: wrap; gap: 8px; flex: 1; min-width: 0; }
 .tl-actions { display: flex; gap: 10px; flex-shrink: 0; }
 .tl-layout { display: flex; align-items: flex-start; gap: 20px; }
 .tl-main { flex: 1; min-width: 0; }
@@ -1659,11 +1658,8 @@ pre.content-cell { white-space: pre-wrap; overflow-wrap: break-word; min-width: 
   .topbar-logo { height: 32px; }
   .topbar-title h2 { display: none; }
   .page-main { padding: 16px 14px calc(74px + env(safe-area-inset-bottom)); --page-pad-x: 14px; }
-  .platform-tabs { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; }
-  .platform-tab,
-  .ak-platform-tabs .platform-tab { flex-shrink: 0; width: auto; height: auto; min-height: 44px; padding: 0 14px; gap: 6px; border-radius: var(--radius-pill); }
-  .platform-tab .pt-label { display: inline; font-size: var(--text-sm); }
-  .tl-pill { min-height: 44px; }
+  .platform-tabs,
+  .tl-pills { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; }
   .tl-new-badge-btn { min-height: 44px; }
   .kol-item { flex-wrap: wrap; }
   .kol-item .btn-sub { width: 100%; min-height: 44px; }
@@ -1697,7 +1693,6 @@ pre.content-cell { white-space: pre-wrap; overflow-wrap: break-word; min-width: 
   .tl-group .post-images { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
   .tl-group .post-images img { width: 100%; height: auto; aspect-ratio: 1; }
   .tl-filterbar-top { flex-direction: column; align-items: stretch; }
-  .tl-pills { display: none; } /* 桌面平台胶囊隐藏；移动端平台角标在轻量筛选面板中按需展开 */
   .tl-mobile-platforms {
     display: grid;
     grid-template-columns: repeat(5, minmax(0, 1fr));

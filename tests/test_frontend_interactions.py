@@ -130,56 +130,59 @@ def test_post_tags_filter_timeline_without_inline_user_string():
     assert "loadTimeline(true, routeRenderSeq)" in pick_tag
 
 
-def test_mobile_timeline_filter_renders_existing_platform_icons_only():
-    """移动筛选保留平台图标，并与桌面共用关键词/标签；分类已从时间线拿掉。"""
+def test_mobile_timeline_filter_keeps_pills_out_of_panel():
+    """手机端平台条留在吸顶栏；筛选面板只留搜索和标签。"""
     render = _fn_body("renderTimeline")
-    mobile_html = _fn_body("tlMobilePlatformsHtml")
+    src = APP_JS.read_text()
 
-    assert "isMobileTimelineFilter()" in render
-    assert 'id="tl-mobile-platforms"' in render
-    assert "PLATFORM_ICONS[p]" in mobile_html
-    assert 'aria-label="平台：${label}"' in mobile_html
-    assert 'aria-pressed="${state.timelinePlatform === p}"' in mobile_html
-    assert "tlPickMobilePlatform('${p}')" in mobile_html
-    assert "<span>${label}</span>" not in mobile_html
+    assert 'id="tl-pills"' in render
+    assert "tlPillsHtml()" in render
+    assert 'id="tl-mobile-platforms"' not in render
+    assert "function tlMobilePlatformsHtml" not in src
+    assert "function tlPickMobilePlatform" not in src
 
     assert "tlSearchBarHtml()" in render
     assert 'id="tl-q"' in _fn_body("tlSearchBarHtml")
     assert 'id="tl-tag"' in render
     assert "tlApplyFilter()" in render
     assert 'id="tl-category"' not in render
-    assert "tlApplyRailSearch" in APP_JS.read_text()
+    assert "tlApplyRailSearch" in src
 
 
-def test_timeline_pills_expand_selected_platform_name():
-    """未选平台只留角标；当前选中展开图标+名称。名称仍走 aria-label / title。"""
+def test_timeline_pills_always_show_short_labels():
+    """平台条一律图标+短字，选中只换底色；全称留在 aria-label。"""
     pills = _fn_body("tlPillsHtml")
-    assert "tl-pill-icon" in pills
-    assert "iconOnly" in pills
-    assert "aria-label=\"${label}\"" in pills
-    assert "title=\"${label}\"" in pills
-    assert '${iconOnly ? "" : `<span>${label}</span>`}' in pills
-    assert ".tl-pill-icon" in STYLE_CSS.read_text()
+    src = APP_JS.read_text()
+    css = STYLE_CSS.read_text()
+    assert "tl-pill-icon" not in pills
+    assert "iconOnly" not in pills
+    assert "platformShortLabel(p)" in pills
+    assert "PLATFORM_ICONS[p || \"\"]" in pills
+    assert "<span>${short}</span>" in pills
+    assert 'aria-label="${label}"' in pills
+    assert 'title="${label}"' in pills
+    assert 'combination: "组合"' in src
+    assert ".tl-pill-icon" not in css
+    assert ".tl-pills { display: none" not in css
+    pill = re.search(r"\.tl-pill\s*\{([^}]*)\}", css)
+    assert pill and "44px" in pill.group(1)
+    assert ".tl-pill:focus-visible" in css
 
 
 def test_mobile_platform_filter_keeps_hidden_state_and_applies_immediately():
     """打开筛选或点平台不改关键词/标签；只有清除筛选才重置。"""
     src = APP_JS.read_text()
-    pick_mobile = _fn_body("tlPickMobilePlatform")
+    pick = _fn_body("tlPickPlatform")
     toggle_panel = _fn_body("tlFilterPanel")
     reset = _fn_body("tlResetFilters")
 
     assert "function tlClearMobileHiddenFilters" not in src
     assert "tlClearMobileHiddenFilters" not in toggle_panel
     assert "isMobileTimelineFilter()" not in toggle_panel
-    assert 'state.timelineQ = ""' not in pick_mobile
-    assert 'state.timelineTag = ""' not in pick_mobile
-    assert "state.timelineQ || p || state.timelineTag" in pick_mobile
-    assert "state.timelinePlatform = p" in pick_mobile
-    assert 'classList.remove("open")' in pick_mobile
-    assert 'setAttribute("aria-expanded", "false")' in pick_mobile
-    assert "tlSyncActiveChips()" in pick_mobile
-    assert "loadTimeline(true, routeRenderSeq)" in pick_mobile
+    assert 'state.timelineQ = ""' not in pick
+    assert 'state.timelineTag = ""' not in pick
+    assert "state.timelinePlatform = p" in pick
+    assert "loadTimeline(true, routeRenderSeq)" in pick
     for assignment in (
         'state.timelineQ = ""',
         'state.timelineCategory = ""',
@@ -189,7 +192,7 @@ def test_mobile_platform_filter_keeps_hidden_state_and_applies_immediately():
 
 
 def test_mobile_platform_filter_is_five_equal_44px_targets():
-    """390px 移动端必须容纳五个等宽、至少 44px 的平台角标。"""
+    """广场/订阅页移动角标仍是等宽 44px；时间线改走吸顶短字胶囊。"""
     css = STYLE_CSS.read_text()
     grid = re.search(r"\.tl-mobile-platforms\s*\{([^}]*)\}", css, re.DOTALL)
     button = re.search(r"\.tl-mobile-platform\s*\{([^}]*)\}", css, re.DOTALL)
@@ -222,6 +225,20 @@ def test_mobile_mysubs_filter_renders_icon_badges_keeps_desktop_toolbar():
     # 双分支渲染：移动角标 / 桌面文字胶囊
     assert "mysubsMobileFiltersHtml()" in tabs
     assert 'platformTabHTML(p, state.mysubsPlatform' in tabs
+
+
+def test_platform_tabs_always_show_short_labels():
+    """订阅广场/我的订阅桌面平台条与时间线同一套：图标+短字，组合不写全称。"""
+    tab = _fn_body("platformTabHTML")
+    src = APP_JS.read_text()
+    css = STYLE_CSS.read_text()
+    assert "platformShortLabel(p)" in tab
+    assert 'class="pt-label">${short}</span>' in tab
+    assert "function platformShortLabel" in src
+    assert "display: none" not in re.search(r"\.pt-label\s*\{([^}]*)\}", css).group(1)
+    base = re.search(r"\.platform-tab\s*\{([^}]*)\}", css)
+    assert base and "36px" not in base.group(1)
+    assert ".platform-tab:focus-visible" in css
 
 
 def test_mobile_mysubs_filter_is_six_equal_44px_targets():
@@ -1091,7 +1108,7 @@ def test_admin_kols_filter_controls_match_input_height():
     assert "ak-platform-tabs" in body
     css = STYLE_CSS.read_text()
     assert re.search(r"\.toolbar \.btn-ghost[^{]*\{[^}]*--control-height-2xl", css)
-    assert re.search(r"\.ak-platform-tabs \.platform-tab[^{]*\{[^}]*--control-height-2xl", css)
+    assert re.search(r"\.platform-tab\s*\{[^}]*44px", css, re.S)
 
 
 def test_admin_kols_mobile_filters_and_actions_align():

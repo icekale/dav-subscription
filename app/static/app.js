@@ -1,6 +1,10 @@
 const $ = (sel) => document.querySelector(sel);
 
 const PLATFORM_LABELS = { xueqiu: "雪球", combination: "雪球组合", weibo: "微博", twitter: "X" };
+const PLATFORM_SHORT_LABELS = { xueqiu: "雪球", combination: "组合", weibo: "微博", twitter: "X" };
+function platformShortLabel(p) {
+  return p ? (PLATFORM_SHORT_LABELS[p] || PLATFORM_LABELS[p]) : "全部";
+}
 const PLATFORM_ICONS = {
   "": `<svg class="pt-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"/></svg>`,
   xueqiu: `<svg class="pt-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><circle cx="9.3" cy="13.7" r="7.2"/><circle cx="14.7" cy="10.3" r="7.2"/></svg>`,
@@ -588,9 +592,10 @@ function renderHomeList() {
 
 function platformTabHTML(p, current, handler) {
   const label = p ? PLATFORM_LABELS[p] : "全部";
+  const short = platformShortLabel(p);
   return `<button class="platform-tab ${p === current ? "selected" : ""}" data-platform="${p || "all"}"
     title="${label}" aria-label="${label}"
-    onclick="${handler}('${p}')">${PLATFORM_ICONS[p || ""]}<span class="pt-label">${label}</span></button>`;
+    onclick="${handler}('${p}')">${PLATFORM_ICONS[p || ""]}<span class="pt-label">${short}</span></button>`;
 }
 
 let _homeKolsSeq = 0;
@@ -1016,24 +1021,11 @@ function tlApplyRailSearch() {
   tlApplyFilter();
 }
 
-function tlMobilePlatformsHtml() {
-  return TL_PLATFORMS.map(([p, label]) => `
-    <button class="tl-mobile-platform ${state.timelinePlatform === p ? "selected" : ""}"
-      data-platform="${p}"
-      aria-label="平台：${label}"
-      title="${label}"
-      aria-pressed="${state.timelinePlatform === p}"
-      onclick="tlPickMobilePlatform('${p}')">
-      ${PLATFORM_ICONS[p] || ""}
-    </button>`).join("");
-}
-
 async function renderTimeline(seq) {
   setPageTitle("最新动态");
   ensureWideTimelineWatch();
   // 离开期间筛选条件未变且有缓存 → 直接恢复列表并检测新帖，不重新加载（保留阅读位置）
   const reuse = _tlPosts.length && _tlLoadedFilter === tlFilterKey();
-  const mobileFilter = isMobileTimelineFilter();
   const wide = isWideTimeline();
   $("#main").innerHTML = `
     <div class="tl-layout">
@@ -1047,7 +1039,6 @@ async function renderTimeline(seq) {
         </div>`}
       </div>
       ${wide ? "" : `<div class="tl-filter-panel" id="tl-filter-panel">
-        ${mobileFilter ? `<div class="tl-mobile-platforms" id="tl-mobile-platforms">${tlMobilePlatformsHtml()}</div>` : ""}
         ${tlSearchBarHtml()}
         <div class="tl-filter-row">
           <select id="tl-tag" class="form-control" onchange="tlApplyFilter()"><option value="">全部标签</option></select>
@@ -1206,11 +1197,11 @@ async function refreshTimeline() {
 function tlPillsHtml() {
   return TL_PLATFORMS.map(([p, label]) => {
     const selected = state.timelinePlatform === p;
-    const iconOnly = !!(p && !selected);
+    const short = platformShortLabel(p);
     return `
-    <button class="tl-pill${iconOnly ? " tl-pill-icon" : ""} ${selected ? "selected" : ""}" data-platform="${p}" aria-label="${label}" title="${label}" aria-pressed="${selected}" onclick="tlPickPlatform('${p}')">
-      ${p ? (PLATFORM_ICONS[p] || "") : ""}
-      ${iconOnly ? "" : `<span>${label}</span>`}
+    <button class="tl-pill ${selected ? "selected" : ""}" data-platform="${p}" aria-label="${label}" title="${label}" aria-pressed="${selected}" onclick="tlPickPlatform('${p}')">
+      ${PLATFORM_ICONS[p || ""]}
+      <span>${short}</span>
     </button>`;
   }).join("");
 }
@@ -1221,6 +1212,9 @@ function tlPickPlatform(p) {
   if (pills) pills.innerHTML = tlPillsHtml();
   const plat = $("#tl-platform");
   if (plat) plat.value = p;
+  const btn = $("#tl-filter-toggle");
+  if (btn) btn.classList.toggle("has-filter", !!(state.timelineQ || p || state.timelineTag));
+  tlSyncActiveChips();
   loadTimeline(true, routeRenderSeq);
 }
 
@@ -1233,21 +1227,6 @@ function tlPlatformOptions() {
 function tlSyncActiveChips() {
   const wrap = $("#tl-active-chips-wrap");
   if (wrap) wrap.innerHTML = tlActiveChipsHtml();
-}
-
-function tlPickMobilePlatform(p) {
-  state.timelinePlatform = p;
-  const platforms = $("#tl-mobile-platforms");
-  if (platforms) platforms.innerHTML = tlMobilePlatformsHtml();
-  const bar = $("#tl-filterbar");
-  if (bar) bar.classList.remove("open");
-  const btn = $("#tl-filter-toggle");
-  if (btn) {
-    btn.classList.toggle("has-filter", !!(state.timelineQ || p || state.timelineTag));
-    btn.setAttribute("aria-expanded", "false");
-  }
-  tlSyncActiveChips();
-  loadTimeline(true, routeRenderSeq);
 }
 
 function tlFilterPanel() {
