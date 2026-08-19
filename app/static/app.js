@@ -1013,10 +1013,7 @@ function tlSearchBarHtml() {
 }
 
 function tlApplyRailSearch() {
-  const q = $("#tl-q");
-  state.timelineQ = q ? q.value.trim() : "";
-  tlSyncActiveChips();
-  loadTimeline(true, routeRenderSeq);
+  tlApplyFilter();
 }
 
 function tlMobilePlatformsHtml() {
@@ -1050,18 +1047,15 @@ async function renderTimeline(seq) {
         </div>`}
       </div>
       ${wide ? "" : `<div class="tl-filter-panel" id="tl-filter-panel">
-        ${mobileFilter ? `
-          <div class="tl-mobile-platforms" id="tl-mobile-platforms">
-            ${tlMobilePlatformsHtml()}
-          </div>` : `
-          ${tlSearchBarHtml()}
-          <div class="tl-filter-row">
-            <select id="tl-tag" class="form-control" onchange="tlApplyFilter()"><option value="">全部标签</option></select>
-          </div>
-          <div class="tl-filter-actions">
-            <button class="btn-ghost" onclick="tlResetFilters()">清除筛选</button>
-            <button class="btn-normal" onclick="tlApplyFilter()">完成</button>
-          </div>`}
+        ${mobileFilter ? `<div class="tl-mobile-platforms" id="tl-mobile-platforms">${tlMobilePlatformsHtml()}</div>` : ""}
+        ${tlSearchBarHtml()}
+        <div class="tl-filter-row">
+          <select id="tl-tag" class="form-control" onchange="tlApplyFilter()"><option value="">全部标签</option></select>
+        </div>
+        <div class="tl-filter-actions">
+          <button class="btn-ghost" onclick="tlResetFilters()">清除筛选</button>
+          <button class="btn-normal" onclick="tlApplyFilter()">完成</button>
+        </div>
       </div>`}
       <div class="tl-new-badge" id="tl-new-badge">
         <button class="tl-new-badge-btn" onclick="refreshTimeline()" aria-label="有新动态，点击查看">
@@ -1090,6 +1084,7 @@ async function renderTimeline(seq) {
     window.scrollTo(0, _tlSavedScrollY); // 恢复离开时的阅读位置
     startTimelinePoll();
     pollNewPosts(); // 后台检测新帖，有则浮出提示条
+    if (!wide) loadTimelineTags().catch(() => { _tlTags = []; _tlDynamicTags = []; });
     if (wide) loadTimelineRail(seq);
     return;
   }
@@ -1098,7 +1093,7 @@ async function renderTimeline(seq) {
   _tlHasMore = true;
   _tlLatestId = 0;
   try {
-    if (!mobileFilter && !wide) {
+    if (!wide) {
       await loadTimelineTags().catch(() => { _tlTags = []; _tlDynamicTags = []; }); // 标签下拉失败降级，不阻塞 feed
     }
     await loadTimeline(true, seq);
@@ -1209,10 +1204,15 @@ async function refreshTimeline() {
 }
 
 function tlPillsHtml() {
-  return TL_PLATFORMS.map(([p, label]) => `
-    <button class="tl-pill${p ? " tl-pill-icon" : ""} ${state.timelinePlatform === p ? "selected" : ""}" data-platform="${p}" aria-label="${label}" title="${label}" aria-pressed="${state.timelinePlatform === p}" onclick="tlPickPlatform('${p}')">
-      ${p ? (PLATFORM_ICONS[p] || "") : `<span>${label}</span>`}
-    </button>`).join("");
+  return TL_PLATFORMS.map(([p, label]) => {
+    const selected = state.timelinePlatform === p;
+    const iconOnly = !!(p && !selected);
+    return `
+    <button class="tl-pill${iconOnly ? " tl-pill-icon" : ""} ${selected ? "selected" : ""}" data-platform="${p}" aria-label="${label}" title="${label}" aria-pressed="${selected}" onclick="tlPickPlatform('${p}')">
+      ${p ? (PLATFORM_ICONS[p] || "") : ""}
+      ${iconOnly ? "" : `<span>${label}</span>`}
+    </button>`;
+  }).join("");
 }
 
 function tlPickPlatform(p) {
@@ -1235,16 +1235,7 @@ function tlSyncActiveChips() {
   if (wrap) wrap.innerHTML = tlActiveChipsHtml();
 }
 
-function tlClearMobileHiddenFilters() {
-  const changed = !!(state.timelineQ || state.timelineCategory || state.timelineTag);
-  state.timelineQ = "";
-  state.timelineCategory = "";
-  state.timelineTag = "";
-  return changed;
-}
-
 function tlPickMobilePlatform(p) {
-  tlClearMobileHiddenFilters();
   state.timelinePlatform = p;
   const platforms = $("#tl-mobile-platforms");
   if (platforms) platforms.innerHTML = tlMobilePlatformsHtml();
@@ -1252,7 +1243,7 @@ function tlPickMobilePlatform(p) {
   if (bar) bar.classList.remove("open");
   const btn = $("#tl-filter-toggle");
   if (btn) {
-    btn.classList.toggle("has-filter", !!p);
+    btn.classList.toggle("has-filter", !!(state.timelineQ || p || state.timelineTag));
     btn.setAttribute("aria-expanded", "false");
   }
   tlSyncActiveChips();
@@ -1262,21 +1253,10 @@ function tlPickMobilePlatform(p) {
 function tlFilterPanel() {
   const bar = $("#tl-filterbar");
   if (!bar) return;
-  const opening = !bar.classList.contains("open");
-  const mobile = isMobileTimelineFilter();
-  if (opening && mobile) {
-    const hiddenChanged = tlClearMobileHiddenFilters();
-    const platforms = $("#tl-mobile-platforms");
-    if (platforms) platforms.innerHTML = tlMobilePlatformsHtml();
-    const btn = $("#tl-filter-toggle");
-    if (btn) btn.classList.toggle("has-filter", !!state.timelinePlatform);
-    tlSyncActiveChips();
-    if (hiddenChanged) loadTimeline(true, routeRenderSeq);
-  }
   const open = bar.classList.toggle("open");
   const btn = $("#tl-filter-toggle");
   if (btn) btn.setAttribute("aria-expanded", String(open));
-  if (open && !mobile) $("#tl-q")?.focus();
+  if (open) $("#tl-q")?.focus();
 }
 
 function tlApplyFilter() {
@@ -1358,9 +1338,9 @@ async function loadTimelineRail(routeSeq) {
     const recs = await api("/api/recommendations?unsubscribed=1");
     if (!routeStillActive(routeSeq) || !$("#tl-rail")) return;
     renderRailRecs(Array.isArray(recs) ? recs : []);
-  } catch {
+  } catch (err) {
     const el = $("#tl-rail-recs");
-    if (el) el.innerHTML = "";
+    if (el) el.innerHTML = railFailHtml("推荐关注", "推荐加载失败", err);
   }
   try {
     let tags = _tlDynamicTags;
@@ -1371,10 +1351,21 @@ async function loadTimelineRail(routeSeq) {
     }
     if (!routeStillActive(routeSeq) || !$("#tl-rail")) return;
     renderRailTags((tags || []).slice(0, 8));
-  } catch {
+  } catch (err) {
     const el = $("#tl-rail-tags");
-    if (el) el.innerHTML = "";
+    if (el) el.innerHTML = railFailHtml("热门标签", "标签加载失败", err);
   }
+}
+
+function railFailHtml(title, lead, err) {
+  const detail = err?.message ? `：${escapeHtml(err.message)}` : "";
+  return `<section class="tl-rail-card">
+      <h3 class="tl-rail-title">${escapeHtml(title)}</h3>
+      <div class="tl-rail-fail">
+        <p class="muted">${escapeHtml(lead)}${detail}</p>
+        <button type="button" class="btn-ghost" onclick="loadTimelineRail(routeRenderSeq)">重试</button>
+      </div>
+    </section>`;
 }
 
 function renderRailRecs(recs) {
@@ -1423,6 +1414,7 @@ async function railToggleSubscribe(kolId, btn) {
   const name = btn.closest(".tl-rail-rec")?.querySelector(".tl-rail-rec-name")?.textContent || "该大V";
   const restoreFocus = document.activeElement === btn && btn.matches(":focus-visible");
   btn.disabled = true;
+  btn.setAttribute("aria-busy", "true");
   try {
     if (subscribed) {
       await api(`/api/subscriptions/${kolId}`, { method: "DELETE" });
@@ -1448,6 +1440,7 @@ async function railToggleSubscribe(kolId, btn) {
     flash(`${subscribed ? "退订" : "订阅"}「${name}」失败: ${err.message}`, "error");
   } finally {
     btn.disabled = false;
+    btn.removeAttribute("aria-busy");
     if (restoreFocus && btn.isConnected && document.activeElement === document.body) {
       btn.focus({ preventScroll: true });
     }

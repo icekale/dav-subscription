@@ -131,7 +131,7 @@ def test_post_tags_filter_timeline_without_inline_user_string():
 
 
 def test_mobile_timeline_filter_renders_existing_platform_icons_only():
-    """移动筛选只渲染现有平台图标；桌面完整表单仍保留。"""
+    """移动筛选保留平台图标，并与桌面共用关键词/标签；分类已从时间线拿掉。"""
     render = _fn_body("renderTimeline")
     mobile_html = _fn_body("tlMobilePlatformsHtml")
 
@@ -143,7 +143,6 @@ def test_mobile_timeline_filter_renders_existing_platform_icons_only():
     assert "tlPickMobilePlatform('${p}')" in mobile_html
     assert "<span>${label}</span>" not in mobile_html
 
-    # 桌面窄屏仍有关键词/标签；分类已从时间线拿掉
     assert "tlSearchBarHtml()" in render
     assert 'id="tl-q"' in _fn_body("tlSearchBarHtml")
     assert 'id="tl-tag"' in render
@@ -152,36 +151,41 @@ def test_mobile_timeline_filter_renders_existing_platform_icons_only():
     assert "tlApplyRailSearch" in APP_JS.read_text()
 
 
-def test_timeline_pills_keep_icons_without_platform_text():
-    """桌面平台胶囊只留角标；「全部」保留二字。名称走 aria-label / title。"""
+def test_timeline_pills_expand_selected_platform_name():
+    """未选平台只留角标；当前选中展开图标+名称。名称仍走 aria-label / title。"""
     pills = _fn_body("tlPillsHtml")
     assert "tl-pill-icon" in pills
+    assert "iconOnly" in pills
     assert "aria-label=\"${label}\"" in pills
     assert "title=\"${label}\"" in pills
-    assert '""}<span>${label}</span>' not in pills
-    assert ": `<span>${label}</span>`" in pills
+    assert '${iconOnly ? "" : `<span>${label}</span>`}' in pills
     assert ".tl-pill-icon" in STYLE_CSS.read_text()
 
 
-def test_mobile_platform_filter_clears_hidden_state_and_applies_immediately():
-    """移动端不允许不可见的关键词/分类/标签继续影响结果。"""
-    clear_hidden = _fn_body("tlClearMobileHiddenFilters")
+def test_mobile_platform_filter_keeps_hidden_state_and_applies_immediately():
+    """打开筛选或点平台不改关键词/标签；只有清除筛选才重置。"""
+    src = APP_JS.read_text()
     pick_mobile = _fn_body("tlPickMobilePlatform")
     toggle_panel = _fn_body("tlFilterPanel")
+    reset = _fn_body("tlResetFilters")
 
-    for assignment in (
-        'state.timelineQ = ""',
-        'state.timelineCategory = ""',
-        'state.timelineTag = ""',
-    ):
-        assert assignment in clear_hidden
-    assert "tlClearMobileHiddenFilters()" in toggle_panel
-    assert "isMobileTimelineFilter()" in toggle_panel
+    assert "function tlClearMobileHiddenFilters" not in src
+    assert "tlClearMobileHiddenFilters" not in toggle_panel
+    assert "isMobileTimelineFilter()" not in toggle_panel
+    assert 'state.timelineQ = ""' not in pick_mobile
+    assert 'state.timelineTag = ""' not in pick_mobile
+    assert "state.timelineQ || p || state.timelineTag" in pick_mobile
     assert "state.timelinePlatform = p" in pick_mobile
     assert 'classList.remove("open")' in pick_mobile
     assert 'setAttribute("aria-expanded", "false")' in pick_mobile
     assert "tlSyncActiveChips()" in pick_mobile
     assert "loadTimeline(true, routeRenderSeq)" in pick_mobile
+    for assignment in (
+        'state.timelineQ = ""',
+        'state.timelineCategory = ""',
+        'state.timelineTag = ""',
+    ):
+        assert assignment in reset
 
 
 def test_mobile_platform_filter_is_five_equal_44px_targets():
@@ -671,6 +675,8 @@ def test_timeline_wide_rail_markup():
     assert "loadTimelineRail" in render
     assert "tlViewTogglesHtml" in render
     assert "recommendations?unsubscribed=1" in _fn_body("loadTimelineRail")
+    assert "railFailHtml" in _fn_body("loadTimelineRail")
+    assert "重试" in _fn_body("railFailHtml")
     assert "tlPickTag" in _fn_body("renderRailTags")
     css = STYLE_CSS.read_text()
     assert ".tl-rail" in css
@@ -692,7 +698,9 @@ def test_timeline_rail_subscription_button_toggles_in_place():
     assert "/api/subscriptions/${kolId}" in toggle
     assert "confirm(" not in toggle
     assert "btn.disabled = true" in toggle
+    assert 'setAttribute("aria-busy", "true")' in toggle
     assert "btn.disabled = false" in toggle
+    assert 'removeAttribute("aria-busy")' in toggle
     assert 'classList.toggle("subscribed", nextSubscribed)' in toggle
     assert "renderRailRecs(" not in toggle
     assert (
@@ -760,7 +768,7 @@ def test_timeline_rail_subscription_button_has_quiet_fixed_states():
 def test_timeline_rail_fills_main_and_survives_resize():
     """主列铺满、右侧 300px；75ch 只限正文；跨 1280px 重排开关。"""
     css = STYLE_CSS.read_text()
-    assert "minmax(0, 1fr) 300px" in css
+    assert "minmax(680px, 1fr) 300px" in css
     assert ".tl-filterbar-top,\n  .tl-layout" not in css and ".tl-filterbar-top,.tl-layout" not in css.replace(" ", "")
     assert re.search(r"\.tl-layout \.tl-feed-panel\s*\{[^}]*flex:\s*1", css)
     render = _fn_body("renderTimeline")

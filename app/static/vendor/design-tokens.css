@@ -38,6 +38,7 @@
   --color-text-strong: #222c3c;
   --color-text-subtle: #464a55;
   --color-text-muted: #6e6e73;
+  --color-muted-soft: rgba(100, 116, 139, 0.14);
   --color-text-faint: #667080;
   --color-link: #0b6fbd;
 
@@ -52,8 +53,8 @@
   --color-accent-soft: rgba(22, 119, 255, 0.12);
   /* 实底提一档，白字 4.4:1；浅底蓝字仍用原色，保证 5.1:1 */
   --color-accent-text: #1668e0;
-  /* 品牌渐变（logo/头像底）：上亮蓝过渡到主色，统一进 token 避免硬编码漂移 */
-  --brand-gradient: linear-gradient(180deg, #2a86ff, var(--color-accent));
+  /* 品牌渐变（logo/头像底）：两端都深过亮蓝，白字全程 ≥4.5:1 */
+  --brand-gradient: linear-gradient(180deg, var(--color-accent-strong), #1258c4);
 
   /* 平台品牌色（图标用；深色模式在 .theme-dark 中覆盖） */
   --color-brand-xueqiu: #287dff;
@@ -152,6 +153,7 @@
   --color-text-strong: #f2f4f8;
   --color-text-subtle: #b8bec9;
   --color-text-muted: #9aa3b2;
+  --color-muted-soft: rgba(154, 163, 178, 0.16);
   --color-text-faint: #8a93a3;
   --color-link: #5aa9f0;
 
