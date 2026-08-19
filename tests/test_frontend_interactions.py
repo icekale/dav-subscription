@@ -554,6 +554,7 @@ def test_kol_image_css_is_compact_truncating_and_touchable():
     assert list_rule and "max-height: 260px" in list_rule.group(1)
     assert "overflow-y: auto" in list_rule.group(1)
     assert "overscroll-behavior: contain" in list_rule.group(1)
+    assert "padding-right: 12px" in list_rule.group(1)
     more = re.search(r"#kol-images-more\s*\{([^}]*)\}", css)
     assert more and "margin-top: 8px" in more.group(1)
 

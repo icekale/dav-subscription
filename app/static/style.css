@@ -1828,6 +1828,7 @@ pre.content-cell { white-space: pre-wrap; overflow-wrap: break-word; min-width: 
   max-height: 260px;
   overflow-y: auto;
   overscroll-behavior: contain;
+  padding-right: 12px;
   border-top: var(--border-soft);
 }
 #kol-images-more {
