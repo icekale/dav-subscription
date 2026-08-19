@@ -240,7 +240,7 @@ def test_mobile_platform_filter_keeps_hidden_state_and_applies_immediately():
 
 
 def test_mobile_platform_filter_is_five_equal_44px_targets():
-    """旧图标宫格已删；广场/订阅与时间线共用 44px 短字胶囊。"""
+    """旧图标宫格已删；时间线胶囊桌面带短字 44px。"""
     css = STYLE_CSS.read_text()
     assert ".tl-mobile-platform" not in css
     pill = re.search(r"\.tl-pill\s*\{([^}]*)\}", css)
@@ -306,11 +306,23 @@ def test_platform_tabs_always_show_short_labels():
 
 
 def test_mobile_mysubs_filter_is_six_equal_44px_targets():
-    """订阅页移动端平台条与时间线同高 44px，特别关注带字。"""
+    """订阅/动态移动端：5 平台 + 星标/筛选共 6 等宽 44px 角标，文字仅 aria。"""
     css = STYLE_CSS.read_text()
     pill = re.search(r"\.tl-pill\s*\{([^}]*)\}", css)
     assert pill and "44px" in pill.group(1)
     assert "特别关注" in _fn_body("mysubsMobileFiltersHtml")
+    assert 'aria-label="特别关注"' in _fn_body("mysubsMobileFiltersHtml")
+    assert 'aria-label="筛选"' in _fn_body("renderTimeline")
+    assert ".tl-filterbar .tl-pill span" in css and "display: none" in css
+    assert ".mysubs-mobile-filters .tl-pill span" in css
+    assert ".mysubs-mobile-filters .fav-toggle" in css and "font-size: 0" in css
+    assert ".tl-actions button" in css and "font-size: 0" in css
+    # 不再把筛选条竖着堆成两行
+    mobile = re.search(r"@media \(max-width: 768px\) \{(.*)\}\s*/\* ----------", css, re.DOTALL)
+    body = mobile.group(1) if mobile else css
+    assert ".tl-filterbar-top { flex-direction: column" not in body.replace(" ", "")
+    av = re.search(r"\.tl-badge-avatars > \*\s*\{([^}]*)\}", css)
+    assert av and "52px" in av.group(1)
 
 
 # ---- 订阅广场移动端头部密度 ----

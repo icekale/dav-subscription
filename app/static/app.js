@@ -20,7 +20,7 @@ const CHANNEL_ICONS = {
 };
 const CHANNEL_LABELS = { telegram: "Telegram", feishu: "飞书", wecom: "企业微信", bark: "Bark" };
 const USER_CHANNEL_KEYS = ["telegram", "feishu", "wecom", "bark"];
-const APP_VERSION = "1.12.19";
+const APP_VERSION = "1.12.20";
 const PLATFORM_TABS = ["", "xueqiu", "combination", "weibo", "twitter"];
 const STATS_TABS = ["overview", "health", "config", "cookies", "proxies"];
 const TL_PLATFORMS = PLATFORM_TABS.map((p) => [p, p ? PLATFORM_LABELS[p] : "全部"]);
@@ -846,6 +846,7 @@ function mysubsMobileFiltersHtml() {
   }).join("");
   return `<div class="tl-pills" role="radiogroup" aria-label="平台">${platforms}</div>
     <button class="fav-toggle ${state.mysubsFavorite ? "fav-on" : ""}"
+      aria-label="特别关注"
       aria-pressed="${state.mysubsFavorite}"
       onclick="toggleMySubsFav()">${STAR_SVG} 特别关注</button>`;
 }
@@ -1032,7 +1033,7 @@ async function renderTimeline(seq) {
       <div class="tl-filterbar-top">
         <div class="tl-pills" id="tl-pills" role="radiogroup" aria-label="平台">${tlPillsHtml()}</div>
         ${wide ? "" : `<div class="tl-actions">
-          <button id="tl-filter-toggle" class="fav-toggle ${tlPanelFilterOn() ? "has-filter" : ""}" aria-expanded="false" aria-controls="tl-filter-panel" onclick="tlFilterPanel()">${FILTER_ICON}筛选</button>
+          <button id="tl-filter-toggle" class="fav-toggle ${tlPanelFilterOn() ? "has-filter" : ""}" aria-label="筛选" aria-expanded="false" aria-controls="tl-filter-panel" onclick="tlFilterPanel()">${FILTER_ICON}筛选</button>
         </div>`}
       </div>
       ${wide ? "" : `<div class="tl-filter-panel" id="tl-filter-panel">
