@@ -196,13 +196,20 @@ def _extract_images(status: dict) -> list[str]:
     return out
 
 
-def resolve_profile(external_id: str, cookie: str = "") -> dict:
+def resolve_profile(external_id: str, cookie: str = "", db=None) -> dict:
     """查询雪球用户昵称与头像（取最新一条动态里的 user 信息），失败返回空 dict。"""
     uid = normalize_xueqiu_id(external_id)
     try:
+        from ..proxy import ProxyUnavailable, acquire_client_proxy
+
+        try:
+            proxy, _pid = acquire_client_proxy(db, "xueqiu")
+        except ProxyUnavailable:
+            return {}
         client = httpx.Client(
             timeout=15,
             follow_redirects=True,
+            proxy=proxy,
             headers={
                 "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X)",
                 "Accept": "application/json, text/plain, */*",
@@ -251,9 +258,13 @@ class XueqiuFetcher(Fetcher):
         cookie = getattr(self.source_config, "cookie", "") or ""
 
         def _make_client():
-            c = httpx.Client(timeout=20, headers=headers)
+            from ..proxy import acquire_client_proxy, attach_proxy
+
+            proxy, pid = acquire_client_proxy(self.db, "xueqiu")
+            c = httpx.Client(timeout=20, headers=headers, proxy=proxy)
             if cookie:
                 c.headers["Cookie"] = cookie
+            attach_proxy(c, pid)
             return c
 
         self._http = ThreadLocalClient(_make_client, injected=client)

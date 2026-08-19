@@ -22,6 +22,7 @@ const CHANNEL_LABELS = { telegram: "Telegram", feishu: "飞书", wecom: "企业�
 const USER_CHANNEL_KEYS = ["telegram", "feishu", "wecom", "bark"];
 const APP_VERSION = "1.12.18";
 const PLATFORM_TABS = ["", "xueqiu", "combination", "weibo", "twitter"];
+const STATS_TABS = ["overview", "health", "config", "cookies", "proxies"];
 const TL_PLATFORMS = PLATFORM_TABS.map((p) => [p, p ? PLATFORM_LABELS[p] : "全部"]);
 const STAR_SVG = `<svg class="star-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5l2.95 5.98 6.6.96-4.78 4.66 1.13 6.58L12 17.6l-5.9 3.1 1.13-6.58L2.45 9.44l6.6-.96L12 2.5z"/></svg>`;
 // 次要（降频）铃铛图标：线性风格，与 TRASH_ICON 一致（stroke=currentColor）
@@ -964,18 +965,10 @@ function tlActiveChipsHtml() {
 
 function tlRemoveFilter(key) {
   if (key === "q") state.timelineQ = "";
-  else if (key === "category") state.timelineCategory = "";
   else if (key === "tag") {
     state.timelineTag = "";
     const tagSel = $("#tl-tag");
     if (tagSel) tagSel.value = "";
-  }
-  else if (key === "platform") {
-    state.timelinePlatform = "";
-    const plat = $("#tl-platform");
-    if (plat) plat.value = "";
-    const pills = $("#tl-pills");
-    if (pills) pills.innerHTML = tlPillsHtml();
   }
   loadTimeline(true, routeRenderSeq);
   renderRailTags(_tlDynamicTags.slice(0, 8));
@@ -1216,8 +1209,6 @@ function tlPickPlatform(p) {
   state.timelinePlatform = p;
   const pills = $("#tl-pills");
   if (pills) pills.innerHTML = tlPillsHtml();
-  const plat = $("#tl-platform");
-  if (plat) plat.value = p;
   const btn = $("#tl-filter-toggle");
   if (btn) btn.classList.toggle("has-filter", tlPanelFilterOn());
   tlSyncActiveChips();
@@ -1500,8 +1491,8 @@ function renderTimelineFeed() {
       ${list.map(postCard).join("")}
     </div>`).join("");
   const footer = _tlHasMore
-    ? `<div class="toolbar" style="margin-top:14px;justify-content:center"><button class="btn-normal" onclick="timelineLoadMore()">加载更多</button></div>`
-    : (posts.length ? `<p class="muted" style="text-align:center;margin-top:14px">已加载全部</p>` : "");
+    ? `<div class="toolbar tl-feed-more"><button class="btn-normal" onclick="timelineLoadMore()">加载更多</button></div>`
+    : (posts.length ? `<p class="muted tl-feed-end">已加载全部</p>` : "");
   const hasFilter = state.timelineQ || state.timelinePlatform || state.timelineCategory || state.timelineTag;
   const emptyMsg = state.timelineFavorite && !hasFilter
     ? "还没有特别关注大V的动态"
@@ -2540,21 +2531,22 @@ function switchSettingsTab(name) {
 
 function statsTabFromHash() {
   const tab = new URLSearchParams(location.hash.split("?")[1] || "").get("tab") || "overview";
-  return ["overview", "health", "config", "cookies"].includes(tab) ? tab : "overview";
+  return STATS_TABS.includes(tab) ? tab : "overview";
 }
 
 function switchStatsTab(name) {
-  // 数据源页分段导航：监控总览 / 大V健康 / 抓取设置 / Cookie 管理
-  if (!["overview", "health", "config", "cookies"].includes(name)) name = "overview";
+  // 数据源页分段导航：监控总览 / 大V健康 / 抓取设置 / Cookie 管理 / 代理
+  if (!STATS_TABS.includes(name)) name = "overview";
   document.querySelectorAll(".settings-tab").forEach((b) =>
     b.classList.toggle("active", b.dataset.tab === name)
   );
-  ["overview", "health", "config", "cookies"].forEach((t) => {
+  STATS_TABS.forEach((t) => {
     const el = document.getElementById("st-" + t);
     if (el) el.style.display = t === name ? "" : "none";
   });
   const next = name === "overview" ? "#/admin/stats" : `#/admin/stats?tab=${name}`;
   if (location.hash !== next) history.replaceState(null, "", next);
+  if (name === "proxies") loadProxyAdmin();
 }
 
 function cookieRepairItems(s) {
@@ -2655,7 +2647,7 @@ function fsPersonalStateHtml() {
     </div>
     ${st.bindCommand ? `
     <p style="line-height:1.9">下一步：打开刚创建的个人机器人<b>私聊窗口</b>，发送：<br>
-      <code style="font-size:1.1em">${escapeHtml(st.bindCommand)}</code>
+      <code class="bind-code">${escapeHtml(st.bindCommand)}</code>
       <span id="fs-bind-countdown" class="muted" style="margin-left:8px">${secs}s</span>
     </p>
     <div class="row" style="gap:10px;margin-top:8px;flex-wrap:wrap">
@@ -3156,6 +3148,7 @@ async function loadAdminStats() {
       <button class="settings-tab" data-tab="health" onclick="switchStatsTab('health')">大V健康</button>
       <button class="settings-tab" data-tab="config" onclick="switchStatsTab('config')">抓取设置</button>
       <button class="settings-tab" data-tab="cookies" onclick="switchStatsTab('cookies')">Cookie 管理</button>
+      <button class="settings-tab" data-tab="proxies" onclick="switchStatsTab('proxies')">代理</button>
     </div>
     <div id="st-overview" class="settings-tab-panel">
       <section class="section-panel">
@@ -3330,7 +3323,8 @@ async function loadAdminStats() {
           <button type="button" class="btn-ghost" onclick="pasteCookieField('tw-cookie')">从剪贴板填入</button>
         </div>
       </section>
-    </div>`;
+    </div>
+    <div id="st-proxies" class="settings-tab-panel" style="display:none"></div>`;
   renderStatsData(s);
   switchStatsTab(statsTabFromHash());
   statsTimer = setInterval(async () => {
@@ -3496,6 +3490,237 @@ async function pasteCookieField(inputId) {
     flash("已填入，确认后点保存");
   } catch {
     flash("无法读剪贴板，请直接粘贴到输入框", "error");
+  }
+}
+
+function proxyStatusLabel(status) {
+  return { unknown: "未测", ok: "可用", dead: "失效" }[status] || "未知";
+}
+
+function proxyOptionLabel(row) {
+  const auth = row.username ? `${escapeHtml(row.username)}@` : "";
+  return `#${row.id} ${row.protocol} ${auth}${escapeHtml(row.host)}:${row.port}`;
+}
+
+async function loadProxyAdmin() {
+  const box = $("#st-proxies");
+  if (!box) return;
+  try {
+    const [routes, pools, proxies] = await Promise.all([
+      api("/api/admin/proxy-routes"),
+      api("/api/admin/proxy-pools"),
+      api("/api/admin/proxies"),
+    ]);
+    box.innerHTML = renderProxyAdmin(routes, pools.items || [], proxies.items || []);
+    ["xueqiu", "combination", "weibo", "twitter"].forEach((p) => {
+      const r = routes[p] || {};
+      if (r.pool_id && $(`#pr-${p}-pool`)) $(`#pr-${p}-pool`).value = String(r.pool_id);
+      if (r.proxy_id && $(`#pr-${p}-proxy`)) $(`#pr-${p}-proxy`).value = String(r.proxy_id);
+      syncProxyRouteInputs(p);
+    });
+  } catch (err) {
+    box.innerHTML = `<p class="muted">${escapeHtml(err.message || "加载代理失败")}</p>`;
+  }
+}
+
+function renderProxyAdmin(routes, pools, proxies) {
+  const platforms = ["xueqiu", "combination", "weibo", "twitter"];
+  const poolOpts = pools.map((p) => `<option value="${p.id}">${escapeHtml(p.name)}（${p.proxy_count}）</option>`).join("");
+  const proxyOpts = proxies.map((p) => `<option value="${p.id}">${proxyOptionLabel(p)}</option>`).join("");
+  const routeRows = platforms.map((p) => {
+    const r = routes[p] || { mode: "direct" };
+    return `<label class="cfg-field">
+      <span>${PLATFORM_LABELS[p]}</span>
+      <select id="pr-${p}-mode" class="form-control" onchange="syncProxyRouteInputs('${p}')">
+        <option value="direct"${r.mode === "direct" ? " selected" : ""}>直连</option>
+        <option value="pool"${r.mode === "pool" ? " selected" : ""}>指定池</option>
+        <option value="proxy"${r.mode === "proxy" ? " selected" : ""}>指定代理</option>
+      </select>
+      <select id="pr-${p}-pool" class="form-control"${r.mode === "pool" ? "" : " hidden"}>
+        ${poolOpts}
+      </select>
+      <select id="pr-${p}-proxy" class="form-control"${r.mode === "proxy" ? "" : " hidden"}>
+        ${proxyOpts}
+      </select>
+    </label>`;
+  }).join("");
+  const poolCards = pools.map((p) => {
+    const rows = proxies.filter((x) => x.pool_id === p.id);
+    const lines = rows.map((x) => `<tr>
+      <td>${escapeHtml(x.protocol)}</td>
+      <td>${escapeHtml(x.host)}:${x.port}</td>
+      <td>${escapeHtml(x.username || "—")}</td>
+      <td>${escapeHtml(proxyStatusLabel(x.status))}</td>
+      <td>${x.source === "extract" ? "提取" : "手动"}</td>
+      <td>${x.expires_at ? fmtTs(x.expires_at) : "—"}</td>
+      <td>
+        <button type="button" class="btn-ghost" onclick="testProxyNode(${x.id})">测试</button>
+        <button type="button" class="btn-ghost" onclick="deleteProxyNode(${x.id})">删除</button>
+      </td>
+    </tr>`).join("");
+    const extract = p.kind === "extract"
+      ? `<p class="section-meta">提取 ${escapeHtml(p.extract_url || "未填")}${p.last_error ? ` · 上次错误 ${escapeHtml(p.last_error)}` : ""}</p>
+         <div class="toolbar"><button type="button" class="btn-ghost" onclick="extractProxyPool(${p.id})">立即提取</button></div>`
+      : "";
+    return `<section class="section-panel">
+      <header class="section-head"><div>
+        <h3 class="section-title">${escapeHtml(p.name)} <span class="hint">${p.kind === "extract" ? "提取池" : "静态池"} · ${escapeHtml(p.protocol)}</span></h3>
+        ${extract}
+      </div>
+      <button type="button" class="btn-ghost" onclick="deleteProxyPool(${p.id})">删除池</button></header>
+      <textarea id="pp-import-${p.id}" class="form-control cookie-paste" rows="3" placeholder="host:port 或 socks5://user:pass@host:port，一行一条"></textarea>
+      <div class="toolbar" style="margin-top:12px">
+        <button type="button" class="btn-normal" onclick="importProxyPool(${p.id})">导入</button>
+      </div>
+      <div class="table-wrap" style="margin-top:16px">
+        <table>
+          <thead><tr><th>协议</th><th>地址</th><th>账号</th><th>状态</th><th>来源</th><th>过期</th><th></th></tr></thead>
+          <tbody>${lines || `<tr><td colspan="7" class="muted">还没有节点</td></tr>`}</tbody>
+        </table>
+      </div>
+    </section>`;
+  }).join("");
+  return `
+    <section class="section-panel">
+      <header class="section-head"><div>
+        <h3 class="section-title">抓取出口</h3>
+        <p class="section-meta">按平台选择直连、指定池或指定代理。组合与雪球常同出口，但不强制绑定。池空时本轮抓取失败，不会偷偷直连。</p>
+      </div></header>
+      <div class="cfg-fields">${routeRows}</div>
+      <div class="cfg-save-row"><button type="button" class="btn-normal" onclick="saveProxyRoutes()">保存出口</button></div>
+    </section>
+    <section class="section-panel">
+      <header class="section-head"><div>
+        <h3 class="section-title">新建代理池</h3>
+        <p class="section-meta">静态池粘贴导入；提取池填商家提取 URL（一行一个 IP），按过期秒数刷新。</p>
+      </div></header>
+      <div class="cfg-fields">
+        <label class="cfg-field"><span>名称</span><input id="pp-name" class="form-control" placeholder="海外S5"></label>
+        <label class="cfg-field"><span>类型</span>
+          <select id="pp-kind" class="form-control" onchange="syncProxyPoolForm()">
+            <option value="static">静态</option>
+            <option value="extract">提取 URL</option>
+          </select>
+        </label>
+        <label class="cfg-field"><span>协议</span>
+          <select id="pp-protocol" class="form-control">
+            <option value="http">HTTP</option>
+            <option value="socks5">SOCKS5</option>
+          </select>
+        </label>
+        <label class="cfg-field" id="pp-extract-wrap" hidden><span>提取 URL</span><input id="pp-extract-url" class="form-control" placeholder="https://api.example.com/get?key="></label>
+        <label class="cfg-field" id="pp-expire-wrap" hidden><span>过期<span class="cfg-unit">秒</span></span><input id="pp-expire" type="number" class="form-control" min="0" value="300"></label>
+        <label class="cfg-field" id="pp-refresh-wrap" hidden><span>刷新<span class="cfg-unit">秒</span></span><input id="pp-refresh" type="number" class="form-control" min="0" value="180"></label>
+      </div>
+      <div class="cfg-save-row"><button type="button" class="btn-normal" onclick="createProxyPool()">创建</button></div>
+    </section>
+    ${poolCards || `<p class="muted">还没有代理池。先创建一个，再导入或提取。</p>`}`;
+}
+
+function syncProxyRouteInputs(platform) {
+  const mode = $(`#pr-${platform}-mode`)?.value;
+  const pool = $(`#pr-${platform}-pool`);
+  const proxy = $(`#pr-${platform}-proxy`);
+  if (pool) pool.hidden = mode !== "pool";
+  if (proxy) proxy.hidden = mode !== "proxy";
+}
+
+function syncProxyPoolForm() {
+  const extract = $("#pp-kind")?.value === "extract";
+  ["pp-extract-wrap", "pp-expire-wrap", "pp-refresh-wrap"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.hidden = !extract;
+  });
+}
+
+async function saveProxyRoutes() {
+  const body = {};
+  ["xueqiu", "combination", "weibo", "twitter"].forEach((p) => {
+    const mode = $(`#pr-${p}-mode`).value;
+    body[p] = { mode };
+    if (mode === "pool") body[p].pool_id = Number($(`#pr-${p}-pool`).value);
+    if (mode === "proxy") body[p].proxy_id = Number($(`#pr-${p}-proxy`).value);
+  });
+  try {
+    await api("/api/admin/proxy-routes", { method: "PUT", body: JSON.stringify(body) });
+    flash("抓取出口已保存");
+    loadProxyAdmin();
+  } catch (err) {
+    flash(err.message || "保存失败", "error");
+  }
+}
+
+async function createProxyPool() {
+  try {
+    await api("/api/admin/proxy-pools", {
+      method: "POST",
+      body: JSON.stringify({
+        name: $("#pp-name").value,
+        kind: $("#pp-kind").value,
+        protocol: $("#pp-protocol").value,
+        extract_url: $("#pp-extract-url").value,
+        expire_seconds: Number($("#pp-expire").value || 0),
+        refresh_interval_seconds: Number($("#pp-refresh").value || 0),
+      }),
+    });
+    flash("代理池已创建");
+    loadProxyAdmin();
+  } catch (err) {
+    flash(err.message || "创建失败", "error");
+  }
+}
+
+async function importProxyPool(poolId) {
+  const text = $(`#pp-import-${poolId}`)?.value || "";
+  try {
+    const result = await api(`/api/admin/proxy-pools/${poolId}/import`, {
+      method: "POST",
+      body: JSON.stringify({ text }),
+    });
+    flash(`导入 ${result.imported} 条`);
+    loadProxyAdmin();
+  } catch (err) {
+    flash(err.message || "导入失败", "error");
+  }
+}
+
+async function extractProxyPool(poolId) {
+  try {
+    const result = await api(`/api/admin/proxy-pools/${poolId}/extract`, { method: "POST" });
+    flash(`提取 ${result.imported} 条`);
+    loadProxyAdmin();
+  } catch (err) {
+    flash(err.message || "提取失败", "error");
+  }
+}
+
+async function deleteProxyPool(poolId) {
+  if (!confirm("删除这个代理池及其节点？")) return;
+  try {
+    await api(`/api/admin/proxy-pools/${poolId}`, { method: "DELETE" });
+    flash("已删除");
+    loadProxyAdmin();
+  } catch (err) {
+    flash(err.message || "删除失败", "error");
+  }
+}
+
+async function deleteProxyNode(proxyId) {
+  try {
+    await api(`/api/admin/proxies/${proxyId}`, { method: "DELETE" });
+    flash("已删除");
+    loadProxyAdmin();
+  } catch (err) {
+    flash(err.message || "删除失败", "error");
+  }
+}
+
+async function testProxyNode(proxyId) {
+  try {
+    const result = await api(`/api/admin/proxies/${proxyId}/test`, { method: "POST" });
+    flash(result.ok ? "探测成功" : (result.error || `探测失败 ${result.status_code || ""}`), result.ok ? "success" : "error");
+  } catch (err) {
+    flash(err.message || "探测失败", "error");
   }
 }
 
@@ -4031,7 +4256,7 @@ async function adminBatchAddKols() {
         ? `成功 ${data.ok}/${data.total}，失败 ${data.failed.length} 条${failLines ? `\n${failLines}` : ""}`
         : `成功 ${data.ok}/${data.total}`;
       resultEl.style.color = data.failed.length ? "var(--color-danger)" : "var(--color-success)";
-      resultEl.style.fontWeight = "bold";
+      resultEl.style.fontWeight = "600";
     }
     const hidden = view && view.hiddenFocus && data.ok;
     flash(data.failed.length

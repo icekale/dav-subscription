@@ -102,6 +102,11 @@ class ThreadLocalClient:
     def set(self, client) -> None:
         self._injected = client
 
+    def reset(self) -> None:
+        if self._injected is not None:
+            return
+        self._local.client = None
+
 
 class Fetcher:
     platform = ""

@@ -5,6 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import httpx
+import pytest
 import rsa
 
 from app.config import XueqiuConfig
@@ -1227,3 +1228,35 @@ def test_shared_fetchers_use_thread_local_http_clients():
         t1.join()
         t2.join()
         assert len(set(ids)) == 2, type(fetcher).__name__
+
+
+def test_xueqiu_factory_uses_assigned_proxy(tmp_path, monkeypatch):
+    db = DB(str(tmp_path / "t.db"))
+    pool_id = db.create_proxy_pool("池")
+    db.upsert_proxy(pool_id, "http", "1.2.3.4", 8080)
+    from app.proxy import ProxyRouter
+
+    ProxyRouter(db).set_routes({"xueqiu": {"mode": "pool", "pool_id": pool_id}})
+    seen = {}
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            seen["proxy"] = kwargs.get("proxy")
+            self.headers = httpx.Headers()
+
+    monkeypatch.setattr("app.fetchers.xueqiu.httpx.Client", FakeClient)
+    fetcher = XueqiuFetcher(XueqiuConfig(cookie=""), db)
+    client = fetcher.client
+    assert "1.2.3.4:8080" in (seen.get("proxy") or "")
+    assert getattr(client, "_vpush_proxy_id")
+
+
+def test_xueqiu_factory_raises_when_pool_empty(tmp_path):
+    from app.proxy import ProxyUnavailable, ProxyRouter
+
+    db = DB(str(tmp_path / "t.db"))
+    pool_id = db.create_proxy_pool("空")
+    ProxyRouter(db).set_routes({"xueqiu": {"mode": "pool", "pool_id": pool_id}})
+    fetcher = XueqiuFetcher(XueqiuConfig(cookie=""), db)
+    with pytest.raises(ProxyUnavailable, match="代理池为空"):
+        _ = fetcher.client

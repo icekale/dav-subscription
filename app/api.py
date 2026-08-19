@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import secrets
+import sqlite3
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Literal
@@ -42,6 +43,14 @@ from .fetchers.xueqiu import (
     XUEQIU_COOKIE_TIME_KEY,
     resolve_profile,
     write_xueqiu_seed_cookie,
+)
+from .proxy import (
+    ProxyRouter,
+    extract_pool,
+    import_proxies,
+    probe_proxy,
+    public_pool,
+    public_proxy,
 )
 from .weibo_qr import create_qr, poll_qr
 
@@ -400,6 +409,37 @@ class CookieIn(BaseModel):
     cookie: str
 
 
+class ProxyPoolIn(BaseModel):
+    name: str
+    kind: str = "static"
+    extract_url: str = ""
+    protocol: str = "http"
+    expire_seconds: int = 0
+    refresh_interval_seconds: int = 0
+    enabled: bool = True
+
+
+class ProxyPoolUpdate(BaseModel):
+    name: str | None = None
+    kind: str | None = None
+    extract_url: str | None = None
+    protocol: str | None = None
+    expire_seconds: int | None = None
+    refresh_interval_seconds: int | None = None
+    enabled: bool | None = None
+
+
+class ProxyImportIn(BaseModel):
+    text: str
+    protocol: str | None = None
+
+
+class ProxyIn(BaseModel):
+    pool_id: int
+    text: str
+    protocol: str | None = None
+
+
 class BackupWebDAVIn(BaseModel):
     url: str | None = None
     username: str | None = None
@@ -571,6 +611,7 @@ def _do_approve_kol_request(
         profile = resolve_profile(
             req["external_id"],
             db.get_setting(XUEQIU_COOKIE_KEY) or os.environ.get("XUEQIU_COOKIE", ""),
+            db=db,
         )
         name = name or profile.get("screen_name") or ""
         avatar_url = profile.get("avatar_url") or ""
@@ -578,6 +619,7 @@ def _do_approve_kol_request(
         profile = resolve_combination_profile(
             req["external_id"],
             db.get_setting(XUEQIU_COOKIE_KEY) or os.environ.get("XUEQIU_COOKIE", ""),
+            db=db,
         )
         name = name or profile.get("name") or ""
         avatar_url = profile.get("avatar_url") or ""
@@ -585,11 +627,12 @@ def _do_approve_kol_request(
         profile = resolve_weibo_profile(
             req["external_id"],
             db.get_setting(WEIBO_COOKIE_KEY) or os.environ.get("WEIBO_COOKIE", ""),
+            db=db,
         )
         name = name or profile.get("name") or ""
         avatar_url = profile.get("avatar_url") or ""
     elif req["platform"] == "twitter":
-        profile = resolve_x_profile(req["external_id"])
+        profile = resolve_x_profile(req["external_id"], db=db)
         name = name or profile.get("name") or ""
         avatar_url = profile.get("avatar_url") or ""
     name = name or f"{req['platform']}_{req['external_id']}"
@@ -1709,6 +1752,160 @@ def create_api_router(
         _audit(admin, "set_twitter_cookie", "", f"len={len(cookie)}")
         return {"ok": True}
 
+    def _validate_pool_fields(kind: str, protocol: str, extract_url: str) -> None:
+        if kind not in ("static", "extract"):
+            raise HTTPException(status_code=400, detail="kind 须为 static 或 extract")
+        if protocol not in ("http", "socks5"):
+            raise HTTPException(status_code=400, detail="protocol 须为 http 或 socks5")
+        url = (extract_url or "").strip()
+        if kind == "extract":
+            if not url.startswith(("http://", "https://")):
+                raise HTTPException(status_code=400, detail="提取 URL 仅支持 http/https")
+
+    def _validate_routes_input(routes: dict) -> None:
+        if not isinstance(routes, dict):
+            raise HTTPException(status_code=400, detail="路由格式无效")
+        for platform, route in routes.items():
+            if platform not in ALLOWED_PLATFORMS:
+                raise HTTPException(status_code=400, detail=f"未知平台: {platform}")
+            if not isinstance(route, dict):
+                raise HTTPException(status_code=400, detail="路由格式无效")
+            mode = route.get("mode")
+            if mode not in ("direct", "pool", "proxy"):
+                raise HTTPException(status_code=400, detail="mode 须为 direct / pool / proxy")
+            if mode == "pool":
+                try:
+                    pool_id = int(route.get("pool_id"))
+                except (TypeError, ValueError):
+                    raise HTTPException(status_code=400, detail="代理池不存在") from None
+                if db.get_proxy_pool(pool_id) is None:
+                    raise HTTPException(status_code=400, detail="代理池不存在")
+            if mode == "proxy":
+                try:
+                    proxy_id = int(route.get("proxy_id"))
+                except (TypeError, ValueError):
+                    raise HTTPException(status_code=400, detail="指定代理不存在") from None
+                if db.get_proxy(proxy_id) is None:
+                    raise HTTPException(status_code=400, detail="指定代理不存在")
+
+    @router.get("/admin/proxy-pools", dependencies=[Depends(require_admin)])
+    def list_proxy_pools():
+        return {"items": [public_pool(row) for row in db.list_proxy_pools()]}
+
+    @router.post("/admin/proxy-pools", dependencies=[Depends(require_admin)])
+    def create_proxy_pool(body: ProxyPoolIn, admin: dict = Depends(require_admin)):
+        name = body.name.strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="名称不能为空")
+        _validate_pool_fields(body.kind, body.protocol, body.extract_url)
+        try:
+            pool_id = db.create_proxy_pool(
+                name,
+                kind=body.kind,
+                extract_url=body.extract_url,
+                protocol=body.protocol,
+                expire_seconds=body.expire_seconds,
+                refresh_interval_seconds=body.refresh_interval_seconds,
+                enabled=body.enabled,
+            )
+        except sqlite3.IntegrityError:
+            raise HTTPException(status_code=400, detail="代理池名称已存在") from None
+        _audit(admin, "create_proxy_pool", str(pool_id), name)
+        return public_pool(db.get_proxy_pool(pool_id), hide_extract_query=False)
+
+    @router.get("/admin/proxy-pools/{pool_id}", dependencies=[Depends(require_admin)])
+    def get_proxy_pool(pool_id: int):
+        row = db.get_proxy_pool(pool_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="代理池不存在")
+        return public_pool(row, hide_extract_query=False)
+
+    @router.put("/admin/proxy-pools/{pool_id}", dependencies=[Depends(require_admin)])
+    def update_proxy_pool_api(pool_id: int, body: ProxyPoolUpdate, admin: dict = Depends(require_admin)):
+        row = db.get_proxy_pool(pool_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="代理池不存在")
+        kind = body.kind if body.kind is not None else row["kind"]
+        protocol = body.protocol if body.protocol is not None else row["protocol"]
+        extract_url = body.extract_url if body.extract_url is not None else row["extract_url"]
+        _validate_pool_fields(kind, protocol, extract_url)
+        payload = body.model_dump(exclude_unset=True)
+        if "name" in payload and not (payload["name"] or "").strip():
+            raise HTTPException(status_code=400, detail="名称不能为空")
+        try:
+            db.update_proxy_pool(pool_id, **payload)
+        except sqlite3.IntegrityError:
+            raise HTTPException(status_code=400, detail="代理池名称已存在") from None
+        _audit(admin, "update_proxy_pool", str(pool_id), "")
+        return public_pool(db.get_proxy_pool(pool_id), hide_extract_query=False)
+
+    @router.delete("/admin/proxy-pools/{pool_id}", dependencies=[Depends(require_admin)])
+    def delete_proxy_pool_api(pool_id: int, admin: dict = Depends(require_admin)):
+        if db.get_proxy_pool(pool_id) is None:
+            raise HTTPException(status_code=404, detail="代理池不存在")
+        db.delete_proxy_pool(pool_id)
+        _audit(admin, "delete_proxy_pool", str(pool_id), "")
+        return {"ok": True}
+
+    @router.post("/admin/proxy-pools/{pool_id}/import", dependencies=[Depends(require_admin)])
+    def import_proxy_pool(pool_id: int, body: ProxyImportIn, admin: dict = Depends(require_admin)):
+        try:
+            result = import_proxies(db, pool_id, body.text, body.protocol)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
+        _audit(admin, "import_proxies", str(pool_id), f"imported={result['imported']}")
+        return result
+
+    @router.post("/admin/proxy-pools/{pool_id}/extract", dependencies=[Depends(require_admin)])
+    def extract_proxy_pool(pool_id: int, admin: dict = Depends(require_admin)):
+        try:
+            result = extract_pool(db, pool_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"提取失败: {exc}") from None
+        _audit(admin, "extract_proxy_pool", str(pool_id), f"imported={result['imported']}")
+        return result
+
+    @router.get("/admin/proxies", dependencies=[Depends(require_admin)])
+    def list_proxies_api(pool_id: int | None = None):
+        return {"items": [public_proxy(row) for row in db.list_proxies(pool_id)]}
+
+    @router.post("/admin/proxies", dependencies=[Depends(require_admin)])
+    def add_proxy_api(body: ProxyIn, admin: dict = Depends(require_admin)):
+        try:
+            result = import_proxies(db, body.pool_id, body.text, body.protocol)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
+        _audit(admin, "add_proxy", str(body.pool_id), f"imported={result['imported']}")
+        return result
+
+    @router.delete("/admin/proxies/{proxy_id}", dependencies=[Depends(require_admin)])
+    def delete_proxy_api(proxy_id: int, admin: dict = Depends(require_admin)):
+        if db.get_proxy(proxy_id) is None:
+            raise HTTPException(status_code=404, detail="代理不存在")
+        db.delete_proxy(proxy_id)
+        _audit(admin, "delete_proxy", str(proxy_id), "")
+        return {"ok": True}
+
+    @router.post("/admin/proxies/{proxy_id}/test", dependencies=[Depends(require_admin)])
+    def test_proxy_api(proxy_id: int):
+        row = db.get_proxy(proxy_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail="代理不存在")
+        return probe_proxy(row)
+
+    @router.get("/admin/proxy-routes", dependencies=[Depends(require_admin)])
+    def get_proxy_routes():
+        return ProxyRouter(db).routes()
+
+    @router.put("/admin/proxy-routes", dependencies=[Depends(require_admin)])
+    def put_proxy_routes(body: dict, admin: dict = Depends(require_admin)):
+        _validate_routes_input(body)
+        routes = ProxyRouter(db).set_routes(body)
+        _audit(admin, "set_proxy_routes", "", "")
+        return routes
+
     def _revoke_one(code: str, admin: dict) -> dict:
         row = db.get_register_code(code)
         if row is None:
@@ -1995,13 +2192,14 @@ def create_api_router(
             if body.platform == "combination":
                 # 没填昵称时自动查组合名称（失败退回占位名）
                 cookie = db.get_setting(XUEQIU_COOKIE_KEY) or os.environ.get("XUEQIU_COOKIE", "")
-                profile = resolve_combination_profile(external_id, cookie)
+                profile = resolve_combination_profile(external_id, cookie, db=db)
                 name = profile.get("name") or f"combination_{external_id}"
             elif body.platform == "weibo":
                 # 没填昵称时自动查微博昵称（公开接口，失败退回占位名）
                 profile = resolve_weibo_profile(
                     external_id,
                     db.get_setting(WEIBO_COOKIE_KEY) or os.environ.get("WEIBO_COOKIE", ""),
+                    db=db,
                 )
                 name = profile.get("name") or f"weibo_{external_id}"
             elif body.platform == "twitter":
@@ -2024,15 +2222,16 @@ def create_api_router(
         if not kol["avatar_url"]:
             if body.platform == "combination":
                 profile = resolve_combination_profile(
-                    external_id, db.get_setting(XUEQIU_COOKIE_KEY) or ""
+                    external_id, db.get_setting(XUEQIU_COOKIE_KEY) or "", db=db
                 )
             elif body.platform == "weibo":
                 profile = resolve_weibo_profile(
                     external_id,
                     db.get_setting(WEIBO_COOKIE_KEY) or os.environ.get("WEIBO_COOKIE", ""),
+                    db=db,
                 )
             elif body.platform == "twitter":
-                profile = resolve_x_profile(external_id)
+                profile = resolve_x_profile(external_id, db=db)
             else:
                 profile = {}
             if profile.get("avatar_url"):
@@ -2065,19 +2264,19 @@ def create_api_router(
             if not nickname and platform == "xueqiu" and external_id.isdigit():
                 # 没填昵称时自动查雪球昵称与头像（失败则退回 xueqiu_uid）
                 cookie = db.get_setting(XUEQIU_COOKIE_KEY) or os.environ.get("XUEQIU_COOKIE", "")
-                profile = resolve_profile(external_id, cookie)
+                profile = resolve_profile(external_id, cookie, db=db)
                 if profile.get("screen_name"):
                     name = profile["screen_name"]
                 avatar_url = profile.get("avatar_url") or ""
             elif platform == "xueqiu" and external_id.isdigit():
                 # 已填昵称也补头像（与微博批量行为一致）
                 cookie = db.get_setting(XUEQIU_COOKIE_KEY) or os.environ.get("XUEQIU_COOKIE", "")
-                profile = resolve_profile(external_id, cookie)
+                profile = resolve_profile(external_id, cookie, db=db)
                 avatar_url = profile.get("avatar_url") or ""
             elif platform == "combination":
                 # 自动查组合名称（没填昵称时）与主理人头像
                 cookie = db.get_setting(XUEQIU_COOKIE_KEY) or os.environ.get("XUEQIU_COOKIE", "")
-                profile = resolve_combination_profile(external_id, cookie)
+                profile = resolve_combination_profile(external_id, cookie, db=db)
                 if not nickname and profile.get("name"):
                     name = profile["name"]
                 avatar_url = profile.get("avatar_url") or ""
@@ -2092,6 +2291,7 @@ def create_api_router(
                 profile = resolve_weibo_profile(
                     external_id,
                     db.get_setting(WEIBO_COOKIE_KEY) or os.environ.get("WEIBO_COOKIE", ""),
+                    db=db,
                 )
                 if not nickname and profile.get("name"):
                     name = profile["name"]
@@ -2652,7 +2852,7 @@ def create_api_router(
                 session["client"].close()
                 weibo_qr_sessions.pop(qrid, None)
         try:
-            client, qrid, qrurl = create_qr()
+            client, qrid, qrurl = create_qr(db=db)
         except Exception:  # noqa: BLE001
             raise HTTPException(status_code=400, detail="获取微博二维码失败，请稍后重试")
         weibo_qr_sessions[qrid] = {

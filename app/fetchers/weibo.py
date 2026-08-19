@@ -30,7 +30,7 @@ LOGIN_URL = "https://login.sina.com.cn/sso/login.php"
 TIMELINE_URL = "https://weibo.com/ajax/statuses/mymblog"
 
 
-def resolve_weibo_profile(uid: str, cookie: str = "") -> dict:
+def resolve_weibo_profile(uid: str, cookie: str = "", db=None) -> dict:
     """按微博 UID 解析昵称与头像。
 
     优先 weibo.com 官方 AJAX（需会话 Cookie，扫码/自动登录后可用）；
@@ -55,9 +55,15 @@ def resolve_weibo_profile(uid: str, cookie: str = "") -> dict:
         ),
         "Referer": "https://m.weibo.cn/",
     }
+    from ..proxy import ProxyUnavailable, acquire_client_proxy
+
+    try:
+        proxy, _pid = acquire_client_proxy(db, "weibo")
+    except ProxyUnavailable:
+        return {}
     if cookie:
         try:
-            with httpx.Client(timeout=15, headers=desktop_headers) as client:
+            with httpx.Client(timeout=15, headers=desktop_headers, proxy=proxy) as client:
                 resp = client.get(
                     "https://weibo.com/ajax/profile/info",
                     params={"uid": uid},
@@ -78,7 +84,7 @@ def resolve_weibo_profile(uid: str, cookie: str = "") -> dict:
         except Exception as exc:  # noqa: BLE001
             logger.warning("微博 AJAX 解析失败 uid=%s err=%s", uid, exc)
     try:
-        with httpx.Client(timeout=15, follow_redirects=True, headers=mobile_headers) as client:
+        with httpx.Client(timeout=15, follow_redirects=True, headers=mobile_headers, proxy=proxy) as client:
             resp = client.get(
                 "https://m.weibo.cn/api/container/getIndex",
                 params={"type": "uid", "value": uid},
@@ -157,15 +163,20 @@ class WeiboFetcher(Fetcher):
         token = self.source_config.token
 
         def _make_client():
+            from ..proxy import acquire_client_proxy, attach_proxy
+
+            proxy, pid = acquire_client_proxy(self.db, "weibo")
             c = httpx.Client(
                 timeout=20,
                 follow_redirects=True,
+                proxy=proxy,
                 headers={
                     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
                     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
                     "Referer": "https://weibo.com/",
                 },
             )
+            attach_proxy(c, pid)
             if cookie:
                 c.headers["Cookie"] = cookie
             if token:

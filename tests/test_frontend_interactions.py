@@ -226,14 +226,31 @@ def test_mobile_platform_filter_keeps_hidden_state_and_applies_immediately():
 
 
 def test_mobile_platform_filter_is_five_equal_44px_targets():
-    """广场/订阅页移动角标仍是等宽 44px；时间线改走吸顶短字胶囊。"""
+    """旧图标宫格已删；广场/订阅与时间线共用 44px 短字胶囊。"""
     css = STYLE_CSS.read_text()
-    grid = re.search(r"\.tl-mobile-platforms\s*\{([^}]*)\}", css, re.DOTALL)
-    button = re.search(r"\.tl-mobile-platform\s*\{([^}]*)\}", css, re.DOTALL)
-    assert grid and "repeat(5, minmax(0, 1fr))" in grid.group(1)
-    assert button and ("height: 44px" in button.group(1) or "min-height: 44px" in button.group(1))
-    assert "width: 100%" in button.group(1)
-    assert ".tl-mobile-platform.selected" in css
+    assert ".tl-mobile-platform" not in css
+    pill = re.search(r"\.tl-pill\s*\{([^}]*)\}", css)
+    assert pill and "44px" in pill.group(1)
+
+
+def test_timeline_polish_matches_chip_row_and_browser_surfaces():
+    """筛选钮与胶囊同高；组合图标走雪球色；空态留空；选区/光标跟品牌走。"""
+    css = STYLE_CSS.read_text()
+    feed = _fn_body("renderTimelineFeed")
+    pick = _fn_body("tlPickPlatform")
+    remove = _fn_body("tlRemoveFilter")
+    assert "::selection" in css
+    assert "caret-color" in css
+    bar = re.search(r"\.tl-filterbar \.fav-toggle\s*\{([^}]*)\}", css)
+    assert bar and "44px" in bar.group(1)
+    assert 'data-platform="combination"]:not(.selected) .pt-icon { color: var(--color-brand-xueqiu)' in css
+    empty = re.search(r"^\.empty\s*>\s*div\s*\{([^}]*)\}", css, re.M)
+    assert empty and "18px" in empty.group(1)
+    assert "#tl-platform" not in pick
+    assert "#tl-platform" not in remove
+    assert "tl-feed-more" in feed
+    assert "tl-feed-end" in feed
+    assert 'style="margin-top:14px' not in feed
 
 
 def test_mobile_mysubs_filter_renders_icon_badges_keeps_desktop_toolbar():
@@ -613,6 +630,17 @@ def test_kol_image_css_is_compact_truncating_and_touchable():
     assert more and "margin-top: 8px" in more.group(1)
 
 
+def test_stats_proxies_tab():
+    src = APP_JS.read_text()
+    assert 'data-tab="proxies"' in src
+    assert "function loadProxyAdmin" in src
+    assert 'STATS_TABS.includes(tab)' in _fn_body("statsTabFromHash")
+    assert '"proxies"' in APP_JS.read_text()
+    assert "loadProxyAdmin()" in _fn_body("switchStatsTab")
+    assert "/api/admin/proxy-routes" in src
+    assert "/api/admin/proxy-pools" in src
+
+
 def test_stats_cookie_repair_deep_link():
     """Cookie 失效要从总览一键进 Cookie 管理，并吃 #/admin/stats?tab=cookies。"""
     src = APP_JS.read_text()
@@ -670,6 +698,23 @@ def test_mobile_post_name_aligns_with_platform_badge():
     assert "display: block" in body
     assert "line-height: 44px" in body
     assert "height: 44px" in body
+
+
+def test_timeline_type_roles_follow_four_step_ramp():
+    """时间线字号只走四档：头像字形 20、分组标签淡灰 400 + 等宽数字。"""
+    css = STYLE_CSS.read_text()
+    avatar = re.search(r"\.post-item \.p-header \.kol-avatar\s*\{([^}]*)\}", css)
+    group = re.search(r"^\.tl-group-head\s*\{([^}]*)\}", css, re.M)
+    badge = re.search(r"^\.tl-badge-avatars \.ph\s*\{([^}]*)\}", css, re.M)
+    assert avatar, "缺少帖子头像字号"
+    assert "var(--text-icon)" in avatar.group(1)
+    assert group, "缺少日期分组标签"
+    assert "var(--text-xs)" in group.group(1)
+    assert "font-weight: 400" in group.group(1)
+    assert "var(--color-text-faint)" in group.group(1)
+    assert "tabular-nums" in group.group(1)
+    assert badge, "缺少新帖胶囊头像字母"
+    assert "var(--text-icon)" in badge.group(1)
 
 
 def test_timeline_new_badge_pins_to_sticky_filterbar():
@@ -1170,6 +1215,19 @@ def test_admin_kols_import_result_preserves_lines():
     assert '<span id="ad-batch-result"' not in body
     assert "ad-batch-result" in body
     assert "pre-line" in body or "<pre" in body
+
+
+def test_type_emphasis_stays_on_ramp():
+    """强调用字重/等宽，不上 1.1em 或 700。绑定码走 mono token。"""
+    src = APP_JS.read_text()
+    css = STYLE_CSS.read_text()
+    assert "font-size:1.1em" not in src
+    assert "class=\"bind-code\"" in _fn_body("fsPersonalStateHtml")
+    assert 'resultEl.style.fontWeight = "600"' in _fn_body("adminBatchAddKols")
+    paste = re.search(r"^\.cookie-paste\s*\{([^}]*)\}", css, re.M)
+    bind = re.search(r"^\.bind-code\s*\{([^}]*)\}", css, re.M)
+    assert paste and "var(--font-mono)" in paste.group(1) and "var(--text-sm)" in paste.group(1)
+    assert bind and "var(--font-mono)" in bind.group(1) and "var(--text-body)" in bind.group(1)
 
 
 def test_admin_kols_mutations_disable_while_in_flight():

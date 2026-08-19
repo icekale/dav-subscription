@@ -39,10 +39,14 @@ def extract_cube_symbol(external_id: str) -> str:
     return match.group(1) if match else (external_id or "").strip()
 
 
-def _cube_client(cookie: str) -> httpx.Client:
-    return httpx.Client(
+def _cube_client(cookie: str, db=None) -> httpx.Client:
+    from ..proxy import acquire_client_proxy, attach_proxy
+
+    proxy, pid = acquire_client_proxy(db, "combination")
+    client = httpx.Client(
         timeout=20,
         follow_redirects=True,
+        proxy=proxy,
         headers={
             "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X)",
             "Accept": "application/json, text/plain, */*",
@@ -51,10 +55,12 @@ def _cube_client(cookie: str) -> httpx.Client:
             **({"Cookie": cookie} if cookie else {}),
         },
     )
+    attach_proxy(client, pid)
+    return client
 
 
 def resolve_combination_profile(
-    symbol: str, cookie: str = "", client: httpx.Client | None = None
+    symbol: str, cookie: str = "", client: httpx.Client | None = None, db=None
 ) -> dict:
     """查组合名称/主理人/头像/年化（添加组合大V时自动填名用），失败返回空 dict。"""
     now = time.time()
@@ -62,7 +68,10 @@ def resolve_combination_profile(
     if cached and now - cached[0] < PROFILE_CACHE_TTL:
         return cached[1]
     owns_client = client is None
-    client = client or _cube_client(cookie)
+    try:
+        client = client or _cube_client(cookie, db=db)
+    except Exception:  # noqa: BLE001 - 池空/建连失败不阻断导入
+        return {}
     try:
         resp = client.get(
             CUBE_SEARCH_URL,
@@ -261,7 +270,7 @@ class CombinationFetcher(Fetcher):
         self.db = db
         cookie = getattr(source_config, "cookie", "")
         self._http = ThreadLocalClient(
-            lambda: _cube_client(cookie),
+            lambda: _cube_client(cookie, db=self.db),
             injected=client,
         )
 

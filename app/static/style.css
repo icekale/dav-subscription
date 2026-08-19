@@ -13,7 +13,12 @@ button { font-family: inherit; cursor: pointer; }
 input, select { font-family: inherit; font-size: var(--text-body); }
 /* iOS Safari：所有交互元素禁用双击缩放（pinch 缩放保留），点按立即响应 */
 button, a, input, select, textarea, label { touch-action: manipulation; }
-a { color: var(--color-accent-text); text-decoration: none; }
+a { color: var(--color-accent-text); text-decoration: none; text-underline-offset: 0.18em; }
+::selection {
+  background: color-mix(in srgb, var(--color-accent) 22%, transparent);
+  color: var(--color-text-strong);
+}
+input, textarea, select { caret-color: var(--color-accent-text); }
 .hidden { display: none !important; }
 button:focus-visible {
   outline: 2px solid var(--color-accent);
@@ -612,7 +617,7 @@ textarea.form-control {
 .platform-tab[data-platform="xueqiu"]:not(.selected) .pt-icon,
 .tl-pill[data-platform="xueqiu"]:not(.selected) .pt-icon { color: var(--color-brand-xueqiu); }
 .platform-tab[data-platform="combination"]:not(.selected) .pt-icon,
-.tl-pill[data-platform="combination"]:not(.selected) .pt-icon { color: var(--color-accent-text); }
+.tl-pill[data-platform="combination"]:not(.selected) .pt-icon { color: var(--color-brand-xueqiu); }
 .platform-tab[data-platform="weibo"]:not(.selected) .pt-icon,
 .tl-pill[data-platform="weibo"]:not(.selected) .pt-icon { color: var(--color-brand-weibo); }
 .platform-tab[data-platform="twitter"]:not(.selected) .pt-icon,
@@ -790,7 +795,7 @@ textarea.form-control {
 .post-item { padding: 16px 4px; border-bottom: var(--border-soft); }
 .post-item:last-child { border-bottom: none; }
 .post-item .p-header { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.post-item .p-header .kol-avatar { width: 38px; height: 38px; font-size: var(--text-body); }
+.post-item .p-header .kol-avatar { width: 38px; height: 38px; font-size: var(--text-icon); }
 .post-item .p-name-line { display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1; }
 .post-item .p-name { display: block; font-size: var(--text-body); font-weight: var(--font-weight-semibold); color: var(--color-text-strong); text-decoration: none; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .post-item .p-name:hover { color: var(--color-accent-text); text-decoration: underline; }
@@ -899,7 +904,7 @@ body.lightbox-open { overflow: hidden; }
 }
 .tl-group { margin-bottom: 4px; }
 .tl-group:last-child { margin-bottom: 0; }
-.tl-group-head { margin: 18px 0 4px; font-size: var(--text-xs); font-weight: var(--font-weight-semibold); color: var(--color-text-muted); display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.tl-group-head { margin: 18px 0 4px; font-size: var(--text-xs); font-weight: 400; color: var(--color-text-faint); display: flex; align-items: baseline; justify-content: space-between; gap: 12px; font-variant-numeric: tabular-nums; }
 .tl-group-count { font-weight: normal; flex-shrink: 0; font-variant-numeric: tabular-nums; }
 .tl-group:first-child .tl-group-head { margin-top: 0; }
 .post-expand-btn { display: inline-block; margin-left: 6px; font-size: var(--text-xs); color: var(--color-accent-text); cursor: pointer; user-select: none; white-space: nowrap; border: none; background: none; padding: 0; }
@@ -969,7 +974,7 @@ body.lightbox-open { overflow: hidden; }
 .tl-badge-avatars img { object-fit: cover; display: block; background: rgba(255, 255, 255, 0.2); }
 .tl-badge-avatars .ph {
   background: rgba(255, 255, 255, 0.28); color: var(--color-white);
-  font-size: var(--text-sm); font-weight: var(--font-weight-bold);
+  font-size: var(--text-icon); font-weight: var(--font-weight-bold);
   display: inline-flex; align-items: center; justify-content: center;
 }
 @keyframes tl-new-slide {
@@ -1008,6 +1013,9 @@ body.lightbox-open { overflow: hidden; }
 .platform-tab[data-platform="xueqiu"] { margin-inline-end: 6px; }
 .tl-filter-views { display: flex; flex-wrap: wrap; gap: 8px; }
 .tl-filter-views .fav-toggle { flex: 1; min-width: 0; justify-content: center; }
+.tl-filterbar .fav-toggle { height: 44px; min-height: 44px; }
+.tl-filter-views .fav-toggle,
+.tl-rail-view .fav-toggle { height: 44px; min-height: 44px; }
 .mysubs-mobile-filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .tl-actions { display: flex; gap: 10px; flex-shrink: 0; }
 .tl-layout { display: flex; align-items: flex-start; gap: 20px; }
@@ -1155,7 +1163,7 @@ body.lightbox-open { overflow: hidden; }
 .post-item .p-name-line .p-platform .pt-icon { width: 13px; height: 13px; }
 .post-item .p-name-line .p-platform[data-platform="twitter"] .pt-icon { width: 11px; height: 11px; }
 .post-item .p-name-line .p-platform[data-platform="xueqiu"] .pt-icon { color: var(--color-brand-xueqiu); }
-.post-item .p-name-line .p-platform[data-platform="combination"] .pt-icon { color: var(--color-accent-text); }
+.post-item .p-name-line .p-platform[data-platform="combination"] .pt-icon { color: var(--color-brand-xueqiu); }
 .post-item .p-name-line .p-platform[data-platform="weibo"] .pt-icon { color: var(--color-brand-weibo); }
 .post-item .p-name-line .p-platform[data-platform="twitter"] .pt-icon { color: var(--color-brand-twitter); }
 
@@ -1450,7 +1458,9 @@ td .btn-sm { margin-right: 6px; }
 pre.content-cell { white-space: pre-wrap; overflow-wrap: break-word; min-width: 260px; font-family: inherit; }
 
 .empty { text-align: center; color: var(--color-text-muted); padding: 56px 20px; }
-.empty .btn-add { margin-top: 18px; }
+.empty > div { margin-top: 18px; }
+.tl-feed-more { margin-top: 14px; justify-content: center; }
+.tl-feed-end { text-align: center; margin-top: 14px; }
 .notice {
   background: var(--color-surface-accent);
   color: var(--color-accent-text);
@@ -1477,8 +1487,12 @@ pre.content-cell { white-space: pre-wrap; overflow-wrap: break-word; min-width: 
 .notice-warn-body p { margin: 4px 0 0; }
 .notice-warn .btn-normal { flex-shrink: 0; }
 .cookie-paste {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 13px;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+.bind-code {
+  font-family: var(--font-mono);
+  font-size: var(--text-body);
 }
 .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .muted { color: var(--color-text-muted); font-size: var(--text-xs); line-height: 1.7; }
@@ -1700,41 +1714,6 @@ pre.content-cell { white-space: pre-wrap; overflow-wrap: break-word; min-width: 
   .tl-group .post-images { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
   .tl-group .post-images img { width: 100%; height: auto; aspect-ratio: 1; }
   .tl-filterbar-top { flex-direction: column; align-items: stretch; }
-  .tl-mobile-platforms {
-    display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: 8px;
-    width: 100%;
-  }
-  .tl-mobile-platforms.cols-6 { grid-template-columns: repeat(6, minmax(0, 1fr)); } /* 订阅页：全部+4平台+特别关注 */
-  .tl-mobile-platform .star-icon { width: 20px; height: 20px; }
-  .tl-mobile-platform {
-    width: 100%;
-    min-width: 0;
-    height: 44px;
-    padding: 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border: var(--border-strong);
-    border-radius: var(--radius-control);
-    background: var(--color-surface);
-    color: var(--color-text-muted);
-  }
-  .tl-mobile-platform .pt-icon { width: 20px; height: 20px; }
-  .tl-mobile-platform[data-platform="xueqiu"]:not(.selected) { color: var(--color-brand-xueqiu); }
-  .tl-mobile-platform[data-platform="combination"]:not(.selected) { color: var(--color-accent-text); }
-  .tl-mobile-platform[data-platform="weibo"]:not(.selected) { color: var(--color-brand-weibo); }
-  .tl-mobile-platform[data-platform="twitter"]:not(.selected) { color: var(--color-brand-twitter); }
-  .tl-mobile-platform.selected {
-    border-color: var(--color-accent);
-    background: var(--color-accent);
-    color: var(--color-white);
-  }
-  .tl-mobile-platform:focus-visible {
-    outline: var(--outline-focus);
-    outline-offset: 2px;
-  }
   .tl-actions { display: flex; width: 100%; }
   .tl-actions button { width: auto; }
   .btn-normal, .btn-ghost, .channel-btn { min-height: 44px; }

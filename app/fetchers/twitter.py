@@ -211,7 +211,14 @@ def resolve_x_profile(external_id: str, cookie: str = "", db=None) -> dict:
     screen_name = extract_screen_name(external_id)
     if not screen_name or not cookie:
         return {}
-    client = cffi.Session(impersonate="chrome124", timeout=20)
+    from ..proxy import ProxyUnavailable, acquire_client_proxy, attach_proxy
+
+    try:
+        proxy, pid = acquire_client_proxy(db, "twitter")
+    except ProxyUnavailable:
+        return {}
+    client = cffi.Session(impersonate="chrome124", timeout=20, proxy=proxy)
+    attach_proxy(client, pid)
     try:
         fetcher = TwitterFetcher(db=None, client=client)
         picked = fetcher._typeahead_pick(screen_name, cookie)
@@ -297,7 +304,11 @@ class TwitterFetcher(Fetcher):
             return self._client
         sess = getattr(self._thread_local, "session", None)
         if sess is None:
-            sess = cffi.Session(impersonate="chrome124", timeout=25)
+            from ..proxy import acquire_client_proxy, attach_proxy
+
+            proxy, pid = acquire_client_proxy(self.db, "twitter")
+            sess = cffi.Session(impersonate="chrome124", timeout=25, proxy=proxy)
+            attach_proxy(sess, pid)
             self._thread_local.session = sess
         return sess
 

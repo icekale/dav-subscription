@@ -283,7 +283,7 @@ def test_batch_import_auto_detects_platform_per_line(monkeypatch):
     """批量导入按链接自动识别平台，纯 UID 回退默认平台。"""
     from app import api as api_mod
 
-    monkeypatch.setattr(api_mod, "resolve_weibo_profile", lambda external_id, cookie="": {"name": "微博用户", "avatar_url": ""})
+    monkeypatch.setattr(api_mod, "resolve_weibo_profile", lambda external_id, cookie="", db=None: {"name": "微博用户", "avatar_url": ""})
     monkeypatch.setattr(
         api_mod,
         "resolve_x_profile",
@@ -322,7 +322,7 @@ def test_batch_import_normalizes_weibo_mobile_and_rejects_tweet_url(monkeypatch)
     from app import api as api_mod
 
     monkeypatch.setattr(
-        api_mod, "resolve_weibo_profile", lambda external_id, cookie="": {"name": "微博用户", "avatar_url": ""}
+        api_mod, "resolve_weibo_profile", lambda external_id, cookie="", db=None: {"name": "微博用户", "avatar_url": ""}
     )
     client = make_client()
     headers = auth_headers(client)
@@ -371,7 +371,7 @@ def test_batch_import_weibo_with_nickname_fetches_avatar(monkeypatch):
     monkeypatch.setattr(
         api_mod,
         "resolve_weibo_profile",
-        lambda external_id, cookie="": {
+        lambda external_id, cookie="", db=None: {
             "name": "新浪娱乐",
             "avatar_url": "https://wx1.sinaimg.cn/avatar.jpg",
             "uid": "1642591402",
@@ -398,7 +398,7 @@ def test_add_weibo_kol_auto_resolves_name_and_avatar(monkeypatch):
     monkeypatch.setattr(
         api_mod,
         "resolve_weibo_profile",
-        lambda uid, cookie="": {
+        lambda uid, cookie="", db=None: {
             "name": "wu2198",
             "avatar_url": "https://wx1.sinaimg.cn/orj360/wb.jpg",
             "uid": uid,
@@ -638,7 +638,7 @@ def test_version_api(monkeypatch):
 
 def test_kol_request_requires_category(monkeypatch):
     """用户申请必须带已有分类；审批沿用申请上的分类。"""
-    monkeypatch.setattr("app.api.resolve_profile", lambda uid, cookie="": {})
+    monkeypatch.setattr("app.api.resolve_profile", lambda uid, cookie="", db=None: {})
     client = make_client()
     db = client.app.state.db
     headers = user_headers(client, "askcatreq")
@@ -878,7 +878,7 @@ def test_kol_request_tg_fail_falls_back_to_feishu(monkeypatch):
 
 def test_tg_callback_approve_reject_kol_request(monkeypatch):
     """TG 审批按钮回调：管理员点通过/拒绝直接生效，非管理员被拒绝。"""
-    monkeypatch.setattr("app.api.resolve_profile", lambda uid, cookie="": {})
+    monkeypatch.setattr("app.api.resolve_profile", lambda uid, cookie="", db=None: {})
     client = make_client()
     auth_headers(client)
     db = client.app.state.db
@@ -936,7 +936,7 @@ def test_tg_callback_approve_reject_kol_request(monkeypatch):
 
 def test_tg_callback_approve_kol_request_with_category(monkeypatch):
     """管理员审批时选分类，上架后 category_id 写入。"""
-    monkeypatch.setattr("app.api.resolve_profile", lambda uid, cookie="": {})
+    monkeypatch.setattr("app.api.resolve_profile", lambda uid, cookie="", db=None: {})
     client = make_client()
     auth_headers(client)
     db = client.app.state.db
@@ -1564,7 +1564,7 @@ def test_weibo_qr_login(monkeypatch):
 
 def test_batch_import_kols(monkeypatch):
     # 昵称已填的行也会补查头像，测试里避免真实网络请求
-    monkeypatch.setattr("app.api.resolve_profile", lambda uid, cookie="": {})
+    monkeypatch.setattr("app.api.resolve_profile", lambda uid, cookie="", db=None: {})
     client = make_client()
     headers = auth_headers(client)
     resp = client.post(
@@ -1595,7 +1595,7 @@ def test_batch_import_auto_fills_xueqiu_nickname(monkeypatch):
     headers = auth_headers(client)
     monkeypatch.setattr(
         "app.api.resolve_profile",
-        lambda uid, cookie="": (
+        lambda uid, cookie="", db=None: (
             {"screen_name": "自动昵称", "avatar_url": "https://x/avatar.png"}
             if uid == "55555"
             else {}
@@ -1709,7 +1709,7 @@ def test_xueqiu_cookie_write_and_batch_rss_url(monkeypatch, tmp_path):
 
 def test_kol_request_flow(monkeypatch):
     # 审批时会自动解析昵称/头像，测试里避免真实网络请求
-    monkeypatch.setattr("app.api.resolve_profile", lambda uid, cookie="": {})
+    monkeypatch.setattr("app.api.resolve_profile", lambda uid, cookie="", db=None: {})
     client = make_client()
     admin_headers = auth_headers(client)
     u1 = register(client, "user01", "pass123456")
@@ -2685,7 +2685,7 @@ def test_add_combination_kol_auto_fills_name(monkeypatch):
     admin_headers = auth_headers(client)
     monkeypatch.setattr(
         "app.api.resolve_combination_profile",
-        lambda symbol, cookie="": {
+        lambda symbol, cookie="", db=None: {
             "name": "伯言-A股",
             "owner_name": "伯言2020",
             "avatar_url": "",
@@ -2841,7 +2841,7 @@ def test_approve_request_auto_resolves_name_and_avatar(monkeypatch):
     )
     monkeypatch.setattr(
         "app.api.resolve_profile",
-        lambda uid, cookie="": {"screen_name": "自动昵称", "avatar_url": ""},
+        lambda uid, cookie="", db=None: {"screen_name": "自动昵称", "avatar_url": ""},
     )
     req_id = client.get("/api/admin/kol-requests?status=pending", headers=admin_headers).json()[0]["id"]
     approved = client.post(f"/api/admin/kol-requests/{req_id}/approve", headers=admin_headers)
@@ -2855,7 +2855,7 @@ def test_batch_import_xueqiu_fetches_avatar_even_with_nickname(monkeypatch):
     headers = auth_headers(client)
     monkeypatch.setattr(
         "app.api.resolve_profile",
-        lambda uid, cookie="": {
+        lambda uid, cookie="", db=None: {
             "screen_name": "自动昵称",
             "avatar_url": "https://xueqiu.com/avatar.png",
         },
@@ -4325,3 +4325,124 @@ def test_inactive_user_policy_and_list_flags():
         json={"inactive_after_days": 0, "inactive_purge_after_days": 5},
     ).json()["inactive_after_days"] == 0
     assert next(u for u in client.get("/api/users", headers=admin_headers).json() if u["id"] == ghost4)["inactive"] is False
+
+
+def test_proxy_api_requires_admin():
+    client = make_client()
+    uh = user_headers(client, "normaluser")
+    assert client.get("/api/admin/proxy-pools", headers=uh).status_code == 403
+    assert client.get("/api/admin/proxy-routes", headers=uh).status_code == 403
+
+
+def test_proxy_pool_import_masks_password():
+    client = make_client()
+    headers = auth_headers(client)
+    created = client.post(
+        "/api/admin/proxy-pools",
+        headers=headers,
+        json={"name": "海外", "kind": "static", "protocol": "socks5"},
+    )
+    assert created.status_code == 200
+    pool_id = created.json()["id"]
+    imported = client.post(
+        f"/api/admin/proxy-pools/{pool_id}/import",
+        headers=headers,
+        json={"text": "socks5://alice:s3cret@1.2.3.4:1080\n1.2.3.4:1080:alice:s3cret"},
+    )
+    assert imported.status_code == 200
+    assert imported.json()["imported"] == 1
+    items = client.get("/api/admin/proxies", headers=headers).json()["items"]
+    assert len(items) == 1
+    assert items[0]["password"] == "***"
+    assert items[0]["username"] == "alice"
+    assert items[0]["host"] == "1.2.3.4"
+    assert "s3cret" not in json.dumps(items)
+
+
+def test_proxy_extract_url_query_masked_in_list():
+    client = make_client()
+    headers = auth_headers(client)
+    created = client.post(
+        "/api/admin/proxy-pools",
+        headers=headers,
+        json={
+            "name": "提取",
+            "kind": "extract",
+            "protocol": "http",
+            "extract_url": "https://api.example.com/get?key=SUPERSECRET",
+            "expire_seconds": 120,
+            "refresh_interval_seconds": 60,
+        },
+    )
+    assert created.status_code == 200
+    listed = client.get("/api/admin/proxy-pools", headers=headers).json()["items"]
+    assert listed[0]["extract_url_set"] is True
+    assert "SUPERSECRET" not in listed[0]["extract_url"]
+    detail = client.get(f"/api/admin/proxy-pools/{created.json()['id']}", headers=headers).json()
+    assert "SUPERSECRET" in detail["extract_url"]
+
+
+def test_proxy_routes_roundtrip_and_reject_bad_mode():
+    client = make_client()
+    headers = auth_headers(client)
+    pool_id = client.post(
+        "/api/admin/proxy-pools",
+        headers=headers,
+        json={"name": "X池", "kind": "static"},
+    ).json()["id"]
+    bad = client.put(
+        "/api/admin/proxy-routes",
+        headers=headers,
+        json={"twitter": {"mode": "magic"}},
+    )
+    assert bad.status_code == 400
+    ok = client.put(
+        "/api/admin/proxy-routes",
+        headers=headers,
+        json={"twitter": {"mode": "pool", "pool_id": pool_id}},
+    )
+    assert ok.status_code == 200
+    assert ok.json()["twitter"] == {"mode": "pool", "pool_id": pool_id}
+    assert client.get("/api/admin/proxy-routes", headers=headers).json()["twitter"]["mode"] == "pool"
+
+
+def test_proxy_extract_and_test_endpoints(monkeypatch):
+    client = make_client()
+    headers = auth_headers(client)
+    pool_id = client.post(
+        "/api/admin/proxy-pools",
+        headers=headers,
+        json={
+            "name": "提取",
+            "kind": "extract",
+            "extract_url": "https://api.example.com/get",
+            "expire_seconds": 60,
+        },
+    ).json()["id"]
+
+    class FakeResp:
+        text = "9.9.9.9:8080:bob:pw"
+        status_code = 204
+
+        def raise_for_status(self):
+            return None
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def get(self, url):
+            return FakeResp()
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr("app.proxy.httpx.Client", FakeClient)
+    extracted = client.post(f"/api/admin/proxy-pools/{pool_id}/extract", headers=headers)
+    assert extracted.status_code == 200
+    assert extracted.json()["imported"] == 1
+    items = client.get(f"/api/admin/proxies?pool_id={pool_id}", headers=headers).json()["items"]
+    assert items[0]["password"] == "***"
+    probed = client.post(f"/api/admin/proxies/{items[0]['id']}/test", headers=headers)
+    assert probed.status_code == 200
+    assert probed.json()["ok"] is True

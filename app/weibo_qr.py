@@ -21,13 +21,18 @@ def _parse_sina_jsonp(text: str) -> dict:
     return json.loads(body[start + 1 : end])
 
 
-def create_qr(client: httpx.Client | None = None) -> tuple[httpx.Client, str, str]:
+def create_qr(client: httpx.Client | None = None, db=None) -> tuple[httpx.Client, str, str]:
     """创建微博扫码会话，返回 (client, qrid, 二维码图片地址)。"""
-    client = client or httpx.Client(
-        timeout=15,
-        follow_redirects=True,
-        headers={"User-Agent": UA, "Referer": "https://weibo.com/"},
-    )
+    if client is None:
+        from .proxy import acquire_client_proxy
+
+        proxy, _pid = acquire_client_proxy(db, "weibo")
+        client = httpx.Client(
+            timeout=15,
+            follow_redirects=True,
+            proxy=proxy,
+            headers={"User-Agent": UA, "Referer": "https://weibo.com/"},
+        )
     resp = client.get(
         "https://login.sina.com.cn/sso/qrcode/image",
         params={"entry": "weibo", "size": "180", "callback": str(int(time.time() * 1000))},

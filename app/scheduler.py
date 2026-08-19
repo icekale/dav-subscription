@@ -19,6 +19,7 @@ from .channels import channel_bound, channel_enabled
 from .db import ALLOWED_PLATFORMS, DB
 from .fetchers.base import PLATFORM_LABELS, Fetcher, Post
 from .notifiers.base import Notifier
+from .proxy import note_fetch_proxy, tick_proxy_pools
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,7 @@ SOURCE_HEALTH_LOW_RATE = 70.0  # 24h 成功率低于此值告警
 SOURCE_HEALTH_SILENT_HOURS = 6  # 超过 N 小时无成功抓取判定「整体静默」
 SOURCE_HEALTH_CHECK_INTERVAL = 600  # 主循环里每 10 分钟检查一次
 WEIBO_QR_RENEWAL_COOLDOWN = 15 * 60
+PROXY_TICK_INTERVAL = 60
 
 # X 网页端公开的 guest bearer token（来自 abs.twimg.com 前端包），用于内部翻译接口
 X_GUEST_BEARER_TOKEN = (
@@ -834,6 +836,13 @@ def _fetch_kol_once(
     try:
         posts = fetcher.fetch(kol)
     except Exception as exc:  # noqa: BLE001 - 单源失败不影响其他
+        import httpx
+        from curl_cffi.requests.errors import RequestsError
+
+        from .proxy import ProxyUnavailable
+
+        if isinstance(exc, (httpx.TransportError, RequestsError, ProxyUnavailable)):
+            note_fetch_proxy(fetcher, False, str(exc))
         with state_lock:
             state.fail_count += 1
             delay = min(30 * (2 ** (state.fail_count - 1)), 600)
@@ -866,6 +875,7 @@ def _fetch_kol_once(
         # 数据源健康最终状态由 poll_once 依据 round_stats 聚合后一次性写入，
         # 避免并发 worker 互相清空同平台的成功/失败状态
         return
+    note_fetch_proxy(fetcher, True)
     with state_lock:
         if state.alerted:
             maybe_alert_source_recovered(db, notifiers, kol["platform"], kol["name"])
@@ -1222,9 +1232,16 @@ def probe_xueqiu(db: DB, notifiers: list[Notifier], source_config) -> None:
     target = next((k for k in db.list_kols(platform="xueqiu") if k["enabled"]), None)
     if target is None:
         return  # 没有启用的雪球大V，无从探测
+    from .proxy import ProxyUnavailable, acquire_client_proxy
+
+    try:
+        proxy, _pid = acquire_client_proxy(db, "xueqiu")
+    except ProxyUnavailable:
+        return
     client = httpx.Client(
         timeout=15,
         follow_redirects=True,
+        proxy=proxy,
         headers={
             "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X)",
             "Accept": "application/json, text/plain, */*",
@@ -1324,17 +1341,26 @@ def keepalive_xueqiu_cookie(
     import httpx
 
     owns_client = client is None
-    client = client or httpx.Client(
-        timeout=20,
-        follow_redirects=True,
-        headers={
-            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X)",
-            "Accept": "application/json, text/plain, */*",
-            "X-Requested-With": "XMLHttpRequest",
-            "Referer": f"https://xueqiu.com/u/{target['external_id']}",
-            "Cookie": cookie,
-        },
-    )
+    if owns_client:
+        from .proxy import ProxyUnavailable, acquire_client_proxy
+
+        try:
+            proxy, _pid = acquire_client_proxy(db, "xueqiu")
+        except ProxyUnavailable as exc:
+            _alert_cookie_keepalive(db, notifiers, "雪球", str(exc))
+            return
+        client = httpx.Client(
+            timeout=20,
+            follow_redirects=True,
+            proxy=proxy,
+            headers={
+                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X)",
+                "Accept": "application/json, text/plain, */*",
+                "X-Requested-With": "XMLHttpRequest",
+                "Referer": f"https://xueqiu.com/u/{target['external_id']}",
+                "Cookie": cookie,
+            },
+        )
     try:
         resp = client.get(
             XUEQIU_TIMELINE_URL,
@@ -1372,16 +1398,25 @@ def keepalive_weibo_cookie(db: DB, notifiers: list[Notifier], weibo_config, clie
     import httpx
 
     owns_client = client is None
-    client = client or httpx.Client(
-        timeout=20,
-        follow_redirects=True,
-        headers={
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
-            "Referer": "https://weibo.com/",
-            "Cookie": cookie,
-        },
-    )
+    if owns_client:
+        from .proxy import ProxyUnavailable, acquire_client_proxy
+
+        try:
+            proxy, _pid = acquire_client_proxy(db, "weibo")
+        except ProxyUnavailable as exc:
+            _alert_cookie_keepalive(db, notifiers, "微博", str(exc))
+            return
+        client = httpx.Client(
+            timeout=20,
+            follow_redirects=True,
+            proxy=proxy,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+                "Referer": "https://weibo.com/",
+                "Cookie": cookie,
+            },
+        )
     try:
         resp = client.get("https://weibo.com/")
         # 会话有效：最终停留在 weibo.com（未登录会被 302 到 passport 登录页）
@@ -1428,7 +1463,7 @@ def _start_weibo_qr_renewal(db: DB, notifiers: list[Notifier]) -> bool:
     if tg is None or not getattr(tg, "chat_id", None):
         return False
     try:
-        client, qrid, image_url = create_qr()
+        client, qrid, image_url = create_qr(db=db)
         image = client.get(image_url).content
     except Exception as exc:  # noqa: BLE001
         logger.warning("微博续期二维码生成失败: %s", exc)
@@ -1502,6 +1537,7 @@ class Scheduler:
         self._last_cookie_keepalive = time.monotonic()
         self._last_retry = 0.0
         self._last_health_check = time.monotonic()
+        self._last_proxy_tick = 0.0
 
     def stop(self):
         self._stop.set()
@@ -1733,6 +1769,12 @@ class Scheduler:
                     )
                 except Exception:  # noqa: BLE001
                     logger.exception("数据源健康告警异常")
+            if now_mono - self._last_proxy_tick >= PROXY_TICK_INTERVAL:
+                self._last_proxy_tick = now_mono
+                try:
+                    await asyncio.to_thread(tick_proxy_pools, self.db)
+                except Exception:  # noqa: BLE001
+                    logger.exception("代理池刷新异常")
             # 股票黑话别名识别 + 误标清理：每天一次（配 LLM 才识别，清理恒执行）
             if self._stock_alias_due():
                 try:

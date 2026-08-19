@@ -345,6 +345,40 @@ CREATE TABLE IF NOT EXISTS feishu_registration_sessions (
 CREATE INDEX IF NOT EXISTS idx_frs_user ON feishu_registration_sessions(user_id, status);
 CREATE INDEX IF NOT EXISTS idx_frs_status ON feishu_registration_sessions(status);
 
+CREATE TABLE IF NOT EXISTS proxy_pools (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    kind TEXT NOT NULL DEFAULT 'static',
+    extract_url TEXT NOT NULL DEFAULT '',
+    protocol TEXT NOT NULL DEFAULT 'http',
+    expire_seconds INTEGER NOT NULL DEFAULT 0,
+    refresh_interval_seconds INTEGER NOT NULL DEFAULT 0,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    last_extract_at INTEGER,
+    last_error TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS proxies (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pool_id INTEGER NOT NULL,
+    protocol TEXT NOT NULL,
+    host TEXT NOT NULL,
+    port INTEGER NOT NULL,
+    username TEXT NOT NULL DEFAULT '',
+    password TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT 'manual',
+    status TEXT NOT NULL DEFAULT 'unknown',
+    fail_count INTEGER NOT NULL DEFAULT 0,
+    last_ok_at INTEGER,
+    last_fail_at INTEGER,
+    last_error TEXT NOT NULL DEFAULT '',
+    expires_at INTEGER,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (pool_id, protocol, host, port, username)
+);
+CREATE INDEX IF NOT EXISTS idx_proxies_pool ON proxies(pool_id);
+CREATE INDEX IF NOT EXISTS idx_proxies_expires ON proxies(expires_at);
+
 -- 性能索引：帖子/日志/订阅按数据量增长后的高频查询
 CREATE INDEX IF NOT EXISTS idx_posts_kol_id ON posts(kol_id);
 CREATE INDEX IF NOT EXISTS idx_posts_fetched_at ON posts(fetched_at);
@@ -2242,6 +2276,177 @@ class DB:
             "INSERT INTO settings (key, value) VALUES (?, ?) "
             "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             (key, value),
+        )
+
+    # ---- 抓取代理池 ----
+    def create_proxy_pool(
+        self,
+        name: str,
+        kind: str = "static",
+        extract_url: str = "",
+        protocol: str = "http",
+        expire_seconds: int = 0,
+        refresh_interval_seconds: int = 0,
+        enabled: bool = True,
+    ) -> int:
+        return self._execute(
+            "INSERT INTO proxy_pools (name, kind, extract_url, protocol, "
+            "expire_seconds, refresh_interval_seconds, enabled) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                name.strip(),
+                kind,
+                extract_url.strip(),
+                protocol,
+                int(expire_seconds or 0),
+                int(refresh_interval_seconds or 0),
+                1 if enabled else 0,
+            ),
+        )
+
+    def get_proxy_pool(self, pool_id: int) -> dict | None:
+        rows = self._rows("SELECT * FROM proxy_pools WHERE id = ?", (pool_id,))
+        return rows[0] if rows else None
+
+    def list_proxy_pools(self) -> list[dict]:
+        return self._rows(
+            "SELECT p.*, "
+            "(SELECT COUNT(*) FROM proxies x WHERE x.pool_id = p.id) AS proxy_count "
+            "FROM proxy_pools p ORDER BY p.id"
+        )
+
+    def update_proxy_pool(self, pool_id: int, **kwargs) -> None:
+        allowed = {
+            "name",
+            "kind",
+            "extract_url",
+            "protocol",
+            "expire_seconds",
+            "refresh_interval_seconds",
+            "enabled",
+            "last_extract_at",
+            "last_error",
+        }
+        sets = []
+        params: list = []
+        for key, value in kwargs.items():
+            if key not in allowed:
+                continue
+            if key == "enabled":
+                value = 1 if value else 0
+            elif key == "name" and isinstance(value, str):
+                value = value.strip()
+            elif key == "extract_url" and isinstance(value, str):
+                value = value.strip()
+            sets.append(f"{key} = ?")
+            params.append(value)
+        if not sets:
+            return
+        params.append(pool_id)
+        self._execute(
+            f"UPDATE proxy_pools SET {', '.join(sets)} WHERE id = ?",
+            params,
+        )
+
+    def delete_proxy_pool(self, pool_id: int) -> None:
+        self._execute("DELETE FROM proxies WHERE pool_id = ?", (pool_id,))
+        self._execute("DELETE FROM proxy_pools WHERE id = ?", (pool_id,))
+
+    def upsert_proxy(
+        self,
+        pool_id: int,
+        protocol: str,
+        host: str,
+        port: int,
+        username: str = "",
+        password: str = "",
+        source: str = "manual",
+        expires_at: int | None = None,
+    ) -> int:
+        self._execute(
+            "INSERT INTO proxies (pool_id, protocol, host, port, username, password, "
+            "source, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(pool_id, protocol, host, port, username) DO UPDATE SET "
+            "password = excluded.password, "
+            "expires_at = excluded.expires_at, "
+            "source = excluded.source, "
+            "status = 'unknown', "
+            "fail_count = 0",
+            (
+                pool_id,
+                protocol,
+                host.strip(),
+                int(port),
+                username or "",
+                password or "",
+                source,
+                expires_at,
+            ),
+        )
+        rows = self._rows(
+            "SELECT id FROM proxies WHERE pool_id = ? AND protocol = ? AND host = ? "
+            "AND port = ? AND username = ?",
+            (pool_id, protocol, host.strip(), int(port), username or ""),
+        )
+        return int(rows[0]["id"])
+
+    def get_proxy(self, proxy_id: int) -> dict | None:
+        rows = self._rows("SELECT * FROM proxies WHERE id = ?", (proxy_id,))
+        return rows[0] if rows else None
+
+    def list_proxies(self, pool_id: int | None = None) -> list[dict]:
+        if pool_id is None:
+            return self._rows("SELECT * FROM proxies ORDER BY id DESC")
+        return self._rows(
+            "SELECT * FROM proxies WHERE pool_id = ? ORDER BY id DESC", (pool_id,)
+        )
+
+    def delete_proxy(self, proxy_id: int) -> None:
+        self._execute("DELETE FROM proxies WHERE id = ?", (proxy_id,))
+
+    def delete_expired_extracted_proxies(self, now: int | None = None) -> int:
+        ts = int(now if now is not None else time.time())
+        with self._lock:
+            cur = self._conn.execute(
+                "DELETE FROM proxies WHERE source = 'extract' AND expires_at IS NOT NULL "
+                "AND expires_at > 0 AND expires_at < ?",
+                (ts,),
+            )
+            self._conn.commit()
+            return cur.rowcount
+
+    def list_usable_proxies(self, pool_id: int, now: int | None = None) -> list[dict]:
+        ts = int(now if now is not None else time.time())
+        return self._rows(
+            "SELECT * FROM proxies WHERE pool_id = ? AND status IN ('unknown', 'ok') "
+            "AND (expires_at IS NULL OR expires_at = 0 OR expires_at > ?) "
+            "ORDER BY id",
+            (pool_id, ts),
+        )
+
+    def mark_proxy_ok(self, proxy_id: int, now: int | None = None) -> None:
+        ts = int(now if now is not None else time.time())
+        self._execute(
+            "UPDATE proxies SET status = 'ok', fail_count = 0, last_ok_at = ?, "
+            "last_error = '' WHERE id = ?",
+            (ts, proxy_id),
+        )
+
+    def mark_proxy_fail(
+        self, proxy_id: int, error: str = "", dead_after: int = 3, now: int | None = None
+    ) -> None:
+        ts = int(now if now is not None else time.time())
+        row = self.get_proxy(proxy_id)
+        if row is None:
+            return
+        fails = int(row["fail_count"] or 0) + 1
+        status = "dead" if fails >= dead_after else row["status"]
+        if status != "dead" and row["status"] == "ok":
+            status = "ok"
+        self._execute(
+            "UPDATE proxies SET fail_count = ?, status = ?, last_fail_at = ?, "
+            "last_error = ? WHERE id = ?",
+            (fails, status, ts, (error or "")[:300], proxy_id),
         )
 
     def update_post_tags(self, post_id: int, tags: list[str]) -> None:
