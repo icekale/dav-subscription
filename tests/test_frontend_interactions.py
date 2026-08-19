@@ -407,6 +407,9 @@ def test_kol_image_search_threshold_fields_and_local_results():
     assert 'placeholder="搜索已订阅大V"' in render
     assert 'oninput="filterKolImageSettings()"' in render
     assert 'id="kol-images-list"' in render
+    assert 'role="region"' in render
+    assert 'aria-label="已订阅大V的动态图片"' in render
+    assert 'id="kol-images-more"' in render
 
     assert "kol.name" in filter_body
     assert "kol.external_id" in filter_body
@@ -415,6 +418,10 @@ def test_kol_image_search_threshold_fields_and_local_results():
     assert ".includes(query)" in filter_body
     assert "没有匹配的已订阅大V" in filter_body
     assert '$("#kol-images-list")' in filter_body
+    assert '$("#kol-images-more")' in filter_body
+    assert "filtered.length - 5" in filter_body
+    assert "还有 ${" in filter_body
+    assert "hidden" in filter_body
     assert '$("#kol-images-settings")' not in filter_body
 
 
@@ -512,7 +519,7 @@ def test_kol_image_same_route_pending_load_reloads_after_last_toggle():
 
 
 def test_kol_image_css_is_compact_truncating_and_touchable():
-    """动态图片行保持 36px 头像、长名省略和至少 44px 开关目标。"""
+    """动态图片行保持 36px 头像、长名省略、至少 44px 开关，且名单卡片内滚动。"""
     css = STYLE_CSS.read_text()
     container = re.search(r"#kol-images-settings\s*\{([^}]*)\}", css)
     row = re.search(r"\.kol-images-row\s*\{([^}]*)\}", css)
@@ -543,6 +550,12 @@ def test_kol_image_css_is_compact_truncating_and_touchable():
     assert re.search(r"\.kol-images-switch input:disabled\s*~\s*span\s*\{[^}]*opacity:", css)
     assert empty and "padding: 24px" in empty.group(1)
     assert empty_cta and "margin-top: 12px" in empty_cta.group(1)
+    list_rule = re.search(r"\.kol-images-list\s*\{([^}]*)\}", css)
+    assert list_rule and "max-height: 260px" in list_rule.group(1)
+    assert "overflow-y: auto" in list_rule.group(1)
+    assert "overscroll-behavior: contain" in list_rule.group(1)
+    more = re.search(r"#kol-images-more\s*\{([^}]*)\}", css)
+    assert more and "margin-top: 8px" in more.group(1)
 
 
 def test_stats_cookie_repair_deep_link():

@@ -1824,7 +1824,15 @@ pre.content-cell { white-space: pre-wrap; overflow-wrap: break-word; min-width: 
 #kol-images-settings > .empty .btn-add,
 .kol-images-list > .empty .btn-add { margin-top: 12px; }
 .kol-images-search { margin-bottom: 8px; }
-.kol-images-list { border-top: var(--border-soft); }
+.kol-images-list {
+  max-height: 260px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-top: var(--border-soft);
+}
+#kol-images-more {
+  margin-top: 8px;
+}
 .kol-images-row {
   display: flex;
   align-items: center;

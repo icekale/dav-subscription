@@ -16,7 +16,7 @@ const CHANNEL_ICONS = {
 };
 const CHANNEL_LABELS = { telegram: "Telegram", feishu: "飞书", wecom: "企业微信", bark: "Bark" };
 const USER_CHANNEL_KEYS = ["telegram", "feishu", "wecom", "bark"];
-const APP_VERSION = "1.12.16";
+const APP_VERSION = "1.12.17";
 const PLATFORM_TABS = ["", "xueqiu", "combination", "weibo", "twitter"];
 const TL_PLATFORMS = PLATFORM_TABS.map((p) => [p, p ? PLATFORM_LABELS[p] : "全部"]);
 const STAR_SVG = `<svg class="star-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5l2.95 5.98 6.6.96-4.78 4.66 1.13 6.58L12 17.6l-5.9 3.1 1.13-6.58L2.45 9.44l6.6-.96L12 2.5z"/></svg>`;
@@ -2447,7 +2447,7 @@ function renderKolImageSettings() {
            placeholder="搜索已订阅大V" oninput="filterKolImageSettings()">
        </div>`
     : "";
-  target.innerHTML = `${search}<div id="kol-images-list" class="kol-images-list"></div>`;
+  target.innerHTML = `${search}<div id="kol-images-list" class="kol-images-list" role="region" aria-label="已订阅大V的动态图片"></div><p id="kol-images-more" class="section-meta" hidden></p>`;
   filterKolImageSettings();
 }
 
@@ -2465,6 +2465,12 @@ function filterKolImageSettings() {
   list.innerHTML = filtered.length
     ? filtered.map(kolImageSettingsRowHtml).join("")
     : emptyState("没有匹配的已订阅大V");
+  const more = $("#kol-images-more");
+  if (more) {
+    const extra = Math.max(0, filtered.length - 5);
+    more.hidden = extra === 0;
+    more.textContent = extra ? `还有 ${extra} 位` : "";
+  }
 }
 
 function kolImageSettingsRowHtml(kol) {
