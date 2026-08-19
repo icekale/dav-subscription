@@ -434,13 +434,16 @@ function homeHasFilters() {
 }
 
 function homeMobilePlatformsHtml() {
-  return TL_PLATFORMS.map(([p, label]) => `
-    <button class="tl-mobile-platform ${state.platform === p ? "selected" : ""}"
-      data-platform="${p}" aria-label="平台：${label}" title="${label}"
-      aria-pressed="${state.platform === p}"
+  return TL_PLATFORMS.map(([p, label]) => {
+    const short = platformShortLabel(p);
+    return `
+    <button class="tl-pill ${state.platform === p ? "selected" : ""}"
+      data-platform="${p}" aria-label="${label}" title="${label}"
+      role="radio" aria-checked="${state.platform === p}"
       onclick="homePickMobilePlatform('${p}')">
-      ${PLATFORM_ICONS[p] || ""}
-    </button>`).join("");
+      ${PLATFORM_ICONS[p || ""]}<span>${short}</span>
+    </button>`;
+  }).join("");
 }
 
 async function homePickMobilePlatform(platform) {
@@ -513,7 +516,7 @@ async function renderHome(seq) {
                 ${SEARCH_ICON}
                 <input id="home-search" placeholder="搜索昵称或 ID" value="${escapeHtml(state.homeQ || "")}" oninput="homeSearch(this.value)">
               </div>
-              <div class="tl-mobile-platforms" id="home-mobile-platforms">
+              <div class="tl-pills" id="home-mobile-platforms" role="radiogroup" aria-label="平台">
                 ${homeMobilePlatformsHtml()}
               </div>
               <div class="home-cats" id="home-cats"></div>
@@ -809,7 +812,7 @@ async function renderMySubs(seq) {
         </div>
       </header>
       <div class="toolbar" style="margin:12px 0 16px">
-        <div class="${mobileFilter ? "tl-mobile-platforms cols-6" : "platform-tabs"}" id="mysubs-tabs"></div>
+        <div class="${mobileFilter ? "mysubs-mobile-filters" : "platform-tabs"}" id="mysubs-tabs"></div>
         ${mobileFilter ? "" : `<button id="mysubs-fav-toggle" class="fav-toggle ${state.mysubsFavorite ? "fav-on" : ""}" onclick="toggleMySubsFav()">${STAR_SVG} 特别关注</button>`}
       </div>
       <div id="mysubs-list" class="kol-grid"></div>
@@ -827,21 +830,23 @@ async function renderMySubs(seq) {
 }
 
 function mysubsMobileFiltersHtml() {
-  const platforms = TL_PLATFORMS.map(([p, label]) => `
-    <button class="tl-mobile-platform ${state.mysubsPlatform === p ? "selected" : ""}"
+  const platforms = TL_PLATFORMS.map(([p, label]) => {
+    const short = platformShortLabel(p);
+    return `
+    <button class="tl-pill ${state.mysubsPlatform === p ? "selected" : ""}"
       data-platform="${p}"
-      aria-label="平台：${label}"
+      aria-label="${label}"
       title="${label}"
-      aria-pressed="${state.mysubsPlatform === p}"
+      role="radio"
+      aria-checked="${state.mysubsPlatform === p}"
       onclick="switchMySubsPlatform('${p}')">
-      ${PLATFORM_ICONS[p] || ""}
-    </button>`).join("");
-  return platforms + `
-    <button class="tl-mobile-platform ${state.mysubsFavorite ? "selected" : ""}"
-      aria-label="特别关注"
-      title="特别关注"
+      ${PLATFORM_ICONS[p || ""]}<span>${short}</span>
+    </button>`;
+  }).join("");
+  return `<div class="tl-pills" role="radiogroup" aria-label="平台">${platforms}</div>
+    <button class="fav-toggle ${state.mysubsFavorite ? "fav-on" : ""}"
       aria-pressed="${state.mysubsFavorite}"
-      onclick="toggleMySubsFav()">${STAR_SVG}</button>`;
+      onclick="toggleMySubsFav()">${STAR_SVG} 特别关注</button>`;
 }
 
 function renderMySubsTabs() {
@@ -939,14 +944,14 @@ function tlFilterKey() {
 
 // 生效筛选条件 → 可见 chip 列表：用户随时能看到自己被什么过滤着，逐个可移除
 // label 直接存已转义文本（escapeHtml 在构造行完成，渲染处不再重复转义）
+function tlPanelFilterOn() {
+  return !!(state.timelineQ || state.timelineTag);
+}
+
 function tlActiveChips() {
   const chips = [];
   if (state.timelineQ) chips.push({ key: "q", label: `关键词：${escapeHtml(state.timelineQ)}` });
   if (state.timelineTag) chips.push({ key: "tag", label: `标签：${escapeHtml(state.timelineTag)}` });
-  if (state.timelinePlatform) {
-    const p = TL_PLATFORMS.find(([v]) => v === state.timelinePlatform);
-    if (p) chips.push({ key: "platform", label: `平台：${p[1]}` });
-  }
   return chips;
 }
 
@@ -1032,14 +1037,14 @@ async function renderTimeline(seq) {
     <div class="tl-main">
     <div class="tl-filterbar" id="tl-filterbar">
       <div class="tl-filterbar-top">
-        <div class="tl-pills" id="tl-pills">${tlPillsHtml()}</div>
+        <div class="tl-pills" id="tl-pills" role="radiogroup" aria-label="平台">${tlPillsHtml()}</div>
         ${wide ? "" : `<div class="tl-actions">
-          <button id="tl-filter-toggle" class="fav-toggle ${state.timelineQ || state.timelinePlatform || state.timelineTag ? "has-filter" : ""}" aria-expanded="false" aria-controls="tl-filter-panel" onclick="tlFilterPanel()">${FILTER_ICON}筛选</button>
-          ${tlViewTogglesHtml()}
+          <button id="tl-filter-toggle" class="fav-toggle ${tlPanelFilterOn() ? "has-filter" : ""}" aria-expanded="false" aria-controls="tl-filter-panel" onclick="tlFilterPanel()">${FILTER_ICON}筛选</button>
         </div>`}
       </div>
       ${wide ? "" : `<div class="tl-filter-panel" id="tl-filter-panel">
         ${tlSearchBarHtml()}
+        <div class="tl-filter-views">${tlViewTogglesHtml()}</div>
         <div class="tl-filter-row">
           <select id="tl-tag" class="form-control" onchange="tlApplyFilter()"><option value="">全部标签</option></select>
         </div>
@@ -1199,7 +1204,7 @@ function tlPillsHtml() {
     const selected = state.timelinePlatform === p;
     const short = platformShortLabel(p);
     return `
-    <button class="tl-pill ${selected ? "selected" : ""}" data-platform="${p}" aria-label="${label}" title="${label}" aria-pressed="${selected}" onclick="tlPickPlatform('${p}')">
+    <button class="tl-pill ${selected ? "selected" : ""}" role="radio" data-platform="${p}" aria-label="${label}" title="${label}" aria-checked="${selected}" onclick="tlPickPlatform('${p}')">
       ${PLATFORM_ICONS[p || ""]}
       <span>${short}</span>
     </button>`;
@@ -1207,21 +1212,16 @@ function tlPillsHtml() {
 }
 
 function tlPickPlatform(p) {
+  const prev = state.timelinePlatform;
   state.timelinePlatform = p;
   const pills = $("#tl-pills");
   if (pills) pills.innerHTML = tlPillsHtml();
   const plat = $("#tl-platform");
   if (plat) plat.value = p;
   const btn = $("#tl-filter-toggle");
-  if (btn) btn.classList.toggle("has-filter", !!(state.timelineQ || p || state.timelineTag));
+  if (btn) btn.classList.toggle("has-filter", tlPanelFilterOn());
   tlSyncActiveChips();
-  loadTimeline(true, routeRenderSeq);
-}
-
-function tlPlatformOptions() {
-  return TL_PLATFORMS.map(([p, label]) =>
-    `<option value="${p}" ${state.timelinePlatform === p ? "selected" : ""}>${label}</option>`
-  ).join("");
+  loadTimeline(true, routeRenderSeq, { revertPlatform: prev });
 }
 
 function tlSyncActiveChips() {
@@ -1247,7 +1247,7 @@ function tlApplyFilter() {
   $("#tl-filterbar")?.classList.remove("open");
   const btn = $("#tl-filter-toggle");
   if (btn) {
-    btn.classList.toggle("has-filter", !!(state.timelineQ || state.timelinePlatform || state.timelineTag));
+    btn.classList.toggle("has-filter", tlPanelFilterOn());
     btn.setAttribute("aria-expanded", "false");
   }
   tlSyncActiveChips();
@@ -1288,7 +1288,7 @@ function tlPickTag(tag) {
   if (tagSel) tagSel.value = tag;
   const btn = $("#tl-filter-toggle");
   if (btn) {
-    btn.classList.toggle("has-filter", !!(state.timelineQ || state.timelinePlatform || state.timelineTag));
+    btn.classList.toggle("has-filter", tlPanelFilterOn());
   }
   tlSyncActiveChips();
   loadTimeline(true, routeRenderSeq);
@@ -1426,10 +1426,17 @@ async function railToggleSubscribe(kolId, btn) {
   }
 }
 
-async function loadTimeline(reset = true, routeSeq) {
+async function loadTimeline(reset = true, routeSeq, opts) {
+  opts = opts || {};
   if (!reset && _tlLoadingMore) return;
   if (!reset) _tlLoadingMore = true;
   const seq = ++_tlSeq;
+  const pills = $("#tl-pills");
+  if (reset) {
+    const feed = $("#feed");
+    if (feed) feed.innerHTML = TL_SKELETON;
+    pills?.setAttribute("aria-busy", "true");
+  }
   try {
     const params = new URLSearchParams({ limit: "50", offset: String(reset ? 0 : _tlOffset) });
     if (state.timelineQ) params.set("q", state.timelineQ);
@@ -1458,7 +1465,16 @@ async function loadTimeline(reset = true, routeSeq) {
       $("#tl-feed-panel")?.classList.remove("has-new");
     }
     renderTimelineFeed();
+  } catch (err) {
+    if (seq !== _tlSeq || !$("#feed") || !routeStillActive(routeSeq)) return;
+    if (reset && Object.prototype.hasOwnProperty.call(opts, "revertPlatform")) {
+      state.timelinePlatform = opts.revertPlatform;
+      if (pills) pills.innerHTML = tlPillsHtml();
+    }
+    $("#feed").innerHTML = emptyState("加载失败: " + err.message,
+      `<div><button class="btn-normal" onclick="loadTimeline(true, routeRenderSeq)">重试</button></div>`);
   } finally {
+    if (reset) pills?.removeAttribute("aria-busy");
     if (!reset) _tlLoadingMore = false;
   }
 }

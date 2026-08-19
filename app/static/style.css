@@ -1004,6 +1004,11 @@ body.lightbox-open { overflow: hidden; }
 .admin-sk-table-row .admin-sk-line { flex: 1; }
 .tl-filterbar-top { display: flex; align-items: center; gap: 10px; }
 .tl-pills { display: flex; flex-wrap: wrap; gap: 8px; flex: 1; min-width: 0; }
+.tl-pill[data-platform="xueqiu"],
+.platform-tab[data-platform="xueqiu"] { margin-inline-end: 6px; }
+.tl-filter-views { display: flex; flex-wrap: wrap; gap: 8px; }
+.tl-filter-views .fav-toggle { flex: 1; min-width: 0; justify-content: center; }
+.mysubs-mobile-filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .tl-actions { display: flex; gap: 10px; flex-shrink: 0; }
 .tl-layout { display: flex; align-items: flex-start; gap: 20px; }
 .tl-main { flex: 1; min-width: 0; }
@@ -1658,8 +1663,10 @@ pre.content-cell { white-space: pre-wrap; overflow-wrap: break-word; min-width: 
   .topbar-logo { height: 32px; }
   .topbar-title h2 { display: none; }
   .page-main { padding: 16px 14px calc(74px + env(safe-area-inset-bottom)); --page-pad-x: 14px; }
-  .platform-tabs,
-  .tl-pills { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; }
+  .platform-tabs { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; }
+  .tl-pills { flex-wrap: wrap; overflow-x: visible; }
+  .tl-actions { display: flex; width: 100%; }
+  .tl-actions button { width: auto; }
   .tl-new-badge-btn { min-height: 44px; }
   .kol-item { flex-wrap: wrap; }
   .kol-item .btn-sub { width: 100%; min-height: 44px; }
@@ -1728,8 +1735,8 @@ pre.content-cell { white-space: pre-wrap; overflow-wrap: break-word; min-width: 
     outline: var(--outline-focus);
     outline-offset: 2px;
   }
-  .tl-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; width: 100%; }
-  .tl-actions button { width: 100%; justify-content: center; white-space: nowrap; }
+  .tl-actions { display: flex; width: 100%; }
+  .tl-actions button { width: auto; }
   .btn-normal, .btn-ghost, .channel-btn { min-height: 44px; }
   .btn-add { min-height: 44px; }
   .form-control { min-height: 44px; }

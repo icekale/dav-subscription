@@ -131,7 +131,7 @@ def test_post_tags_filter_timeline_without_inline_user_string():
 
 
 def test_mobile_timeline_filter_keeps_pills_out_of_panel():
-    """手机端平台条留在吸顶栏；筛选面板只留搜索和标签。"""
+    """手机端平台条留在吸顶栏；筛选面板是搜索、视图开关和标签。"""
     render = _fn_body("renderTimeline")
     src = APP_JS.read_text()
 
@@ -140,6 +140,11 @@ def test_mobile_timeline_filter_keeps_pills_out_of_panel():
     assert 'id="tl-mobile-platforms"' not in render
     assert "function tlMobilePlatformsHtml" not in src
     assert "function tlPickMobilePlatform" not in src
+    assert "function tlPlatformOptions" not in src
+    assert 'role="radiogroup"' in render
+    actions = render.split("tl-actions")[1].split("tl-filter-panel")[0]
+    assert "tlViewTogglesHtml" not in actions
+    assert "tlViewTogglesHtml()" in render.split('id="tl-filter-panel"')[1]
 
     assert "tlSearchBarHtml()" in render
     assert 'id="tl-q"' in _fn_body("tlSearchBarHtml")
@@ -161,12 +166,41 @@ def test_timeline_pills_always_show_short_labels():
     assert "<span>${short}</span>" in pills
     assert 'aria-label="${label}"' in pills
     assert 'title="${label}"' in pills
+    assert 'role="radio"' in pills
+    assert "aria-checked" in pills
     assert 'combination: "组合"' in src
     assert ".tl-pill-icon" not in css
     assert ".tl-pills { display: none" not in css
+    assert "flex-wrap: wrap" in css
+    assert 'data-platform="xueqiu"]' in css and "margin-inline-end" in css
     pill = re.search(r"\.tl-pill\s*\{([^}]*)\}", css)
     assert pill and "44px" in pill.group(1)
     assert ".tl-pill:focus-visible" in css
+
+
+def test_timeline_filter_status_is_pills_only():
+    """平台只由胶囊表达；筛选高亮和生效芯片只服务搜索/标签。"""
+    chips = _fn_body("tlActiveChips")
+    pick = _fn_body("tlPickPlatform")
+    apply_f = _fn_body("tlApplyFilter")
+    render = _fn_body("renderTimeline")
+    assert 'key: "platform"' not in chips
+    assert "平台：" not in chips
+    assert "timelinePlatform || state.timelineTag" not in pick
+    assert "timelinePlatform || state.timelineTag" not in apply_f
+    assert "state.timelineQ || state.timelinePlatform || state.timelineTag" not in render
+    assert "tlPanelFilterOn()" in pick or "state.timelineQ || state.timelineTag" in pick
+
+
+def test_timeline_platform_switch_reverts_on_failure():
+    """点平台先出骨架；失败退回上一选中，条上能重试。"""
+    load = _fn_body("loadTimeline")
+    pick = _fn_body("tlPickPlatform")
+    assert "TL_SKELETON" in load
+    assert "catch" in load
+    assert "加载失败" in load
+    assert "revertPlatform" in pick or "prev" in pick
+    assert "aria-busy" in load or "aria-busy" in pick
 
 
 def test_mobile_platform_filter_keeps_hidden_state_and_applies_immediately():
@@ -182,7 +216,7 @@ def test_mobile_platform_filter_keeps_hidden_state_and_applies_immediately():
     assert 'state.timelineQ = ""' not in pick
     assert 'state.timelineTag = ""' not in pick
     assert "state.timelinePlatform = p" in pick
-    assert "loadTimeline(true, routeRenderSeq)" in pick
+    assert "loadTimeline(true, routeRenderSeq" in pick
     for assignment in (
         'state.timelineQ = ""',
         'state.timelineCategory = ""',
@@ -209,17 +243,16 @@ def test_mobile_mysubs_filter_renders_icon_badges_keeps_desktop_toolbar():
     mobile_html = _fn_body("mysubsMobileFiltersHtml")
 
     assert "isMobileTimelineFilter()" in render
-    assert '"tl-mobile-platforms cols-6"' in render
     assert 'id="mysubs-tabs"' in render
     # 桌面分支必须保留完整工具栏
     assert 'id="mysubs-fav-toggle"' in render
     assert '"platform-tabs"' in render
-    # 移动角标：无文字标签，平台+星标都走角标
-    assert "PLATFORM_ICONS[p]" in mobile_html
+    assert "platformShortLabel(p)" in mobile_html
     assert "switchMySubsPlatform('${p}')" in mobile_html
     assert "toggleMySubsFav()" in mobile_html
     assert "STAR_SVG" in mobile_html
-    assert "<span>${label}</span>" not in mobile_html
+    assert "特别关注" in mobile_html
+    assert "<span>${short}</span>" in mobile_html
     # 星标点击后需重绘角标选中态
     assert "renderMySubsTabs()" in _fn_body("toggleMySubsFav")
     # 双分支渲染：移动角标 / 桌面文字胶囊
@@ -242,11 +275,11 @@ def test_platform_tabs_always_show_short_labels():
 
 
 def test_mobile_mysubs_filter_is_six_equal_44px_targets():
-    """订阅页一行六角标（全部+4平台+特别关注），等宽且至少 44px。"""
+    """订阅页移动端平台条与时间线同高 44px，特别关注带字。"""
     css = STYLE_CSS.read_text()
-    cols6 = re.search(r"\.tl-mobile-platforms\.cols-6\s*\{([^}]*)\}", css)
-    assert cols6 and "repeat(6, minmax(0, 1fr))" in cols6.group(1)
-    assert ".tl-mobile-platform .star-icon" in css
+    pill = re.search(r"\.tl-pill\s*\{([^}]*)\}", css)
+    assert pill and "44px" in pill.group(1)
+    assert "特别关注" in _fn_body("mysubsMobileFiltersHtml")
 
 
 # ---- 订阅广场移动端头部密度 ----
@@ -260,8 +293,8 @@ def test_mobile_home_filter_reuses_native_and_shared_controls():
     for marker in ('<details class="home-filter"', '<summary id="home-filter-toggle"',
                    'id="home-search"', 'id="platform-tabs"', 'id="home-cats"'):
         assert marker in render
-    assert 'class="tl-mobile-platform ' in mobile_platforms
-    assert "PLATFORM_ICONS[p]" in mobile_platforms
+    assert "platformShortLabel(p)" in mobile_platforms
+    assert "<span>${short}</span>" in mobile_platforms
     assert "homePickMobilePlatform('${p}')" in mobile_platforms
     assert "state.platform = platform" in pick
     assert "panel.open = false" in pick
