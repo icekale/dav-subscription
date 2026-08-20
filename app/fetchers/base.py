@@ -90,6 +90,18 @@ def parse_published_at(raw: str) -> datetime | None:
     return None
 
 
+def attachment_lines(post: Post, note: str = "（链接可能过期）") -> list[str]:
+    """从 post.detail["files"] 生成附件行：📎 文件名 + 下载链接。无附件返回空列表。"""
+    files = ((post.detail or {}).get("files") or []) if post.detail else []
+    lines = []
+    for f in files:
+        name = str(f.get("name") or "附件") if isinstance(f, dict) else "附件"
+        url = str(f.get("url") or "") if isinstance(f, dict) else ""
+        if url:
+            lines.append(f"📎 {name}\n   {url} {note}")
+    return lines
+
+
 def format_published_at(raw: str) -> str:
     """把时间戳（毫秒/秒）或 RFC2822（X/微博）格式化为可读时间，其他格式原样返回。"""
     raw = (raw or "").strip()

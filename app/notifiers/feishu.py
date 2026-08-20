@@ -50,6 +50,27 @@ def _more_note(text: str) -> dict:
         },
     }
 
+
+# 飞书多图混排 trisect 上限 9 张
+_FEISHU_ALBUM_MAX = 9
+
+
+def _card_image_elements(keys: list[str]) -> list[dict]:
+    """1 张用 img；2+ 张用官方 img_combination。"""
+    if len(keys) == 1:
+        return [{
+            "tag": "img",
+            "img_key": keys[0],
+            "alt": {"tag": "plain_text", "content": ""},
+        }]
+    n = len(keys)
+    mode = "double" if n <= 2 else "triple" if n <= 3 else "bisect" if n <= 6 else "trisect"
+    return [{
+        "tag": "img_combination",
+        "combination_mode": mode,
+        "img_list": [{"img_key": k} for k in keys],
+    }]
+
 _token_cache: dict[tuple[str, str], tuple[str, float]] = {}
 _token_lock = threading.Lock()
 
@@ -376,22 +397,14 @@ class FeishuNotifier(Notifier):
             card = build_feishu_combination_card(post)["card"]
         else:
             card = build_feishu_card(post, self.favorite, self.keyword)["card"]
-        # 帖子图片：上传后插入 img 元素（最多 2 张），失败不影响文本卡片
+        # 帖子图片：上传后插入同一张卡片（多图混排，最多 9 张），失败不影响文本
         if post.images and self.app_id and self.app_secret:
             try:
-                keys = self._upload_images(post.images[:2])
+                keys = self._upload_images(post.images[:_FEISHU_ALBUM_MAX])
                 if keys:
-                    img_elements = [
-                        {
-                            "tag": "img",
-                            "img_key": key,
-                            "alt": {"tag": "plain_text", "content": ""},
-                        }
-                        for key in keys
-                    ]
                     card["body"]["elements"] = (
                         [card["body"]["elements"][0]]
-                        + img_elements
+                        + _card_image_elements(keys)
                         + card["body"]["elements"][1:]
                     )
             except Exception as exc:  # noqa: BLE001

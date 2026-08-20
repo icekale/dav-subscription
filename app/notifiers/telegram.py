@@ -10,7 +10,14 @@ from html import escape
 
 import httpx
 
-from ..fetchers.base import PLATFORM_LABELS, Post, digest_body, truncate_text
+from ..fetchers.base import (
+    PLATFORM_LABELS,
+    Post,
+    attachment_lines,
+    digest_body,
+    truncate_text,
+)
+from ..url_safety import safe_get
 from .base import Notifier, why_badges
 
 DIGEST_MAX_ITEMS = 10
@@ -60,9 +67,10 @@ def build_telegram_text(post: Post, favorite: bool = False, keyword: bool = Fals
     lines.extend(
         [
             f"🕐 {escape(post.published_at)}",
-            f'🔗 <a href="{escape(post.url)}">查看原文</a>',
         ]
     )
+    lines.extend(attachment_lines(post))
+    lines.append(f'🔗 <a href="{escape(post.url)}">查看原文</a>')
     return "\n".join(lines)
 
 
@@ -262,15 +270,42 @@ class TelegramNotifier(Notifier):
                 except Exception as inner:  # noqa: BLE001
                     logger.warning("Telegram 图片发送失败 url=%s err=%s", image_url, inner)
 
+    def _download_images(self, urls: list[str]) -> list[bytes]:
+        blobs: list[bytes] = []
+        for url in urls:
+            try:
+                resp = safe_get(self.client, url, timeout=12)
+                if resp.status_code == 200 and resp.content:
+                    blobs.append(resp.content)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Telegram 图片下载失败 url=%s err=%s", url, exc)
+        return blobs
+
     def _send_media_group(self, post: Post) -> None:
         if not self.bot_token or not self.chat_id:
             raise RuntimeError("未配置 telegram bot_token/chat_id")
-        media = [{"type": "photo", "media": url} for url in post.images[:4]]
+        urls = post.images[:4]
+        blobs = self._download_images(urls)
+        if len(blobs) == 1:
+            self.send_photo(blobs[0])
+            return
+        if len(blobs) >= 2:
+            media = [{"type": "photo", "media": f"attach://p{i}"} for i in range(len(blobs))]
+            files = {f"p{i}": (f"p{i}.jpg", blob, "image/jpeg") for i, blob in enumerate(blobs)}
+            self._post_media_group(media, files=files)
+            return
+        if len(urls) == 1:
+            self._send_photo_url(urls[0])
+            return
+        media = [{"type": "photo", "media": url} for url in urls]
+        self._post_media_group(media)
+
+    def _post_media_group(self, media: list[dict], files: dict | None = None) -> None:
         _tg_rate_limiter.wait()
-        resp = self._post(
-            f"https://api.telegram.org/bot{self.bot_token}/sendMediaGroup",
-            data={"chat_id": self.chat_id, "media": json.dumps(media, ensure_ascii=False)},
-        )
+        kw: dict = {"data": {"chat_id": self.chat_id, "media": json.dumps(media, ensure_ascii=False)}}
+        if files:
+            kw["files"] = files
+        resp = self._post(f"https://api.telegram.org/bot{self.bot_token}/sendMediaGroup", **kw)
         resp.raise_for_status()
         result = resp.json()
         if not result.get("ok"):

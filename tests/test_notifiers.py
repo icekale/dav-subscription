@@ -325,6 +325,34 @@ def test_telegram_image_album_fails_falls_back_to_photo():
     assert calls[1] == ("photo", "https://a/1.jpg")
 
 
+def test_telegram_album_uploads_downloaded_images(monkeypatch):
+    sent = []
+
+    def handler(request):
+        sent.append(request)
+        return httpx.Response(200, json={"ok": True})
+
+    def fake_safe_get(client, url, timeout=12):
+        body = {"https://a/1.jpg": b"img-one", "https://a/2.jpg": b"img-two"}[url]
+        return httpx.Response(200, content=body)
+
+    monkeypatch.setattr("app.notifiers.telegram.safe_get", fake_safe_get)
+    tg = TelegramNotifier(
+        TelegramConfig(bot_token="123:abc", chat_id="456"),
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    post = make_post()
+    post.images = ["https://a/1.jpg", "https://a/2.jpg"]
+    tg._send_media_group(post)
+
+    assert len(sent) == 1
+    assert "sendMediaGroup" in str(sent[0].url)
+    body = sent[0].read()
+    assert b"attach://p0" in body and b"attach://p1" in body
+    assert b"img-one" in body and b"img-two" in body
+    assert "sendPhoto" not in str(sent[0].url)
+
+
 def test_feishu_notify_adds_images(monkeypatch):
     client = httpx.Client(
         transport=httpx.MockTransport(lambda r: httpx.Response(200, json={"code": 0, "msg": "success"}))
@@ -349,6 +377,39 @@ def test_feishu_notify_adds_images(monkeypatch):
         el.get("tag") == "img" and el.get("img_key") == "img_key_1"
         for el in card_sent["card"]["body"]["elements"]
     )
+
+
+def test_feishu_notify_album_uses_img_combination(monkeypatch):
+    client = httpx.Client(
+        transport=httpx.MockTransport(lambda r: httpx.Response(200, json={"code": 0, "msg": "success"}))
+    )
+    notifier = FeishuNotifier(
+        FeishuConfig(
+            app_id="a",
+            app_secret="s",
+            webhook_url="https://open.feishu.cn/open-apis/bot/v2/hook/x",
+        ),
+        client=client,
+    )
+    post = make_post()
+    post.images = [f"https://a/{i}.jpg" for i in range(12)]
+    uploaded = []
+
+    def fake_upload(urls):
+        uploaded.extend(urls)
+        return [f"k{i}" for i in range(len(urls))]
+
+    monkeypatch.setattr(notifier, "_upload_images", fake_upload)
+    card_sent = {}
+    monkeypatch.setattr(notifier, "_send_card", lambda card: card_sent.update(card=card))
+    notifier.notify(post)
+
+    assert uploaded == post.images[:9]
+    combo = next(
+        el for el in card_sent["card"]["body"]["elements"] if el.get("tag") == "img_combination"
+    )
+    assert combo["combination_mode"] == "trisect"
+    assert [x["img_key"] for x in combo["img_list"]] == [f"k{i}" for i in range(9)]
 
 
 def test_feishu_dnd_summary_card_structure():

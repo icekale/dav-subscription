@@ -13,7 +13,7 @@ import urllib.parse
 
 import httpx
 
-from ..fetchers.base import PLATFORM_LABELS, Post, digest_body
+from ..fetchers.base import PLATFORM_LABELS, Post, attachment_lines, digest_body
 from .base import Notifier, why_badges
 
 MAX_CONTENT_CHARS = 1600  # Bark 单条消息过长会被截断，正文截断到 1600 字
@@ -51,6 +51,7 @@ def build_bark_text(post: Post, favorite: bool = False, keyword: bool = False) -
         lines.append(f"🗂 {post.category}")
     if post.published_at:
         lines.append(f"🕐 {post.published_at}")
+    lines.extend(attachment_lines(post))
     if post.url:
         lines.append(f"🔗 {post.url}")
     return "\n".join(lines)
