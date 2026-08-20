@@ -360,6 +360,18 @@ def test_feishu_dnd_summary_card_structure():
     assert card["body"]["elements"]
 
 
+def test_feishu_dnd_overflow_uses_v2_div_not_note():
+    # schema 2.0 已移除 note；超过 DND_MAX_ITEMS 时必须用 _more_note（div）
+    from app.notifiers.feishu import DND_MAX_ITEMS, build_feishu_dnd_summary_card
+
+    posts = [make_post() for _ in range(DND_MAX_ITEMS + 1)]
+    elements = build_feishu_dnd_summary_card(posts)["body"]["elements"]
+    assert all(el.get("tag") != "note" for el in elements)
+    more = next(el for el in elements if "还有" in json.dumps(el, ensure_ascii=False))
+    assert more["tag"] == "div"
+    assert more["text"]["text_size"] == "notation"
+
+
 def test_daily_and_dnd_summaries_mark_truncated():
     from app.notifiers.feishu import (
         build_feishu_daily_card,

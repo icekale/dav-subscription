@@ -286,14 +286,7 @@ def build_feishu_dnd_summary_card(posts: list[Post], title: str | None = None) -
             text += f"\n🕐 {post.published_at}"
         elements.append({"tag": "div", "text": {"tag": "lark_md", "content": text}})
     if len(posts) > DND_MAX_ITEMS:
-        elements.append(
-            {
-                "tag": "note",
-                "elements": [
-                    {"tag": "plain_text", "content": f"… 还有 {len(posts) - DND_MAX_ITEMS} 条未展示"}
-                ],
-            }
-        )
+        elements.append(_more_note(f"… 还有 {len(posts) - DND_MAX_ITEMS} 条未展示"))
     first_url = next((p.url for p in posts if p.url), "")
     if first_url:
         elements.append(_open_url_button("查看全部", first_url, button_type="primary"))
