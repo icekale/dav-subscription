@@ -356,7 +356,7 @@ def test_zsxq_is_plaza_badge_not_sidebar_page():
     css = STYLE_CSS.read_text()
     assert '"zsxq"' in src and "PLATFORM_TABS" in src
     assert 'zsxq: "星球"' in src
-    assert "PLATFORM_ICONS" in src and "rotate(-25 12 12)" in src
+    assert "PLATFORM_ICONS" in src and "M13.012 0c.874" in src
     assert 'route: "zsxq"' not in src
     assert "async function renderZsxq" not in src
     assert 'location.replace("#/timeline")' in src
