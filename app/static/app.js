@@ -18,9 +18,10 @@ const CHANNEL_ICONS = {
   feishu: `<svg class="ch-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.5c-2 3.4-4.6 5.4-8.8 6.2 4.2.8 6.8 2.8 8.8 6.2 2-3.4 4.6-5.4 8.8-6.2-4.2-.8-6.8-2.8-8.8-6.2z"/></svg>`,
   wecom: `<svg class="ch-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 4c-4.42 0-8 3.02-8 6.75 0 2.13 1.22 4.02 3.12 5.26L6.2 19.5l3.66-1.83c.68.15 1.4.24 2.14.24 4.42 0 8-3.02 8-6.75S16.42 4 12 4z"/></svg>`,
   bark: `<svg class="ch-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"/></svg>`,
+  webpush: `<svg class="ch-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M4 3h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zm0 2v8h16V5H4zm4 13h8v2H8v-2z"/></svg>`,
 };
-const CHANNEL_LABELS = { telegram: "Telegram", feishu: "飞书", wecom: "企业微信", bark: "Bark" };
-const USER_CHANNEL_KEYS = ["telegram", "feishu", "wecom", "bark"];
+const CHANNEL_LABELS = { telegram: "Telegram", feishu: "飞书", wecom: "企业微信", bark: "Bark", webpush: "浏览器通知" };
+const USER_CHANNEL_KEYS = ["telegram", "feishu", "wecom", "bark", "webpush"];
 const APP_VERSION = "1.12.25";
 const PLATFORM_TABS = ["", "xueqiu", "combination", "weibo", "twitter", "zsxq"];
 const STATS_TABS = ["overview", "health", "config", "cookies", "proxies"];
@@ -134,7 +135,7 @@ function openLightbox(img) {
   overlay.setAttribute("aria-label", "查看大图");
   overlay.innerHTML = `
     <button class="lightbox-close" aria-label="关闭" onclick="event.stopPropagation();closeLightbox()">✕</button>
-    <img class="lightbox-img" src="${escapeHtml(_lightboxImages[_lightboxIndex])}" alt="" onerror="imgOnError(this)">
+    <img class="lightbox-img" src="${escapeHtml(_lightboxImages[_lightboxIndex])}" alt="动态配图" onerror="imgOnError(this)">
     ${_lightboxImages.length > 1 ? `
       <button class="lightbox-nav lightbox-prev" aria-label="上一张" onclick="event.stopPropagation();lightboxStep(-1)">‹</button>
       <button class="lightbox-nav lightbox-next" aria-label="下一张" onclick="event.stopPropagation();lightboxStep(1)">›</button>
@@ -482,7 +483,7 @@ async function renderHome(seq) {
         onboardingHtml = `
           <section class="section-panel">
             <header class="section-head"><div>
-              <h3 class="section-title">欢迎！先订阅几位大V</h3>
+              <h2 class="section-title">欢迎！先订阅几位大V</h2>
               <p class="section-meta">以下是最热门的大V；订阅后新帖会自动推送到你绑定的渠道。</p>
             </div></header>
             <div class="row" style="gap:12px;flex-wrap:wrap">${recs.map((rec) => `
@@ -514,7 +515,7 @@ async function renderHome(seq) {
     <section class="section-panel home-panel">
       <header class="section-head home-head">
         <div>
-          <h3 class="section-title">全部大V</h3>
+          <h2 class="section-title">全部大V</h2>
           <p class="section-meta" id="catalog-meta">加载中…</p>
         </div>
         ${mobileHome ? `
@@ -817,7 +818,7 @@ async function renderMySubs(seq) {
     <section class="section-panel${mobileFilter ? " home-panel" : ""}">
       <header class="section-head home-head">
         <div>
-          <h3 class="section-title">已订阅</h3>
+          <h2 class="section-title">已订阅</h2>
         </div>
       </header>
       <div class="toolbar" style="margin:12px 0 16px">
@@ -901,7 +902,7 @@ async function renderCombinations(seq) {
     <section class="section-panel">
       <header class="section-head">
         <div>
-          <h3 class="section-title">雪球组合</h3>
+          <h2 class="section-title">雪球组合</h2>
           <p class="section-meta" id="combo-meta">加载中…</p>
         </div>
       </header>
@@ -1624,7 +1625,7 @@ function postCard(post) {
       ${Array.isArray(post.images) && post.images.length ? `
         <div class="post-images">
           ${post.images.slice(0, 4).map((img) => `
-            <a class="post-img-link" href="#" onclick="event.preventDefault();openLightbox(this.querySelector('img'))" aria-label="查看大图"><img src="${escapeHtml(img)}" loading="lazy" alt="" onerror="imgOnError(this)"></a>`).join("")}
+            <a class="post-img-link" href="#" onclick="event.preventDefault();openLightbox(this.querySelector('img'))" aria-label="查看${escapeHtml(post.kol_name)}的配图"><img src="${escapeHtml(img)}" loading="lazy" alt="${escapeHtml(post.kol_name)} 的配图" onerror="imgOnError(this)"></a>`).join("")}
           ${post.images.length > 4 ? `<span class="post-images-more">+${post.images.length - 4}</span>` : ""}
         </div>` : ""}
       ${postFiles(post).map((f) => {
@@ -1673,7 +1674,7 @@ async function renderSearch(seq) {
     askSection.innerHTML = `
       <section class="section-panel">
         <header class="section-head">
-          <div><h3 class="section-title">申请添加大V</h3>
+          <div><h2 class="section-title">申请添加大V</h2>
           <p class="section-meta">目录里没有的大V？提交申请，管理员审批通过后即可订阅。</p></div>
         </header>
         <div class="toolbar" style="margin-top:12px">
@@ -1693,7 +1694,7 @@ async function renderSearch(seq) {
         <div id="ask-result" class="muted" style="margin-top:12px"></div>
       </section>
       <section class="section-panel">
-        <header class="section-head"><div><h3 class="section-title">我的申请</h3></div></header>
+        <header class="section-head"><div><h2 class="section-title">我的申请</h2></div></header>
         <div id="my-asks"></div>
       </section>`;
     // 先取引用再 append：第一次 appendChild 会移动节点，children[1] 会随之失效
@@ -1827,7 +1828,7 @@ async function renderKolPage(kolId, seq) {
       <section class="section-panel">
         <header class="section-head">
           <div>
-            <h3 class="section-title">${escapeHtml(kol.name)} · 最近动态</h3>
+            <h2 class="section-title">${escapeHtml(kol.name)} · 最近动态</h2>
             <p class="section-meta">外部 ID：${escapeHtml(kol.external_id)} · ${PLATFORM_LABELS[kol.platform] || escapeHtml(kol.platform)}${kol.category_name ? " · " + escapeHtml(kol.category_name) : ""}</p>
           </div>
           <div class="toolbar" style="margin-top:12px">
@@ -1885,9 +1886,9 @@ async function renderCombinationSnapshots(kol) {
       </div>
       ${navChartSvg(nav.series, nav.benchmark)}` : `<p class="section-meta">暂无净值数据（订阅后自动抓取）</p>`;
     return `
-      ${quoteHtml ? `<section class="section-panel"><h3 class="section-title">组合状态</h3>${quoteHtml}</section>` : ""}
-      <section class="section-panel"><h3 class="section-title">当前持仓</h3>${holdingsHtml}</section>
-      <section class="section-panel"><h3 class="section-title">净值走势</h3>${navHtml}</section>`;
+      ${quoteHtml ? `<section class="section-panel"><h2 class="section-title">组合状态</h2>${quoteHtml}</section>` : ""}
+      <section class="section-panel"><h2 class="section-title">当前持仓</h2>${holdingsHtml}</section>
+      <section class="section-panel"><h2 class="section-title">净值走势</h2>${navHtml}</section>`;
   } catch (err) {
     return `<section class="section-panel"><p class="section-meta">组合数据加载失败：${escapeHtml(err.message)}</p></section>`;
   }
@@ -1960,6 +1961,8 @@ async function toggleKolPageSubscribe(kolId) {
 
 // ---------- 推送设置 ----------
 let settingsPollTimer = null;
+let _pushStatusHtml = "";
+const SETTINGS_TABS = ["push", "bind", "llm", "account"];
 let _kolImageSubscriptions = [];
 const _kolImagePendingIds = new Set();
 let _kolImageLoadGeneration = 0;
@@ -1991,6 +1994,9 @@ function channelStatusHtml(user) {
   const fsPersonalActive = fsPersonal.status === "active";
   const wc = user.wecom_webhook;
   const bk = user.bark_key;
+  const wp = !!user.webpush_bound;
+  const wpCount = user.webpush_count || 0;
+  const wpOk = webPushSupported();
   const fsOk = !!(fsOpen && fsChat);
   const statusPill = (cls, text) => `<span class="channel-status ${cls}"><i class="dot"></i>${text}</span>`;
   return `
@@ -2057,7 +2063,54 @@ function channelStatusHtml(user) {
             : `<button class="channel-btn primary" onclick="openBindGuide('bark-bind')">去绑定</button>`}
         </div>
       </div>
+      <div class="channel-card" data-channel="webpush">
+        <div class="channel-head">
+          <span class="channel-title">${CHANNEL_ICONS.webpush}<b>浏览器通知</b></span>
+          ${!wpOk
+            ? statusPill("status-fail", "当前环境不可用")
+            : wp ? statusPill("status-ok", wpCount > 1 ? `已开启 · ${wpCount} 台设备` : "已开启")
+            : statusPill("status-fail", "未开启")}
+        </div>
+        <p class="muted channel-desc">${!wpOk
+          ? "请用 Chrome 或 Edge，并打开 HTTPS（本机 localhost 也可以）"
+          : wp
+            ? "Chrome / Edge 系统通知已启用，关掉标签页也能收到"
+            : "在本页一键开启；Chrome / Edge 关掉标签页也能弹系统通知（需 HTTPS）"}</p>
+        <div class="channel-actions">
+          ${!wpOk
+            ? `<button type="button" class="channel-btn primary" disabled>开启</button>`
+            : wp
+              ? `<button type="button" class="channel-btn primary" onclick="enableWebPush()">在此浏览器开启</button>
+                 <button type="button" class="channel-btn secondary" onclick="disableWebPush()">关闭</button>`
+              : `<button type="button" class="channel-btn primary" onclick="enableWebPush()">开启</button>`}
+        </div>
+      </div>
     </div>`;
+}
+
+function paintPushStatus(user) {
+  const el = $("#push-status");
+  if (!el) return;
+  const html = channelStatusHtml(user);
+  if (html === _pushStatusHtml) return;
+  const active = document.activeElement;
+  let restore = null;
+  if (active && el.contains(active)) {
+    const card = active.closest("[data-channel]");
+    restore = {
+      channel: card && card.dataset.channel,
+      text: (active.textContent || "").trim(),
+      tag: active.tagName,
+    };
+  }
+  el.innerHTML = html;
+  _pushStatusHtml = html;
+  if (!restore) return;
+  const card = restore.channel ? el.querySelector(`[data-channel="${restore.channel}"]`) : el;
+  if (!card) return;
+  const nodes = [...card.querySelectorAll(restore.tag)];
+  const match = nodes.find((n) => (n.textContent || "").trim() === restore.text) || nodes[0];
+  if (match && typeof match.focus === "function") match.focus();
 }
 
 async function refreshSettingsStatus() {
@@ -2069,7 +2122,7 @@ async function refreshSettingsStatus() {
       stopSettingsPoll();
       return;
     }
-    el.innerHTML = channelStatusHtml(user);
+    paintPushStatus(user);
     // 状态轮询会重绘卡片，把未过期的绑定码重新显示，避免刚生成的码被刷掉
     if (pendingBind && Date.now() < pendingBind.expiresAt) {
       renderBindResult(pendingBind.channel, pendingBind.code);
@@ -2096,17 +2149,17 @@ async function renderSettings(seq) {
       : "你的机器人";
     const fsTarget = fsBot ? `<b>${escapeHtml(fsBot)}</b>` : "你的机器人应用名";
     $("#main").innerHTML = `
-      <div class="settings-tabs" role="tablist">
-        <button class="settings-tab active" data-tab="push" onclick="switchSettingsTab('push')">推送设置</button>
-        <button class="settings-tab" data-tab="bind" onclick="switchSettingsTab('bind')">渠道绑定</button>
-        <button class="settings-tab" data-tab="llm" onclick="switchSettingsTab('llm')">AI 摘要</button>
-        <button class="settings-tab" data-tab="account" onclick="switchSettingsTab('account')">账号设置</button>
+      <div class="settings-tabs" role="tablist" aria-label="设置分页">
+        <button type="button" class="settings-tab active" role="tab" id="tab-push" aria-selected="true" aria-controls="st-push" data-tab="push" onclick="switchSettingsTab('push')">推送设置</button>
+        <button type="button" class="settings-tab" role="tab" id="tab-bind" aria-selected="false" aria-controls="st-bind" data-tab="bind" onclick="switchSettingsTab('bind')">渠道绑定</button>
+        <button type="button" class="settings-tab" role="tab" id="tab-llm" aria-selected="false" aria-controls="st-llm" data-tab="llm" onclick="switchSettingsTab('llm')">AI 摘要</button>
+        <button type="button" class="settings-tab" role="tab" id="tab-account" aria-selected="false" aria-controls="st-account" data-tab="account" onclick="switchSettingsTab('account')">账号设置</button>
       </div>
-      <div id="st-push" class="settings-tab-panel">
+      <div id="st-push" class="settings-tab-panel" role="tabpanel" aria-labelledby="tab-push">
       <section class="section-panel">
         <header class="section-head">
           <div>
-            <h3 class="section-title">推送开关</h3>
+            <h2 class="section-title">推送开关</h2>
             <p class="section-meta">总开关与每日精选摘要。</p>
           </div>
         </header>
@@ -2130,7 +2183,7 @@ async function renderSettings(seq) {
       <section class="section-panel">
         <header class="section-head">
           <div>
-            <h3 class="section-title">免打扰时段</h3>
+            <h2 class="section-title">免打扰时段</h2>
             <p class="section-meta">时段内不推送新帖（支持跨午夜），结束后一次性补一条汇总；系统告警不受影响。特别关注可设为穿透免打扰。</p>
           </div>
         </header>
@@ -2161,7 +2214,7 @@ async function renderSettings(seq) {
       <section class="section-panel">
         <header class="section-head">
           <div>
-            <h3 class="section-title">关键词提醒</h3>
+            <h2 class="section-title">关键词提醒</h2>
             <p class="section-meta">命中关键词的动态会加标记，并在免打扰时段实时推送（穿透免打扰）；每行一个，最多 20 个，每个不超过 50 字。</p>
           </div>
         </header>
@@ -2178,24 +2231,24 @@ async function renderSettings(seq) {
       <section class="section-panel">
         <header class="section-head">
           <div>
-            <h3 class="section-title">动态图片</h3>
+            <h2 class="section-title">动态图片</h2>
             <p class="section-meta">关闭某位大V的图片显示后，该大V的动态图片会从网页、推送和私有 RSS 中隐藏；头像仍会显示。仅影响当前账号。</p>
           </div>
         </header>
         <div id="kol-images-settings" class="muted kol-images-state" role="status">正在加载已订阅大V…</div>
       </section>
       </div>
-      <div id="st-bind" class="settings-tab-panel">
+      <div id="st-bind" class="settings-tab-panel" role="tabpanel" aria-labelledby="tab-bind">
       <section class="section-panel">
         <header class="section-head">
           <div>
-            <h3 class="section-title">推送渠道</h3>
+            <h2 class="section-title">推送渠道</h2>
             <p class="section-meta">绑定状态每 10 秒自动刷新；绑定了多个渠道时，可在下方勾选要接收推送的渠道（不选则全部推送）。</p>
           </div>
         </header>
         <div id="push-status">${channelStatusHtml(state.user)}</div>
         <div class="channel-picks" id="push-channels-box" style="margin-top:18px;padding-top:18px;border-top:var(--border-default)">${pushChannelsHtml(state.user)}</div>
-        ${(state.user.telegram_chat_id || feishuChannelBound(state.user) || state.user.wecom_webhook || state.user.bark_key)
+        ${(state.user.telegram_chat_id || feishuChannelBound(state.user) || state.user.wecom_webhook || state.user.bark_key || state.user.webpush_bound)
           ? `<div class="toolbar" style="margin-top:14px">
                <button class="btn-normal" onclick="savePushChannels()">保存推送通道</button>
              </div>` : ""}
@@ -2203,7 +2256,7 @@ async function renderSettings(seq) {
       <section class="section-panel">
         <header class="section-head">
           <div>
-            <h3 class="section-title">渠道绑定</h3>
+            <h2 class="section-title">渠道绑定</h2>
             <p class="section-meta">按序绑定想用的推送渠道，每个渠道的步骤可展开；绑定状态在「推送渠道状态」卡片查看。</p>
           </div>
         </header>
@@ -2290,13 +2343,17 @@ async function renderSettings(seq) {
           </div>
           <p class="muted">🔔 key 等同推送权限，请勿泄露；系统告警不依赖此 key（管理员另配系统级 Bark）。</p>
         </div>
+        <div class="channel-bind-block" id="webpush-bind">
+          <h4 class="section-title">5. 浏览器通知（Chrome / Edge）</h4>
+          <p class="section-meta">网页系统通知：在「推送渠道」卡片点「开启」授权即可。关掉标签页也能收到；需 HTTPS。可在多台 Chrome / Edge 分别点「在此浏览器开启」。点「关闭」会关掉该功能（所有已开启的浏览器都不再弹）。</p>
+        </div>
       </section>
       </div>
-      <div id="st-llm" class="settings-tab-panel">
+      <div id="st-llm" class="settings-tab-panel" role="tabpanel" aria-labelledby="tab-llm">
       <section class="section-panel">
         <header class="section-head">
           <div>
-            <h3 class="section-title">AI 摘要（可选，用你的大模型）</h3>
+            <h2 class="section-title">AI 摘要（可选，用你的大模型）</h2>
             <p class="section-meta">配置后，每日精选摘要和免打扰汇总会先用大模型生成 AI 要点，再发原文列表。接口为 OpenAI 兼容格式（/chat/completions），DeepSeek / 通义 / Kimi / 本地 Ollama 均可。不填则用系统默认摘要。</p>
           </div>
         </header>
@@ -2326,11 +2383,11 @@ async function renderSettings(seq) {
         <p class="muted">🔒 配置仅对当前账号生效，费用由你自己的 API 账号承担；生成失败会自动回退为普通摘要，不影响推送。</p>
       </section>
       </div>
-      <div id="st-account" class="settings-tab-panel">
+      <div id="st-account" class="settings-tab-panel" role="tabpanel" aria-labelledby="tab-account">
       <section class="section-panel">
         <header class="section-head">
           <div>
-            <h3 class="section-title">修改密码</h3>
+            <h2 class="section-title">修改密码</h2>
             <p class="section-meta">定期更换密码，保护你的账号安全。</p>
           </div>
         </header>
@@ -2351,7 +2408,7 @@ async function renderSettings(seq) {
       <section class="section-panel">
         <header class="section-head">
           <div>
-            <h3 class="section-title">与网页/小程序账号同步（可选）</h3>
+            <h2 class="section-title">与网页/小程序账号同步（可选）</h2>
             <p class="section-meta">机器人是独立账号；想让机器人订阅与网页账号合并，用绑定码。</p>
           </div>
         </header>
@@ -2371,7 +2428,7 @@ async function renderSettings(seq) {
       <section class="section-panel">
         <header class="section-head">
           <div>
-            <h3 class="section-title">RSS 订阅源（用任意阅读器收动态）</h3>
+            <h2 class="section-title">RSS 订阅源（用任意阅读器收动态）</h2>
             <p class="section-meta">不想用聊天工具？把下面地址加进 Reeder / NetNewsWire / 其他任何 RSS 阅读器，就能直接收你订阅大V的动态，无需登录。</p>
           </div>
         </header>
@@ -2387,6 +2444,7 @@ async function renderSettings(seq) {
         <p class="muted">⚠️ 地址内含订阅凭证，泄露后别人能读到你的关注流；泄露了就点「重新生成」立即作废旧地址。</p>
       </section>
       </div>`;
+    _pushStatusHtml = channelStatusHtml(state.user);
     settingsPollTimer = setInterval(refreshSettingsStatus, 10000);
     switchSettingsTab(state.settingsTab || "push"); // 恢复上次所在分栏
     toggleDnd(); // 根据开关初始状态同步时段输入框的禁用/置灰
@@ -2552,13 +2610,20 @@ async function toggleKolImages(kolId, input) {
 
 function switchSettingsTab(name) {
   // 设置页分段导航：推送 / 渠道绑定 / AI 摘要 / 账号设置
+  if (!SETTINGS_TABS.includes(name)) name = "push";
   state.settingsTab = name;
-  document.querySelectorAll(".settings-tab").forEach((b) =>
-    b.classList.toggle("active", b.dataset.tab === name)
-  );
-  ["push", "bind", "llm", "account"].forEach((t) => {
+  document.querySelectorAll(".settings-tab[data-tab]").forEach((b) => {
+    if (!SETTINGS_TABS.includes(b.dataset.tab)) return;
+    const on = b.dataset.tab === name;
+    b.classList.toggle("active", on);
+    b.setAttribute("aria-selected", String(on));
+  });
+  SETTINGS_TABS.forEach((t) => {
     const el = document.getElementById("st-" + t);
-    if (el) el.style.display = t === name ? "" : "none";
+    if (!el) return;
+    const on = t === name;
+    el.style.display = on ? "" : "none";
+    el.hidden = !on;
   });
 }
 
@@ -2832,6 +2897,7 @@ function pushChannelsHtml(user) {
   if (feishuChannelBound(user)) opts.push(["feishu", "飞书"]);
   if (user.wecom_webhook) opts.push(["wecom", "企业微信"]);
   if (user.bark_key) opts.push(["bark", "Bark"]);
+  if (user.webpush_bound) opts.push(["webpush", "浏览器通知"]);
   if (!opts.length) return `<p class="muted">还没有绑定推送渠道，先完成上方任一渠道绑定后即可选择。</p>`;
   const selected = (user.push_channels || "").split(",").map((s) => s.trim()).filter(Boolean);
   const isChecked = (ch) => selected.length === 0 || selected.includes(ch);
@@ -3035,6 +3101,72 @@ async function saveBarkKey() {
   }
 }
 
+function webPushSupported() {
+  return window.isSecureContext
+    && "Notification" in window
+    && "serviceWorker" in navigator
+    && "PushManager" in window;
+}
+
+function urlBase64ToUint8Array(b64) {
+  const pad = "=".repeat((4 - (b64.length % 4)) % 4);
+  const raw = atob((b64 + pad).replace(/-/g, "+").replace(/_/g, "/"));
+  return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
+}
+
+async function enableWebPush() {
+  if (!webPushSupported()) {
+    flash("当前环境不支持浏览器通知，请用 Chrome 或 Edge，并打开 HTTPS", "error");
+    return;
+  }
+  const btns = document.querySelectorAll('[data-channel="webpush"] .channel-btn');
+  btns.forEach((b) => { b.disabled = true; });
+  try {
+    const perm = await Notification.requestPermission();
+    if (perm !== "granted") {
+      flash("未授予通知权限，请在浏览器设置里允许本站通知", "error");
+      return;
+    }
+    const key = state.user && state.user.vapid_public_key;
+    if (!key) {
+      flash("服务端未就绪，请刷新后再试", "error");
+      return;
+    }
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(key),
+    });
+    const json = sub.toJSON();
+    await api("/api/me/webpush", {
+      method: "POST",
+      body: JSON.stringify({ endpoint: json.endpoint, keys: json.keys }),
+    });
+    flash("浏览器通知已开启");
+    await reloadSettings();
+  } catch (err) {
+    flash(err.message || "开启失败", "error");
+  } finally {
+    btns.forEach((b) => { b.disabled = false; });
+  }
+}
+
+async function disableWebPush() {
+  if (!confirm("关闭后，所有已开启的 Chrome / Edge 都不再弹出通知。")) return;
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (sub) await sub.unsubscribe();
+  } catch { /* 本地订阅清不掉也不挡服务端关闭 */ }
+  try {
+    await api("/api/me/webpush", { method: "DELETE" });
+    flash("浏览器通知已关闭");
+    await reloadSettings();
+  } catch (err) {
+    flash(err.message, "error");
+  }
+}
+
 async function saveKeywords() {
   const keywords = ($("#set-keywords").value || "")
     .split(/[\n,]/)
@@ -3202,7 +3334,7 @@ async function loadAdminStats() {
     <div id="st-overview" class="settings-tab-panel" role="tabpanel" aria-labelledby="tab-overview">
       <section class="section-panel">
         <header class="section-head">
-          <div><h3 class="section-title">数据源稳定性</h3>
+          <div><h2 class="section-title">数据源稳定性</h2>
           <p class="section-meta">抓取健康、24h 成功率与事件流；页面每 30 秒自动刷新。</p></div>
           <div class="toolbar" style="margin-top:12px">
             <span id="stats-refresh-at" class="muted"></span>
@@ -3220,14 +3352,14 @@ async function loadAdminStats() {
         </div>
       </section>
       <section class="section-panel">
-        <header class="section-head"><div><h3 class="section-title">数据源事件</h3>
+        <header class="section-head"><div><h2 class="section-title">数据源事件</h2>
         <p class="section-meta">最近 30 条抓取成功 / 失败 / 降级记录（保留 7 天）。</p></div></header>
         <div id="source-events"></div>
       </section>
     </div>
     <div id="st-health" class="settings-tab-panel" role="tabpanel" aria-labelledby="tab-health" style="display:none">
       <section class="section-panel">
-        <header class="section-head"><div><h3 class="section-title">大V抓取健康</h3>
+        <header class="section-head"><div><h2 class="section-title">大V抓取健康</h2>
         <p class="section-meta">按「最近抓到新帖时间」从旧到新排列，顶部即长期无更新的候选排查对象。</p></div></header>
         <div id="kol-health"></div>
       </section>
@@ -3235,7 +3367,7 @@ async function loadAdminStats() {
     <div id="st-config" class="settings-tab-panel" role="tabpanel" aria-labelledby="tab-config" style="display:none">
       <section class="section-panel">
         <header class="section-head">
-          <div><h3 class="section-title">抓取设置</h3>
+          <div><h2 class="section-title">抓取设置</h2>
           <p class="section-meta">按抓取档位分组配置；保存后即时生效，无需重启。</p></div>
         </header>
         <div class="cfg-grid">
@@ -3370,7 +3502,7 @@ async function loadAdminStats() {
       <div id="cookie-repair-inline"></div>
       <section class="section-panel">
         <header class="section-head">
-          <div><h3 class="section-title">雪球 Cookie</h3>
+          <div><h2 class="section-title">雪球 Cookie</h2>
           <p class="section-meta">${cookieUpdatedLabel(xq)}${xq.preview ? ` · 预览 ${escapeHtml(xq.preview)}` : ""}${s.keepalive_interval_seconds > 0 ? ` · 每 ${Math.round(s.keepalive_interval_seconds / 3600)} 小时探测` : ""}。登录 xueqiu.com → F12 → Application → Cookies，复制整串后保存，即时生效。</p></div>
         </header>
         <textarea id="xq-cookie" class="form-control cookie-paste" rows="4" placeholder="xq_a_token=...; u=..."></textarea>
@@ -3380,7 +3512,7 @@ async function loadAdminStats() {
         </div>
       </section>
       <section class="section-panel">
-        <header class="section-head"><div><h3 class="section-title">微博 Cookie</h3>
+        <header class="section-head"><div><h2 class="section-title">微博 Cookie</h2>
         <p class="section-meta">${cookieUpdatedLabel(s.weibo_cookie)}。用微博 App 扫码后自动保存，无需复制。</p></div></header>
         <div>
           <button type="button" class="btn-normal" onclick="startWeiboQr()">微博扫码登录</button>
@@ -3389,7 +3521,7 @@ async function loadAdminStats() {
       </section>
       <section class="section-panel">
         <header class="section-head">
-          <div><h3 class="section-title">X Cookie</h3>
+          <div><h2 class="section-title">X Cookie</h2>
           <p class="section-meta">${cookieUpdatedLabel(tw)}${tw.preview ? ` · 预览 ${escapeHtml(tw.preview)}` : ""}。登录 x.com → F12 → Application → Cookies，复制整串（需含 auth_token 与 ct0），保存即时生效。</p></div>
         </header>
         <textarea id="tw-cookie" class="form-control cookie-paste" rows="4" placeholder="auth_token=...; ct0=..."></textarea>
@@ -3399,7 +3531,7 @@ async function loadAdminStats() {
         </div>
       </section>
       <section class="section-panel">
-        <header class="section-head"><div><h3 class="section-title">ima 凭证</h3>
+        <header class="section-head"><div><h2 class="section-title">ima 凭证</h2>
         <p class="section-meta">模式：${ima.mode || "未配置"}${ima.openapi_clientid?.set ? ` · clientid ${escapeHtml(ima.openapi_clientid.preview || "")}` : ""}。Cookie 用 scripts/ima_qr_login.py 扫码捕获（x-ima-cookie）；OpenAPI 凭证登录 ima.qq.com/agent-interface 生成，取全文必须。</p></div></header>
         <label class="field-label">网页 Cookie（x-ima-cookie）</label>
         <textarea id="ima-cookie" class="form-control cookie-paste" rows="3" placeholder="IMA-TOKEN=...; IMA-UID=..."></textarea>
@@ -3413,7 +3545,7 @@ async function loadAdminStats() {
       </section>
       <section class="section-panel">
         <header class="section-head">
-          <div><h3 class="section-title">知识星球 Cookie</h3>
+          <div><h2 class="section-title">知识星球 Cookie</h2>
           <p class="section-meta">${cookieUpdatedLabel(zq)}${zq.preview ? ` · 预览 ${escapeHtml(zq.preview)}` : ""}。登录 wx.zsxq.com → F12 → Application → Cookies，复制整串（需含 zsxq_access_token），保存即时生效。</p></div>
         </header>
         <textarea id="zq-cookie" class="form-control cookie-paste" rows="3" placeholder="zsxq_access_token=..."></textarea>
@@ -3719,7 +3851,7 @@ function renderProxyAdmin(routes, pools, proxies) {
       : "";
     return `<section class="section-panel">
       <header class="section-head rc-list-head"><div>
-        <h3 class="section-title">${escapeHtml(p.name)} <span class="hint">${p.kind === "extract" ? "提取池" : "静态池"} · ${escapeHtml(p.protocol)}</span></h3>
+        <h2 class="section-title">${escapeHtml(p.name)} <span class="hint">${p.kind === "extract" ? "提取池" : "静态池"} · ${escapeHtml(p.protocol)}</span></h2>
         ${extract}
       </div>
       <button type="button" class="btn-ghost danger" onclick="deleteProxyPool(${p.id})">删除池</button></header>
@@ -3740,7 +3872,7 @@ function renderProxyAdmin(routes, pools, proxies) {
   return `
     <section class="section-panel">
       <header class="section-head"><div>
-        <h3 class="section-title">抓取出口</h3>
+        <h2 class="section-title">抓取出口</h2>
         <p class="section-meta">按平台选择直连、指定池或指定代理。组合与雪球常同出口，但不强制绑定。池空时本轮抓取失败，不会偷偷直连。</p>
       </div></header>
       <div class="cfg-fields">${routeRows}</div>
@@ -3748,7 +3880,7 @@ function renderProxyAdmin(routes, pools, proxies) {
     </section>
     <section class="section-panel">
       <header class="section-head"><div>
-        <h3 class="section-title">新建代理池</h3>
+        <h2 class="section-title">新建代理池</h2>
         <p class="section-meta">静态池粘贴导入；提取池填商家提取 URL（一行一个 IP），按过期秒数刷新。</p>
       </div></header>
       <div class="cfg-fields">
@@ -4153,7 +4285,7 @@ async function loadAdminDashboard() {
     if (!routeStillActive(_adminRenderSeq)) return;
     $("#admin-body").innerHTML = `
       <section class="section-panel">
-        <header class="section-head"><div><h3 class="section-title">核心指标</h3>
+        <header class="section-head"><div><h2 class="section-title">核心指标</h2>
         <p class="section-meta">用户、订阅与推送的业务总览（推送统计为近 7 天）。</p></div></header>
         <div class="dash-stats">
           ${statCard("注册用户", u.total || 0)}
@@ -4165,24 +4297,24 @@ async function loadAdminDashboard() {
         </div>
       </section>
       <section class="section-panel">
-        <header class="section-head"><div><h3 class="section-title">近 14 天推送趋势</h3>
+        <header class="section-head"><div><h2 class="section-title">近 14 天推送趋势</h2>
         <p class="section-meta">每日推送条数（绿色=成功，红色=失败）。</p></div></header>
         ${trendHtml}
       </section>
       <div class="dash-split">
         <section class="section-panel">
-          <header class="section-head"><div><h3 class="section-title">帖子来源分布</h3>
+          <header class="section-head"><div><h2 class="section-title">帖子来源分布</h2>
           <p class="section-meta">累计抓取帖子按平台。</p></div></header>
           ${platformRows || `<p class="muted">暂无帖子</p>`}
         </section>
         <section class="section-panel">
-          <header class="section-head"><div><h3 class="section-title">渠道推送成功率（7 天）</h3>
+          <header class="section-head"><div><h2 class="section-title">渠道推送成功率（7 天）</h2>
           <p class="section-meta">各渠道成功/总数与成功率。</p></div></header>
           ${channelRows || `<p class="muted">近 7 天暂无推送</p>`}
         </section>
       </div>
       <section class="section-panel">
-        <header class="section-head"><div><h3 class="section-title">数据源健康</h3>
+        <header class="section-head"><div><h2 class="section-title">数据源健康</h2>
         <p class="section-meta">各平台抓取状态与 24h 成功率，以及最近事件流。</p></div></header>
         <div class="table-wrap">
           <table>
@@ -4282,7 +4414,7 @@ async function loadAdminKols(opts) {
   $("#admin-body").innerHTML = `
     <section class="section-panel">
       <header class="section-head">
-        <div><h3 class="section-title">添加大V</h3></div>
+        <div><h2 class="section-title">添加大V</h2></div>
         <div class="toolbar" style="margin-top:12px">
           <select id="ad-platform" class="form-control" style="margin:0;width:auto" aria-label="平台" onchange="adminPlatformDefaultCat(this)">
             <option value="xueqiu">雪球</option>
@@ -4300,7 +4432,7 @@ async function loadAdminKols(opts) {
     </section>
     <section class="section-panel">
       <header class="section-head">
-        <div><h3 class="section-title">批量导入大V</h3>
+        <div><h2 class="section-title">批量导入大V</h2>
         <p class="section-meta">每行一个：昵称 + 主页链接/UID（昵称可省略）。自动识别平台：雪球主页→雪球、雪球组合页→雪球组合、微博主页→微博、X 主页→X；纯 UID 等无法识别的行使用下方默认平台。如：<code>段永平 https://xueqiu.com/u/12345</code></p></div>
       </header>
       <textarea id="ad-batch-lines" class="form-control" rows="8" style="font-family:monospace;min-height:180px;resize:vertical" placeholder="https://xueqiu.com/u/12345&#10;段永平 12345&#10;https://weibo.com/u/1642591402&#10;https://x.com/elonmusk&#10;https://xueqiu.com/P/ZH123456"></textarea>
@@ -4320,7 +4452,7 @@ async function loadAdminKols(opts) {
     </section>
     <section class="section-panel">
       <header class="section-head">
-        <div><h3 class="section-title">大V列表</h3>
+        <div><h2 class="section-title">大V列表</h2>
         <p class="section-meta" id="admin-kols-meta">共 ${state.adminKolsTotal} 个大V · 优先约 60 秒抓一次，次要走低频摘要</p></div>
         <div class="toolbar ak-filters">
           <input id="ak-q" class="form-control" style="width:200px" placeholder="昵称 / 外部ID" value="${escapeHtml(state.adminKolsQ || "")}" onkeydown="if(event.key==='Enter')adminKolsApplyFilter()">
@@ -4764,7 +4896,7 @@ async function loadAdminRequests() {
   if (!routeStillActive(_adminRenderSeq)) return;
   $("#admin-body").innerHTML = `
     <section class="section-panel">
-      <header class="section-head"><div><h3 class="section-title">添加审批</h3>
+      <header class="section-head"><div><h2 class="section-title">添加审批</h2>
       <p class="section-meta">用户申请添加的大V，审批通过后进入订阅广场。</p></div></header>
       <div class="table-wrap">
         <table>
@@ -4774,7 +4906,7 @@ async function loadAdminRequests() {
       </div>
     </section>
     <section class="section-panel">
-      <header class="section-head"><div><h3 class="section-title">处理记录</h3></div></header>
+      <header class="section-head"><div><h2 class="section-title">处理记录</h2></div></header>
       <div class="table-wrap">
         <table>
           <thead><tr><th scope="col">ID</th><th scope="col">平台</th><th scope="col">昵称</th><th scope="col">外部ID</th><th scope="col">分类</th><th scope="col">申请人</th><th scope="col">状态</th><th scope="col">处理时间</th></tr></thead>
@@ -5052,7 +5184,7 @@ async function loadAdminCodes(refetch = true) {
   $("#admin-body").innerHTML = `
     <section class="section-panel">
       <header class="section-head">
-        <div><h3 class="section-title">生成注册邀请码</h3>
+        <div><h2 class="section-title">生成注册邀请码</h2>
         <p class="section-meta">一次性邀请码，按批生成；用过即废，可设有效期。</p></div>
       </header>
       <div class="rc-generate">
@@ -5089,7 +5221,7 @@ async function loadAdminCodes(refetch = true) {
     <section class="section-panel">
       <header class="section-head rc-list-head">
         <div>
-          <h3 class="section-title">注册码列表</h3>
+          <h2 class="section-title">注册码列表</h2>
           <p class="section-meta">${tabCounts.all} 个 · ${tabCounts.available} 可用</p>
         </div>
         <div class="search-bar rc-search">
@@ -5285,7 +5417,7 @@ async function loadAdminVocab() {
   $("#admin-body").innerHTML = `
     <section class="section-panel">
       <header class="section-head">
-        <div><h3 class="section-title">标签分类</h3>
+        <div><h2 class="section-title">标签分类</h2>
         <p class="section-meta">分类按大V分组（订阅广场/动态页/管理列表筛选）；标签按关键词规则给贴文内容自动打标。</p></div>
         <div class="settings-tabs" role="tablist" aria-label="标签分类">
           <button class="settings-tab ${tab === "categories" ? "active" : ""}" data-tab="categories" onclick="location.hash='#/admin/vocab'">分类</button>
@@ -5308,7 +5440,7 @@ async function loadAdminCategoriesTab() {
   $("#vocab-tab-body").innerHTML = `
     <section class="section-panel">
       <header class="section-head">
-        <div><h3 class="section-title">添加分类</h3></div>
+        <div><h2 class="section-title">添加分类</h2></div>
         <div class="toolbar" style="margin-top:12px">
           <input id="cat-name" class="form-control" style="margin:0;width:280px" placeholder="分类名，如：实盘、宏观、行业研究">
           <button class="btn-normal" onclick="adminAddCategory()">添加分类</button>
@@ -5316,7 +5448,7 @@ async function loadAdminCategoriesTab() {
       </header>
     </section>
     <section class="section-panel">
-      <header class="section-head"><div><h3 class="section-title">分类列表</h3></div></header>
+      <header class="section-head"><div><h2 class="section-title">分类列表</h2></div></header>
       <div class="table-wrap">
         <table>
           <thead><tr><th scope="col">ID</th><th scope="col">分类名</th><th scope="col">大V数</th><th scope="col">操作</th></tr></thead>
@@ -5385,7 +5517,7 @@ async function loadAdminTagsTab() {
   $("#vocab-tab-body").innerHTML = `
     <section class="section-panel">
       <header class="section-head">
-        <div><h3 class="section-title">贴文标签词表</h3>
+        <div><h2 class="section-title">贴文标签词表</h2>
         <p class="section-meta">新帖抓取入库时按关键词规则自动打标（零成本、不依赖 LLM）。每行一个标签：<b>标签名 | 关键词1,关键词2</b>，正文/标题命中任一关键词即打该标签，每条最多 3 个。</p></div>
       </header>
       <textarea id="tag-vocab-input" class="form-control" rows="10" style="margin-top:12px;font-family:monospace;line-height:1.6" placeholder="宏观 | 央行,降息,GDP&#10;大盘 | A股,沪指,指数">${escapeHtml(vocabText)}</textarea>
@@ -5396,21 +5528,21 @@ async function loadAdminTagsTab() {
     </section>
     <section class="section-panel">
       <header class="section-head">
-        <div><h3 class="section-title">常用股票名</h3>
+        <div><h2 class="section-title">常用股票名</h2>
         <p class="section-meta">帖子纯文字提及这些股票名时会打上股票标签（每行一个；$股票名(代码)$ 标记自动识别、无需在此登记）。</p></div>
       </header>
       <textarea id="stock-names-input" class="form-control" rows="6" style="margin-top:12px;font-family:monospace;line-height:1.6" placeholder="贵州茅台&#10;宁德时代">${escapeHtml(stockNames.join("\n"))}</textarea>
     </section>
     <section class="section-panel">
       <header class="section-head">
-        <div><h3 class="section-title">黑话别名（LLM 每日自动识别）</h3>
+        <div><h2 class="section-title">黑话别名（LLM 每日自动识别）</h2>
         <p class="section-meta">LLM 每日扫描帖子自动识别股票昵称并写入（如 宁王→宁德时代）；此处可手动修正。每行「别名=正式名」，正式名需在常用股票名表中。</p></div>
       </header>
       <textarea id="stock-aliases-input" class="form-control" rows="5" style="margin-top:12px;font-family:monospace;line-height:1.6" placeholder="宁王=宁德时代">${escapeHtml(aliasText)}</textarea>
     </section>
     <section class="section-panel">
       <header class="section-head">
-        <div><h3 class="section-title">回填历史贴文</h3>
+        <div><h2 class="section-title">回填历史贴文</h2>
         <p class="section-meta">给未打标贴文按当前词表 + 股票名单补标签；「按当前规则重算全部」会覆盖全部历史贴文标签（危险操作，需确认）。</p></div>
       </header>
       <div class="toolbar" style="margin-top:12px">
@@ -5420,7 +5552,7 @@ async function loadAdminTagsTab() {
       </div>
     </section>
     <section class="section-panel">
-      <header class="section-head"><div><h3 class="section-title">当前词表（${tags.length} 个）</h3></div></header>
+      <header class="section-head"><div><h2 class="section-title">当前词表（${tags.length} 个）</h2></div></header>
       <div class="tag-vocab-preview">
         ${tags.length ? tags.map((r) => `<span class="cat cat-tag">${escapeHtml(r.tag)}</span>`).join("") : "（空）"}
       </div>
@@ -5500,7 +5632,7 @@ function renderAdminPosts() {
   $("#admin-body").innerHTML = `
     <section class="section-panel">
       <header class="section-head">
-        <div><h3 class="section-title">帖子列表</h3><p class="section-meta">已加载 ${_adminPosts.length} 条 · 点击内容展开全文 · 按大V/平台/关键词筛选</p></div>
+        <div><h2 class="section-title">帖子列表</h2><p class="section-meta">已加载 ${_adminPosts.length} 条 · 点击内容展开全文 · 按大V/平台/关键词筛选</p></div>
         <div class="toolbar" style="margin-top:12px">
           <input id="ad-posts-q" class="form-control" style="margin:0;width:240px" placeholder="搜索标题/内容关键词" value="${escapeHtml(state.adminPostsQ || "")}" onkeydown="if(event.key==='Enter')adminFilterPosts()">
           <select id="ad-posts-platform" class="form-control" style="margin:0;width:auto" onchange="adminFilterPosts()">
@@ -5594,7 +5726,7 @@ async function loadAdminLogs() {
   $("#admin-body").innerHTML = `
     <section class="section-panel">
       <header class="section-head">
-        <div><h3 class="section-title">推送记录</h3></div>
+        <div><h2 class="section-title">推送记录</h2></div>
         <div class="toolbar" style="margin-top:12px">
           <select id="ad-logs-user" class="form-control" style="margin:0;width:auto">
             <option value="">全部用户</option>
@@ -5638,7 +5770,7 @@ async function loadAdminAudit() {
     <section class="section-panel">
       <header class="section-head">
         <div>
-          <h3 class="section-title">系统日志</h3>
+          <h2 class="section-title">系统日志</h2>
           <p class="section-meta">内存环形缓冲的最近 500 条日志，每 5 秒自动刷新；更完整历史见 docker logs（LOG_LEVEL=DEBUG 可开启更详细日志）。</p>
         </div>
         <div class="toolbar" style="margin-top:12px">
@@ -5658,7 +5790,7 @@ async function loadAdminAudit() {
     <section class="section-panel">
       <header class="section-head">
         <div>
-          <h3 class="section-title">错误记录</h3>
+          <h2 class="section-title">错误记录</h2>
           <p class="section-meta">WARNING 及以上日志持久化存储（跨重启保留最近 5000 条），即使环形缓冲滚动或重启后仍可查。</p>
         </div>
         <div class="toolbar" style="margin-top:12px">
@@ -5678,7 +5810,7 @@ async function loadAdminAudit() {
       </div>
     </section>
     <section class="section-panel">
-      <header class="section-head"><div><h3 class="section-title">操作日志</h3>
+      <header class="section-head"><div><h2 class="section-title">操作日志</h2>
       <p class="section-meta">管理员关键操作记录（改权限/删用户/增删大V/注册码/cookie）。</p></div></header>
       <div class="table-wrap">
         <table>
@@ -5804,7 +5936,7 @@ async function loadAdminBackup() {
     <section class="section-panel backup-page">
       <header class="section-head">
         <div>
-          <h3 class="section-title">本机备份</h3>
+          <h2 class="section-title">本机备份</h2>
           <p class="section-meta">下载当前数据库，不经过 WebDAV。</p>
         </div>
       </header>
@@ -5815,7 +5947,7 @@ async function loadAdminBackup() {
     <section class="section-panel backup-page">
       <header class="section-head">
         <div>
-          <h3 class="section-title">WebDAV 定时</h3>
+          <h2 class="section-title">WebDAV 定时</h2>
           <p class="section-meta">填好后由调度每天自动上传；密码只写不回显。</p>
         </div>
       </header>
@@ -5848,7 +5980,7 @@ async function loadAdminBackup() {
     <section class="section-panel backup-page">
       <header class="section-head">
         <div>
-          <h3 class="section-title">恢复</h3>
+          <h2 class="section-title">恢复</h2>
           <p class="section-meta">会覆盖当前账号、订阅和帖子。恢复失败时现库不变。</p>
         </div>
       </header>
@@ -5965,7 +6097,7 @@ async function backupRestoreUpload() {
 }
 
 function userHasBoundChannel(u) {
-  return !!(u.telegram_bound || u.feishu_bound || u.wecom_bound || u.bark_bound);
+  return !!(u.telegram_bound || u.feishu_bound || u.wecom_bound || u.bark_bound || u.webpush_bound);
 }
 
 function userChannelIconsHtml(u) {
@@ -5974,6 +6106,7 @@ function userChannelIconsHtml(u) {
     feishu: !!u.feishu_bound,
     wecom: !!u.wecom_bound,
     bark: !!u.bark_bound,
+    webpush: !!u.webpush_bound,
   };
   const names = USER_CHANNEL_KEYS.filter((ch) => bound[ch]).map((ch) => CHANNEL_LABELS[ch]);
   const aria = names.length ? `已绑定 ${names.join("、")}` : "未绑定推送渠道";
@@ -6225,7 +6358,7 @@ function renderAdminUsers() {
     <section class="section-panel">
       <header class="section-head au-head">
         <div>
-          <h3 class="section-title">用户管理</h3>
+          <h2 class="section-title">用户管理</h2>
           <p class="section-meta">${users.length} 人 · ${adminN} 管理员 · ${boundN} 已绑定渠道</p>
         </div>
         <div class="search-bar au-search">
@@ -6683,18 +6816,20 @@ async function doRegister(e) {
 
 function switchAuthMode(mode) {
   const isLogin = mode === "login";
-  $("#login-form").classList.toggle("hidden", !isLogin);
-  $("#register-form").classList.toggle("hidden", isLogin);
+  const loginForm = $("#login-form");
+  const registerForm = $("#register-form");
+  loginForm.classList.toggle("hidden", !isLogin);
+  registerForm.classList.toggle("hidden", isLogin);
+  loginForm.hidden = !isLogin;
+  registerForm.hidden = isLogin;
   $("#auth-error").textContent = "";
   $("#reg-error").textContent = "";
   resetAuthButtons();
-  document.querySelectorAll(".switch-btn").forEach((btn) =>
-    btn.classList.toggle("active", btn.dataset.mode === mode)
-  );
-  // 登录/注册 tab 的选中态同步给读屏（aria-selected）
-  document.querySelectorAll(".switch-btn").forEach((btn) =>
-    btn.setAttribute("aria-selected", String(btn.dataset.mode === mode))
-  );
+  document.querySelectorAll(".switch-btn").forEach((btn) => {
+    const on = btn.dataset.mode === mode;
+    btn.classList.toggle("active", on);
+    btn.setAttribute("aria-selected", String(on));
+  });
 }
 
 // ---------- 事件 ----------

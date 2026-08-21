@@ -308,6 +308,16 @@ class WechatLoginIn(BaseModel):
     code: str
 
 
+class WebPushKeys(BaseModel):
+    p256dh: str
+    auth: str
+
+
+class WebPushIn(BaseModel):
+    endpoint: str
+    keys: WebPushKeys
+
+
 class MeUpdate(BaseModel):
     telegram_chat_id: str | None = None
     telegram_bot_token: str | None = None
@@ -573,6 +583,7 @@ def admin_user_summary(
     invite: dict | None = None,
     *,
     feishu_personal_active: bool = False,
+    webpush_bound: bool = False,
     subscription_count: int = 0,
     inactive: bool = False,
     days_until_purge: int | None = None,
@@ -593,6 +604,7 @@ def admin_user_summary(
         "feishu_bound": bool(user.get("feishu_open_id") or user.get("feishu_chat_id") or feishu_personal_active),
         "wecom_bound": bool(user.get("wecom_webhook")),
         "bark_bound": bool(user.get("bark_key")),
+        "webpush_bound": bool(webpush_bound),
         "custom_telegram_bot": bool(user.get("telegram_bot_token")),
         "register_code": invite.get("code") or "",
         "register_note": invite.get("note") or "",
@@ -1220,6 +1232,13 @@ def create_api_router(
             "status": personal_bot["status"] if personal_bot else "",
             "app_id_masked": mask_app_id(personal_bot["app_id"]) if personal_bot else "",
         }
+        from .notifiers.webpush import ensure_vapid_keys
+
+        webpush_cfg = getattr(notifiers_config, "webpush", None) if notifiers_config is not None else None
+        _priv, vapid_pub = ensure_vapid_keys(db, webpush_cfg)
+        profile["vapid_public_key"] = vapid_pub
+        profile["webpush_count"] = db.count_webpush_subscriptions(user["id"])
+        profile["webpush_bound"] = profile["webpush_count"] > 0
         return profile
 
     @router.put("/me")
@@ -1300,7 +1319,7 @@ def create_api_router(
         if "push_channels" in body.model_fields_set:
             value = (body.push_channels or "").strip()
             channels = [c.strip() for c in value.split(",") if c.strip()] if value else []
-            invalid = [c for c in channels if c not in ("telegram", "feishu", "wecom", "bark")]
+            invalid = [c for c in channels if c not in ("telegram", "feishu", "wecom", "bark", "webpush")]
             if invalid:
                 raise HTTPException(status_code=400, detail=f"无效的推送渠道: {', '.join(invalid)}")
             updates["push_channels"] = ",".join(channels)
@@ -1329,6 +1348,30 @@ def create_api_router(
             updates["llm_model"] = (body.llm_model or "").strip()
         db.update_user_atomic(user["id"], updates, keywords=keywords)
         return public_user(db.get_user(user["id"]))
+
+    @router.post("/me/webpush")
+    def subscribe_webpush(body: WebPushIn, request: Request, user: dict = Depends(get_current_user)):
+        from .notifiers.webpush import is_valid_push_endpoint, is_valid_subscription_keys
+
+        endpoint = (body.endpoint or "").strip()
+        p256dh = (body.keys.p256dh or "").strip()
+        auth = (body.keys.auth or "").strip()
+        if not is_valid_push_endpoint(endpoint):
+            raise HTTPException(status_code=400, detail="推送端点无效")
+        if not is_valid_subscription_keys(p256dh, auth):
+            raise HTTPException(status_code=400, detail="推送密钥无效")
+        ua = (request.headers.get("user-agent") or "")[:200]
+        db.upsert_webpush_subscription(user["id"], endpoint, p256dh, auth, ua)
+        return {
+            "ok": True,
+            "webpush_bound": True,
+            "webpush_count": db.count_webpush_subscriptions(user["id"]),
+        }
+
+    @router.delete("/me/webpush")
+    def unsubscribe_webpush(user: dict = Depends(get_current_user)):
+        db.delete_webpush_subscriptions(user["id"])
+        return {"ok": True, "webpush_bound": False, "webpush_count": 0}
 
     @router.post("/me/bind-code")
     def create_bind_code(user: dict = Depends(get_current_user)):
@@ -2882,6 +2925,7 @@ def create_api_router(
     def list_users():
         invites = _invite_by_user_id()
         personal = db.active_feishu_personal_user_ids()
+        webpush_ids = db.webpush_user_ids()
         counts = db.subscription_counts()
         n_days, m_days = db.get_inactive_policy()
         inactive_ids = {r["id"] for r in db.list_inactive_user_rows(n_days)}
@@ -2890,6 +2934,7 @@ def create_api_router(
                 u,
                 invites.get(u["id"]),
                 feishu_personal_active=u["id"] in personal,
+                webpush_bound=u["id"] in webpush_ids,
                 subscription_count=counts.get(u["id"], 0),
                 inactive=u["id"] in inactive_ids,
                 days_until_purge=(
@@ -3120,6 +3165,7 @@ def create_api_router(
             user_row,
             _invite_by_user_id().get(user_id),
             feishu_personal_active=bool(bot and bot["status"] == "active" and bot.get("chat_id")),
+            webpush_bound=db.count_webpush_subscriptions(user_id) > 0,
             subscription_count=db.count_subscriptions(user_id),
         )
 

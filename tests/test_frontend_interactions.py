@@ -421,7 +421,7 @@ def test_settings_save_feedback_uses_flash():
     for name in (
         "saveNotify", "saveDailyReport", "saveDnd", "saveKeywords",
         "savePushChannels", "saveLlm", "savePassword", "saveCustomTgBot",
-        "saveWecomWebhook", "saveBarkKey",
+        "saveWecomWebhook", "saveBarkKey", "enableWebPush", "disableWebPush",
     ):
         body = _fn_body(name)
         assert "flash(" in body, f"{name} 应使用 flash toast"
@@ -1042,6 +1042,83 @@ def test_push_channels_html_treats_personal_feishu_as_bound():
     """渠道勾选不能只看 users.feishu_*，否则个人机器人用户会看到「还没有绑定」。"""
     assert "feishu_personal" in _fn_body("feishuChannelBound")
     assert "feishuChannelBound(user)" in _fn_body("pushChannelsHtml")
+
+
+def test_settings_webpush_toggle():
+    """设置页浏览器通知：开启走订阅 API，关闭走 DELETE。"""
+    status = _fn_body("channelStatusHtml")
+    assert "enableWebPush()" in status
+    assert "disableWebPush()" in status
+    assert "webpush_bound" in status
+    assert "webPushSupported()" in status
+    assert "当前环境不可用" in status
+    enable = _fn_body("enableWebPush")
+    assert "Notification.requestPermission" in enable
+    assert "/api/me/webpush" in enable
+    assert "pushManager.subscribe" in enable
+    disable = _fn_body("disableWebPush")
+    assert 'method: "DELETE"' in disable
+    assert "/api/me/webpush" in disable
+
+
+def test_settings_tabs_use_tab_aria():
+    """设置分页与数据源页同一套 tab/tabpanel，切换时写 aria-selected。"""
+    render = _fn_body("renderSettings")
+    assert 'role="tablist" aria-label="设置分页"' in render
+    assert 'role="tab"' in render and "aria-controls=" in render
+    assert 'role="tabpanel"' in render
+    switch = _fn_body("switchSettingsTab")
+    assert 'setAttribute("aria-selected"' in switch
+    assert "el.hidden = !on" in switch
+
+
+def test_channel_status_poll_skips_identical_and_restores_focus():
+    """渠道状态轮询不得无条件拆掉正在聚焦的开启/关闭按钮。"""
+    paint = _fn_body("paintPushStatus")
+    assert "html === _pushStatusHtml" in paint
+    assert "activeElement" in paint
+    assert "match.focus" in paint
+    refresh = _fn_body("refreshSettingsStatus")
+    assert "paintPushStatus(user)" in refresh
+    assert "el.innerHTML = channelStatusHtml" not in refresh
+
+
+def test_register_placeholder_matches_username_min_length():
+    html = (APP_JS.parent / "index.html").read_text()
+    assert 'id="reg-username"' in html
+    assert "至少 6 位字符" in html
+    assert "至少 2 位字符" not in html
+    assert 'id="page-title"' in html and "<h1 id=\"page-title\"" in html
+    assert 'class="skip-link" href="#main"' in html
+    assert "Bark / 浏览器" in html
+
+
+def test_settings_controls_are_44px_by_default():
+    css = STYLE_CSS.read_text()
+    tab = css[css.index(".settings-tab {"):css.index(".settings-tab:hover")]
+    assert "min-height: 44px" in tab
+    btn = css[css.index(".channel-btn {"):css.index(".channel-btn.primary")]
+    assert "min-height: 44px" in btn
+    icon = css[css.index(".icon-btn {"):css.index(".icon-btn:hover")]
+    assert "width: 44px" in icon and "height: 44px" in icon
+    ghost = css[css.index(".btn-ghost {"):css.index(".btn-ghost:hover")]
+    assert "min-height: 44px" in ghost
+
+
+def test_settings_section_titles_are_h2_under_page_h1():
+    render = _fn_body("renderSettings")
+    assert '<h2 class="section-title">推送开关</h2>' in render
+    assert '<h3 class="section-title">' not in render
+
+
+def test_login_tabs_own_tabpanels():
+    html = (APP_JS.parent / "index.html").read_text()
+    assert 'aria-controls="login-form"' in html
+    assert 'aria-controls="register-form"' in html
+    assert 'id="login-form"' in html and 'role="tabpanel"' in html
+    switch = _fn_body("switchAuthMode")
+    assert "loginForm.hidden = !isLogin" in switch
+    assert "registerForm.hidden = isLogin" in switch
 
 
 def test_admin_backup_page_three_panels_download_skips_webdav():

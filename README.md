@@ -30,7 +30,7 @@
 
 - **多源聚合**：雪球帖子/回复、雪球组合调仓、微博、X、**ima 知识库**，自动去重、按发布时间顺序推送；带图动态文字+图片同卡送达（TG 相册 / 飞书卡片插图）；组合详情页提供实时净值/今日涨跌、当前持仓（权重条）与净值曲线（调仓卡自动附当日涨跌）
 - **多用户**：注册码注册，用户自助订阅/退订，各自独立的动态流与推送
-- **多通道推送**：Telegram（官方共享机器人或用户自建机器人）、飞书私聊/群、企业微信群机器人、Bark（iOS 自托管通知）；绑定多个渠道时可自选接收通道
+- **多通道推送**：Telegram（官方共享机器人或用户自建机器人）、飞书私聊/群、企业微信群机器人、Bark（iOS 自托管通知）、浏览器通知（Chrome / Edge Web Push，关掉标签页也能弹）；绑定多个渠道时可自选接收通道
 - **关键词提醒**：设置关键词后，命中关键词的动态带 🔑 标记、并在免打扰时段实时穿透推送（适合只关心某个大V聊的特定话题）
 - **RSS 订阅源**：每个用户一个私有 RSS 地址（含订阅凭证），加进任意 RSS 阅读器即可直接收关注动态，无需登录
 - **特别关注**：把订阅的大V标星 ⭐，推送消息带星标标识、每日精选置顶；可在免打扰时段内选择「特别关注穿透」实时提醒
@@ -98,6 +98,8 @@ cp .env.example .env
 | `WECOM_WEBHOOK_URL` | 可选 | 企业微信群机器人 webhook（系统告警用） |
 | `BARK_SERVER` | 可选 | Bark 服务器地址，默认官方 `https://api.day.app`；自建实例时填 `https://bark.example.com` |
 | `BARK_KEY` | 可选 | 系统级默认 Bark key（配置后系统告警也发 Bark）；用户可各自在网页绑定自己的 key |
+| `VAPID_PRIVATE_KEY` / `VAPID_PUBLIC_KEY` | 可选 | 浏览器 Web Push 的 VAPID 密钥（PEM + 公钥）。留空则首次使用时自动生成并写入数据库 |
+| `VAPID_MAILTO` | 可选 | VAPID 联系邮箱，默认 `mailto:admin@localhost` |
 | `LLM_API_BASE` / `LLM_API_KEY` / `LLM_MODEL` | 可选 | OpenAI 兼容 LLM（OpenAI / DeepSeek / 本地 Ollama、vLLM 均可）。配置 `LLM_API_KEY` 后，免打扰时段汇总自动生成 AI 要点；未配置则用普通列表汇总，推送管线零变化 |
 | `WEB_ADMIN_PASSWORD` | 推荐 | 启动时创建 `admin` 管理员账号，登录后台管理 |
 | `WEB_ALLOW_REGISTER` | 可选 | 是否允许注册（`false` 时关闭注册入口）；注册始终需要邀请码，邀请码由管理员在后台生成 |

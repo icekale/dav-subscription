@@ -17,12 +17,13 @@ from dataclasses import replace
 logger = logging.getLogger(__name__)
 
 # 渠道顺序即推送顺序
-CHANNELS = ("telegram", "feishu", "wecom", "bark")
+CHANNELS = ("telegram", "feishu", "wecom", "bark", "webpush")
 CHANNEL_LABELS = {
     "telegram": "Telegram",
     "feishu": "飞书",
     "wecom": "企业微信",
     "bark": "Bark",
+    "webpush": "浏览器通知",
 }
 
 
@@ -71,6 +72,12 @@ def channel_bound(user: dict, channel: str, notifiers_config=None, db=None) -> b
         return bool(user.get("wecom_webhook"))
     if channel == "bark":
         return bool(user.get("bark_key"))
+    if channel == "webpush":
+        if user.get("webpush_bound") or user.get("webpush_subscriptions"):
+            return True
+        if db is None:
+            return False
+        return db.count_webpush_subscriptions(user["id"]) > 0
     return False
 
 
@@ -149,6 +156,27 @@ def build_channel_notifier(
             getattr(notifiers_config, "bark", None) if notifiers_config is not None else None,
             client=client,
             bark_key=user["bark_key"],
+            favorite=favorite,
+            keyword=keyword,
+        )
+    if channel == "webpush":
+        from .notifiers.webpush import WebPushNotifier, ensure_vapid_keys, vapid_mailto
+
+        subs = list(user.get("webpush_subscriptions") or [])
+        if db is not None:
+            subs = db.list_webpush_subscriptions(user["id"])
+        if not subs:
+            raise RuntimeError("用户未绑定浏览器通知")
+        webpush_cfg = getattr(notifiers_config, "webpush", None) if notifiers_config is not None else None
+        pem, pub = ensure_vapid_keys(db, webpush_cfg)
+        return WebPushNotifier(
+            webpush_cfg,
+            client=client,
+            subscriptions=subs,
+            vapid_private_pem=pem,
+            vapid_public_b64=pub,
+            vapid_mailto=vapid_mailto(webpush_cfg),
+            db=db,
             favorite=favorite,
             keyword=keyword,
         )

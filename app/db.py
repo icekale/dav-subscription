@@ -48,7 +48,8 @@ def _user_has_channel_sql(alias: str = "") -> str:
         f"({p}telegram_chat_id != '' OR {p}feishu_open_id != '' OR {p}feishu_chat_id != '' "
         f"OR {p}wecom_webhook != '' OR {p}bark_key != '' "
         f"OR EXISTS (SELECT 1 FROM feishu_personal_bots b "
-        f"WHERE b.user_id = {uid} AND b.status = 'active' AND b.chat_id != ''))"
+        f"WHERE b.user_id = {uid} AND b.status = 'active' AND b.chat_id != '') "
+        f"OR EXISTS (SELECT 1 FROM webpush_subscriptions w WHERE w.user_id = {uid}))"
     )
 
 
@@ -345,6 +346,17 @@ CREATE TABLE IF NOT EXISTS feishu_registration_sessions (
 CREATE INDEX IF NOT EXISTS idx_frs_user ON feishu_registration_sessions(user_id, status);
 CREATE INDEX IF NOT EXISTS idx_frs_status ON feishu_registration_sessions(status);
 
+CREATE TABLE IF NOT EXISTS webpush_subscriptions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    endpoint TEXT NOT NULL UNIQUE,
+    p256dh TEXT NOT NULL,
+    auth TEXT NOT NULL,
+    user_agent TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_webpush_user ON webpush_subscriptions(user_id);
+
 CREATE TABLE IF NOT EXISTS proxy_pools (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL UNIQUE,
@@ -548,6 +560,20 @@ class DB:
         self._conn.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_users_bark_key "
             "ON users(bark_key) WHERE bark_key != ''"
+        )
+        self._conn.execute(
+            "CREATE TABLE IF NOT EXISTS webpush_subscriptions ("
+            "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            "  user_id INTEGER NOT NULL,"
+            "  endpoint TEXT NOT NULL UNIQUE,"
+            "  p256dh TEXT NOT NULL,"
+            "  auth TEXT NOT NULL,"
+            "  user_agent TEXT NOT NULL DEFAULT '',"
+            "  created_at TEXT NOT NULL DEFAULT (datetime('now'))"
+            ")"
+        )
+        self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_webpush_user ON webpush_subscriptions(user_id)"
         )
         self._conn.execute(
             "CREATE TABLE IF NOT EXISTS user_keywords ("
@@ -1138,6 +1164,41 @@ class DB:
         rows = self._rows("SELECT * FROM users WHERE bark_key = ?", (bark_key,))
         return rows[0] if rows else None
 
+    def list_webpush_subscriptions(self, user_id: int) -> list[dict]:
+        return self._rows(
+            "SELECT endpoint, p256dh, auth, user_agent, created_at "
+            "FROM webpush_subscriptions WHERE user_id = ? ORDER BY id",
+            (user_id,),
+        )
+
+    def count_webpush_subscriptions(self, user_id: int) -> int:
+        rows = self._rows(
+            "SELECT COUNT(*) AS n FROM webpush_subscriptions WHERE user_id = ?",
+            (user_id,),
+        )
+        return rows[0]["n"] if rows else 0
+
+    def webpush_user_ids(self) -> set[int]:
+        return {r["user_id"] for r in self._rows("SELECT DISTINCT user_id FROM webpush_subscriptions")}
+
+    def upsert_webpush_subscription(
+        self, user_id: int, endpoint: str, p256dh: str, auth: str, user_agent: str = ""
+    ) -> None:
+        self._execute(
+            "INSERT INTO webpush_subscriptions (user_id, endpoint, p256dh, auth, user_agent) "
+            "VALUES (?, ?, ?, ?, ?) "
+            "ON CONFLICT(endpoint) DO UPDATE SET "
+            "user_id = excluded.user_id, p256dh = excluded.p256dh, "
+            "auth = excluded.auth, user_agent = excluded.user_agent",
+            (user_id, endpoint, p256dh, auth, user_agent or ""),
+        )
+
+    def delete_webpush_subscription(self, endpoint: str) -> None:
+        self._execute("DELETE FROM webpush_subscriptions WHERE endpoint = ?", (endpoint,))
+
+    def delete_webpush_subscriptions(self, user_id: int) -> None:
+        self._execute("DELETE FROM webpush_subscriptions WHERE user_id = ?", (user_id,))
+
     def get_user_by_feed_token(self, feed_token: str) -> dict | None:
         rows = self._rows("SELECT * FROM users WHERE feed_token = ?", (feed_token,))
         return rows[0] if rows else None
@@ -1550,10 +1611,7 @@ class DB:
             "total": scalar("SELECT COUNT(*) AS v FROM users"),
             "admins": scalar("SELECT COUNT(*) AS v FROM users WHERE is_admin = 1"),
             "bound": scalar(
-                "SELECT COUNT(*) AS v FROM users WHERE telegram_chat_id != '' OR "
-                "feishu_open_id != '' OR feishu_chat_id != '' OR wecom_webhook != '' "
-                "OR EXISTS (SELECT 1 FROM feishu_personal_bots b "
-                "WHERE b.user_id = users.id AND b.status = 'active' AND b.chat_id != '')"
+                "SELECT COUNT(*) AS v FROM users WHERE " + _user_has_channel_sql("users")
             ),
             "new_7d": scalar(
                 "SELECT COUNT(*) AS v FROM users WHERE created_at >= datetime('now', '-7 days')"
@@ -1829,6 +1887,7 @@ class DB:
                 self._conn.execute("DELETE FROM subscriptions WHERE user_id = ?", (user_id,))
                 self._conn.execute("DELETE FROM push_logs WHERE user_id = ?", (user_id,))
                 self._conn.execute("DELETE FROM kol_acl WHERE user_id = ?", (user_id,))
+                self._conn.execute("DELETE FROM webpush_subscriptions WHERE user_id = ?", (user_id,))
                 self._conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
                 self._conn.commit()
             except Exception:

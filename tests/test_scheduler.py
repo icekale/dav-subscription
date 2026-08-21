@@ -3696,6 +3696,94 @@ def test_notify_subscribers_bark_skipped_without_key(monkeypatch):
     assert db.list_push_logs() == []
 
 
+def test_daily_report_users_includes_webpush():
+    """只开浏览器通知的用户应进入每日精选名单。"""
+    db = make_db()
+    uid = db.add_user("browser", "h")
+    db.upsert_webpush_subscription(
+        uid,
+        "https://fcm.googleapis.com/fcm/send/abc",
+        "p256dh",
+        "auth",
+    )
+    db.update_user(uid, daily_report=True)
+    assert [u["id"] for u in db.daily_report_users()] == [uid]
+
+
+def test_notify_subscribers_webpush_channel(monkeypatch):
+    """用户开启浏览器通知时走 webpush 并记录推送日志。"""
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    uid = db.add_user("u", "h")
+    db.upsert_webpush_subscription(
+        uid,
+        "https://fcm.googleapis.com/fcm/send/abc",
+        "p256dh",
+        "auth",
+    )
+    db.add_subscription(uid, kid)
+    post = make_post(kid)
+    db.insert_post(
+        post.platform, kid, post.external_id, post.title, post.content,
+        post.url, post.published_at,
+    )
+    post_id = db.get_post_id(post.platform, post.external_id)
+    received = {}
+
+    class FakeWP:
+        channel = "webpush"
+
+        def __init__(self, *args, **kwargs):
+            received.update(kwargs)
+            self.client = SimpleNamespace(close=lambda: None)
+
+        def notify(self, post):
+            pass
+
+    monkeypatch.setattr("app.notifiers.webpush.WebPushNotifier", FakeWP)
+    ncfg = SimpleNamespace(
+        telegram=SimpleNamespace(bot_token="", chat_id=""),
+        feishu=SimpleNamespace(),
+        wecom=SimpleNamespace(),
+        bark=SimpleNamespace(bark_server="", bark_key=""),
+        webpush=SimpleNamespace(vapid_private_key="", vapid_public_key="", vapid_mailto=""),
+    )
+    notify_subscribers(db, post_id, post, ncfg, notifiers=[], retry_queue=None)
+    assert received.get("subscriptions")
+    logs = db.list_push_logs()
+    assert logs and logs[0]["channel"] == "webpush" and logs[0]["status"] == "success"
+
+
+def test_notify_subscribers_webpush_skipped_without_sub(monkeypatch):
+    """未开启浏览器通知的用户不会触发 webpush。"""
+    db = make_db()
+    kid = db.add_kol("xueqiu", "A", "1")
+    uid = db.add_user("u", "h")
+    db.add_subscription(uid, kid)
+    called = {"n": 0}
+
+    class FakeWP:
+        channel = "webpush"
+
+        def __init__(self, *args, **kwargs):
+            called["n"] += 1
+
+        def notify(self, post):
+            pass
+
+    monkeypatch.setattr("app.notifiers.webpush.WebPushNotifier", FakeWP)
+    ncfg = SimpleNamespace(
+        telegram=SimpleNamespace(bot_token="", chat_id=""),
+        feishu=SimpleNamespace(),
+        wecom=SimpleNamespace(),
+        bark=SimpleNamespace(bark_server="", bark_key=""),
+        webpush=SimpleNamespace(),
+    )
+    notify_subscribers(db, 1, make_post(kid), ncfg, notifiers=[], retry_queue=None)
+    assert called["n"] == 0
+    assert db.list_push_logs() == []
+
+
 def test_digest_pushes_to_bark_user(monkeypatch):
     """只绑定 Bark 的用户也应收到合并摘要并记录推送日志（此前缺口）。"""
     db = make_db()

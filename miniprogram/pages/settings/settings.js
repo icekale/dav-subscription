@@ -20,6 +20,9 @@ function pushChannelOptions(user) {
   if (user.bark_key) {
     opts.push({ value: "bark", label: "Bark", checked: isChecked("bark") });
   }
+  if (user.webpush_bound) {
+    opts.push({ value: "webpush", label: "浏览器通知", checked: isChecked("webpush") });
+  }
   return opts;
 }
 

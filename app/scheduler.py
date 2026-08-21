@@ -331,6 +331,8 @@ def _can_still_push(user: dict, channel: str, post: Post, db: DB) -> bool:
         return False
     if channel == "bark" and not user.get("bark_key"):
         return False
+    if channel == "webpush" and not channel_bound(user, "webpush", db=db):
+        return False
     sub_type = db.subscribed_kol_types(user["id"]).get(post.kol_id)
     if sub_type is None:
         return False

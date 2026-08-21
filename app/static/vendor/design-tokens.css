@@ -48,13 +48,13 @@
   --color-line-success: rgba(58, 110, 75, 0.4);
   --color-line-danger: rgba(220, 38, 38, 0.3);
 
-  --color-accent: #1f74ee;
-  --color-accent-strong: #1668e0;
+  --color-accent: #1668e0;
+  --color-accent-strong: #1258c4;
   --color-accent-soft: rgba(22, 119, 255, 0.12);
-  /* 实底提一档，白字 4.4:1；浅底蓝字仍用原色，保证 5.1:1 */
+  /* 实底白字 ≥4.5:1；浅底蓝字 5.1:1 */
   --color-accent-text: #1668e0;
   /* 品牌渐变（logo/头像底）：两端都深过亮蓝，白字全程 ≥4.5:1 */
-  --brand-gradient: linear-gradient(180deg, var(--color-accent-strong), #1258c4);
+  --brand-gradient: linear-gradient(180deg, var(--color-accent), var(--color-accent-strong));
 
   /* 平台品牌色（图标用；深色模式在 .theme-dark 中覆盖） */
   --color-brand-xueqiu: #287dff;

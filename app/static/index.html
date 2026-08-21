@@ -31,8 +31,8 @@
       } catch (e) { /* localStorage 不可用时静默 */ }
     })();
   </script>
-  <link rel="stylesheet" href="/vendor/design-tokens.css?v=23">
-  <link rel="stylesheet" href="/style.css?v=151">
+  <link rel="stylesheet" href="/vendor/design-tokens.css?v=24">
+  <link rel="stylesheet" href="/style.css?v=154">
 </head>
 <body>
   <!-- 登录 / 注册 -->
@@ -48,7 +48,7 @@
           </li>
           <li class="login-feature">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/></svg>
-            <span>实时推送到 Telegram / 飞书 / 企业微信</span>
+            <span>新帖推到 Telegram / 飞书 / Bark / 浏览器</span>
           </li>
           <li class="login-feature">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
@@ -59,10 +59,10 @@
       <section class="login-card">
         <div class="login-card-body">
           <div class="auth-switch" role="tablist" aria-label="登录或注册">
-            <button type="button" class="switch-btn active" data-mode="login" role="tab" aria-selected="true">登录</button>
-            <button type="button" class="switch-btn" data-mode="register" role="tab" aria-selected="false">注册</button>
+            <button type="button" class="switch-btn active" id="tab-auth-login" data-mode="login" role="tab" aria-selected="true" aria-controls="login-form">登录</button>
+            <button type="button" class="switch-btn" id="tab-auth-register" data-mode="register" role="tab" aria-selected="false" aria-controls="register-form">注册</button>
           </div>
-          <form id="login-form" class="login-form">
+          <form id="login-form" class="login-form" role="tabpanel" aria-labelledby="tab-auth-login">
             <h2 class="login-title">欢迎回来</h2>
             <p class="login-subtitle">回到你的订阅流，继续接收大V动态。</p>
             <label class="field-label" for="login-username">用户名</label>
@@ -78,11 +78,11 @@
             <p id="auth-error" class="form-error" role="alert"></p>
             <button type="submit" class="btn-normal btn-fluid">登 录</button>
           </form>
-          <form id="register-form" class="login-form hidden">
+          <form id="register-form" class="login-form hidden" role="tabpanel" aria-labelledby="tab-auth-register" hidden>
             <h2 class="login-title">创建账号</h2>
             <p class="login-subtitle">注册后即可自选大V，开启订阅推送。</p>
             <label class="field-label" for="reg-username">用户名</label>
-            <input id="reg-username" class="form-control" placeholder="至少 2 位字符" autocomplete="username" required>
+            <input id="reg-username" class="form-control" placeholder="至少 6 位字符" autocomplete="username" required>
             <label class="field-label" for="reg-password">密码</label>
             <div class="pw-field">
               <input id="reg-password" class="form-control" type="password" placeholder="至少 6 位字符" autocomplete="new-password" required>
@@ -103,6 +103,7 @@
 
   <!-- 主应用 -->
   <div id="app-view" class="app-view hidden">
+    <a class="skip-link" href="#main">跳到主要内容</a>
     <aside class="sidebar">
       <div class="sidebar-brand">
         <img class="sidebar-logo" id="sidebar-logo" src="/logo-mark.svg" alt="V Push">
@@ -120,7 +121,7 @@
         <div class="topbar-title">
           <button id="btn-back" class="icon-btn hidden" aria-label="返回上一页">‹</button>
           <img class="topbar-logo" src="/logo-mark.svg" alt="V Push">
-          <h2 id="page-title">订阅广场</h2>
+          <h1 id="page-title">订阅广场</h1>
         </div>
         <div id="topbar-user" class="topbar-user"></div>
       </header>
@@ -128,6 +129,6 @@
     </div>
     <nav id="bottom-nav" class="bottom-nav"></nav>
   </div>
-  <script src="/app.js?v=193"></script>
+  <script src="/app.js?v=196"></script>
 </body>
 </html>

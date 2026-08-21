@@ -45,6 +45,15 @@ class BarkConfig:
 
 
 @dataclass
+class WebPushConfig:
+    """浏览器 Web Push（Chrome / Edge）。密钥留空则首次使用时自动生成并写入数据库。"""
+
+    vapid_private_key: str = ""
+    vapid_public_key: str = ""
+    vapid_mailto: str = ""
+
+
+@dataclass
 class LLMConfig:
     """可选 LLM 摘要：配置 api_key 即启用（免打扰汇总/每日精选生成 AI 要点）。
 
@@ -63,6 +72,7 @@ class NotifiersConfig:
     telegram: TelegramConfig = field(default_factory=TelegramConfig)
     wecom: WeComConfig = field(default_factory=WeComConfig)
     bark: BarkConfig = field(default_factory=BarkConfig)
+    webpush: WebPushConfig = field(default_factory=WebPushConfig)
 
 
 @dataclass
@@ -152,6 +162,9 @@ _ENV_MAP = {
     "WECOM_WEBHOOK_URL": ("notifiers", "wecom", "webhook_url"),
     "BARK_SERVER": ("notifiers", "bark", "bark_server"),
     "BARK_KEY": ("notifiers", "bark", "bark_key"),
+    "VAPID_PRIVATE_KEY": ("notifiers", "webpush", "vapid_private_key"),
+    "VAPID_PUBLIC_KEY": ("notifiers", "webpush", "vapid_public_key"),
+    "VAPID_MAILTO": ("notifiers", "webpush", "vapid_mailto"),
     "LLM_API_BASE": ("llm", "api_base"),
     "LLM_API_KEY": ("llm", "api_key"),
     "LLM_MODEL": ("llm", "model"),

@@ -19,6 +19,7 @@ def make_config():
         feishu=SimpleNamespace(),
         wecom=SimpleNamespace(),
         bark=SimpleNamespace(bark_server="", bark_key=""),
+        webpush=SimpleNamespace(vapid_private_key="", vapid_public_key="", vapid_mailto=""),
     )
 
 
@@ -47,7 +48,7 @@ def make_post() -> Post:
 
 
 def test_channels_registry_has_all_four():
-    assert CHANNELS == ("telegram", "feishu", "wecom", "bark")
+    assert CHANNELS == ("telegram", "feishu", "wecom", "bark", "webpush")
 
 
 def test_channel_bound():
@@ -68,6 +69,8 @@ def test_channel_bound():
     assert channel_bound(make_user(feishu_chat_id="c"), "feishu", cfg)
     assert channel_bound(make_user(wecom_webhook="w"), "wecom", cfg)
     assert channel_bound(make_user(bark_key="k"), "bark", cfg)
+    assert channel_bound(make_user(webpush_bound=True), "webpush", cfg)
+    assert not channel_bound(make_user(), "webpush", cfg)
     assert not channel_bound(make_user(), "unknown", cfg)
 
 
@@ -98,6 +101,9 @@ def test_build_channel_notifier_binds_and_passes_flags(monkeypatch):
         ("app.notifiers.feishu.FeishuNotifier", "feishu", {"feishu_open_id": "o"}),
         ("app.notifiers.wecom.WeComNotifier", "wecom", {"wecom_webhook": "w"}),
         ("app.notifiers.bark.BarkNotifier", "bark", {"bark_key": "k"}),
+        ("app.notifiers.webpush.WebPushNotifier", "webpush", {
+            "webpush_subscriptions": [{"endpoint": "https://fcm.googleapis.com/fcm/send/x", "p256dh": "x", "auth": "x"}],
+        }),
     ):
         monkeypatch.setattr(mod, Fake)
         seen.clear()

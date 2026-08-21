@@ -43,6 +43,14 @@ def test_shell_assets_and_registration_present():
     assert 'navigator.serviceWorker.register("/sw.js")' in app_js
 
 
+def test_sw_handles_push_and_notificationclick():
+    src = SW_JS.read_text()
+    assert 'self.addEventListener("push"' in src
+    assert "showNotification" in src
+    assert 'self.addEventListener("notificationclick"' in src
+    assert "clients.openWindow" in src
+
+
 STATIC = Path(__file__).parent.parent / "app" / "static"
 
 
