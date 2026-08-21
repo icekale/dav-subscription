@@ -1959,6 +1959,21 @@ class DB:
         except (TypeError, ValueError):
             return {}
 
+    def get_post_detail(self, platform: str, external_id: str) -> dict:
+        """读单帖 detail JSON；不存在或解析失败返回空 dict。"""
+        rows = self._rows(
+            "SELECT detail FROM posts WHERE platform = ? AND external_id = ?",
+            (platform, external_id),
+        )
+        if not rows:
+            return {}
+        raw = rows[0].get("detail") or ""
+        try:
+            d = json.loads(raw)
+            return d if isinstance(d, dict) else {}
+        except (TypeError, ValueError):
+            return {}
+
     def mark_kol_baseline(self, kol_id: int) -> None:
         """标记该大V已建立首次抓取基线（首次成功 fetch 后调用，含空列表）。"""
         self._execute("UPDATE kols SET baseline_ready = 1 WHERE id = ?", (kol_id,))
