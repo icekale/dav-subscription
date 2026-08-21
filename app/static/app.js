@@ -652,18 +652,24 @@ async function switchPlatform(platform) {
   await loadHomeKols(routeRenderSeq);
 }
 
-function kolCard(kol) {
+function kolCard(kol, opts) {
+  opts = opts || {};
+  const tags = [];
+  if (!opts.hidePlatform) {
+    tags.push(`<span class="tag">${PLATFORM_LABELS[kol.platform] || escapeHtml(kol.platform)}</span>`);
+  }
+  if (kol.category_name) tags.push(`<span class="tag">${escapeHtml(kol.category_name)}</span>`);
+  if (kol.platform === "combination" && kol.quote && kol.quote.day_percent_gain != null) {
+    const gain = kol.quote.day_percent_gain;
+    tags.push(`<span class="tag cube-day ${gain >= 0 ? "up" : "down"}">${gain >= 0 ? "+" : ""}${gain.toFixed(2)}%</span>`);
+  }
   return `
     <div class="kol-card">
       <div class="kol-card-head">
         ${avatarHtml(kol.name, kol.avatar_url)}
         <div class="kol-card-info">
-          <div class="base">
-            <span class="name" title="${escapeHtml(kol.name)}">${escapeHtml(kol.name)}</span>
-            <span class="tag">${PLATFORM_LABELS[kol.platform] || escapeHtml(kol.platform)}</span>
-            ${kol.category_name ? `<span class="tag">${escapeHtml(kol.category_name)}</span>` : ""}
-            ${kol.platform === "combination" && kol.quote && kol.quote.day_percent_gain != null ? `<span class="tag cube-day ${kol.quote.day_percent_gain >= 0 ? "up" : "down"}">${kol.quote.day_percent_gain >= 0 ? "+" : ""}${kol.quote.day_percent_gain.toFixed(2)}%</span>` : ""}
-          </div>
+          <span class="name" title="${escapeHtml(kol.name)}">${escapeHtml(kol.name)}</span>
+          ${tags.length ? `<div class="kol-card-meta">${tags.join("")}</div>` : ""}
           <div class="desc">外部 ID：${escapeHtml(kol.external_id)}${kol.enabled ? "" : " · 已停用"}</div>
         </div>
       </div>
@@ -914,7 +920,7 @@ async function renderCombinations(seq) {
     state.catalog = kols;
     $("#combo-meta").textContent = `共 ${kols.length} 个组合`;
     $("#combo-list").innerHTML = kols.length
-      ? kols.map(kolCard).join("")
+      ? kols.map((k) => kolCard(k, { hidePlatform: true })).join("")
       : emptyState(
           "还没有添加雪球组合",
           state.user?.is_admin

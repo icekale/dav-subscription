@@ -868,6 +868,26 @@ def test_new_badge_avatars_fit_inside_capsule():
     assert not re.search(r"\.tl-new-badge-btn\s*\{[^}]*overflow:\s*visible", css)
 
 
+def test_kol_card_name_wraps_full_combination_title():
+    """订阅卡片名字独占一行可换行；平台/涨跌标签在下一行，不能把组合名裁成省略号。"""
+    css = STYLE_CSS.read_text()
+    name = re.search(r"^\.kol-card-info \.name\s*\{([^}]*)\}", css, re.M)
+    meta = re.search(r"^\.kol-card-meta\s*\{([^}]*)\}", css, re.M)
+    head = re.search(r"^\.kol-card-head\s*\{([^}]*)\}", css, re.M)
+    assert name, "缺少 .kol-card-info .name"
+    assert "white-space: nowrap" not in name.group(1)
+    assert "text-overflow: ellipsis" not in name.group(1)
+    assert "overflow-wrap: anywhere" in name.group(1) or "word-break: break-word" in name.group(1)
+    assert meta, "缺少 .kol-card-meta"
+    assert "display: flex" in meta.group(1) and "flex-wrap: wrap" in meta.group(1)
+    assert head and "align-items: flex-start" in head.group(1)
+    card = _fn_body("kolCard")
+    assert "kol-card-meta" in card
+    assert "opts = opts || {}" in card
+    combos = _fn_body("renderCombinations")
+    assert "hidePlatform: true" in combos
+
+
 def test_timeline_new_badge_pins_to_sticky_filterbar():
     """新帖胶囊挂在吸顶筛选条上，往下滚仍能点，不能跟着时间线一起滑走。"""
     render = _fn_body("renderTimeline")
