@@ -844,14 +844,18 @@ def test_timeline_type_roles_follow_four_step_ramp():
 
 
 def test_new_badge_avatars_fit_inside_capsule():
-    """新帖胶囊头像跟 X 一样 20px、叠在条内，不能探出蓝底。"""
+    """新帖胶囊跟 X：36px 条、24px 头像、圈色跟蓝底，不能探出。"""
     css = STYLE_CSS.read_text()
     btn = re.search(r"^\.tl-new-badge-btn\s*\{([^}]*)\}", css, re.M)
     av = re.search(r"^\.tl-badge-avatars > \*\s*\{([^}]*)\}", css, re.M)
     assert btn, "缺少 .tl-new-badge-btn"
+    assert "height: 36px" in btn.group(1)
     assert "overflow: hidden" in btn.group(1)
+    assert "var(--text-body)" in btn.group(1)
     assert av, "缺少胶囊头像尺寸"
-    assert "width: 20px" in av.group(1) and "height: 20px" in av.group(1)
+    assert "width: 24px" in av.group(1) and "height: 24px" in av.group(1)
+    assert "var(--color-accent)" in av.group(1)
+    assert "var(--color-white)" not in av.group(1)
     assert "52px" not in av.group(1)
     assert not re.search(r"\.tl-new-badge-btn\s*\{[^}]*overflow:\s*visible", css)
 

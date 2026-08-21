@@ -991,27 +991,28 @@ body.lightbox-open { overflow: hidden; }
 .tl-new-badge.show { display: block; animation: tl-new-slide 0.25s var(--ease-standard); }
 .tl-new-badge-btn {
   display: inline-flex; align-items: center; white-space: nowrap;
-  height: 40px; padding: 0 16px 0 10px; line-height: 1; gap: 8px;
+  height: 36px; padding: 0 16px 0 12px; line-height: 1; gap: 8px;
   overflow: hidden;
   border: none; background: var(--color-accent); color: var(--color-white);
-  font-size: var(--text-sm); font-weight: var(--font-weight-semibold);
+  font-size: var(--text-body); font-weight: var(--font-weight-semibold);
   border-radius: var(--radius-pill);
   box-shadow: var(--shadow-sm); cursor: pointer;
   transition: background var(--ease-standard);
 }
 .tl-new-badge-btn:hover { background: var(--color-accent-strong); }
+.tl-new-badge-btn:hover .tl-badge-avatars > * { border-color: var(--color-accent-strong); }
 .tl-new-badge-btn:focus-visible {
   outline: 2px solid var(--color-white);
   outline-offset: 2px;
 }
 .tl-badge-arrow {
-  width: 14px; height: 14px; flex-shrink: 0;
+  width: 16px; height: 16px; flex-shrink: 0;
 }
 .tl-badge-avatars { display: inline-flex; align-items: center; isolation: isolate; }
 .tl-badge-avatars > * {
   position: relative; flex-shrink: 0;
-  width: 20px; height: 20px; border-radius: 50%;
-  border: 2px solid var(--color-white); margin-left: -8px;
+  width: 24px; height: 24px; border-radius: 50%;
+  border: 2px solid var(--color-accent); margin-left: -10px;
   box-sizing: border-box;
 }
 .tl-badge-avatars > *:nth-child(1) { z-index: 3; margin-left: 0; }
