@@ -991,13 +991,17 @@ body.lightbox-open { overflow: hidden; }
 .tl-new-badge.show { display: block; animation: tl-new-slide 0.25s var(--ease-standard); }
 .tl-new-badge-btn {
   display: inline-flex; align-items: center; white-space: nowrap;
-  height: 36px; padding: 0 16px 0 12px; line-height: 1; gap: 8px;
+  height: 40px; padding: 4px 16px; line-height: 1; gap: 0;
   overflow: hidden;
   border: none; background: var(--color-accent); color: var(--color-white);
   font-size: var(--text-body); font-weight: var(--font-weight-semibold);
   border-radius: var(--radius-pill);
-  box-shadow: var(--shadow-sm); cursor: pointer;
+  box-shadow: 0 0 8px rgba(101, 119, 134, 0.2), 0 1px 3px 1px rgba(101, 119, 134, 0.25);
+  cursor: pointer;
   transition: background var(--ease-standard);
+}
+.theme-dark .tl-new-badge-btn {
+  box-shadow: 0 0 5px rgba(217, 217, 217, 0.2), 0 1px 4px 1px rgba(217, 217, 217, 0.25);
 }
 .tl-new-badge-btn:hover { background: var(--color-accent-strong); }
 .tl-new-badge-btn:hover .tl-badge-avatars > * { border-color: var(--color-accent-strong); }
@@ -1006,13 +1010,16 @@ body.lightbox-open { overflow: hidden; }
   outline-offset: 2px;
 }
 .tl-badge-arrow {
-  width: 16px; height: 16px; flex-shrink: 0;
+  width: 20px; height: 20px; flex-shrink: 0;
 }
-.tl-badge-avatars { display: inline-flex; align-items: center; isolation: isolate; }
+.tl-badge-avatars {
+  display: inline-flex; align-items: center; isolation: isolate;
+  margin-inline: 4px 6px;
+}
 .tl-badge-avatars > * {
   position: relative; flex-shrink: 0;
-  width: 24px; height: 24px; border-radius: 50%;
-  border: 2px solid var(--color-accent); margin-left: -10px;
+  width: 32px; height: 32px; border-radius: 50%;
+  border: 1px solid var(--color-accent); margin-left: -12px;
   box-sizing: border-box;
 }
 .tl-badge-avatars > *:nth-child(1) { z-index: 3; margin-left: 0; }

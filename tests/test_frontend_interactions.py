@@ -844,19 +844,27 @@ def test_timeline_type_roles_follow_four_step_ramp():
 
 
 def test_new_badge_avatars_fit_inside_capsule():
-    """新帖胶囊跟 X：36px 条、24px 头像、圈色跟蓝底，不能探出。"""
+    """新帖胶囊跟 X NewTweetsPill：40px 条、32px 头像、1px 同色圈、-12px 叠、X 小阴影。"""
     css = STYLE_CSS.read_text()
+    js = APP_JS.read_text()
     btn = re.search(r"^\.tl-new-badge-btn\s*\{([^}]*)\}", css, re.M)
     av = re.search(r"^\.tl-badge-avatars > \*\s*\{([^}]*)\}", css, re.M)
+    arrow = re.search(r"^\.tl-badge-arrow\s*\{([^}]*)\}", css, re.M)
     assert btn, "缺少 .tl-new-badge-btn"
-    assert "height: 36px" in btn.group(1)
+    assert "height: 40px" in btn.group(1)
+    assert "padding: 4px 16px" in btn.group(1)
     assert "overflow: hidden" in btn.group(1)
     assert "var(--text-body)" in btn.group(1)
+    assert "0 0 8px rgba(101, 119, 134, 0.2)" in btn.group(1)
     assert av, "缺少胶囊头像尺寸"
-    assert "width: 24px" in av.group(1) and "height: 24px" in av.group(1)
-    assert "var(--color-accent)" in av.group(1)
+    assert "width: 32px" in av.group(1) and "height: 32px" in av.group(1)
+    assert "border: 1px solid var(--color-accent)" in av.group(1)
+    assert "margin-left: -12px" in av.group(1)
     assert "var(--color-white)" not in av.group(1)
-    assert "52px" not in av.group(1)
+    assert "52px" not in av.group(1) and "24px" not in av.group(1)
+    assert arrow, "缺少箭头尺寸"
+    assert "width: 20px" in arrow.group(1) and "height: 20px" in arrow.group(1)
+    assert 'd="M12 3.59l7.457 7.45-1.414 1.42L13 7.41V21h-2V7.41l-5.043 5.05-1.414-1.42L12 3.59z"' in js
     assert not re.search(r"\.tl-new-badge-btn\s*\{[^}]*overflow:\s*visible", css)
 
 
