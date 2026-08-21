@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from .base import Fetcher
 from .combination import CombinationFetcher
+from .ima import ImaFetcher
 from .twitter import TwitterFetcher
 from .weibo import WeiboFetcher
 from .xueqiu import XueqiuFetcher
+from .zsxq import ZsxqFetcher
 
 
 def build_fetchers(config, db) -> dict[str, Fetcher]:
@@ -14,4 +16,6 @@ def build_fetchers(config, db) -> dict[str, Fetcher]:
         "combination": CombinationFetcher(config.sources.xueqiu, db),
         "weibo": WeiboFetcher(config.sources.weibo, db),
         "twitter": TwitterFetcher(db=db),
+        "ima": ImaFetcher(config.sources.ima, db),
+        "zsxq": ZsxqFetcher(db=db),
     }

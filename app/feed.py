@@ -41,7 +41,7 @@ def _item_description(post: dict) -> str:
         parts.append(f"<p>🗂 {html.escape(str(post['category_name']))}</p>")
     if body:
         parts.append(f"<p>{body.replace(chr(10), '<br>')}</p>")
-    if post.get("url"):
+    if post.get("platform") != "zsxq" and post.get("url"):
         parts.append(f'<p><a href="{html.escape(str(post["url"]))}">查看原文</a></p>')
     return "".join(parts)
 

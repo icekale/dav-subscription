@@ -82,3 +82,9 @@ def test_cache_avatar_blocks_internal_url(tmp_path):
     assert url_safety.is_safe_http_url(url) is False
     assert cache_avatar(db, kid, url, client=client) == url
     assert requested == []
+
+
+def test_headers_for_zsxq():
+    from app.avatar_cache import headers_for
+    assert headers_for("https://images.zsxq.com/abc")["Referer"] == "https://wx.zsxq.com/"
+    assert headers_for("https://wx2.sinaimg.cn/x.jpg")["Referer"] == "https://weibo.com/"

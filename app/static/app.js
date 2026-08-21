@@ -1,7 +1,7 @@
 const $ = (sel) => document.querySelector(sel);
 
-const PLATFORM_LABELS = { xueqiu: "雪球", combination: "雪球组合", weibo: "微博", twitter: "X" };
-const PLATFORM_SHORT_LABELS = { xueqiu: "雪球", combination: "组合", weibo: "微博", twitter: "X" };
+const PLATFORM_LABELS = { xueqiu: "雪球", combination: "雪球组合", weibo: "微博", twitter: "X", ima: "ima", zsxq: "知识星球" };
+const PLATFORM_SHORT_LABELS = { xueqiu: "雪球", combination: "组合", weibo: "微博", twitter: "X", ima: "ima", zsxq: "星球" };
 function platformShortLabel(p) {
   return p ? (PLATFORM_SHORT_LABELS[p] || PLATFORM_LABELS[p]) : "全部";
 }
@@ -11,6 +11,7 @@ const PLATFORM_ICONS = {
   combination: `<svg class="pt-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>`,
   weibo: `<svg class="pt-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10.098 20.323c-3.977.391-7.414-1.406-7.672-4.02-.259-2.609 2.759-5.047 6.74-5.441 3.979-.394 7.413 1.404 7.671 4.018.259 2.6-2.759 5.049-6.737 5.439l-.002.004zM9.05 17.219c-.384.616-1.208.884-1.829.602-.612-.279-.793-.991-.406-1.593.379-.595 1.176-.861 1.793-.601.622.263.82.972.442 1.592zm1.27-1.627c-.141.237-.449.353-.689.253-.236-.09-.313-.361-.177-.586.138-.227.436-.346.672-.24.239.09.315.36.18.601l.014-.028zm.176-2.719c-1.893-.493-4.033.45-4.857 2.118-.836 1.704-.026 3.591 1.886 4.21 1.983.64 4.318-.341 5.132-2.179.8-1.793-.201-3.642-2.161-4.149zm7.563-1.224c-.346-.105-.57-.18-.405-.615.375-.977.42-1.804 0-2.404-.781-1.112-2.915-1.053-5.364-.03 0 0-.766.331-.571-.271.376-1.217.315-2.224-.27-2.809-1.338-1.337-4.869.045-7.888 3.08C1.309 10.87 0 13.273 0 15.348c0 3.981 5.099 6.395 10.086 6.395 6.536 0 10.888-3.801 10.888-6.82 0-1.822-1.547-2.854-2.915-3.284v.01zm1.908-5.092c-.766-.856-1.908-1.187-2.96-.962-.436.09-.706.511-.616.932.09.42.511.691.932.602.511-.105 1.067.044 1.442.465.376.421.466.977.316 1.473-.136.406.089.856.51.992.405.119.857-.105.992-.512.33-1.021.12-2.178-.646-3.035l.03.045zm2.418-2.195c-1.576-1.757-3.905-2.419-6.054-1.968-.496.104-.812.587-.706 1.081.104.496.586.813 1.082.707 1.532-.331 3.185.15 4.296 1.383 1.112 1.246 1.429 2.943.947 4.416-.165.48.106 1.007.586 1.157.479.165.991-.104 1.157-.586.675-2.088.241-4.478-1.338-6.235l.03.045z"/></svg>`,
   twitter: `<svg class="pt-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M14.234 10.162 22.977 0h-2.072l-7.591 8.824L7.251 0H.258l9.168 13.343L.258 24H2.33l8.016-9.318L16.749 24h6.993zm-2.837 3.299-.929-1.329L3.076 1.56h3.182l5.965 8.532.929 1.329 7.754 11.09h-3.182z"/></svg>`,
+  zsxq: `<svg class="pt-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="5"/><ellipse cx="12" cy="12" rx="10" ry="3.6" transform="rotate(-25 12 12)"/></svg>`,
 };
 const CHANNEL_ICONS = {
   telegram: `<svg class="ch-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>`,
@@ -21,7 +22,7 @@ const CHANNEL_ICONS = {
 const CHANNEL_LABELS = { telegram: "Telegram", feishu: "飞书", wecom: "企业微信", bark: "Bark" };
 const USER_CHANNEL_KEYS = ["telegram", "feishu", "wecom", "bark"];
 const APP_VERSION = "1.12.24";
-const PLATFORM_TABS = ["", "xueqiu", "combination", "weibo", "twitter"];
+const PLATFORM_TABS = ["", "xueqiu", "combination", "weibo", "twitter", "zsxq"];
 const STATS_TABS = ["overview", "health", "config", "cookies", "proxies"];
 const TL_PLATFORMS = PLATFORM_TABS.map((p) => [p, p ? PLATFORM_LABELS[p] : "全部"]);
 const STAR_SVG = `<svg class="star-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5l2.95 5.98 6.6.96-4.78 4.66 1.13 6.58L12 17.6l-5.9 3.1 1.13-6.58L2.45 9.44l6.6-.96L12 2.5z"/></svg>`;
@@ -1502,7 +1503,9 @@ function renderTimelineFeed() {
     ? `<div class="toolbar tl-feed-more"><button class="btn-normal" onclick="timelineLoadMore()">加载更多</button></div>`
     : (posts.length ? `<p class="muted tl-feed-end">已加载全部</p>` : "");
   const hasFilter = state.timelineQ || state.timelinePlatform || state.timelineCategory || state.timelineTag;
-  const emptyMsg = state.timelineFavorite && !hasFilter
+  const emptyMsg = state.timelinePlatform === "zsxq"
+    ? "星球动态不混入「全部」，订阅后会出现在这里"
+    : state.timelineFavorite && !hasFilter
     ? "还没有特别关注大V的动态"
     : (hasFilter ? "没有符合条件的动态" : "还没有订阅任何大V");
   const emptyAction = hasFilter
@@ -1583,6 +1586,14 @@ function feedDateBucket(s) {
   return "更早";
 }
 
+function postFiles(post) {
+  let d = post.detail;
+  if (typeof d === "string" && d) {
+    try { d = JSON.parse(d); } catch { return []; }
+  }
+  return Array.isArray(d?.files) ? d.files.filter((f) => f && (f.url || f.name)) : [];
+}
+
 function postCard(post) {
   const safeUrl = /^https?:\/\//i.test(post.url || "") ? post.url : "#";
   const body = post.content || "（无正文）";
@@ -1616,13 +1627,25 @@ function postCard(post) {
             <a class="post-img-link" href="#" onclick="event.preventDefault();openLightbox(this.querySelector('img'))" aria-label="查看大图"><img src="${escapeHtml(img)}" loading="lazy" alt="" onerror="imgOnError(this)"></a>`).join("")}
           ${post.images.length > 4 ? `<span class="post-images-more">+${post.images.length - 4}</span>` : ""}
         </div>` : ""}
+      ${postFiles(post).map((f) => {
+        // 已本地缓存（url=/zsxq-files/...）直接访问；否则走认证代理拉取并落盘
+        const local = (f.url || "").startsWith("/zsxq-files/") ? f.url : "";
+        const href = local
+          ? local
+          : (f.file_id
+              ? `/api/media/zsxq-file/${encodeURIComponent(f.file_id)}?token=${encodeURIComponent(state.token || "")}`
+              : (f.url || ""));
+        return href
+          ? `<a class="p-file" href="${escapeHtml(href)}" target="_blank" rel="noopener">📎 ${escapeHtml(f.name || "附件")}</a>`
+          : `<span class="p-file">📎 ${escapeHtml(f.name || "附件")}</span>`;
+      }).join("")}
       <div class="p-meta">
         ${post.category_name ? `<span class="cat">${escapeHtml(post.category_name)}</span>` : ""}
         ${post.post_type === "reply" ? `<span class="cat">回复</span>` : ""}
         ${Array.isArray(post.tags) && post.tags.length
           ? post.tags.map((t) => `<button type="button" class="cat cat-tag post-tag-filter" data-tag="${escapeHtml(t)}" onclick="tlPickTag(this.dataset.tag)">${escapeHtml(t)}</button>`).join("")
           : ""}
-        <a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener">查看原文 →</a>
+        ${post.platform === "zsxq" ? "" : `<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener">查看原文 →</a>`}
       </div>
     </div>`;
 }
@@ -1659,6 +1682,7 @@ async function renderSearch(seq) {
             <option value="combination">雪球组合</option>
             <option value="weibo">微博</option>
             <option value="twitter">X</option>
+            <option value="zsxq">知识星球</option>
           </select>
           <select id="ask-category" class="form-control" style="margin:0;width:auto" aria-label="分类" required>
             <option value="">请选择分类</option>${catOptions}
@@ -1691,6 +1715,7 @@ function detectAskPlatform(link) {
   if (link.includes("xueqiu.com")) return "xueqiu";
   if (/weibo\.(com|cn)/.test(link)) return "weibo";
   if (/(^|[\/:.])x\.com|twitter\.com/.test(link)) return "twitter";
+  if (/(?:wx\.)?zsxq\.com/.test(link)) return "zsxq";
   return "";
 }
 
@@ -2588,6 +2613,13 @@ function cookieRepairItems(s) {
   } else if (hasTw && !tw.set) {
     items.push({ key: "x-missing", label: "X Cookie 未写入" });
   }
+  const hasZq = live.some((k) => k.platform === "zsxq");
+  const zqCookie = s.zsxq_cookie || {};
+  const zqErr = src.zsxq?.last_error || "";
+  if (hasZq && !zqCookie.set) items.push({ key: "zq-missing", label: "知识星球 Cookie 未写入" });
+  else if (hasZq && src.zsxq && !src.zsxq.ok && /cookie|401|1059|登录|token/i.test(zqErr)) {
+    items.push({ key: "zq-bad", label: "知识星球 Cookie 可能失效" });
+  }
   return items;
 }
 
@@ -3155,6 +3187,10 @@ async function loadAdminStats() {
   if (!routeStillActive(_adminRenderSeq)) return;
   const xq = s.xueqiu_cookie || {};
   const tw = s.twitter_cookie || {};
+  const ima = s.ima_credentials || {};
+  const zq = s.zsxq_cookie || {};
+  const zc = s.zsxq_cache || { files: 0, bytes: 0 };
+  const zcSize = fmtCacheBytes(zc.bytes);
   $("#admin-body").innerHTML = `
     <div class="settings-tabs" role="tablist" aria-label="数据源管理">
       <button type="button" class="settings-tab active" role="tab" id="tab-overview" aria-selected="true" aria-controls="st-overview" data-tab="overview" onclick="switchStatsTab('overview')">监控总览</button>
@@ -3282,6 +3318,32 @@ async function loadAdminStats() {
             </div>
           </div>
           <div class="cfg-group">
+            <p class="cfg-group-title">知识星球</p>
+            <div class="cfg-fields">
+              <label class="cfg-field" title="每星球每轮最多翻几页，每页 20 条">
+                <span>单轮翻页<span class="cfg-unit">页</span></span>
+                <input id="pc-zq-pages" type="number" class="form-control" min="1" max="20" value="${s.polling_config.zsxq_max_pages ?? 3}">
+              </label>
+              <label class="cfg-field" title="列表/详情请求间隔，过短容易触发 1059">
+                <span>请求间隔<span class="cfg-unit">秒</span></span>
+                <input id="pc-zq-delay" type="number" class="form-control" min="0.2" max="10" step="0.1" value="${s.polling_config.zsxq_fetch_delay_seconds ?? 1}">
+              </label>
+              <label class="cfg-field" title="附件 download_url 请求间隔，过短容易撞日限">
+                <span>附件间隔<span class="cfg-unit">秒</span></span>
+                <input id="pc-zq-file-delay" type="number" class="form-control" min="0.2" max="10" step="0.1" value="${s.polling_config.zsxq_file_delay_seconds ?? 1}">
+              </label>
+              <label class="cfg-field cfg-check" title="抓到新帖时就把 PDF 拉到本地；默认关闭，点开再下，省日限">
+                <input id="pc-zq-prefetch" type="checkbox" ${s.polling_config.zsxq_prefetch_files ? "checked" : ""}>
+                <span>抓取时预缓存附件</span>
+                <span class="cfg-check-desc">打开后新帖 PDF 会立刻落到本地，费配额；默认点开再下</span>
+              </label>
+            </div>
+            <p class="muted" id="zq-cache-stat" style="margin-top:12px">附件缓存 ${zcSize} / ${zc.files || 0} 个文件</p>
+            <div class="toolbar" style="margin-top:8px">
+              <button type="button" class="btn-ghost" onclick="purgeZsxqCache()">清理未引用</button>
+            </div>
+          </div>
+          <div class="cfg-group">
             <p class="cfg-group-title">保活与定时</p>
             <div class="cfg-fields">
               <label class="cfg-field" title="雪球保活探测间隔；0 = 关闭自动保活">
@@ -3334,6 +3396,30 @@ async function loadAdminStats() {
         <div class="toolbar" style="margin-top:12px">
           <button type="button" class="btn-normal" onclick="saveTwitterCookie()">保存 X Cookie</button>
           <button type="button" class="btn-ghost" onclick="pasteCookieField('tw-cookie')">从剪贴板填入</button>
+        </div>
+      </section>
+      <section class="section-panel">
+        <header class="section-head"><div><h3 class="section-title">ima 凭证</h3>
+        <p class="section-meta">模式：${ima.mode || "未配置"}${ima.openapi_clientid?.set ? ` · clientid ${escapeHtml(ima.openapi_clientid.preview || "")}` : ""}。Cookie 用 scripts/ima_qr_login.py 扫码捕获（x-ima-cookie）；OpenAPI 凭证登录 ima.qq.com/agent-interface 生成，取全文必须。</p></div></header>
+        <label class="field-label">网页 Cookie（x-ima-cookie）</label>
+        <textarea id="ima-cookie" class="form-control cookie-paste" rows="3" placeholder="IMA-TOKEN=...; IMA-UID=..."></textarea>
+        <label class="field-label" style="margin-top:8px;display:block">OpenAPI Client ID / API Key</label>
+        <input id="ima-cid" class="form-control" placeholder="Client ID" style="margin-top:6px">
+        <input id="ima-key" class="form-control" placeholder="API Key" style="margin-top:6px" type="password">
+        <div class="toolbar" style="margin-top:12px">
+          <button type="button" class="btn-normal" onclick="saveImaCredentials()">保存 ima 凭证</button>
+          <button type="button" class="btn-ghost" onclick="pasteCookieField('ima-cookie')">从剪贴板填入 Cookie</button>
+        </div>
+      </section>
+      <section class="section-panel">
+        <header class="section-head">
+          <div><h3 class="section-title">知识星球 Cookie</h3>
+          <p class="section-meta">${cookieUpdatedLabel(zq)}${zq.preview ? ` · 预览 ${escapeHtml(zq.preview)}` : ""}。登录 wx.zsxq.com → F12 → Application → Cookies，复制整串（需含 zsxq_access_token），保存即时生效。</p></div>
+        </header>
+        <textarea id="zq-cookie" class="form-control cookie-paste" rows="3" placeholder="zsxq_access_token=..."></textarea>
+        <div class="toolbar" style="margin-top:12px">
+          <button type="button" class="btn-normal" onclick="saveZsxqCookie()">保存知识星球 Cookie</button>
+          <button type="button" class="btn-ghost" onclick="pasteCookieField('zq-cookie')">从剪贴板填入</button>
         </div>
       </section>
     </div>
@@ -3479,11 +3565,35 @@ async function savePollingConfig() {
     secondary_idle_cap_seconds: Number($("#pc-sc").value),
     secondary_digest_interval_seconds: Number($("#pc-sd").value),
     secondary_min_digest_count: Number($("#pc-sd-min").value),
+    zsxq_max_pages: Number($("#pc-zq-pages").value),
+    zsxq_fetch_delay_seconds: Number($("#pc-zq-delay").value),
+    zsxq_file_delay_seconds: Number($("#pc-zq-file-delay").value),
+    zsxq_prefetch_files: $("#pc-zq-prefetch").checked,
   };
   try {
     await api("/api/admin/polling-config", { method: "PUT", body: JSON.stringify(body) });
     // 标准操作反馈 toast；不重建页面（loadAdminStats 会整页重建并跳回监控总览）
     flash("抓取设置已保存，即时生效");
+  } catch (err) {
+    flash(err.message, "error");
+  }
+}
+
+function fmtCacheBytes(bytes) {
+  const n = Number(bytes) || 0;
+  if (n <= 0) return "0 MB";
+  if (n < 1048576) return `${Math.max(1, Math.round(n / 1024))} KB`;
+  return `${(n / 1048576).toFixed(1)} MB`;
+}
+
+async function purgeZsxqCache() {
+  try {
+    const r = await api("/api/admin/zsxq-cache/purge", { method: "POST" });
+    const el = $("#zq-cache-stat");
+    if (el) {
+      el.textContent = `附件缓存 ${fmtCacheBytes(r.bytes)} / ${r.files || 0} 个文件`;
+    }
+    flash(r.deleted ? `已清理 ${r.deleted} 个未引用附件` : "没有可清理的附件");
   } catch (err) {
     flash(err.message, "error");
   }
@@ -3841,6 +3951,42 @@ async function saveXueqiuCookie() {
   }
 }
 
+async function saveZsxqCookie() {
+  const cookie = $("#zq-cookie").value.trim();
+  if (!cookie) {
+    flash("请先粘贴知识星球 Cookie", "error");
+    return;
+  }
+  try {
+    await api("/api/admin/zsxq-cookie", {
+      method: "POST",
+      body: JSON.stringify({ cookie }),
+    });
+    flash("知识星球 Cookie 已保存，即时生效");
+    history.replaceState(null, "", "#/admin/stats?tab=cookies");
+    await loadAdminStats();
+  } catch (err) {
+    flash(err.message, "error");
+  }
+}
+
+async function saveImaCredentials() {
+  const cookie = $("#ima-cookie")?.value?.trim() || "";
+  const cid = $("#ima-cid")?.value?.trim() || "";
+  const key = $("#ima-key")?.value?.trim() || "";
+  if (!cookie && !(cid && key)) { alert("需至少填 Cookie 或 OpenAPI 凭证（clientid + apikey）"); return; }
+  try {
+    await api("/api/admin/ima-credentials", {
+      method: "POST",
+      body: { cookie, openapi_clientid: cid, openapi_apikey: key },
+    });
+    alert("ima 凭证已保存");
+    loadAdminStats();
+  } catch (e) {
+    alert("保存失败: " + (e.message || e));
+  }
+}
+
 async function saveTwitterCookie() {
   const cookie = $("#tw-cookie").value.trim();
   if (!cookie) {
@@ -4143,10 +4289,11 @@ async function loadAdminKols(opts) {
             <option value="combination">雪球组合</option>
             <option value="weibo">微博</option>
             <option value="twitter">X</option>
+            <option value="zsxq">知识星球</option>
           </select>
           <select id="ad-category" class="form-control" style="margin:0;width:auto" aria-label="分类"><option value="">未分类</option>${catOptions}</select>
           <input id="ad-name" class="form-control" style="margin:0;width:200px" placeholder="昵称" aria-label="昵称">
-          <input id="ad-external" class="form-control" style="margin:0;width:300px" placeholder="user_id / uid / X主页链接 / 雪球主页链接" aria-label="外部ID或主页链接">
+          <input id="ad-external" class="form-control" style="margin:0;width:300px" placeholder="user_id / uid / 主页或星球链接" aria-label="外部ID或主页链接">
           <button class="btn-normal" id="ad-add-btn" onclick="adminAddKol()">添加</button>
         </div>
       </header>
@@ -4164,6 +4311,7 @@ async function loadAdminKols(opts) {
           <option value="combination">雪球组合</option>
           <option value="weibo">微博</option>
           <option value="twitter">X</option>
+          <option value="zsxq">知识星球</option>
         </select>
         <select id="ad-batch-category" class="form-control" style="margin:0;width:auto" aria-label="导入分类"><option value="">未分类</option>${catOptions}</select>
         <button class="btn-normal" id="ad-batch-btn" onclick="adminBatchAddKols()">批量导入</button>
@@ -5360,6 +5508,7 @@ function renderAdminPosts() {
             <option value="xueqiu" ${state.adminPostsPlatform === "xueqiu" ? "selected" : ""}>雪球</option>
             <option value="weibo" ${state.adminPostsPlatform === "weibo" ? "selected" : ""}>微博</option>
             <option value="twitter" ${state.adminPostsPlatform === "twitter" ? "selected" : ""}>X</option>
+            <option value="zsxq" ${state.adminPostsPlatform === "zsxq" ? "selected" : ""}>知识星球</option>
           </select>
           <select id="ad-posts-kol" class="form-control" style="margin:0;width:auto" onchange="adminFilterPosts()">${kolsHtml}</select>
           <button class="btn-normal" onclick="adminFilterPosts()">筛选</button>
@@ -6451,6 +6600,7 @@ async function router() {
     if (page === "home") await renderHome(renderSeq);
     else if (page === "combinations") await renderCombinations(renderSeq);
     else if (page === "mysubs") await renderMySubs(renderSeq);
+    else if (page === "zsxq") { state.timelinePlatform = "zsxq"; location.replace("#/timeline"); return; }
     else if (page === "timeline") await renderTimeline(renderSeq);
     else if (page === "settings") await renderSettings(renderSeq);
     else if (page === "more") await renderMore(renderSeq);

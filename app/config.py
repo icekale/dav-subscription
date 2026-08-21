@@ -79,9 +79,17 @@ class WeiboConfig:
 
 
 @dataclass
+class ImaConfig:
+    cookie: str = ""
+    openapi_clientid: str = ""
+    openapi_apikey: str = ""
+
+
+@dataclass
 class SourcesConfig:
     xueqiu: XueqiuConfig = field(default_factory=XueqiuConfig)
     weibo: WeiboConfig = field(default_factory=WeiboConfig)
+    ima: ImaConfig = field(default_factory=ImaConfig)
 
 
 @dataclass

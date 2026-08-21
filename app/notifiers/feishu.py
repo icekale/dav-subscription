@@ -8,7 +8,7 @@ import time
 
 import httpx
 
-from ..fetchers.base import PLATFORM_LABELS, Post, digest_body, truncate_text
+from ..fetchers.base import PLATFORM_LABELS, Post, digest_body, show_original, truncate_text
 from ..url_safety import safe_get
 from .base import Notifier, why_badges
 
@@ -142,7 +142,11 @@ def build_feishu_card(post: Post, favorite: bool = False, keyword: bool = False)
                         "tag": "div",
                         "text": {"tag": "lark_md", "content": "\n".join(meta_lines)},
                     },
-                    _open_url_button("查看原文", post.url, button_type="primary"),
+                    *(
+                        [_open_url_button("查看原文", post.url, button_type="primary")]
+                        if show_original(post.platform, post.url)
+                        else []
+                    ),
                 ]
             },
         },
@@ -232,7 +236,7 @@ def build_feishu_digest_card(posts: list[Post], kol_name: str, platform: str) ->
         if time_line:
             text += f"\n{time_line}"
         elements.append({"tag": "div", "text": {"tag": "lark_md", "content": text}})
-        if post.url:
+        if show_original(post.platform, post.url):
             elements.append(
                 _open_url_button(
                     f"查看原文 {i}" if numbered else "查看原文",
@@ -272,7 +276,7 @@ def build_feishu_daily_card(posts: list[Post]) -> dict:
         if post.published_at:
             text += f"\n🕐 {post.published_at}"
         elements.append({"tag": "div", "text": {"tag": "lark_md", "content": text}})
-        if post.url:
+        if show_original(post.platform, post.url):
             elements.append(_open_url_button("查看原文", post.url))
     if len(posts) > DIGEST_MAX_ITEMS:
         elements.append(_more_note(f"… 还有 {len(posts) - DIGEST_MAX_ITEMS} 条未展示"))

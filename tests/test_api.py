@@ -158,6 +158,23 @@ def test_kol_crud_api():
     assert client.get("/api/kols", headers=headers).json() == []
 
 
+def test_admin_toggle_kol_silent():
+    """管理员切换星球的 silent（静默/推送）标志，详情接口应反映最新值。"""
+    client = make_client()
+    headers = auth_headers(client)
+    kid = client.app.state.db.add_kol("zsxq", "前沿收录", "28888112822211", silent=True)
+    # 初始：静默
+    detail = client.get(f"/api/kols/{kid}", headers=headers).json()
+    assert detail["silent"] == 1
+    # 开启推送（silent=false）
+    r = client.put(f"/api/kols/{kid}", headers=headers, json={"silent": False})
+    assert r.status_code == 200
+    assert client.get(f"/api/kols/{kid}", headers=headers).json()["silent"] == 0
+    # 再关回静默
+    client.put(f"/api/kols/{kid}", headers=headers, json={"silent": True})
+    assert client.get(f"/api/kols/{kid}", headers=headers).json()["silent"] == 1
+
+
 def test_kol_add_with_xueqiu_homepage_link():
     client = make_client()
     headers = auth_headers(client)
@@ -704,6 +721,8 @@ def test_kol_request_input_validation():
     assert submit("twitter", "https://x.com/elonmusk").status_code == 200
     assert submit("twitter", "@jack").status_code == 200
     assert submit("twitter", "twitter.com/nasa").status_code == 200
+    assert submit("zsxq", "https://wx.zsxq.com/dweb2/index/group/28888112822211").status_code == 200
+    assert submit("zsxq", "28888112822212").status_code == 200
 
     # 无效信息：拒绝并提示
     bad("xueqiu", "https://xueqiu.com/S/SH600000", "无法识别")
@@ -723,11 +742,13 @@ def test_kol_request_input_validation():
     bad("xueqiu", "https://twitter.com/elonmusk", "「X」")
     bad("weibo", "https://x.com/elonmusk", "「X」")
     bad("twitter", "https://weibo.com/u/2003", "微博")
+    bad("xueqiu", "https://wx.zsxq.com/group/28888112822213", "知识星球")
+    bad("zsxq", "https://example.com/foo", "无法识别")
 
     # 通过的申请都存了归一化后的 ID
     ids = {r["external_id"] for r in db.list_kol_requests()}
     assert "1001" in ids and "ZH900001" in ids and "ZH900002" in ids
-    assert {"elonmusk", "jack", "nasa"} <= ids
+    assert {"elonmusk", "jack", "nasa", "28888112822211", "28888112822212"} <= ids
     assert not any(r["external_id"].startswith("http") for r in db.list_kol_requests())
 
 
@@ -2225,6 +2246,78 @@ def test_polling_config_frequency_tiers():
     assert resp.status_code == 400
 
 
+def test_polling_config_zsxq_fields():
+    """知识星球翻页/间隔/预缓存：GET 默认、PUT 保存、超范围被拒。"""
+    client = make_client()
+    headers = auth_headers(client)
+    cfg = client.get("/api/admin/polling-config", headers=headers).json()
+    assert cfg["zsxq_max_pages"] == 3
+    assert cfg["zsxq_fetch_delay_seconds"] == 1.0
+    assert cfg["zsxq_file_delay_seconds"] == 1.0
+    assert cfg["zsxq_prefetch_files"] is False
+
+    resp = client.put(
+        "/api/admin/polling-config",
+        headers=headers,
+        json={
+            "zsxq_max_pages": 5,
+            "zsxq_fetch_delay_seconds": 0.5,
+            "zsxq_file_delay_seconds": 2.0,
+            "zsxq_prefetch_files": True,
+        },
+    )
+    assert resp.status_code == 200
+    got = resp.json()
+    assert got["zsxq_max_pages"] == 5
+    assert got["zsxq_fetch_delay_seconds"] == 0.5
+    assert got["zsxq_file_delay_seconds"] == 2.0
+    assert got["zsxq_prefetch_files"] is True
+    assert client.get("/api/admin/polling-config", headers=headers).json()["zsxq_prefetch_files"] is True
+
+    assert client.put(
+        "/api/admin/polling-config",
+        headers=headers,
+        json={"zsxq_max_pages": 21},
+    ).status_code == 400
+    assert client.put(
+        "/api/admin/polling-config",
+        headers=headers,
+        json={"zsxq_fetch_delay_seconds": 0.1},
+    ).status_code == 400
+
+
+def test_zsxq_cache_stats_and_purge():
+    """stats 带附件缓存占用；purge 只删未引用文件。"""
+    client = make_client()
+    headers = auth_headers(client)
+    db = client.app.state.db
+    files_dir = Path(db.path).parent / "zsxq_files"
+    files_dir.mkdir(parents=True, exist_ok=True)
+    (files_dir / "22.pdf").write_bytes(b"keep")
+    (files_dir / "99.pdf").write_bytes(b"xxxx")
+    kid = db.add_kol("zsxq", "g", "123")
+    db.insert_post(
+        "zsxq",
+        kid,
+        "t1",
+        "t",
+        "c",
+        "u",
+        "2026-08-20",
+        detail={"files": [{"file_id": "22", "name": "a.pdf", "url": "/zsxq-files/22.pdf"}]},
+    )
+    stats = client.get("/api/stats", headers=headers).json()
+    assert stats["zsxq_cache"]["files"] == 2
+    assert stats["zsxq_cache"]["bytes"] == 8
+    resp = client.post("/api/admin/zsxq-cache/purge", headers=headers)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["deleted"] == 1
+    assert body["files"] == 1
+    assert (files_dir / "22.pdf").exists()
+    assert not (files_dir / "99.pdf").exists()
+
+
 def test_posts_search_and_push_log_filters():
     client = make_client()
     headers = auth_headers(client)
@@ -2648,6 +2741,65 @@ def test_my_feed_hides_secondary_by_default():
     admin_headers = {"Authorization": f"Bearer {admin_reg.json()['token']}"}
     admin_feed = client.get("/api/my/feed", headers=admin_headers).json()
     assert [p["external_id"] for p in admin_feed] == ["p1"]
+
+
+def test_my_feed_hides_zsxq_unless_filtered():
+    """星球默认次要：不混入全部；角标或特别关注才看见。"""
+    client = make_client()
+    db = client.app.state.db
+    xq = db.add_kol("xueqiu", "雪球大V", "x1")
+    zq = db.add_kol("zsxq", "前沿信息收录", "28888112822211")
+    kol = db.get_kol(zq)
+    assert kol["secondary"] == 1 and kol["silent"] == 1
+    reg = register(client, "zsxqfeed")
+    headers = {"Authorization": f"Bearer {reg.json()['token']}"}
+    uid = reg.json()["user"]["id"]
+    db.add_subscription(uid, xq, type="post")
+    db.add_subscription(uid, zq, type="post")
+    db.insert_post("xueqiu", xq, "xq1", "雪球帖", "正文", "u1", "")
+    db.insert_post("zsxq", zq, "zq1", "#调研纪要#", "附件", "u2", "")
+
+    feed = client.get("/api/my/feed", headers=headers).json()
+    assert [p["external_id"] for p in feed] == ["xq1"]
+    zsxq = client.get("/api/my/feed?platform=zsxq", headers=headers).json()
+    assert [p["external_id"] for p in zsxq] == ["zq1"]
+    db.set_subscription_favorite(uid, zq, True)
+    feed = client.get("/api/my/feed", headers=headers).json()
+    assert [p["external_id"] for p in feed] == ["zq1", "xq1"]
+    daily = db.list_daily_posts([xq, zq], 0, 15)
+    assert [p["external_id"] for p in daily] == ["xq1"]
+
+
+def test_admin_zsxq_cookie_and_add_from_link():
+    client = make_client()
+    headers = auth_headers(client)
+    assert client.get("/api/admin/zsxq-cookie", headers=headers).json()["set"] is False
+    assert (
+        client.post(
+            "/api/admin/zsxq-cookie",
+            headers=headers,
+            json={"cookie": "zsxq_access_token=abc123"},
+        ).status_code
+        == 200
+    )
+    cookie = client.get("/api/admin/zsxq-cookie", headers=headers).json()
+    assert cookie["set"] is True
+    assert client.get("/api/stats", headers=headers).json()["zsxq_cookie"]["set"] is True
+    cid = client.app.state.db.add_category("知识星球")
+    resp = client.post(
+        "/api/kols",
+        headers=headers,
+        json={
+            "platform": "zsxq",
+            "name": "前沿",
+            "external_id": "https://wx.zsxq.com/dweb2/index/group/28888112822211",
+            "category_id": cid,
+        },
+    )
+    assert resp.status_code == 200
+    kol = resp.json()
+    assert kol["external_id"] == "28888112822211"
+    assert kol["secondary"] == 1 and kol["silent"] == 1
 
 
 def test_wechat_login(monkeypatch):
@@ -4446,3 +4598,35 @@ def test_proxy_extract_and_test_endpoints(monkeypatch):
     probed = client.post(f"/api/admin/proxies/{items[0]['id']}/test", headers=headers)
     assert probed.status_code == 200
     assert probed.json()["ok"] is True
+
+
+def test_zsxq_file_download_ascii_safe_disposition():
+    """本地已缓存附件直接读磁盘经 FileResponse 返回；Content-Disposition 用 ASCII 安全 filename*。"""
+    tmp = Path(tempfile.mkdtemp())
+    client = TestClient(create_app(config=None, db_path=tmp / "test.db"))
+    state = client.app.state
+    kid = state.db.add_kol("zsxq", "星球", "288")
+    from app.fetchers.base import Post
+    state.db.insert_posts_batch([
+        Post(
+            platform="zsxq", kol_id=kid, kol_name="星球", external_id="t1",
+            title="pdf", content="c", url="https://wx.zsxq.com/group/288/t1",
+            published_at="2026-08-20 10:00",
+            detail={"files": [{"file_id": "181528458481522", "name": "红书20260820.pdf", "url": ""}]},
+        )
+    ])
+    # 预置本地缓存文件 -> 走 FileResponse，不触发任何网络下载
+    (tmp / "zsxq_files").mkdir(parents=True, exist_ok=True)
+    (tmp / "zsxq_files" / "181528458481522.pdf").write_bytes(b"%PDF-1.7 data")
+
+    h = auth_headers(client)
+    resp = client.get("/api/media/zsxq-file/181528458481522", headers=h)
+    assert resp.status_code == 200, resp.text
+    assert resp.content == b"%PDF-1.7 data"
+    cd = resp.headers.get("content-disposition", "")
+    assert "filename*=UTF-8''%E7%BA%A2" in cd
+
+    token = h["Authorization"].replace("Bearer ", "")
+    resp2 = client.get(f"/api/media/zsxq-file/181528458481522?token={token}")
+    assert resp2.status_code == 200, resp2.text
+    assert resp2.content == b"%PDF-1.7 data"

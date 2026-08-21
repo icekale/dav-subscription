@@ -22,6 +22,10 @@ llm:
   model: "gpt-4o-mini"
 
 sources:
+  ima:
+    cookie: ''          # 网页 x-ima-cookie（列表/摘要）
+    openapi_clientid: ''  # OpenAPI 凭证（取全文）
+    openapi_apikey: ''    # 登录 https://ima.qq.com/agent-interface 生成
   xueqiu:
     cookie: ""        # 可选：浏览器登录雪球后复制 Cookie，推荐配置
   weibo:

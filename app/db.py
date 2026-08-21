@@ -388,7 +388,7 @@ CREATE INDEX IF NOT EXISTS idx_subscriptions_kol_id ON subscriptions(kol_id);
 CREATE INDEX IF NOT EXISTS idx_source_events_platform ON source_events(platform, created_at);
 """
 
-ALLOWED_PLATFORMS = {"xueqiu", "combination", "weibo", "twitter"}
+ALLOWED_PLATFORMS = {"xueqiu", "combination", "weibo", "twitter", "ima", "zsxq"}
 
 
 class DB:
@@ -490,6 +490,19 @@ class DB:
             self._conn.execute("ALTER TABLE kols ADD COLUMN category_id INTEGER")
         if "secondary" not in cols:
             self._conn.execute("ALTER TABLE kols ADD COLUMN secondary INTEGER NOT NULL DEFAULT 0")
+        if "silent" not in cols:
+            self._conn.execute("ALTER TABLE kols ADD COLUMN silent INTEGER NOT NULL DEFAULT 0")
+        if "priority" not in cols:
+            self._conn.execute("ALTER TABLE kols ADD COLUMN priority INTEGER NOT NULL DEFAULT 0")
+        # 知识星球默认次要：只跑一次，避免覆盖管理员后来改回的「普通」
+        if (self.get_setting("zsxq_default_secondary_v1") or "") != "1":
+            self._conn.execute(
+                "UPDATE kols SET secondary = 1 WHERE platform = 'zsxq' AND COALESCE(priority, 0) = 0"
+            )
+            self._conn.execute(
+                "INSERT INTO settings (key, value) VALUES ('zsxq_default_secondary_v1', '1') "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+            )
         push_cols = {row["name"] for row in self._rows("PRAGMA table_info(push_logs)")}
         if "user_id" not in push_cols:
             self._conn.execute("ALTER TABLE push_logs ADD COLUMN user_id INTEGER")
@@ -545,8 +558,6 @@ class DB:
             ")"
         )
         kol_cols = {row["name"] for row in self._rows("PRAGMA table_info(kols)")}
-        if "priority" not in kol_cols:
-            self._conn.execute("ALTER TABLE kols ADD COLUMN priority INTEGER NOT NULL DEFAULT 0")
         if "is_private" not in kol_cols:
             self._conn.execute("ALTER TABLE kols ADD COLUMN is_private INTEGER NOT NULL DEFAULT 0")
         if "avatar_url" not in kol_cols:
@@ -730,6 +741,7 @@ class DB:
         priority: bool = False,
         secondary: bool = False,
         original_only: bool = False,
+        silent: bool = False,
     ) -> int:
         if platform not in ALLOWED_PLATFORMS:
             raise ValueError(f"不支持的平台: {platform}")
@@ -738,12 +750,16 @@ class DB:
             (platform, external_id),
         ):
             raise ValueError("该大V已存在")
+        if platform == "zsxq":
+            silent = True
+            if not priority:
+                secondary = True
         if priority and secondary:
             secondary = False  # 互斥：priority 优先（与 update_kol 行为一致）
         try:
             return self._execute(
-                "INSERT INTO kols (platform, name, external_id, category_id, priority, secondary, original_only, baseline_ready) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, 0)",
+                "INSERT INTO kols (platform, name, external_id, category_id, priority, secondary, original_only, baseline_ready, silent) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)",
                 (
                     platform,
                     name,
@@ -752,6 +768,7 @@ class DB:
                     1 if priority else 0,
                     1 if secondary else 0,
                     1 if original_only else 0,
+                    1 if silent else 0,
                 ),
             )
         except sqlite3.IntegrityError:
@@ -923,6 +940,7 @@ class DB:
         priority=_UNSET,
         secondary=_UNSET,
         is_private=_UNSET,
+        silent=_UNSET,
     ):
         sets, params = [], []
         if name is not None:
@@ -953,6 +971,9 @@ class DB:
         if is_private is not _UNSET:
             sets.append("is_private = ?")
             params.append(1 if is_private else 0)
+        if silent is not _UNSET:
+            sets.append("silent = ?")
+            params.append(1 if silent else 0)
         if not sets:
             return
         params.append(kol_id)
@@ -1955,7 +1976,16 @@ class DB:
                             tags_json,
                         ),
                     )
-                    ids.append(cur.lastrowid if cur.rowcount else None)
+                    if cur.rowcount:
+                        ids.append(cur.lastrowid)
+                    else:
+                        ids.append(None)
+                        # 星球附件/图片签名 URL 会过期，已存在帖回写最新 files+images
+                        if p.platform == "zsxq":
+                            self._conn.execute(
+                                "UPDATE posts SET images = ?, detail = ? WHERE platform = ? AND external_id = ?",
+                                (images_json, detail_json, p.platform, p.external_id),
+                            )
                 self._conn.commit()
                 return ids
             except Exception:
@@ -2073,9 +2103,10 @@ class DB:
         placeholders = ", ".join("?" * len(kol_ids))
         conds = [f"p.kol_id IN ({placeholders})"]
         params: list = [user_id, *kol_ids]
-        if not include_secondary:
+        if not include_secondary and not platform:
             # 默认隐藏次要大V的动态（全局 kols.secondary 或个人订阅 secondary）：
             # 避免连珠炮式发言刷屏时间线；特别关注（favorite）穿透始终显示
+            # 点平台角标时不隐藏次要，否则高频星球角标会空
             conds.append(
                 "(s.favorite = 1 OR (COALESCE(k.secondary, 0) = 0 AND COALESCE(s.secondary, 0) = 0))"
             )
@@ -2132,6 +2163,7 @@ class DB:
             "LEFT JOIN categories c ON c.id = k.category_id "
             "LEFT JOIN subscriptions s ON s.kol_id = p.kol_id AND s.user_id = ? "
             f"WHERE p.kol_id IN ({placeholders}) AND strftime('%s', p.fetched_at) >= ? "
+            "AND COALESCE(k.silent, 0) = 0 "
             "ORDER BY p.id DESC LIMIT ?",
             (user_id, *kol_ids, since_ts, limit),
         )))

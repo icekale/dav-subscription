@@ -952,6 +952,10 @@ def _fetch_kol_once(
             logger.info("基线入库 platform=%s kol=%s id=%s", post.platform, post.kol_name, post.external_id)
             continue  # 首轮仅入库建基线，历史帖不推送；后续轮次新帖正常推送
         logger.info("新帖 platform=%s kol=%s id=%s", post.platform, post.kol_name, post.external_id)
+        if kol.get("silent"):
+            # 静默源：只入库建基线/记录，不推送到任何渠道（高频星球防轰炸用）
+            logger.info("静默源入库不打推送 platform=%s kol=%s id=%s", post.platform, post.kol_name, post.external_id)
+            continue
         if not kol.get("priority") and kol["platform"] != "combination":
             if kol.get("secondary"):
                 if secondary_buffer is not None:

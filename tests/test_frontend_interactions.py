@@ -305,8 +305,8 @@ def test_platform_tabs_always_show_short_labels():
     assert ".platform-tab:focus-visible" in css
 
 
-def test_mobile_mysubs_filter_is_six_equal_44px_targets():
-    """订阅/动态移动端：5 平台 + 星标/筛选共 6 等宽 44px 角标，文字仅 aria。"""
+def test_mobile_mysubs_filter_is_seven_equal_44px_targets():
+    """订阅/动态移动端：6 平台 + 星标/筛选共 7 等宽 44px 角标，文字仅 aria。"""
     css = STYLE_CSS.read_text()
     pill = re.search(r"\.tl-pill\s*\{([^}]*)\}", css)
     assert pill and "44px" in pill.group(1)
@@ -317,6 +317,7 @@ def test_mobile_mysubs_filter_is_six_equal_44px_targets():
     assert ".icon-badge-bar > .fav-toggle" in css and "font-size: 0" in css
     assert 'class="icon-badge-bar"' in _fn_body("renderHome")
     assert 'class="tl-filterbar-top icon-badge-bar"' in _fn_body("renderTimeline")
+    assert "repeat(7, minmax(0, 1fr))" in css
     # 不再把筛选条竖着堆成两行
     mobile = re.search(r"@media \(max-width: 768px\) \{(.*)\}\s*/\* ----------", css, re.DOTALL)
     body = mobile.group(1) if mobile else css
@@ -347,7 +348,29 @@ def test_mobile_home_filter_reuses_native_and_shared_controls():
     assert 'toggleAttribute("hidden"' in toggle
     assert "loadHomeKols(routeRenderSeq)" in pick
     assert "state.homeQ || state.homeCategory" in _fn_body("homeHasFilters")
+
+
+def test_zsxq_is_plaza_badge_not_sidebar_page():
+    """知识星球走动态广场角标，不单独占侧栏；旧 #/zsxq 跳回时间线。"""
+    src = APP_JS.read_text()
+    css = STYLE_CSS.read_text()
+    assert '"zsxq"' in src and "PLATFORM_TABS" in src
+    assert 'zsxq: "星球"' in src
+    assert "PLATFORM_ICONS" in src and "rotate(-25 12 12)" in src
+    assert 'route: "zsxq"' not in src
+    assert "async function renderZsxq" not in src
+    assert 'location.replace("#/timeline")' in src
+    assert "--color-brand-zsxq" in css
+    assert 'data-platform="zsxq"' in css
     assert "state.platform" not in _fn_body("homeHasFilters")
+    assert "function postFiles" in src
+    assert 'post.platform === "zsxq"' in _fn_body("postCard")
+    assert "class=\"p-file\"" in _fn_body("postCard")
+    assert "/api/media/zsxq-file/" in _fn_body("postCard")
+    assert 'return "zsxq"' in _fn_body("detectAskPlatform")
+    assert 'option value="zsxq"' in _fn_body("renderSearch")
+    assert "saveZsxqCookie()" in src
+    assert "星球动态不混入" in _fn_body("renderTimelineFeed")
 
 
 # ---- 设置页保存按钮对齐 ----
@@ -729,6 +752,7 @@ def test_stats_cookie_repair_deep_link():
     assert "#/admin/stats?tab=" in _fn_body("switchStatsTab")
     assert "statsTabFromHash()" in _fn_body("loadAdminStats")
     assert "saveTwitterCookie()" in _fn_body("loadAdminStats")
+    assert "saveZsxqCookie()" in _fn_body("loadAdminStats")
     assert "pasteCookieField('xq-cookie')" in _fn_body("loadAdminStats")
     banner = _fn_body("cookieRepairBanner")
     assert "switchStatsTab('cookies')" in banner
@@ -736,6 +760,31 @@ def test_stats_cookie_repair_deep_link():
     repair = _fn_body("cookieRepairItems")
     assert "xueqiu_probe_alert_at" not in repair
     assert "src.xueqiu && !src.xueqiu.ok" in repair
+
+
+def test_admin_stats_has_zsxq_cache_settings():
+    """抓取设置里有知识星球组；保存带上翻页/间隔/预缓存；清理走独立接口不整页重建。"""
+    stats = _fn_body("loadAdminStats")
+    assert "知识星球" in stats
+    assert "pc-zq-pages" in stats
+    assert "pc-zq-delay" in stats
+    assert "pc-zq-file-delay" in stats
+    assert "pc-zq-prefetch" in stats
+    assert "zq-cache-stat" in stats
+    assert "purgeZsxqCache()" in stats
+    save = _fn_body("savePollingConfig")
+    assert "zsxq_max_pages" in save
+    assert "zsxq_fetch_delay_seconds" in save
+    assert "zsxq_file_delay_seconds" in save
+    assert "zsxq_prefetch_files" in save
+    purge = _fn_body("purgeZsxqCache")
+    assert "/api/admin/zsxq-cache/purge" in purge
+    assert "loadAdminStats" not in purge
+    fmt = _fn_body("fmtCacheBytes")
+    assert 'return "0 MB"' in fmt
+    assert "KB" in fmt
+    assert "fmtCacheBytes(" in stats
+    assert "fmtCacheBytes(" in purge
 
 
 def test_post_header_does_not_clip_platform_or_time():

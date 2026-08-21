@@ -7,6 +7,8 @@ import re
 import secrets
 import sqlite3
 import time
+
+import httpx
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 
@@ -18,11 +20,12 @@ from fastapi import (
     File,
     Header,
     HTTPException,
+    Query,
     Request,
     Response,
     UploadFile,
 )
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
 from . import auth, wechat
@@ -38,11 +41,30 @@ from .fetchers.twitter import (
     resolve_x_profile,
 )
 from .fetchers.weibo import WEIBO_COOKIE_KEY, resolve_weibo_profile
+from .fetchers.ima import (
+    IMA_API_KEY_KEY,
+    IMA_CLIENT_ID_KEY,
+    IMA_COOKIE_KEY,
+    IMA_COOKIE_TIME_KEY,
+)
 from .fetchers.xueqiu import (
     XUEQIU_COOKIE_KEY,
     XUEQIU_COOKIE_TIME_KEY,
     resolve_profile,
     write_xueqiu_seed_cookie,
+)
+from .fetchers.zsxq import (
+    DEFAULT_DELAY,
+    DEFAULT_FILE_DELAY,
+    ZSXQ_COOKIE_KEY,
+    ZSXQ_COOKIE_TIME_KEY,
+    _delay,
+    _max_pages,
+    prefetch_enabled,
+    purge_unreferenced_zsxq_files,
+    resolve_zsxq_file_url,
+    resolve_zsxq_profile,
+    zsxq_cache_stats,
 )
 from .proxy import (
     ProxyRouter,
@@ -112,6 +134,10 @@ def _detect_platform_from_link(text: str) -> str | None:
         return "weibo"
     if re.search(r"(?:^|[/:.])x\.com|twitter\.com", text):
         return "twitter"
+    if "ima.qq.com" in text:
+        return "ima"
+    if re.search(r"(?:wx\.)?zsxq\.com", text):
+        return "zsxq"
     return None
 
 
@@ -149,6 +175,21 @@ def _normalize_kol_request_input(platform: str, raw: str) -> tuple[str, str | No
         if text.isdigit():
             return text, None
         return "", "无法识别的微博主页链接，请复制对方主页「.../u/<数字UID>」形式的链接"
+    if platform == "ima":
+        if "ima.qq.com" in text:
+            m = re.search(r"knowledgeBaseId=([0-9A-Za-z_-]+)", text)
+            if m:
+                return m.group(1), None
+        if re.fullmatch(r"[0-9A-Za-z_-]{6,64}", text):
+            return text, None
+        return "", "无法识别的 ima 知识库链接，请使用 wiki URL 里的 knowledgeBaseId（或直接填知识库 ID）"
+    if platform == "zsxq":
+        m = re.search(r"(?:group/|group_id=)(\d{6,})", text)
+        if m:
+            return m.group(1), None
+        if text.isdigit():
+            return text, None
+        return "", "无法识别的知识星球链接，请使用 wx.zsxq.com 群链接或星球 ID"
     if platform == "twitter":
         m = re.search(r"(?:x|twitter)\.com/([A-Za-z0-9_]+)", text)
         if m:
@@ -320,6 +361,7 @@ class KolUpdate(BaseModel):
     is_private: bool | None = None
     visible_users: list[str] | None = None
     original_only: bool | None = None
+    silent: bool | None = None
 
 
 class KolBatchAction(BaseModel):
@@ -403,10 +445,20 @@ class PollingConfigIn(BaseModel):
     secondary_idle_cap_seconds: int | None = None
     secondary_digest_interval_seconds: int | None = None
     secondary_min_digest_count: int | None = None
+    zsxq_max_pages: int | None = None
+    zsxq_fetch_delay_seconds: float | None = None
+    zsxq_file_delay_seconds: float | None = None
+    zsxq_prefetch_files: bool | None = None
 
 
 class CookieIn(BaseModel):
     cookie: str
+
+
+class ImaCredentialsIn(BaseModel):
+    cookie: str | None = None
+    openapi_clientid: str | None = None
+    openapi_apikey: str | None = None
 
 
 class ProxyPoolIn(BaseModel):
@@ -633,6 +685,10 @@ def _do_approve_kol_request(
         avatar_url = profile.get("avatar_url") or ""
     elif req["platform"] == "twitter":
         profile = resolve_x_profile(req["external_id"], db=db)
+        name = name or profile.get("name") or ""
+        avatar_url = profile.get("avatar_url") or ""
+    elif req["platform"] == "zsxq":
+        profile = resolve_zsxq_profile(req["external_id"], db=db)
         name = name or profile.get("name") or ""
         avatar_url = profile.get("avatar_url") or ""
     name = name or f"{req['platform']}_{req['external_id']}"
@@ -969,9 +1025,16 @@ def create_api_router(
         out["translate_twitter_content"] = (
             db.get_setting("config_translate_twitter_content") == "1"
         )
+        out["zsxq_max_pages"] = _max_pages(db)
+        out["zsxq_fetch_delay_seconds"] = _delay(db, "zsxq_fetch_delay_seconds", DEFAULT_DELAY)
+        out["zsxq_file_delay_seconds"] = _delay(db, "zsxq_file_delay_seconds", DEFAULT_FILE_DELAY)
+        out["zsxq_prefetch_files"] = prefetch_enabled(db)
         return out
 
-    def get_current_user(authorization: str | None = Header(None)):
+    def get_current_user(authorization: str | None = Header(None), token: str | None = Query(None)):
+        # 浏览器 <a href> / <img> 整页导航不带 Authorization 头，允许 token 走 query
+        if not (authorization and authorization.startswith("Bearer ")) and token:
+            authorization = f"Bearer {token}"
         token = ""
         if authorization and authorization.startswith("Bearer "):
             token = authorization[7:]
@@ -1676,6 +1739,9 @@ def create_api_router(
     def list_register_codes():
         return db.list_register_codes()
 
+    def _cred_preview(value: str) -> str:
+        return (value[:8] + "…") if len(value or "") > 8 else (value or "")
+
     def _cookie_status(key: str, time_key: str) -> dict:
         cookie = db.get_setting(key) or ""
         return {
@@ -1723,6 +1789,25 @@ def create_api_router(
                 "1" if body.translate_twitter_content else "0",
             )
             changed.append("translate_twitter_content")
+        if body.zsxq_max_pages is not None:
+            if not (1 <= body.zsxq_max_pages <= 20):
+                raise HTTPException(status_code=400, detail="zsxq_max_pages 需在 1-20 之间")
+            db.set_setting("zsxq_max_pages", str(body.zsxq_max_pages))
+            changed.append("zsxq_max_pages")
+        for name, lo, hi in (
+            ("zsxq_fetch_delay_seconds", 0.2, 10.0),
+            ("zsxq_file_delay_seconds", 0.2, 10.0),
+        ):
+            value = getattr(body, name)
+            if value is None:
+                continue
+            if not (lo <= value <= hi):
+                raise HTTPException(status_code=400, detail=f"{name} 需在 {lo}-{hi} 之间")
+            db.set_setting(name, str(value))
+            changed.append(name)
+        if body.zsxq_prefetch_files is not None:
+            db.set_setting("zsxq_prefetch_files", "1" if body.zsxq_prefetch_files else "0")
+            changed.append("zsxq_prefetch_files")
         _audit(admin, "update_polling_config", "", ",".join(changed))
         return _effective_polling()
 
@@ -1750,6 +1835,202 @@ def create_api_router(
         db.set_setting(TWITTER_COOKIE_KEY, cookie)
         db.set_setting(TWITTER_COOKIE_TIME_KEY, str(int(time.time())))
         _audit(admin, "set_twitter_cookie", "", f"len={len(cookie)}")
+        return {"ok": True}
+
+    @router.get("/admin/zsxq-cookie", dependencies=[Depends(require_admin)])
+    def get_zsxq_cookie():
+        status = _cookie_status(ZSXQ_COOKIE_KEY, ZSXQ_COOKIE_TIME_KEY)
+        if not status["set"]:
+            env = os.environ.get("ZSXQ_COOKIE") or os.environ.get("ZSXQ_ACCESS_TOKEN", "")
+            if env:
+                status = {
+                    "set": True,
+                    "updated_at": "",
+                    "preview": (env[:40] + "…") if len(env) > 40 else env,
+                    "from_env": True,
+                }
+        return status
+
+    @router.post("/admin/zsxq-cookie", dependencies=[Depends(require_admin)])
+    def set_zsxq_cookie(body: CookieIn, admin: dict = Depends(require_admin)):
+        raw = body.cookie.strip()
+        if not raw:
+            raise HTTPException(status_code=400, detail="cookie 不能为空")
+        cookie = raw.split("=")[-1].strip() if ("=" in raw or ";" in raw) else raw.strip()
+        if not cookie:
+            raise HTTPException(status_code=400, detail="cookie 不能为空")
+        db.set_setting(ZSXQ_COOKIE_KEY, cookie)
+        db.set_setting(ZSXQ_COOKIE_TIME_KEY, str(int(time.time())))
+        _audit(admin, "set_zsxq_cookie", "", f"len={len(cookie)}")
+        return {"ok": True}
+
+    @router.post("/admin/zsxq-cache/purge", dependencies=[Depends(require_admin)])
+    def purge_zsxq_cache(admin: dict = Depends(require_admin)):
+        result = purge_unreferenced_zsxq_files(db)
+        _audit(admin, "purge_zsxq_cache", "", f"deleted={result['deleted']}")
+        return result
+
+    def _zsxq_file_name(file_id: str) -> str:
+        import json as _json
+
+        for row in db._rows(
+            "SELECT detail FROM posts WHERE platform='zsxq' AND detail LIKE ?",
+            (f"%{file_id}%",),
+        ):
+            detail = row.get("detail") or ""
+            try:
+                files = (_json.loads(detail) if isinstance(detail, str) else detail).get("files") or []
+            except Exception:
+                files = []
+            for f in files:
+                if str(f.get("file_id")) == file_id and f.get("name"):
+                    return str(f["name"])
+        return ""
+
+    def _stored_zsxq_url(file_id: str):
+        """库里已有的未过期签名 URL；缺失/过期返回空串。签名 URL e= 为过期时间戳。"""
+        now = int(time.time())
+        for row in db._rows(
+            "SELECT detail FROM posts WHERE platform='zsxq' AND detail LIKE ?",
+            (f"%{file_id}%",),
+        ):
+            detail = row.get("detail") or ""
+            try:
+                import json as _json
+
+                files = (_json.loads(detail) if isinstance(detail, str) else detail).get("files") or []
+            except Exception:
+                files = []
+            for f in files:
+                if str(f.get("file_id")) != file_id:
+                    continue
+                u = str(f.get("url") or "")
+                if not u:
+                    continue
+                m = re.search(r"[?&]e=(\d+)", u)
+                if not m or int(m.group(1)) > now:
+                    return u
+        return ""
+
+    def _zsxq_cd(name: str, fallback: str) -> str:
+        """ASCII 安全的 RFC5987 Content-Disposition，避免 UTF-8 撞 Starlette latin-1 头。"""
+        from urllib.parse import quote
+
+        n = name or fallback
+        return (
+            f"attachment; filename=\"{''.join(c for c in n if ord(c) < 128) or 'download'}\"; "
+            f"filename*=UTF-8''{quote(n)}"
+        )
+
+    def _write_back_zsxq_url(file_id: str, name: str, local_url: str) -> None:
+        """把落盘后的本地 URL 写回库里该文件的 files[].url，供列表直接展示。"""
+        import json as _json
+
+        for row in db._rows(
+            "SELECT id, detail FROM posts WHERE platform='zsxq' AND detail LIKE ?",
+            (f"%{file_id}%",),
+        ):
+            detail = row.get("detail") or ""
+            try:
+                d = _json.loads(detail) if isinstance(detail, str) else detail
+            except Exception:
+                continue
+            files = d.get("files") or []
+            changed = False
+            for f in files:
+                if str(f.get("file_id")) == file_id:
+                    f["url"] = local_url
+                    changed = True
+            if changed:
+                db._conn.execute(
+                    "UPDATE posts SET detail=? WHERE id=?",
+                    (_json.dumps(d, ensure_ascii=False), row["id"]),
+                )
+        db._conn.commit()
+
+    @router.get("/media/zsxq-file/{file_id}")
+    def download_zsxq_file(file_id: str, user: dict = Depends(get_current_user)):
+        if not file_id.isdigit() or len(file_id) > 32:
+            raise HTTPException(status_code=400, detail="无效附件")
+        from pathlib import Path as _Path
+
+        name = _zsxq_file_name(file_id)
+        db_path = str(getattr(db, "path", "") or "")
+        # 1) 本地已缓存 → 直接读本地，永久可用、不碰配额/签名过期
+        files_dir = _Path(db_path).parent / "zsxq_files" if db_path and db_path != ":memory:" else None
+        if files_dir and files_dir.exists():
+            hits = sorted(files_dir.glob(f"{file_id}.*"))
+            if hits:
+                return FileResponse(
+                    str(hits[0]),
+                    media_type="application/octet-stream",
+                    headers={"Content-Disposition": _zsxq_cd(name, hits[0].name)},
+                )
+        # 2) 无本地缓存 → 拿签名 URL（优先库中未过期，避免烧配额）并落盘
+        remote = _stored_zsxq_url(file_id)
+        if not remote:
+            try:
+                remote = resolve_zsxq_file_url(file_id, db=db)
+            except Exception as exc:
+                # 13607/20601 下载量异常/日限：把真实原因告诉用户而不是裸 502
+                raise HTTPException(status_code=429, detail=f"附件下载受限：{exc}") from exc
+        if not remote:
+            raise HTTPException(status_code=502, detail="附件暂时无法下载")
+        from .url_safety import is_safe_http_url
+
+        if not is_safe_http_url(remote):
+            raise HTTPException(status_code=502, detail="附件地址不安全")
+        from .fetchers.zsxq import cache_zsxq_file
+
+        local = cache_zsxq_file(db, file_id, name, remote)
+        if local:
+            _write_back_zsxq_url(file_id, name, local)
+            fp = files_dir / _Path(local).name
+            return FileResponse(
+                str(fp),
+                media_type="application/octet-stream",
+                headers={"Content-Disposition": _zsxq_cd(name, _Path(local).name)},
+            )
+        raise HTTPException(status_code=502, detail="附件下载失败")
+
+    @router.get("/admin/ima-credentials", dependencies=[Depends(require_admin)])
+    def get_ima_credentials():
+        cookie = db.get_setting(IMA_COOKIE_KEY) or os.environ.get("IMA_COOKIE", "")
+        client_id = db.get_setting(IMA_CLIENT_ID_KEY) or os.environ.get("IMA_OPENAPI_CLIENTID", "")
+        api_key = db.get_setting(IMA_API_KEY_KEY) or os.environ.get("IMA_OPENAPI_APIKEY", "")
+        return {
+            "cookie": {
+                "set": bool(cookie),
+                "updated_at": db.get_setting(IMA_COOKIE_TIME_KEY) or "",
+                "preview": (cookie[:40] + "…") if len(cookie) > 40 else cookie,
+                "from_env": bool(cookie) and not db.get_setting(IMA_COOKIE_KEY),
+            },
+            "openapi_clientid": {"set": bool(client_id), "preview": (client_id[:12] + "…") if len(client_id) > 12 else client_id},
+            "openapi_apikey": {"set": bool(api_key), "preview": (api_key[:8] + "…") if len(api_key) > 8 else api_key},
+            "mode": "openapi" if (client_id and api_key) else ("cookie" if cookie else "none"),
+        }
+
+    @router.post("/admin/ima-credentials", dependencies=[Depends(require_admin)])
+    def set_ima_credentials(body: ImaCredentialsIn, admin: dict = Depends(require_admin)):
+        cookie = (body.cookie or "").strip()
+        client_id = (body.openapi_clientid or "").strip()
+        api_key = (body.openapi_apikey or "").strip()
+        if not cookie and not (client_id and api_key):
+            raise HTTPException(status_code=400, detail="需至少提供 ima Cookie 或 OpenAPI 凭证（clientid + apikey）")
+        if bool(client_id) != bool(api_key):
+            raise HTTPException(status_code=400, detail="OpenAPI 凭证需同时提供 clientid 与 apikey")
+        if cookie:
+            db.set_setting(IMA_COOKIE_KEY, cookie)
+            db.set_setting(IMA_COOKIE_TIME_KEY, str(int(time.time())))
+        if client_id:
+            db.set_setting(IMA_CLIENT_ID_KEY, client_id)
+            db.set_setting(IMA_API_KEY_KEY, api_key)
+        _audit(
+            admin,
+            "set_ima_credentials",
+            "",
+            f"cookie={'y' if cookie else 'n'} openapi={'y' if client_id else 'n'}",
+        )
         return {"ok": True}
 
     def _validate_pool_fields(kind: str, protocol: str, extract_url: str) -> None:
@@ -2177,6 +2458,11 @@ def create_api_router(
         elif body.platform == "weibo":
             # 支持直接粘贴微博主页链接，自动提取 UID
             external_id = _normalize_weibo_id(external_id)
+        elif body.platform == "zsxq":
+            ext, err = _normalize_kol_request_input("zsxq", external_id)
+            if err:
+                raise HTTPException(status_code=400, detail=err)
+            external_id = ext
         elif body.platform == "twitter":
             # 与申请/批量导入同一归一化：主页链接存 screen name，推文/系统页拒绝
             if not external_id.startswith(("http://", "https://")) or re.search(
@@ -2206,6 +2492,9 @@ def create_api_router(
                 # 没填昵称时自动查 X 显示名（需 TWITTER_COOKIE，失败退回占位名）
                 profile = resolve_x_profile(external_id, db=db)
                 name = profile.get("name") or f"twitter_{external_id}"
+            elif body.platform == "zsxq":
+                profile = resolve_zsxq_profile(external_id, db=db)
+                name = profile.get("name") or f"zsxq_{external_id}"
         if body.category_id is not None and db.get_category(body.category_id) is None:
             raise HTTPException(status_code=400, detail="分类不存在")
         kid = db.add_kol(
@@ -2232,6 +2521,8 @@ def create_api_router(
                 )
             elif body.platform == "twitter":
                 profile = resolve_x_profile(external_id, db=db)
+            elif body.platform == "zsxq":
+                profile = resolve_zsxq_profile(external_id, db=db)
             else:
                 profile = {}
             if profile.get("avatar_url"):
@@ -2296,6 +2587,11 @@ def create_api_router(
                 if not nickname and profile.get("name"):
                     name = profile["name"]
                 avatar_url = profile.get("avatar_url") or ""
+            elif platform == "zsxq":
+                profile = resolve_zsxq_profile(external_id, db=db)
+                if not nickname and profile.get("name"):
+                    name = profile["name"]
+                avatar_url = profile.get("avatar_url") or ""
             try:
                 kid = db.add_kol(
                     platform,
@@ -2348,6 +2644,8 @@ def create_api_router(
         )
         if "is_private" in body.model_fields_set and body.is_private is not None:
             db.update_kol(kol_id, is_private=body.is_private)
+        if "silent" in body.model_fields_set and body.silent is not None:
+            db.update_kol(kol_id, silent=body.silent)
         if "original_only" in body.model_fields_set and body.original_only is not None:
             db.update_kol(kol_id, original_only=body.original_only)
         if "visible_users" in body.model_fields_set and body.visible_users is not None:
@@ -2713,6 +3011,16 @@ def create_api_router(
                     "preview": (env_tw[:40] + "…") if len(env_tw) > 40 else env_tw,
                     "from_env": True,
                 }
+        zsxq_status = _cookie_status(ZSXQ_COOKIE_KEY, ZSXQ_COOKIE_TIME_KEY)
+        if not zsxq_status["set"]:
+            env_zq = os.environ.get("ZSXQ_COOKIE") or os.environ.get("ZSXQ_ACCESS_TOKEN", "")
+            if env_zq:
+                zsxq_status = {
+                    "set": True,
+                    "updated_at": "",
+                    "preview": (env_zq[:40] + "…") if len(env_zq) > 40 else env_zq,
+                    "from_env": True,
+                }
         last_post_at = db.last_post_time_by_kol()
         kol_health = [
             {
@@ -2751,7 +3059,16 @@ def create_api_router(
                 "preview": (weibo_cookie[:40] + "…") if len(weibo_cookie) > 40 else weibo_cookie,
             },
             "twitter_cookie": twitter_status,
+            "zsxq_cookie": zsxq_status,
+            "ima_credentials": {
+                "mode": ("openapi" if (db.get_setting(IMA_CLIENT_ID_KEY) or os.environ.get("IMA_OPENAPI_CLIENTID", "")) and (db.get_setting(IMA_API_KEY_KEY) or os.environ.get("IMA_OPENAPI_APIKEY", "")) else ("cookie" if db.get_setting(IMA_COOKIE_KEY) or os.environ.get("IMA_COOKIE", "") else "none")),
+                "openapi_clientid": {
+                    "set": bool(db.get_setting(IMA_CLIENT_ID_KEY) or os.environ.get("IMA_OPENAPI_CLIENTID", "")),
+                    "preview": _cred_preview(db.get_setting(IMA_CLIENT_ID_KEY) or os.environ.get("IMA_OPENAPI_CLIENTID", "")),
+                },
+            },
             "polling_config": _effective_polling(),
+            "zsxq_cache": zsxq_cache_stats(db),
             "recent_source_events": db.recent_source_events(30),
             "kol_health": kol_health,
             "retry_pending": int(db.get_setting("stats_retry_pending") or 0),

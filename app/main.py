@@ -254,6 +254,13 @@ def create_app(config=None, db_path: str | Path | None = None) -> FastAPI:
     xq_images_dir = Path(config.db_path).parent / "xq_images"
     xq_images_dir.mkdir(parents=True, exist_ok=True)
     app.mount("/xq-images", StaticFiles(directory=xq_images_dir), name="xq-images")
+    zsxq_images_dir = Path(config.db_path).parent / "zsxq_images"
+    zsxq_images_dir.mkdir(parents=True, exist_ok=True)
+    app.mount("/zsxq-images", StaticFiles(directory=zsxq_images_dir), name="zsxq-images")
+    # 知识星球附件本地缓存：一次拉齐，永久可用，不依赖 zsxq 每日下载配额/签名 URL 过期
+    zsxq_files_dir = Path(config.db_path).parent / "zsxq_files"
+    zsxq_files_dir.mkdir(parents=True, exist_ok=True)
+    app.mount("/zsxq-files", StaticFiles(directory=zsxq_files_dir), name="zsxq-files")
     app.mount(
         "/",
         _NoCacheStaticFiles(directory=Path(__file__).parent / "static", html=True),

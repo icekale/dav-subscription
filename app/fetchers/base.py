@@ -10,7 +10,19 @@ from datetime import datetime, timedelta, timezone
 
 # 项目面向中文社交平台，发布时间统一按北京时间展示，避免依赖服务器时区
 CN_TZ = timezone(timedelta(hours=8))
-PLATFORM_LABELS = {"xueqiu": "雪球", "combination": "雪球组合", "weibo": "微博", "twitter": "X"}
+PLATFORM_LABELS = {
+    "xueqiu": "雪球",
+    "combination": "雪球组合",
+    "weibo": "微博",
+    "twitter": "X",
+    "ima": "ima",
+    "zsxq": "知识星球",
+}
+
+
+def show_original(platform: str, url: str | None) -> bool:
+    """星球原文需登录且无稳定外链，广场/推送都不放「查看原文」。"""
+    return bool(url) and platform != "zsxq"
 
 
 @dataclass
@@ -97,7 +109,7 @@ def attachment_lines(post: Post, note: str = "（链接可能过期）") -> list
     for f in files:
         name = str(f.get("name") or "附件") if isinstance(f, dict) else "附件"
         url = str(f.get("url") or "") if isinstance(f, dict) else ""
-        if url:
+        if url.startswith(("http://", "https://")):
             lines.append(f"📎 {name}\n   {url} {note}")
     return lines
 

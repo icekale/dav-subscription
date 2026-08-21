@@ -4,6 +4,7 @@ const PLATFORM_LABELS = {
   combination: "雪球组合",
   weibo: "微博",
   twitter: "X",
+  ima: "ima",
 };
 
 const SUB_TYPE_LABELS = {

@@ -265,6 +265,38 @@ def test_new_post_pushed_once(monkeypatch):
     assert len(db.list_posts()) == 2
 
 
+def test_silent_kol_inserts_but_does_not_push(monkeypatch):
+    """静默源（silent=1，用于高频星球）：新帖入库但完全不推送到渠道。"""
+    db = make_db()
+    kid = db.add_kol("zsxq", "前沿问答", "28888112822211", silent=True)
+    seed_baseline_post(db, kid)
+    uid = db.add_user("u", "h", telegram_chat_id="111")
+    db.add_subscription(uid, kid)
+    post = make_post(kid)
+    post.platform = "zsxq"
+    calls = []
+
+    class FakeTG:
+        def __init__(self, config, chat_id=None, client=None, **kwargs):
+            self.client = SimpleNamespace(close=lambda: None)
+
+        def notify(self, post):
+            calls.append(post.external_id)
+
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", FakeTG)
+    ncfg = SimpleNamespace(
+        telegram=SimpleNamespace(bot_token="t", chat_id=""),
+        feishu=SimpleNamespace(),
+        wecom=SimpleNamespace(),
+    )
+    poll_once(db, {"zsxq": FakeFetcher([post])}, [], notifiers_config=ncfg)
+    # 帖子已入库（静默源仍保留内容供页面浏览）
+    assert any(p["external_id"] == post.external_id for p in db.list_posts())
+    # 但没有任何推送
+    assert calls == []
+    assert db.list_push_logs() == []
+
+
 def test_fetch_error_does_not_crash():
     db = make_db()
     db.add_kol("xueqiu", "A", "1")

@@ -15,6 +15,7 @@ from ..fetchers.base import (
     Post,
     attachment_lines,
     digest_body,
+    show_original,
     truncate_text,
 )
 from ..url_safety import safe_get
@@ -70,7 +71,8 @@ def build_telegram_text(post: Post, favorite: bool = False, keyword: bool = Fals
         ]
     )
     lines.extend(attachment_lines(post))
-    lines.append(f'🔗 <a href="{escape(post.url)}">查看原文</a>')
+    if show_original(post.platform, post.url):
+        lines.append(f'🔗 <a href="{escape(post.url)}">查看原文</a>')
     return "\n".join(lines)
 
 
@@ -108,7 +110,7 @@ def _numbered_url_rows(posts: list[Post], max_items: int) -> list[list[dict]]:
     rows: list[list[dict]] = []
     row: list[dict] = []
     for i, post in enumerate(posts[:max_items], 1):
-        if not post.url:
+        if not show_original(post.platform, post.url):
             continue
         row.append({"text": f"{i} 🔗", "url": post.url})
         if len(row) == 5:
@@ -132,7 +134,11 @@ def build_telegram_digest(posts: list[Post], kol_name: str, platform: str) -> st
         prefix = f"{i}. " if numbered else ""
         lines.append(f"{prefix}{escape(body)}")
         time_line = f"🕐 {escape(post.published_at)}" if post.published_at else ""
-        link = f'🔗 <a href="{escape(post.url)}">查看原文</a>' if post.url else ""
+        link = (
+            f'🔗 <a href="{escape(post.url)}">查看原文</a>'
+            if show_original(post.platform, post.url)
+            else ""
+        )
         meta = " · ".join(x for x in (time_line, link) if x)
         if meta:
             lines.append(f"　{meta}")
@@ -153,7 +159,7 @@ def build_telegram_daily(posts: list[Post]) -> str:
         meta_parts = []
         if post.published_at:
             meta_parts.append(f"🕐 {escape(post.published_at)}")
-        if post.url:
+        if show_original(post.platform, post.url):
             meta_parts.append(f'🔗 <a href="{escape(post.url)}">查看原文</a>')
         if meta_parts:
             lines.append(f"　{' · '.join(meta_parts)}")
@@ -173,7 +179,7 @@ def build_telegram_dnd_summary(posts: list[Post], title: str | None = None) -> s
         prefix = f"{i}. " if numbered else ""
         lines.append(f"{prefix}<b>{escape(post.kol_name)}</b> · {escape(body)}")
         time_line = f"🕐 {escape(post.published_at)}" if post.published_at else ""
-        link = f'🔗 <a href="{escape(post.url)}">原文</a>' if post.url else ""
+        link = f'🔗 <a href="{escape(post.url)}">原文</a>' if show_original(post.platform, post.url) else ""
         meta = " · ".join(x for x in (time_line, link) if x)
         if meta:
             lines.append(f"　{meta}")
@@ -243,7 +249,11 @@ class TelegramNotifier(Notifier):
         self._send_text_message(post)
 
     def _send_text_message(self, post: Post) -> None:
-        keyboard = [[{"text": "🔗 查看原文", "url": post.url}]]
+        keyboard = (
+            [[{"text": "🔗 查看原文", "url": post.url}]]
+            if show_original(post.platform, post.url)
+            else []
+        )
         text = (
             build_combination_text(post)
             if post.platform == "combination" and post.detail

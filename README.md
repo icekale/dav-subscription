@@ -28,7 +28,7 @@
 
 ## 功能
 
-- **多源聚合**：雪球帖子/回复、雪球组合调仓、微博、X，自动去重、按发布时间顺序推送；带图动态文字+图片同卡送达（TG 相册 / 飞书卡片插图）；组合详情页提供实时净值/今日涨跌、当前持仓（权重条）与净值曲线（调仓卡自动附当日涨跌）
+- **多源聚合**：雪球帖子/回复、雪球组合调仓、微博、X、**ima 知识库**，自动去重、按发布时间顺序推送；带图动态文字+图片同卡送达（TG 相册 / 飞书卡片插图）；组合详情页提供实时净值/今日涨跌、当前持仓（权重条）与净值曲线（调仓卡自动附当日涨跌）
 - **多用户**：注册码注册，用户自助订阅/退订，各自独立的动态流与推送
 - **多通道推送**：Telegram（官方共享机器人或用户自建机器人）、飞书私聊/群、企业微信群机器人、Bark（iOS 自托管通知）；绑定多个渠道时可自选接收通道
 - **关键词提醒**：设置关键词后，命中关键词的动态带 🔑 标记、并在免打扰时段实时穿透推送（适合只关心某个大V聊的特定话题）
@@ -104,6 +104,8 @@ cp .env.example .env
 | `XUEQIU_COOKIE` | **必需** | 浏览器登录 xueqiu.com 后复制的 Cookie。雪球抓取接口必须有登录态，无/失效 cookie 会返回 400；首页续期通道已被反爬接管无法自动续期，后台「数据源 → Cookie 管理」粘贴新串即可，不用重启 |
 | `WEIBO_COOKIE` | 可选 | 浏览器登录微博后复制的 Cookie，可后台扫码登录替代 |
 | `TWITTER_COOKIE` | 可选 | 浏览器登录 x.com 后复制的完整 Cookie（直抓 X + 自动翻译中文）；也可在后台「数据源 → Cookie 管理」覆盖，无需重启 |
+| `IMA_COOKIE` | 可选 | ima 网页登录 Cookie（请求头 `x-ima-cookie`），抓列表/标题/时间/摘要/封面；可用 `scripts/ima_qr_login.py` 扫码自动捕获 |
+| `IMA_OPENAPI_CLIENTID` / `IMA_OPENAPI_APIKEY` | 可选 | ima OpenAPI 凭证（登录 https://ima.qq.com/agent-interface 生成），官方通道，**取全文必须**；对订阅的知识库原文仍受客户端限制，自动降级为摘要 |
 | `LOG_LEVEL` | 可选 | 日志级别 `INFO`/`DEBUG`（DEBUG 记录每次 API 请求与慢请求告警，便于排查） |
 | `LOG_FILE` | 可选 | 日志文件，默认 `/data/logs/app.log`（随数据卷持久化，滚动 5MB×3，重启不丢） |
 
@@ -231,6 +233,7 @@ docker compose up -d --build
 
 - **雪球**：后台「数据源 → Cookie 管理」粘贴 Cookie，保存即时生效；配置 `WEIBO_USERNAME/PASSWORD` 可自动登录续期微博 Cookie，微博也支持网页扫码登录
 - **X**：配置 `TWITTER_COOKIE` 或在「数据源 → Cookie 管理」粘贴后直抓 X 官方接口并把内容翻译成中文；直抓失败会告警并放慢采集，不再走备用内容通道
+- **ima**：知识库条目在后台按平台 `ima` 添加，`external_id` 填知识库 ID（OpenAPI 模式）或 wiki URL 的 `knowledgeBaseId`（Cookie 模式）；Cookie 用 `scripts/ima_qr_login.py` 扫码捕获；OpenAPI 凭证取全文，订阅库全文受 ima 客户端限制时自动降级为摘要（`detail.full_text` 标记是否拿到全文）
 - **反爬绕过**：X 与雪球均对裸 HTTP 客户端设了反爬（Cloudflare / 阿里云 WAF JS 挑战），本仓库已内置对应绕过——X 直抓用 curl_cffi 模拟 Chrome 指纹（`impersonate=chrome124`）；雪球 `waf-bot` sidecar 默认使用 curl_cffi + jsdom 求解器，不包含浏览器运行时，并在发布 cookie 前校验真实接口（配置了登录 cookie 时验证组合调仓接口确认登录态有效）。挑战脚本受 Node 文件系统与进程权限限制，容器同时启用只读根文件系统、仅保留数据写入所需的 `DAC_OVERRIDE` 能力和禁止提权。详见下方「常见问题」
 - **抓取频率**：后台「数据源」页可实时调整轮询间隔、优先大V间隔、次要大V间隔/封顶/推送周期/**合并推送最低条数**（积压不足此条数不推送、继续攒，够数才发）、合并推送周期等，即时生效
 

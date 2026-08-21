@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import httpx
 
-from ..fetchers.base import PLATFORM_LABELS, Post, attachment_lines, digest_body
+from ..fetchers.base import PLATFORM_LABELS, Post, attachment_lines, digest_body, show_original
 from .base import Notifier, why_badges
 
 DIGEST_MAX_ITEMS = 5
@@ -40,7 +40,7 @@ def build_wecom_text(post: Post, favorite: bool = False, keyword: bool = False) 
     if post.published_at:
         lines.append(f"🕐 {post.published_at}")
     lines.extend(attachment_lines(post))
-    if post.url:
+    if show_original(post.platform, post.url):
         lines.append(f"[查看原文]({post.url})")
     return "\n".join(lines)
 
@@ -85,7 +85,7 @@ def build_wecom_digest(posts: list[Post], kol_name: str, platform: str) -> str:
         meta_parts = []
         if post.published_at:
             meta_parts.append(f"🕐 {post.published_at}")
-        if post.url:
+        if show_original(post.platform, post.url):
             meta_parts.append(f"[查看原文]({post.url})")
         if meta_parts:
             lines.append("　" + " · ".join(meta_parts))
@@ -105,7 +105,7 @@ def build_wecom_daily(posts: list[Post]) -> str:
         meta_parts = []
         if post.published_at:
             meta_parts.append(f"🕐 {post.published_at}")
-        if post.url:
+        if show_original(post.platform, post.url):
             meta_parts.append(f"[查看原文]({post.url})")
         if meta_parts:
             lines.append("　" + " · ".join(meta_parts))
