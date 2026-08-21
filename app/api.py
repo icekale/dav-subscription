@@ -58,6 +58,8 @@ from .fetchers.zsxq import (
     DEFAULT_FILE_DELAY,
     ZSXQ_COOKIE_KEY,
     ZSXQ_COOKIE_TIME_KEY,
+    _app_channel_enabled,
+    _app_device,
     _comment_budget,
     _comments_enabled,
     _delay,
@@ -469,6 +471,8 @@ class PollingConfigIn(BaseModel):
     zsxq_fetch_comments: bool | None = None
     zsxq_max_comment_pages: int | None = None
     zsxq_comment_budget: int | None = None
+    zsxq_app_channel: bool | None = None
+    zsxq_app_device: str | None = None
 
 
 class CookieIn(BaseModel):
@@ -1054,6 +1058,8 @@ def create_api_router(
         out["zsxq_fetch_comments"] = _comments_enabled(db)
         out["zsxq_max_comment_pages"] = _max_comment_pages(db)
         out["zsxq_comment_budget"] = _comment_budget(db)
+        out["zsxq_app_channel"] = _app_channel_enabled(db)
+        out["zsxq_app_device"] = _app_device(db)
         return out
 
     def get_current_user(authorization: str | None = Header(None), token: str | None = Query(None)):
@@ -1877,6 +1883,15 @@ def create_api_router(
                 raise HTTPException(status_code=400, detail="zsxq_comment_budget 需在 1-200 之间")
             db.set_setting("zsxq_comment_budget", str(body.zsxq_comment_budget))
             changed.append("zsxq_comment_budget")
+        if body.zsxq_app_channel is not None:
+            db.set_setting("zsxq_app_channel", "1" if body.zsxq_app_channel else "0")
+            changed.append("zsxq_app_channel")
+        if body.zsxq_app_device is not None:
+            dev = body.zsxq_app_device.strip()
+            if not dev or len(dev) > 64:
+                raise HTTPException(status_code=400, detail="zsxq_app_device 需 1-64 字符")
+            db.set_setting("zsxq_app_device", dev)
+            changed.append("zsxq_app_device")
         _audit(admin, "update_polling_config", "", ",".join(changed))
         return _effective_polling()
 

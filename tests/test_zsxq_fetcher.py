@@ -583,3 +583,87 @@ def test_fetch_respects_comment_budget_per_round():
     assert len(comment_requests) == 1  # 预算只有 1 次
     assert (posts[0].detail or {}).get("comments_count") == 1
     assert "comments" not in (posts[1].detail or {})
+
+
+def test_default_headers_are_web_flavor():
+    """默认（未开 App 通道）发浏览器 UA + Origin/Referer，不带 X-Version。"""
+    seen = {}
+
+    def handler(request):
+        seen["headers"] = dict(request.headers)
+        return _ok([_topic(1, "正文")])
+
+    client = httpx.Client(transport=httpx.MockTransport(handler), timeout=10)
+    fetcher = ZsxqFetcher(db=None, client=client)
+    fetcher.fetch({"id": 9, "name": "g", "external_id": "123"})
+    h = seen["headers"]
+    assert "Mozilla/5.0" in h.get("user-agent", "")
+    assert h.get("origin") == "https://wx.zsxq.com"
+    assert "x-version" not in h
+
+
+def test_app_channel_headers_when_enabled():
+    """开 App 通道：xiaomiquan UA + X-Request-Id + X-Version，去掉 Origin/Referer。"""
+    seen = {}
+
+    class _DB:
+        def get_setting(self, key):
+            return {"zsxq_app_channel": "1"}.get(key)
+
+        def get_post_detail(self, platform, external_id):
+            return {}
+
+    def handler(request):
+        seen["headers"] = dict(request.headers)
+        return _ok([_topic(1, "正文")])
+
+    client = httpx.Client(transport=httpx.MockTransport(handler), timeout=10)
+    fetcher = ZsxqFetcher(db=_DB(), client=client)
+    fetcher.fetch({"id": 9, "name": "g", "external_id": "123"})
+    h = seen["headers"]
+    assert h.get("user-agent", "").startswith("xiaomiquan/5.27.3 Android/Phone/")
+    assert h["x-version"] == "2.81.0"
+    assert len(h.get("x-request-id", "")) == 36  # uuid4
+    assert "origin" not in h and "referer" not in h
+
+
+def test_app_channel_custom_device():
+    """自定义设备串压制空格并用于 UA。"""
+    seen = {}
+
+    class _DB:
+        def get_setting(self, key):
+            return {"zsxq_app_channel": "1", "zsxq_app_device": "14 Xiaomi M2007J3SG"}.get(key)
+
+        def get_post_detail(self, platform, external_id):
+            return {}
+
+    def handler(request):
+        seen["headers"] = dict(request.headers)
+        return _ok([_topic(1, "正文")])
+
+    client = httpx.Client(transport=httpx.MockTransport(handler), timeout=10)
+    fetcher = ZsxqFetcher(db=_DB(), client=client)
+    fetcher.fetch({"id": 9, "name": "g", "external_id": "123"})
+    assert seen["headers"]["user-agent"] == "xiaomiquan/5.27.3 Android/Phone/14_Xiaomi_M2007J3SG"
+
+
+def test_app_channel_off_by_default_even_with_device_set():
+    """只配设备串不开开关，仍用 web 头。"""
+    seen = {}
+
+    class _DB:
+        def get_setting(self, key):
+            return {"zsxq_app_device": "14 Xiaomi"}.get(key)
+
+        def get_post_detail(self, platform, external_id):
+            return {}
+
+    def handler(request):
+        seen["headers"] = dict(request.headers)
+        return _ok([_topic(1, "正文")])
+
+    client = httpx.Client(transport=httpx.MockTransport(handler), timeout=10)
+    fetcher = ZsxqFetcher(db=_DB(), client=client)
+    fetcher.fetch({"id": 9, "name": "g", "external_id": "123"})
+    assert "xiaomiquan" not in seen["headers"].get("user-agent", "")

@@ -14,6 +14,7 @@ import logging
 import os
 import re
 import time
+import uuid
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -40,6 +41,9 @@ DEFAULT_DELAY = 1.0
 DEFAULT_FILE_DELAY = 1.0
 DEFAULT_MAX_COMMENT_PAGES = 3
 DEFAULT_COMMENT_BUDGET = 30
+DEFAULT_APP_DEVICE = "16 OnePlus_PJD110"  # App 通道 UA 里的真实设备标识（Brand_Model）
+APP_VERSION = "5.27.3"
+APP_API_VERSION = "2.81.0"
 # 后台 Cookie 存储键（与雪球/ima 同一套 db settings）
 ZSXQ_COOKIE_KEY = "zsxq_cookie"
 ZSXQ_COOKIE_TIME_KEY = "zsxq_cookie_updated_at"
@@ -123,6 +127,23 @@ def _comment_budget(db) -> int:
         return DEFAULT_COMMENT_BUDGET
 
 
+def _app_channel_enabled(db) -> bool:
+    """是否用 App 通道头（默认关；后台可开）。"""
+    if not hasattr(db, "get_setting"):
+        return False
+    raw = (db.get_setting("zsxq_app_channel") or os.environ.get("ZSXQ_APP_CHANNEL", "")).strip()
+    return raw == "1"
+
+
+def _app_device(db) -> str:
+    """App 通道 UA 的设备标识（Android RELEASE + BRAND_MODEL，空格压成下划线）。"""
+    raw = ""
+    if hasattr(db, "get_setting"):
+        raw = db.get_setting("zsxq_app_device") or ""
+    raw = raw or os.environ.get("ZSXQ_APP_DEVICE", "")
+    return raw.strip() or DEFAULT_APP_DEVICE
+
+
 
 def resolve_zsxq_profile(group_id: str, db=None, token: str | None = None, client=None) -> dict:
     """GET /v2/groups/{id} → {name, avatar_url, owner_name}；失败返回空 dict。"""
@@ -133,16 +154,7 @@ def resolve_zsxq_profile(group_id: str, db=None, token: str | None = None, clien
     owns = client is None
     client = client or httpx.Client(timeout=20)
     try:
-        headers = {
-            "Accept": "application/json, text/plain, */*",
-            "Origin": "https://wx.zsxq.com",
-            "Referer": "https://wx.zsxq.com/",
-            "User-Agent": (
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
-            ),
-            "Cookie": f"zsxq_access_token={token}",
-        }
+        headers = _api_headers(token, db)
         resp = client.get(f"{API_BASE}/groups/{group_id}", headers=headers)
         data = resp.json()
         if not isinstance(data, dict) or not data.get("succeeded"):
@@ -168,16 +180,7 @@ def resolve_zsxq_file_url(file_id: str, db=None, token: str | None = None, clien
     owns = client is None
     client = client or httpx.Client(timeout=20)
     try:
-        headers = {
-            "Accept": "application/json, text/plain, */*",
-            "Origin": "https://wx.zsxq.com",
-            "Referer": "https://wx.zsxq.com/",
-            "User-Agent": (
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
-            ),
-            "Cookie": f"zsxq_access_token={token}",
-        }
+        headers = _api_headers(token, db)
         # 1059 是随机过滤：重发同样请求即可；13607/20601 是真额度/日限，直接抛错
         for attempt in range(_RETRY_1059):
             resp = client.get(f"{API_BASE}/files/{file_id}/download_url", headers=headers)
@@ -296,6 +299,31 @@ def purge_unreferenced_zsxq_files(db) -> dict:
     return {"deleted": deleted, **zsxq_cache_stats(db)}
 
 
+def _api_headers(token: str, db=None) -> dict[str, str]:
+    """按 App 通道开关选择请求头：开 → xiaomiquan UA + X-Request-Id/X-Version；关 → 浏览器 UA + Origin/Referer。"""
+    if _app_channel_enabled(db):
+        dev = _app_device(db).replace(" ", "_")
+        return {
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+            "User-Agent": f"xiaomiquan/{APP_VERSION} Android/Phone/{dev}",
+            "X-Request-Id": str(uuid.uuid4()),
+            "X-Version": APP_API_VERSION,
+            "Cookie": f"zsxq_access_token={token}",
+        }
+    return {
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        "Origin": "https://wx.zsxq.com",
+        "Referer": "https://wx.zsxq.com/",
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
+        ),
+        "Cookie": f"zsxq_access_token={token}",
+    }
+
+
 class ZsxqError(RuntimeError):
     """知识星球请求失败；携带服务端错误码（1059/20601 等），供调度退避。"""
 
@@ -373,17 +401,7 @@ class ZsxqFetcher(Fetcher):
         time.sleep(_delay(self.db, key, default))
 
     def _headers(self, token: str) -> dict[str, str]:
-        return {
-            "Accept": "application/json, text/plain, */*",
-            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-            "Origin": "https://wx.zsxq.com",
-            "Referer": "https://wx.zsxq.com/",
-            "User-Agent": (
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
-            ),
-            "Cookie": f"zsxq_access_token={token}",
-        }
+        return _api_headers(token, self.db)
 
     def _get(self, token: str, path: str, params: dict | None = None,
              delay_key: str = "zsxq_fetch_delay_seconds") -> dict:
