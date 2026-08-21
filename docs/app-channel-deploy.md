@@ -24,15 +24,26 @@
 
 后台：`/admin` 拉取设置页直接改；环境变量用于 docker-compose 部署（已透传）。
 
-## 三、wsAddress 获取（当前唯一残余未知项）
+## 三、wsAddress / 设备注册获取（剩余未知项）
+
+两个真实未知项，均**不阻塞抓取部署**（探针实测 App 头 + web token 即可读 GET）。
+
+### 3.1 wsAddress
 
 wsAddress 由登录响应写入 App 内 `Session.getWsAddress()`，改 MMKV（加密）不可直接注入。可行获取：
 
-1. **LSPosed 管理器 UI 正常启用钩子模块**（推荐，无需碰网络）：钩 `rb/a.k()` / `ws/d.j()` 打印 URL，作用域 `com.unnoo.quan`，用管理器面板启用（勿直接改 `modules_config.db` 绕过 UI——daemon 有 `no such table: configs` 的既有问题）。
+1. **LSPosed 管理器 UI 正常启用钩子模块**（推荐，无需碰网络）：钩 `rb/a.k()` / `ws/d.j()` 打印 URL，作用域 `com.unnoo.quan`，用管理器面板启用（勿直接改 `modules_config.db`——新 2.x 已改用新存储，UI 才是正路）。
 2. **后续抓包**：登录态下抓 WS 握手（需解决 App OkHttp 不走系统代理的问题——透明重定向在 macOS 上无法解码 TLS，理论上需 Linux 透明代理主机）。
-3. 手动从已抓取的任何 WS 地址填入配置。
+3. 手动从已抓取的任何 WS 地址填入配置 `zsxq_ws_address`。
 
 未拿到前：WS 长连默认关闭，抓取仍走轮询 App 通道，不影响部署。
+
+### 3.2 设备注册（G4）
+
+逆向线索：`rb/a.b()` 的 `mAduid`——App 端持久化 UUID（读/写自存储，缺失则生成），用途可能是设备注册标识；RES 侧注册参数疑似 `device_id / device_name / client_time`。
+
+- **现状**：探针实测读 GET **无需**设备注册即可成功（App 头 + token 直接可用），故服务端抓取不依赖它；仅未知是否存在需设备注册才能访问的接口/额度场景。
+- **可行获取/占位**：`mAduid` 是 App 端生成并持久化的 UUID——服务端按同一逻辑**自行生成并持久化一个固定 UUID** 作为占位（等价 `rb/a.b()`：首次生成、之后复用），存入 db 设置 `zsxq_device_id`；设备串由 `zsxq_app_device` 表达。若未来某接口确需设备注册 POST，再按捕获到的 `device_id/device_name/client_time` 补齐。当前不引入用不到的注册请求（YAGNI）。
 
 ## 四、冒烟与部署
 

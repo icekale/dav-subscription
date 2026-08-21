@@ -58,16 +58,30 @@ CODE_13607 = 13607
 _RETRY_1059 = 6
 
 
+_TOKEN_RE = re.compile(r"zsxq_access_token=([^;\s]+)")
+
+
+def _extract_token(raw: str) -> str:
+    """从 cookie 串中取 zsxq_access_token 值；兼容裸 token 与单段 'zsxq_access_token=X'。"""
+    raw = raw.strip()
+    m = _TOKEN_RE.search(raw)
+    if m:
+        return m.group(1).strip()
+    return raw.split("=")[-1].strip()
+
+
 def configured_token(db=None, override: str | None = None) -> str:
-    """后台设置的 Cookie 优先，其次环境变量。"""
+    """后台设置的 Cookie 优先，其次环境变量；返回 zsxq_access_token 值。"""
+    raw = ""
     if override:
-        return override.lstrip().split("=")[-1].strip()
-    if db is not None:
+        raw = override
+    elif db is not None:
         stored = db.get_setting(TOKEN_KEY)
         if stored:
-            return stored.strip().split("=")[-1].strip()
-    raw = os.environ.get("ZSXQ_ACCESS_TOKEN") or os.environ.get("ZSXQ_COOKIE", "")
-    return raw.strip().split("=")[-1].strip()
+            raw = stored
+    if not raw:
+        raw = os.environ.get("ZSXQ_ACCESS_TOKEN") or os.environ.get("ZSXQ_COOKIE", "")
+    return _extract_token(raw)
 
 
 def _delay(db, key: str, default: float) -> float:
