@@ -29,6 +29,12 @@ services:
       - WEIBO_TOKEN=${WEIBO_TOKEN}
       - WEIBO_USERNAME=${WEIBO_USERNAME}
       - WEIBO_PASSWORD=${WEIBO_PASSWORD}
+      # 知识星球：web token + App 通道（模拟安卓客户端，默认关）
+      - ZSXQ_COOKIE=${ZSXQ_COOKIE}
+      - ZSXQ_APP_CHANNEL=${ZSXQ_APP_CHANNEL:-0}
+      - ZSXQ_APP_DEVICE=${ZSXQ_APP_DEVICE}
+      - ZSXQ_WS_ENABLED=${ZSXQ_WS_ENABLED:-0}
+      - ZSXQ_WS_ADDRESS=${ZSXQ_WS_ADDRESS}
       # X 登录 Cookie（完整串）：直抓 X 官方接口 + 官方翻译，免 API key
       - TWITTER_COOKIE=${TWITTER_COOKIE}
       - WEB_ALLOW_REGISTER=${WEB_ALLOW_REGISTER:-true}

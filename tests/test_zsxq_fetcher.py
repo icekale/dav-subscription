@@ -3,7 +3,12 @@ import os
 import httpx
 import pytest
 
-from app.fetchers.zsxq import ZsxqFetcher, ZsxqError, configured_token, _strip_embedded_tags
+from app.fetchers.zsxq import (
+    ZsxqError,
+    ZsxqFetcher,
+    _strip_embedded_tags,
+    configured_token,
+)
 
 
 def _ok(topics, **extra):
@@ -74,7 +79,7 @@ def test_strip_embedded_tags_unquotes_title():
 
 
 def test_fetch_maps_topic_to_post_with_clean_text():
-    fetcher, handler = _make(
+    fetcher, _ = _make(
         {
             "topics": _ok([_topic(1, "第一条正文"), _topic(2, "第二条")]),
         }
@@ -260,6 +265,29 @@ def test_resolve_zsxq_file_url():
     assert resolve_zsxq_file_url("nope", token="tok", client=client) == ""
 
 
+def test_resolve_zsxq_file_url_uses_app_channel_headers():
+    """App 通道开启时，附件 download_url 请求走 xiaomiquan 头，不带 Origin/Referer。"""
+    from app.fetchers.zsxq import resolve_zsxq_file_url
+
+    seen = {}
+
+    class AppDb:
+        def get_setting(self, key):
+            return {"zsxq_app_channel": "1"}.get(key)
+
+    def handler(req):
+        seen["headers"] = dict(req.headers)
+        return httpx.Response(200, json={"succeeded": True, "resp_data": {"download_url": "https://cdn/x.pdf"}})
+
+    client = httpx.Client(transport=httpx.MockTransport(handler), timeout=10)
+    assert resolve_zsxq_file_url("22", db=AppDb(), token="tok", client=client) == "https://cdn/x.pdf"
+    h = seen["headers"]
+    assert h.get("user-agent", "").startswith("xiaomiquan/5.27.3 Android/Phone/")
+    assert "x-version" in h
+    assert "x-request-id" in h
+    assert "origin" not in h and "referer" not in h
+
+
 def test_fetch_prefers_group_api_owner_avatar(monkeypatch):
     class FakeDB:
         def __init__(self):
@@ -320,7 +348,7 @@ def test_get_retries_1059_random_filter(monkeypatch):
         def get(self, url, headers=None):
             return FakeResp()
 
-    db = ":memory:"
+    db = ":memory:"  # noqa: F841 - 语义占位，行内沿用历史写法
     fetcher = ZsxqFetcher(db=None)
     monkeypatch.setattr(fetcher, "_pause", lambda *a, **k: None)
     fetcher.client = FakeClient()

@@ -21,7 +21,7 @@ from urllib.parse import urlencode
 import httpx
 
 from ..avatar_cache import cache_avatar, cache_image_file, headers_for
-from .base import Fetcher, Post, ThreadLocalClient, format_published_at, strip_html
+from .base import Fetcher, Post, ThreadLocalClient, format_published_at
 from .zsxq_inspect import (
     classify_topic,
     collect_comments,
@@ -142,6 +142,23 @@ def _app_device(db) -> str:
         raw = db.get_setting("zsxq_app_device") or ""
     raw = raw or os.environ.get("ZSXQ_APP_DEVICE", "")
     return raw.strip() or DEFAULT_APP_DEVICE
+
+
+def _ws_enabled(db) -> bool:
+    """是否启用 App 原生 WebSocket 长连（默认关；后台/环境变量可开）。"""
+    if db is None:
+        return False
+    raw = (db.get_setting("zsxq_ws_enabled") or os.environ.get("ZSXQ_WS_ENABLED", "")).strip()
+    return raw == "1"
+
+
+def _ws_address(db) -> str:
+    """App 原生 WS 地址（登录后 Session.getWsAddress() 得；可后台/环境变量填）。"""
+    raw = ""
+    if hasattr(db, "get_setting"):
+        raw = db.get_setting("zsxq_ws_address") or ""
+    raw = raw or os.environ.get("ZSXQ_WS_ADDRESS", "")
+    return raw.strip()
 
 
 
@@ -341,9 +358,12 @@ def _topic_text(topic: dict) -> tuple[str, str, str]:
         blk = topic[key] or {}
         if isinstance(blk.get("text"), str) and blk["text"].strip():
             pieces.append(blk["text"])
-        if isinstance(blk.get("article"), dict) and isinstance(blk["article"].get("title"), str):
-            if not title:
-                title = blk["article"]["title"].strip()
+        if (
+            isinstance(blk.get("article"), dict)
+            and isinstance(blk["article"].get("title"), str)
+            and not title
+        ):
+            title = blk["article"]["title"].strip()
         if key == "question":
             # q&a 正文优先用回答内容
             pass
@@ -409,7 +429,6 @@ class ZsxqFetcher(Fetcher):
         url = f"{API_BASE}{path}"
         if params:
             url = f"{url}?{urlencode(params)}"
-        last = None
         for attempt in range(_RETRY_1059):
             try:
                 resp = self.client.get(url, headers=self._headers(token))
@@ -430,7 +449,6 @@ class ZsxqFetcher(Fetcher):
                     f"知识星球失败 code={code} {data.get('info') or data.get('error')} path={path}",
                     code=code,
                 )
-            last = code
             logger.info("知识星球 1059 随机过滤，重试 %s/%s path=%s", attempt + 1, _RETRY_1059, path)
             self._pause(delay_key)
         raise ZsxqError("知识星球 1059 重试耗尽", code=1059)

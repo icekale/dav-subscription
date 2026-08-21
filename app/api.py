@@ -7,10 +7,10 @@ import re
 import secrets
 import sqlite3
 import time
+from datetime import UTC, datetime, timedelta
+from typing import Literal
 
 import httpx
-from datetime import datetime, timedelta, timezone
-from typing import Literal
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +25,7 @@ from fastapi import (
     Response,
     UploadFile,
 )
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from . import auth, wechat
@@ -33,20 +33,20 @@ from .avatar_cache import cache_avatar
 from .bot_core import BIND_CODE_TTL
 from .db import _UNSET, ALLOWED_PLATFORMS, DB, days_until_purge
 from .feed import build_rss_xml
-from .fetchers.base import PLATFORM_LABELS, Post
+from .fetchers.base import PLATFORM_LABELS
 from .fetchers.combination import extract_cube_symbol, resolve_combination_profile
-from .fetchers.twitter import (
-    TWITTER_COOKIE_KEY,
-    TWITTER_COOKIE_TIME_KEY,
-    resolve_x_profile,
-)
-from .fetchers.weibo import WEIBO_COOKIE_KEY, resolve_weibo_profile
 from .fetchers.ima import (
     IMA_API_KEY_KEY,
     IMA_CLIENT_ID_KEY,
     IMA_COOKIE_KEY,
     IMA_COOKIE_TIME_KEY,
 )
+from .fetchers.twitter import (
+    TWITTER_COOKIE_KEY,
+    TWITTER_COOKIE_TIME_KEY,
+    resolve_x_profile,
+)
+from .fetchers.weibo import WEIBO_COOKIE_KEY, resolve_weibo_profile
 from .fetchers.xueqiu import (
     XUEQIU_COOKIE_KEY,
     XUEQIU_COOKIE_TIME_KEY,
@@ -65,6 +65,8 @@ from .fetchers.zsxq import (
     _delay,
     _max_comment_pages,
     _max_pages,
+    _ws_address,
+    _ws_enabled,
     prefetch_enabled,
     purge_unreferenced_zsxq_files,
     resolve_zsxq_file_url,
@@ -265,7 +267,6 @@ def _resolve_telegram_bot(token: str) -> tuple[str, str, str]:
     自动通过 getUpdates 识别用户给自己 bot 发消息时的 chat_id，
     用户无需手动填写 chat_id。
     """
-    import httpx
 
     try:
         with httpx.Client(timeout=15) as client:
@@ -473,6 +474,8 @@ class PollingConfigIn(BaseModel):
     zsxq_comment_budget: int | None = None
     zsxq_app_channel: bool | None = None
     zsxq_app_device: str | None = None
+    zsxq_ws_enabled: bool | None = None
+    zsxq_ws_address: str | None = None
 
 
 class CookieIn(BaseModel):
@@ -898,7 +901,6 @@ def create_api_router(
         """新的大V添加申请：优先 TG 带审批按钮；未绑 TG 的管理员走其他渠道。"""
         if notifiers_config is None:
             return
-        import httpx
 
         from .channels import CHANNELS, build_channel_notifier, channel_bound
 
@@ -1060,6 +1062,8 @@ def create_api_router(
         out["zsxq_comment_budget"] = _comment_budget(db)
         out["zsxq_app_channel"] = _app_channel_enabled(db)
         out["zsxq_app_device"] = _app_device(db)
+        out["zsxq_ws_enabled"] = _ws_enabled(db)
+        out["zsxq_ws_address"] = _ws_address(db)
         return out
 
     def get_current_user(authorization: str | None = Header(None), token: str | None = Query(None)):
@@ -1370,7 +1374,10 @@ def create_api_router(
 
     @router.post("/me/webpush")
     def subscribe_webpush(body: WebPushIn, request: Request, user: dict = Depends(get_current_user)):
-        from .notifiers.webpush import is_valid_push_endpoint, is_valid_subscription_keys
+        from .notifiers.webpush import (
+            is_valid_push_endpoint,
+            is_valid_subscription_keys,
+        )
 
         endpoint = (body.endpoint or "").strip()
         p256dh = (body.keys.p256dh or "").strip()
@@ -1764,7 +1771,7 @@ def create_api_router(
         expires_at = None
         if body.expires_in_days is not None:
             expires_at = (
-                datetime.now(timezone.utc) + timedelta(days=body.expires_in_days)
+                datetime.now(UTC) + timedelta(days=body.expires_in_days)
             ).strftime("%Y-%m-%d %H:%M:%S")
         alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
         existing = {r["code"] for r in db.list_register_codes()}
@@ -1892,6 +1899,15 @@ def create_api_router(
                 raise HTTPException(status_code=400, detail="zsxq_app_device 需 1-64 字符")
             db.set_setting("zsxq_app_device", dev)
             changed.append("zsxq_app_device")
+        if body.zsxq_ws_enabled is not None:
+            db.set_setting("zsxq_ws_enabled", "1" if body.zsxq_ws_enabled else "0")
+            changed.append("zsxq_ws_enabled")
+        if body.zsxq_ws_address is not None:
+            addr = body.zsxq_ws_address.strip()
+            if addr and not addr.startswith(("ws://", "wss://")):
+                raise HTTPException(status_code=400, detail="zsxq_ws_address 需以 ws:// 或 wss:// 开头")
+            db.set_setting("zsxq_ws_address", addr)
+            changed.append("zsxq_ws_address")
         _audit(admin, "update_polling_config", "", ",".join(changed))
         return _effective_polling()
 
@@ -2017,7 +2033,7 @@ def create_api_router(
             detail = row.get("detail") or ""
             try:
                 d = _json.loads(detail) if isinstance(detail, str) else detail
-            except Exception:
+            except Exception:  # noqa: S112 - 坏 JSON 行跳过，行为同原有实现
                 continue
             files = d.get("files") or []
             changed = False
@@ -2123,9 +2139,8 @@ def create_api_router(
         if protocol not in ("http", "socks5"):
             raise HTTPException(status_code=400, detail="protocol 须为 http 或 socks5")
         url = (extract_url or "").strip()
-        if kind == "extract":
-            if not url.startswith(("http://", "https://")):
-                raise HTTPException(status_code=400, detail="提取 URL 仅支持 http/https")
+        if kind == "extract" and not url.startswith(("http://", "https://")):
+            raise HTTPException(status_code=400, detail="提取 URL 仅支持 http/https")
 
     def _validate_routes_input(routes: dict) -> None:
         if not isinstance(routes, dict):
@@ -3320,7 +3335,6 @@ def create_api_router(
         ):
             raise HTTPException(status_code=400, detail="不支持的图片地址")
 
-        import httpx
 
         client = httpx.Client(
             timeout=15,
