@@ -22,7 +22,7 @@ const CHANNEL_ICONS = {
 };
 const CHANNEL_LABELS = { telegram: "Telegram", feishu: "飞书", wecom: "企业微信", bark: "Bark", webpush: "浏览器通知" };
 const USER_CHANNEL_KEYS = ["telegram", "feishu", "wecom", "bark", "webpush"];
-const APP_VERSION = "1.12.29";
+const APP_VERSION = "1.12.30";
 const PLATFORM_TABS = ["", "xueqiu", "combination", "weibo", "twitter", "zsxq"];
 const STATS_TABS = ["overview", "health", "config", "cookies", "proxies"];
 const TL_PLATFORMS = PLATFORM_TABS.map((p) => [p, p ? PLATFORM_LABELS[p] : "全部"]);
@@ -3469,6 +3469,28 @@ async function loadAdminStats() {
                 <span>抓取时预缓存附件</span>
                 <span class="cfg-check-desc">打开后新帖 PDF 会立刻落到本地，费配额；默认点开再下</span>
               </label>
+              <label class="cfg-field cfg-check" title="新帖自动抓评论入库（可一并推送）；旧帖不动">
+                <input id="pc-zq-comments" type="checkbox" ${s.polling_config.zsxq_fetch_comments ? "checked" : ""}>
+                <span>抓取评论</span>
+                <span class="cfg-check-desc">新主题的评论在抓帖时一并入库</span>
+              </label>
+              <label class="cfg-field" title="单主题评论最多翻几页（每页 20 条）">
+                <span>评论翻页<span class="cfg-unit">页</span></span>
+                <input id="pc-zq-comment-pages" type="number" class="form-control" min="1" max="10" value="${s.polling_config.zsxq_max_comment_pages ?? 3}">
+              </label>
+              <label class="cfg-field" title="每轮最多发起的评论请求数，保护限流">
+                <span>评论预算<span class="cfg-unit">次/轮</span></span>
+                <input id="pc-zq-comment-budget" type="number" class="form-control" min="1" max="200" value="${s.polling_config.zsxq_comment_budget ?? 30}">
+              </label>
+              <label class="cfg-field cfg-check" title="用 App 通道请求头（xiaomiquan UA + X-Request-Id/X-Version）代替浏览器头；默认关，等你复测日限差异确认有收益再开">
+                <input id="pc-zq-app" type="checkbox" ${s.polling_config.zsxq_app_channel ? "checked" : ""}>
+                <span>App 通道头</span>
+                <span class="cfg-check-desc">伪称 Android 客户端请求；与 web 通道共用账号配额</span>
+              </label>
+              <label class="cfg-field" title="App 通道 UA 里的设备标识：Android 版本 + 品牌_型号，空格自动压成下划线">
+                <span>设备标识<span class="cfg-unit">RELEASE BRAND_MODEL</span></span>
+                <input id="pc-zq-app-device" type="text" class="form-control" maxlength="64" value="${s.polling_config.zsxq_app_device ?? "16 OnePlus_PJD110"}">
+              </label>
             </div>
             <p class="muted" id="zq-cache-stat" style="margin-top:12px">附件缓存 ${zcSize} / ${zc.files || 0} 个文件</p>
             <div class="toolbar" style="margin-top:8px">
@@ -3701,6 +3723,11 @@ async function savePollingConfig() {
     zsxq_fetch_delay_seconds: Number($("#pc-zq-delay").value),
     zsxq_file_delay_seconds: Number($("#pc-zq-file-delay").value),
     zsxq_prefetch_files: $("#pc-zq-prefetch").checked,
+    zsxq_fetch_comments: $("#pc-zq-comments").checked,
+    zsxq_max_comment_pages: Number($("#pc-zq-comment-pages").value),
+    zsxq_comment_budget: Number($("#pc-zq-comment-budget").value),
+    zsxq_app_channel: $("#pc-zq-app").checked,
+    zsxq_app_device: $("#pc-zq-app-device").value.trim(),
   };
   try {
     await api("/api/admin/polling-config", { method: "PUT", body: JSON.stringify(body) });
