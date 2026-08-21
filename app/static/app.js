@@ -22,7 +22,7 @@ const CHANNEL_ICONS = {
 };
 const CHANNEL_LABELS = { telegram: "Telegram", feishu: "飞书", wecom: "企业微信", bark: "Bark", webpush: "浏览器通知" };
 const USER_CHANNEL_KEYS = ["telegram", "feishu", "wecom", "bark", "webpush"];
-const APP_VERSION = "1.12.27";
+const APP_VERSION = "1.12.28";
 const PLATFORM_TABS = ["", "xueqiu", "combination", "weibo", "twitter", "zsxq"];
 const STATS_TABS = ["overview", "health", "config", "cookies", "proxies"];
 const TL_PLATFORMS = PLATFORM_TABS.map((p) => [p, p ? PLATFORM_LABELS[p] : "全部"]);
@@ -5542,6 +5542,20 @@ async function loadAdminTagsTab() {
     </section>
     <section class="section-panel">
       <header class="section-head">
+        <div><h2 class="section-title">LLM 标签维护</h2>
+        <p class="section-meta">扫描帖子识别黑话别名和 $标记$ 新股，去掉指数/ETF 误入的股票名，并清理过期标签。每日自动一次，也可立即执行。别名识别用推送设置里的 AI。</p></div>
+      </header>
+      <p class="section-meta" style="margin-top:8px" id="tag-maintain-meta">${escapeHtml(adminMaintainSummary(data))}</p>
+      ${data.maintain && data.maintain.llm_ready ? "" : `<p class="section-meta">未检测到 LLM，点运行只会清理误标；要识别别名请到「推送设置 → AI 摘要」配置。</p>`}
+      <div class="toolbar" style="margin-top:12px">
+        <button class="btn-normal" onclick="adminMaintainTags('pending')">维护并回填待打标</button>
+        <button class="btn-ghost" onclick="adminMaintainTags('none')">仅维护词表</button>
+        <button class="btn-ghost" onclick="adminMaintainTags('all')">维护并重算全部</button>
+        <span id="tag-maintain-result" class="muted"></span>
+      </div>
+    </section>
+    <section class="section-panel">
+      <header class="section-head">
         <div><h2 class="section-title">回填历史贴文</h2>
         <p class="section-meta">给未打标贴文按当前词表 + 股票名单补标签；「按当前规则重算全部」会覆盖全部历史贴文标签（危险操作，需确认）。</p></div>
       </header>
@@ -5578,6 +5592,62 @@ async function adminSaveTags() {
     loadAdminVocabTab("tags");
   } catch (err) {
     alert("保存失败: " + err.message);
+  }
+}
+
+function adminMaintainSummary(data) {
+  const last = data && data.maintain && data.maintain.last;
+  if (!last || !last.at) return "尚未执行过";
+  const parts = [`上次 ${last.at}`];
+  const aliases = last.added_aliases || [];
+  const names = last.added_stock_names || [];
+  const removed = last.removed_stock_names || [];
+  if (aliases.length) parts.push(`新增别名 ${aliases.length}`);
+  if (names.length) parts.push(`新增股票 ${names.length}`);
+  if (removed.length) parts.push(`移除非个股 ${removed.length}`);
+  if (last.cleaned) parts.push(`清理 ${last.cleaned} 条`);
+  if (last.backfill) parts.push(`回填 ${last.backfill.processed} 条`);
+  if (last.error) parts.push("识别异常");
+  return parts.join(" · ");
+}
+
+function formatMaintainResult(data) {
+  const bits = [];
+  const aliases = data.added_aliases || [];
+  const names = data.added_stock_names || [];
+  const removed = data.removed_stock_names || [];
+  if (aliases.length) {
+    bits.push("新增别名 " + aliases.map((a) => `${a.alias}→${a.stock}`).join("、"));
+  } else {
+    bits.push("无新别名");
+  }
+  if (names.length) bits.push("新增股票 " + names.join("、"));
+  if (removed.length) bits.push("移除 " + removed.join("、"));
+  if (data.cleaned) bits.push(`清理误标 ${data.cleaned} 条`);
+  if (data.backfill) bits.push(`回填 ${data.backfill.processed} 条，其中 ${data.backfill.tagged} 条有标签`);
+  if (data.error) bits.push("识别异常：" + data.error);
+  return bits.join("；");
+}
+
+async function adminMaintainTags(backfill = "pending") {
+  if (backfill === "all" && !confirm("将覆盖全部历史贴文标签，确定继续？")) return;
+  const buttons = document.querySelectorAll("[onclick^='adminMaintainTags']");
+  buttons.forEach((button) => { button.disabled = true; });
+  const result = $("#tag-maintain-result");
+  if (result) result.textContent = backfill === "none" ? "维护中…" : "维护并回填中…";
+  try {
+    const data = await api("/api/tags/maintain", {
+      method: "POST",
+      body: JSON.stringify({ backfill }),
+    });
+    if (result) result.textContent = formatMaintainResult(data);
+    flash(backfill === "none" ? "标签维护完成" : "标签维护并回填完成");
+    loadAdminVocabTab("tags");
+  } catch (err) {
+    if (result) result.textContent = "";
+    alert("维护失败: " + err.message);
+  } finally {
+    buttons.forEach((button) => { button.disabled = false; });
   }
 }
 

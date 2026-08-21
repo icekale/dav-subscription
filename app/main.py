@@ -200,6 +200,7 @@ def create_app(config=None, db_path: str | Path | None = None) -> FastAPI:
         openapi_url="/openapi.json" if docs else None,
     )
     app.state.db = db
+    app.state.llm_config = config.llm
 
     @app.middleware("http")
     async def security_headers(request: Request, call_next):

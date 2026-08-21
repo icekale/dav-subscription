@@ -150,6 +150,8 @@ STOCK_NAMES_KEY = "stock_names"
 # 黑话别名表：LLM 每日自动识别（settings 键 stock_aliases），结构为
 # [{"alias": "宁王", "stock": "宁德时代"}, ...]；打标时命中别名输出正式名。
 STOCK_ALIASES_KEY = "stock_aliases"
+# 最近一次标签维护结果（管理端展示用）
+TAG_MAINTAIN_LAST_KEY = "tag_maintain_last"
 
 
 SCHEMA = """
@@ -1942,6 +1944,21 @@ class DB:
         )
         return rows[0]["id"] if rows else None
 
+    def get_post_detail(self, platform: str, external_id: str) -> dict:
+        """读单帖 detail JSON；不存在或解析失败返回空 dict。"""
+        rows = self._rows(
+            "SELECT detail FROM posts WHERE platform = ? AND external_id = ?",
+            (platform, external_id),
+        )
+        if not rows:
+            return {}
+        raw = rows[0].get("detail") or ""
+        try:
+            d = json.loads(raw)
+            return d if isinstance(d, dict) else {}
+        except (TypeError, ValueError):
+            return {}
+
     def mark_kol_baseline(self, kol_id: int) -> None:
         """标记该大V已建立首次抓取基线（首次成功 fetch 后调用，含空列表）。"""
         self._execute("UPDATE kols SET baseline_ready = 1 WHERE id = ?", (kol_id,))
@@ -2665,6 +2682,21 @@ class DB:
     def set_stock_aliases(self, aliases: list[dict]) -> None:
         """保存黑话别名表。"""
         self.set_setting(STOCK_ALIASES_KEY, json.dumps(aliases, ensure_ascii=False))
+
+    def get_tag_maintain_last(self) -> dict | None:
+        """读最近一次标签维护摘要；无记录或损坏返回 None。"""
+        raw = self.get_setting(TAG_MAINTAIN_LAST_KEY)
+        if not raw:
+            return None
+        try:
+            parsed = json.loads(raw)
+        except (TypeError, ValueError):
+            return None
+        return parsed if isinstance(parsed, dict) else None
+
+    def set_tag_maintain_last(self, data: dict) -> None:
+        """保存最近一次标签维护摘要。"""
+        self.set_setting(TAG_MAINTAIN_LAST_KEY, json.dumps(data, ensure_ascii=False))
 
     def aggregate_post_tags(self, limit: int = 50) -> list[str]:
         """聚合贴文里出现过的全部标签（去重，按出现次数降序）。

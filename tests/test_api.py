@@ -3783,6 +3783,8 @@ def test_post_tags_list_readable_by_any_user():
     assert "宁德时代" in data["stock_names"]
     assert data["dynamic_tags"] == []
     assert data["stats"]["total"] == 0
+    assert "maintain" in data
+    assert data["maintain"]["last"] is None
 
 
 def test_tag_vocabulary_update_admin_only():
@@ -4144,6 +4146,63 @@ def test_retag_rejects_unknown_mode():
     )
 
     assert response.status_code == 422
+
+
+def test_maintain_tags_admin_only_and_optional_backfill(monkeypatch):
+    """维护接口仅管理员；可顺带回填；结果写入 last。"""
+    client = make_client()
+    user = user_headers(client, "taguser-mt")
+    admin = auth_headers(client, "tagadmin-mt")
+    db = client.app.state.db
+    kid = db.add_kol("xueqiu", "标签大V", "tag-mt")
+    db.insert_post("xueqiu", kid, "mt1", "央行降息", "央行宣布降息", "u", "")
+
+    monkeypatch.setattr(
+        "app.tagging.run_tag_maintenance",
+        lambda db, llm_config=None: {
+            "cleaned": 0,
+            "added_aliases": [{"alias": "宁王", "stock": "宁德时代"}],
+            "added_stock_names": ["盐湖股份"],
+            "removed_stock_names": ["上证指数"],
+            "candidates": 3,
+            "marks": 1,
+            "llm_used": True,
+            "error": None,
+        },
+    )
+
+    assert client.post("/api/tags/maintain", headers=user, json={}).status_code == 403
+    resp = client.post(
+        "/api/tags/maintain", headers=admin, json={"backfill": "pending"}
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()
+    assert data["added_aliases"] == [{"alias": "宁王", "stock": "宁德时代"}]
+    assert data["added_stock_names"] == ["盐湖股份"]
+    assert data["removed_stock_names"] == ["上证指数"]
+    assert data["backfill"] == {"processed": 1, "tagged": 1}
+    assert data["at"]
+    listed = client.get("/api/tags", headers=admin).json()
+    assert listed["maintain"]["last"]["added_stock_names"] == ["盐湖股份"]
+    assert listed["maintain"]["last"]["backfill"]["processed"] == 1
+    assert isinstance(listed["maintain"]["llm_ready"], bool)
+
+
+def test_maintain_tags_rejects_unknown_backfill():
+    client = make_client()
+    admin = auth_headers(client, "tagadmin-mt2")
+    assert client.post(
+        "/api/tags/maintain", headers=admin, json={"backfill": "recent"}
+    ).status_code == 422
+
+
+def test_maintain_tags_conflict_when_busy(monkeypatch):
+    client = make_client()
+    admin = auth_headers(client, "tagadmin-mt3")
+    monkeypatch.setattr("app.tagging.try_run_tag_maintenance", lambda db, llm_config=None: None)
+    resp = client.post("/api/tags/maintain", headers=admin, json={})
+    assert resp.status_code == 409
+    assert "正在进行" in resp.json()["detail"]
 
 
 def test_backfill_merges_stock_tags(monkeypatch):

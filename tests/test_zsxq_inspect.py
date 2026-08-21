@@ -116,3 +116,29 @@ def test_inventory_topics_counts_kinds_and_file_bytes():
     assert summary["file_bytes"] == 1000
     assert summary["need_comment_pages"] == 1
     assert summary["topic_count"] == 3
+
+
+def test_collect_comments_normalizes_fields_and_skips_bad():
+    from app.fetchers.zsxq_inspect import collect_comments
+
+    payload = {
+        "comments": [
+            {
+                "comment_id": 11,
+                "create_time": "2026-08-20T11:00:00.000+0800",
+                "owner": {"name": "甲"},
+                "text": "好文",
+                "likes_count": 3,
+            },
+            {"comment_id": 12, "create_time": "2026-08-20T11:01:00.000+0800", "owner": {"name": "乙"}, "text": "顶", "likes_count": 0},
+            "not-a-dict",
+            None,
+        ]
+    }
+    out = collect_comments(payload)
+    assert out == [
+        {"comment_id": "11", "create_time": "2026-08-20T11:00:00.000+0800", "owner": "甲", "text": "好文", "likes_count": 3},
+        {"comment_id": "12", "create_time": "2026-08-20T11:01:00.000+0800", "owner": "乙", "text": "顶", "likes_count": 0},
+    ]
+    assert collect_comments({}) == []
+    assert collect_comments(None) == []

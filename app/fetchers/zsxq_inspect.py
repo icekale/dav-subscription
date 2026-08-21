@@ -106,6 +106,26 @@ def comment_coverage(comments_count: int, payload: dict[str, Any]) -> dict[str, 
     }
 
 
+def collect_comments(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """归一化主题评论列表为紧凑 dict（comment_id/时间/作者/正文/点赞）。"""
+    comments = payload.get("comments") if isinstance(payload, dict) else None
+    out: list[dict[str, Any]] = []
+    for c in comments or []:
+        if not isinstance(c, dict):
+            continue
+        owner = c.get("owner") if isinstance(c.get("owner"), dict) else {}
+        out.append(
+            {
+                "comment_id": str(c.get("comment_id") or ""),
+                "create_time": str(c.get("create_time") or ""),
+                "owner": str(owner.get("name") or ""),
+                "text": str(c.get("text") or ""),
+                "likes_count": int(c.get("likes_count") or 0),
+            }
+        )
+    return out
+
+
 def topics_cursor(payload: dict[str, Any]) -> dict[str, Any]:
     """读取主题列表分页字段。"""
     topics = payload.get("topics") if isinstance(payload, dict) else None

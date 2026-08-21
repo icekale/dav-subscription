@@ -2,11 +2,17 @@
 from app.fetchers.base import Post
 from app.tagging import (
     TAG_PER_POST_MAX,
+    _maintain_lock,
+    backfill_post_tags,
     cleanup_stale_tags,
     extract_alias_candidates,
     extract_stock_marks,
+    is_equity_code,
+    is_equity_name,
     rule_tag_posts,
+    run_tag_maintenance,
     stock_tag_posts,
+    try_run_tag_maintenance,
 )
 
 
@@ -262,3 +268,319 @@ def test_english_alias_is_case_insensitive():
     )
 
     assert result[0] == ["英伟达"]
+
+
+def test_is_equity_code_excludes_index_and_combo():
+    assert is_equity_code("SH600519")
+    assert is_equity_code("SZ000858")
+    assert is_equity_code("SZ300750")
+    assert is_equity_code("SH688146")
+    assert is_equity_code("BJ430047")
+    assert not is_equity_code("SH000001")
+    assert not is_equity_code("SH000300")
+    assert not is_equity_code("SZ399001")
+    assert not is_equity_code("ZH3623878")
+    assert not is_equity_code("BK1036")
+    assert is_equity_name("贵州茅台")
+    assert not is_equity_name("上证指数")
+    assert not is_equity_name("沪深300ETF")
+
+
+def test_extract_and_tag_skip_index_marks():
+    post = make_post(content="$上证指数(SH000001)$ 收涨，$沪深300(SH000300)$ 跟涨，$五粮液(SZ000858)$ 大涨")
+    assert extract_stock_marks([post]) == [("五粮液", "SZ000858")]
+    assert stock_tag_posts([post], [])[0] == ["五粮液"]
+
+
+def test_run_tag_maintenance_merges_alias_and_mark_paths():
+    """两路 LLM 结果合并写入，后一步不得覆盖前一步别名。"""
+    import tempfile
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    from app.db import DB
+
+    db = DB(Path(tempfile.mkdtemp()) / "m.db")
+    kid = db.add_kol("xueqiu", "A", "1")
+    db.insert_post("xueqiu", kid, "m1", "宁王", "宁王今天创新高，$涂改液(SZ000858)$ 也涨", "u", "")
+
+    def fake_suggest(cands, stocks, cfg, client=None):
+        return [{"alias": "宁王", "stock": "宁德时代", "confidence": "high"}]
+
+    def fake_resolve(marks, cfg, client=None):
+        return [
+            {"name": "涂改液", "code": "SZ000858", "official": "五粮液", "is_alias": True},
+        ]
+
+    import app.llm as llm
+
+    orig_suggest, orig_resolve = llm.suggest_stock_aliases, llm.resolve_stock_marks
+    llm.suggest_stock_aliases = fake_suggest
+    llm.resolve_stock_marks = fake_resolve
+    try:
+        result = run_tag_maintenance(
+            db, SimpleNamespace(api_key="sk-test", api_base="https://x", model="m")
+        )
+    finally:
+        llm.suggest_stock_aliases = orig_suggest
+        llm.resolve_stock_marks = orig_resolve
+
+    aliases = db.get_stock_aliases()
+    assert any(a["alias"] == "宁王" and a["stock"] == "宁德时代" for a in aliases)
+    assert any(a["alias"] == "涂改液" and a["stock"] == "五粮液" for a in aliases)
+    assert "五粮液" in db.get_stock_names()
+    assert {a["alias"] for a in result["added_aliases"]} == {"宁王", "涂改液"}
+    db.close()
+
+
+def test_run_tag_maintenance_prunes_index_stock_names():
+    import tempfile
+    from pathlib import Path
+
+    from app.db import DB
+
+    db = DB(Path(tempfile.mkdtemp()) / "p.db")
+    kid = db.add_kol("xueqiu", "A", "1")
+    pid = db.insert_post("xueqiu", kid, "p1", "t", "c", "u", "")
+    db.set_stock_names(["宁德时代", "上证指数"])
+    db.update_post_tags(pid, ["上证指数", "宏观"])
+
+    result = run_tag_maintenance(db, None)
+    assert "上证指数" in result["removed_stock_names"]
+    assert "上证指数" not in db.get_stock_names()
+    assert db.list_posts(limit=1)[0]["tags"] == ["宏观"]
+    db.close()
+
+
+def test_run_tag_maintenance_scans_marks_beyond_recent_500():
+    """$标记$ 扫全库，不被最近 500 条挡住。"""
+    import tempfile
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    from app.db import DB
+
+    db = DB(Path(tempfile.mkdtemp()) / "s.db")
+    kid = db.add_kol("xueqiu", "A", "1")
+    db.insert_post("xueqiu", kid, "old", "$盐湖股份(SZ000792)$ 反弹", "早期帖", "u", "")
+    for i in range(500):
+        db.insert_post("xueqiu", kid, f"n{i}", "普通", "没有标记", "u", "")
+
+    captured = {}
+
+    def fake_resolve(marks, cfg, client=None):
+        captured["marks"] = list(marks)
+        return [
+            {"name": "盐湖股份", "code": "SZ000792", "official": "盐湖股份", "is_alias": False},
+        ]
+
+    import app.llm as llm
+
+    orig_suggest, orig_resolve = llm.suggest_stock_aliases, llm.resolve_stock_marks
+    llm.suggest_stock_aliases = lambda *a, **k: []
+    llm.resolve_stock_marks = fake_resolve
+    try:
+        run_tag_maintenance(
+            db, SimpleNamespace(api_key="sk-test", api_base="https://x", model="m")
+        )
+    finally:
+        llm.suggest_stock_aliases = orig_suggest
+        llm.resolve_stock_marks = orig_resolve
+
+    assert any(name == "盐湖股份" for name, _code in captured.get("marks", []))
+    assert "盐湖股份" in db.get_stock_names()
+    db.close()
+
+
+def test_try_run_tag_maintenance_returns_none_when_busy():
+    import tempfile
+    from pathlib import Path
+
+    from app.db import DB
+
+    db = DB(Path(tempfile.mkdtemp()) / "b.db")
+    assert _maintain_lock.acquire(blocking=False)
+    try:
+        assert try_run_tag_maintenance(db, None) is None
+    finally:
+        _maintain_lock.release()
+    db.close()
+
+
+def test_backfill_post_tags_pending_and_all():
+    import tempfile
+    from pathlib import Path
+
+    from app.db import DB
+
+    db = DB(Path(tempfile.mkdtemp()) / "bf.db")
+    kid = db.add_kol("xueqiu", "A", "1")
+    old = db.insert_post("xueqiu", kid, "old", "旧", "无命中", "u", "")
+    hit = db.insert_post("xueqiu", kid, "hit", "央行降息", "央行宣布降息", "u", "")
+    db.update_post_tags(old, ["已删除"])
+    pending = backfill_post_tags(db, "pending")
+    assert pending == {"processed": 1, "tagged": 1}
+    assert db.get_post(hit)["tags"] == '["宏观"]'
+    assert db.get_post(old)["tags"] == '["已删除"]'
+    full = backfill_post_tags(db, "all")
+    assert full == {"processed": 2, "tagged": 1}
+    assert db.get_post(old)["tags"] == "[]"
+    db.close()
+
+
+def test_is_equity_code_excludes_index_and_combo():
+    assert is_equity_code("SH600519")
+    assert is_equity_code("SZ000858")
+    assert is_equity_code("SZ300750")
+    assert is_equity_code("SH688146")
+    assert is_equity_code("BJ430047")
+    assert not is_equity_code("SH000001")
+    assert not is_equity_code("SH000300")
+    assert not is_equity_code("SZ399001")
+    assert not is_equity_code("ZH3623878")
+    assert not is_equity_code("BK1036")
+    assert is_equity_name("贵州茅台")
+    assert not is_equity_name("上证指数")
+    assert not is_equity_name("沪深300ETF")
+
+
+def test_extract_and_tag_skip_index_marks():
+    post = make_post(content="$上证指数(SH000001)$ 收涨，$沪深300(SH000300)$ 跟涨，$五粮液(SZ000858)$ 大涨")
+    assert extract_stock_marks([post]) == [("五粮液", "SZ000858")]
+    assert stock_tag_posts([post], [])[0] == ["五粮液"]
+
+
+def test_run_tag_maintenance_merges_alias_and_mark_paths():
+    """两路 LLM 结果合并写入，后一步不得覆盖前一步别名。"""
+    import tempfile
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    from app.db import DB
+
+    db = DB(Path(tempfile.mkdtemp()) / "m.db")
+    kid = db.add_kol("xueqiu", "A", "1")
+    db.insert_post("xueqiu", kid, "m1", "宁王", "宁王今天创新高，$涂改液(SZ000858)$ 也涨", "u", "")
+
+    def fake_suggest(cands, stocks, cfg, client=None):
+        return [{"alias": "宁王", "stock": "宁德时代", "confidence": "high"}]
+
+    def fake_resolve(marks, cfg, client=None):
+        return [
+            {"name": "涂改液", "code": "SZ000858", "official": "五粮液", "is_alias": True},
+        ]
+
+    import app.llm as llm
+
+    orig_suggest, orig_resolve = llm.suggest_stock_aliases, llm.resolve_stock_marks
+    llm.suggest_stock_aliases = fake_suggest
+    llm.resolve_stock_marks = fake_resolve
+    try:
+        result = run_tag_maintenance(
+            db, SimpleNamespace(api_key="sk-test", api_base="https://x", model="m")
+        )
+    finally:
+        llm.suggest_stock_aliases = orig_suggest
+        llm.resolve_stock_marks = orig_resolve
+
+    aliases = db.get_stock_aliases()
+    assert any(a["alias"] == "宁王" and a["stock"] == "宁德时代" for a in aliases)
+    assert any(a["alias"] == "涂改液" and a["stock"] == "五粮液" for a in aliases)
+    assert "五粮液" in db.get_stock_names()
+    assert {a["alias"] for a in result["added_aliases"]} == {"宁王", "涂改液"}
+    db.close()
+
+
+def test_run_tag_maintenance_prunes_index_stock_names():
+    import tempfile
+    from pathlib import Path
+
+    from app.db import DB
+
+    db = DB(Path(tempfile.mkdtemp()) / "p.db")
+    kid = db.add_kol("xueqiu", "A", "1")
+    pid = db.insert_post("xueqiu", kid, "p1", "t", "c", "u", "")
+    db.set_stock_names(["宁德时代", "上证指数"])
+    db.update_post_tags(pid, ["上证指数", "宏观"])
+
+    result = run_tag_maintenance(db, None)
+    assert "上证指数" in result["removed_stock_names"]
+    assert "上证指数" not in db.get_stock_names()
+    assert db.list_posts(limit=1)[0]["tags"] == ["宏观"]
+    db.close()
+
+
+def test_run_tag_maintenance_scans_marks_beyond_recent_500():
+    """$标记$ 扫全库，不被最近 500 条挡住。"""
+    import tempfile
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    from app.db import DB
+
+    db = DB(Path(tempfile.mkdtemp()) / "s.db")
+    kid = db.add_kol("xueqiu", "A", "1")
+    db.insert_post("xueqiu", kid, "old", "$盐湖股份(SZ000792)$ 反弹", "早期帖", "u", "")
+    for i in range(500):
+        db.insert_post("xueqiu", kid, f"n{i}", "普通", "没有标记", "u", "")
+
+    captured = {}
+
+    def fake_resolve(marks, cfg, client=None):
+        captured["marks"] = list(marks)
+        return [
+            {"name": "盐湖股份", "code": "SZ000792", "official": "盐湖股份", "is_alias": False},
+        ]
+
+    import app.llm as llm
+
+    orig_suggest, orig_resolve = llm.suggest_stock_aliases, llm.resolve_stock_marks
+    llm.suggest_stock_aliases = lambda *a, **k: []
+    llm.resolve_stock_marks = fake_resolve
+    try:
+        run_tag_maintenance(
+            db, SimpleNamespace(api_key="sk-test", api_base="https://x", model="m")
+        )
+    finally:
+        llm.suggest_stock_aliases = orig_suggest
+        llm.resolve_stock_marks = orig_resolve
+
+    assert any(name == "盐湖股份" for name, _code in captured.get("marks", []))
+    assert "盐湖股份" in db.get_stock_names()
+    db.close()
+
+
+def test_try_run_tag_maintenance_returns_none_when_busy():
+    import tempfile
+    from pathlib import Path
+
+    from app.db import DB
+
+    db = DB(Path(tempfile.mkdtemp()) / "b.db")
+    assert _maintain_lock.acquire(blocking=False)
+    try:
+        assert try_run_tag_maintenance(db, None) is None
+    finally:
+        _maintain_lock.release()
+    db.close()
+
+
+def test_backfill_post_tags_pending_and_all():
+    import tempfile
+    from pathlib import Path
+
+    from app.db import DB
+
+    db = DB(Path(tempfile.mkdtemp()) / "bf.db")
+    kid = db.add_kol("xueqiu", "A", "1")
+    old = db.insert_post("xueqiu", kid, "old", "旧", "无命中", "u", "")
+    hit = db.insert_post("xueqiu", kid, "hit", "央行降息", "央行宣布降息", "u", "")
+    db.update_post_tags(old, ["已删除"])
+    pending = backfill_post_tags(db, "pending")
+    assert pending == {"processed": 1, "tagged": 1}
+    assert db.get_post(hit)["tags"] == '["宏观"]'
+    assert db.get_post(old)["tags"] == '["已删除"]'
+    full = backfill_post_tags(db, "all")
+    assert full == {"processed": 2, "tagged": 1}
+    assert db.get_post(old)["tags"] == "[]"
+    db.close()

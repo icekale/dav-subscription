@@ -322,8 +322,6 @@ def test_mobile_mysubs_filter_is_seven_equal_44px_targets():
     mobile = re.search(r"@media \(max-width: 768px\) \{(.*)\}\s*/\* ----------", css, re.DOTALL)
     body = mobile.group(1) if mobile else css
     assert ".tl-filterbar-top { flex-direction: column" not in body.replace(" ", "")
-    av = re.search(r"\.tl-badge-avatars > \*\s*\{([^}]*)\}", css)
-    assert av and "52px" in av.group(1)
 
 
 # ---- 订阅广场移动端头部密度 ----
@@ -842,7 +840,20 @@ def test_timeline_type_roles_follow_four_step_ramp():
     assert "var(--color-text-faint)" in group.group(1)
     assert "tabular-nums" in group.group(1)
     assert badge, "缺少新帖胶囊头像字母"
-    assert "var(--text-icon)" in badge.group(1)
+    assert "var(--text-xs)" in badge.group(1)
+
+
+def test_new_badge_avatars_fit_inside_capsule():
+    """新帖胶囊头像跟 X 一样 20px、叠在条内，不能探出蓝底。"""
+    css = STYLE_CSS.read_text()
+    btn = re.search(r"^\.tl-new-badge-btn\s*\{([^}]*)\}", css, re.M)
+    av = re.search(r"^\.tl-badge-avatars > \*\s*\{([^}]*)\}", css, re.M)
+    assert btn, "缺少 .tl-new-badge-btn"
+    assert "overflow: hidden" in btn.group(1)
+    assert av, "缺少胶囊头像尺寸"
+    assert "width: 20px" in av.group(1) and "height: 20px" in av.group(1)
+    assert "52px" not in av.group(1)
+    assert not re.search(r"\.tl-new-badge-btn\s*\{[^}]*overflow:\s*visible", css)
 
 
 def test_timeline_new_badge_pins_to_sticky_filterbar():
@@ -1570,3 +1581,15 @@ def test_weibo_qr_poll_is_serial():
     assert "setInterval" not in poll
     assert "await pollWeiboQr(" in start
     assert "setTimeout" in start.split("await pollWeiboQr", 1)[1]
+
+
+def test_admin_tag_page_has_llm_maintain():
+    """标签管理页可一键跑 LLM 维护，不必再走脚本。"""
+    render = _fn_body("loadAdminTagsTab")
+    assert "LLM 标签维护" in render
+    assert "adminMaintainTags" in render
+    assert "维护并回填待打标" in render
+    body = _fn_body("adminMaintainTags")
+    assert "/api/tags/maintain" in body
+    assert "backfill" in body
+    assert "textContent" in body

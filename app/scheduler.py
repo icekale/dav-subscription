@@ -1770,12 +1770,13 @@ class Scheduler:
                     logger.exception("代理池刷新异常")
             # 股票黑话别名识别 + 误标清理：每天一次（配 LLM 才识别，清理恒执行）
             if self._stock_alias_due():
+                ran = False
                 try:
-                    await asyncio.to_thread(self._run_stock_alias_task)
+                    ran = await asyncio.to_thread(self._run_stock_alias_task)
                 except Exception:  # noqa: BLE001
                     logger.exception("股票别名识别异常")
-                finally:
-                    # 无论成功失败都标记已跑，避免识别失败每天反复重试消耗 token
+                    ran = True  # 失败也记已跑，避免当天反复打 LLM
+                if ran:
                     self.db.set_setting("stock_alias_last_date", time.strftime("%Y-%m-%d"))
             try:
                 removed_users = self.db.purge_inactive_users_if_due()
@@ -2105,124 +2106,32 @@ class Scheduler:
         """股票别名识别任务是否到期：每天最多一次（settings 日期键控制）。"""
         return self.db.get_setting("stock_alias_last_date") != datetime.now().strftime("%Y-%m-%d")
 
-    def _run_stock_alias_task(self) -> None:
+    def _run_stock_alias_task(self) -> bool:
         """股票黑话别名自动识别（LLM，每日一次）+ 历史误标清理（纯规则）。
 
-        识别流程：取最近帖子 → 提取候选词 → LLM 判断别名 → high 置信度写入别名表；
-        然后清理不在当前有效标签集合里的旧标签（观点/策略/生活等残留）。
-        未配置 LLM 时跳过识别（不阻塞清理）。
+        与管理端「标签维护」共用 run_tag_maintenance。并发占用时返回 False，
+        调用方不记今日已跑，下一轮再试。
         """
-        from .fetchers.base import Post
-        from .tagging import (
-            cleanup_stale_tags,
-            extract_alias_candidates,
+        from .tagging import try_run_tag_maintenance
+
+        result = try_run_tag_maintenance(
+            self.db, _admin_llm_config(self.db, getattr(self, "llm_config", None))
         )
-
-        # 1) 误标清理：有效标签 = 话题词表 + 股票名表 + 别名正式名
-        tag_rules = self.db.get_tag_vocabulary()
-        stock_names = self.db.get_stock_names()
-        aliases = self.db.get_stock_aliases()
-        valid_tags = [r["tag"] for r in tag_rules] + stock_names
-        valid_tags += [a["stock"] for a in aliases]
-        try:
-            removed = cleanup_stale_tags(self.db, valid_tags)
-            if removed:
-                logger.info("清理过期贴文标签 %d 条", removed)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("贴文标签清理失败: %s", exc)
-
-        # 2) 别名识别：跟管理员推送设置同一套，没有再退环境变量
-        llm_cfg = _admin_llm_config(self.db, getattr(self, "llm_config", None))
-        if llm_cfg is None or not getattr(llm_cfg, "api_key", ""):
-            return
-        try:
-            from .llm import resolve_stock_marks, suggest_stock_aliases
-            from .tagging import extract_stock_marks
-
-            # 取最近 500 帖做候选词提取
-            rows = self.db.list_posts(limit=500)
-            posts = [
-                Post(
-                    platform=r["platform"],
-                    kol_id=r["kol_id"],
-                    kol_name=r["kol_name"] or "",
-                    external_id=r["external_id"],
-                    title=r["title"],
-                    content=r["content"],
-                    url=r["url"],
-                    published_at=r["published_at"],
-                    post_type=r.get("post_type") or "",
-                )
-                for r in rows
-            ]
-            known = valid_tags  # 股票名 + 话题 + 现有别名正式名
-            candidates = extract_alias_candidates(posts, known)
-            if not candidates:
-                logger.info("股票别名识别：本轮无候选词")
-            else:
-                suggestions = suggest_stock_aliases(candidates, stock_names, llm_cfg)
-                # 只采纳 high 置信度（medium 留给人看/后续修正）
-                new_aliases = [s for s in suggestions if s.get("confidence") == "high"]
-                # 去重合并写入（别名不重复、上限 200 条防膨胀）
-                existing = {a["alias"] for a in aliases}
-                merged = list(aliases)
-                for s in new_aliases:
-                    if s["alias"] not in existing and len(merged) < 200:
-                        merged.append({"alias": s["alias"], "stock": s["stock"]})
-                        existing.add(s["alias"])
-                if new_aliases:
-                    self.db.set_stock_aliases(merged)
-                    logger.info(
-                        "股票别名识别：新增 %d 个别名（共 %d）", len(new_aliases), len(merged)
-                    )
-
-            # 3) $标记$ 自动扩充：新官方名进名表，戏称/简称进别名表（精确来源，带代码）
-            marks = extract_stock_marks(posts)
-            known_names = {n for n in stock_names}
-            known_names.update(a["alias"] for a in aliases)
-            known_names.update(a["stock"] for a in aliases)
-            known_names.update(r["tag"] for r in tag_rules)
-            new_marks = [(n, c) for n, c in marks if n not in known_names]
-            if new_marks:
-                resolved = resolve_stock_marks(new_marks, llm_cfg)
-                if resolved:
-                    new_stock_names = list(stock_names)
-                    new_aliases_list = list(aliases)
-                    existing_aliases = {a["alias"] for a in aliases}
-                    existing_stocks = set(new_stock_names)
-                    for item in resolved:
-                        if not item.get("is_alias"):
-                            # 官方名 → 股票名表
-                            official = item["official"]
-                            if official not in existing_stocks and len(new_stock_names) < 200:
-                                new_stock_names.append(official)
-                                existing_stocks.add(official)
-                        else:
-                            # 戏称 → 别名表；同时确保正式名在名表（否则别名无对照）
-                            official = item["official"]
-                            if official not in existing_stocks and len(new_stock_names) < 200:
-                                new_stock_names.append(official)
-                                existing_stocks.add(official)
-                            alias = item["name"]
-                            if alias not in existing_aliases and len(new_aliases_list) < 200:
-                                new_aliases_list.append({"alias": alias, "stock": official})
-                                existing_aliases.add(alias)
-                    if new_stock_names != stock_names:
-                        self.db.set_stock_names(new_stock_names)
-                        logger.info(
-                            "$标记$ 自动扩充：股票名表新增 %d 只（共 %d）",
-                            len(new_stock_names) - len(stock_names),
-                            len(new_stock_names),
-                        )
-                    if new_aliases_list != aliases:
-                        self.db.set_stock_aliases(new_aliases_list)
-                        logger.info(
-                            "$标记$ 自动扩充：别名表新增 %d 条（共 %d）",
-                            len(new_aliases_list) - len(aliases),
-                            len(new_aliases_list),
-                        )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("股票别名识别异常: %s", exc)
+        if result is None:
+            return False
+        last = dict(result)
+        last["at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.db.set_tag_maintain_last(last)
+        if result.get("error"):
+            logger.warning("标签维护识别异常: %s", result["error"])
+        logger.info(
+            "标签维护：别名 +%d 股票 +%d 清理 %d llm=%s",
+            len(result.get("added_aliases") or []),
+            len(result.get("added_stock_names") or []),
+            result.get("cleaned") or 0,
+            result.get("llm_used"),
+        )
+        return True
 
     def _send_daily_report(self) -> bool:
         """给开启每日精选的用户推送今日订阅总览；全部成功返回 True，任一失败返回 False。

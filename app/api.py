@@ -58,7 +58,10 @@ from .fetchers.zsxq import (
     DEFAULT_FILE_DELAY,
     ZSXQ_COOKIE_KEY,
     ZSXQ_COOKIE_TIME_KEY,
+    _comment_budget,
+    _comments_enabled,
     _delay,
+    _max_comment_pages,
     _max_pages,
     prefetch_enabled,
     purge_unreferenced_zsxq_files,
@@ -419,6 +422,10 @@ class TagBackfillIn(BaseModel):
     mode: Literal["pending", "all"] = "pending"
 
 
+class TagMaintainIn(BaseModel):
+    backfill: Literal["none", "pending", "all"] = "none"
+
+
 class KolRequestIn(BaseModel):
     platform: str
     external_id: str
@@ -459,6 +466,9 @@ class PollingConfigIn(BaseModel):
     zsxq_fetch_delay_seconds: float | None = None
     zsxq_file_delay_seconds: float | None = None
     zsxq_prefetch_files: bool | None = None
+    zsxq_fetch_comments: bool | None = None
+    zsxq_max_comment_pages: int | None = None
+    zsxq_comment_budget: int | None = None
 
 
 class CookieIn(BaseModel):
@@ -1041,6 +1051,9 @@ def create_api_router(
         out["zsxq_fetch_delay_seconds"] = _delay(db, "zsxq_fetch_delay_seconds", DEFAULT_DELAY)
         out["zsxq_file_delay_seconds"] = _delay(db, "zsxq_file_delay_seconds", DEFAULT_FILE_DELAY)
         out["zsxq_prefetch_files"] = prefetch_enabled(db)
+        out["zsxq_fetch_comments"] = _comments_enabled(db)
+        out["zsxq_max_comment_pages"] = _max_comment_pages(db)
+        out["zsxq_comment_budget"] = _comment_budget(db)
         return out
 
     def get_current_user(authorization: str | None = Header(None), token: str | None = Query(None)):
@@ -1851,6 +1864,19 @@ def create_api_router(
         if body.zsxq_prefetch_files is not None:
             db.set_setting("zsxq_prefetch_files", "1" if body.zsxq_prefetch_files else "0")
             changed.append("zsxq_prefetch_files")
+        if body.zsxq_fetch_comments is not None:
+            db.set_setting("zsxq_fetch_comments", "1" if body.zsxq_fetch_comments else "0")
+            changed.append("zsxq_fetch_comments")
+        if body.zsxq_max_comment_pages is not None:
+            if not (1 <= body.zsxq_max_comment_pages <= 10):
+                raise HTTPException(status_code=400, detail="zsxq_max_comment_pages 需在 1-10 之间")
+            db.set_setting("zsxq_max_comment_pages", str(body.zsxq_max_comment_pages))
+            changed.append("zsxq_max_comment_pages")
+        if body.zsxq_comment_budget is not None:
+            if not (1 <= body.zsxq_comment_budget <= 200):
+                raise HTTPException(status_code=400, detail="zsxq_comment_budget 需在 1-200 之间")
+            db.set_setting("zsxq_comment_budget", str(body.zsxq_comment_budget))
+            changed.append("zsxq_comment_budget")
         _audit(admin, "update_polling_config", "", ",".join(changed))
         return _effective_polling()
 
@@ -2750,20 +2776,28 @@ def create_api_router(
         return {"ok": True}
 
     @router.get("/tags")
-    def list_tags(user: dict = Depends(get_current_user)):
+    def list_tags(request: Request, user: dict = Depends(get_current_user)):
         """贴文话题词表：登录用户可读（动态页标签筛选），管理与写入仍需管理员。
 
         stats 供管理端展示已打标/待打标贴文数量。
         stock_names 为常用股票名表（纯文字提及打标用）；dynamic_tags 为贴文里
         实际出现过的标签（含股票名，去重按频次），供时间线筛选下拉合并展示。
         stock_aliases 为黑话别名表（LLM 每日自动识别 + 管理端可手动修正）。
+        maintain 为最近一次维护摘要 + 是否已配置 LLM（管理端按钮用）。
         """
+        from .scheduler import _admin_llm_config
+
+        llm_cfg = _admin_llm_config(db, getattr(request.app.state, "llm_config", None))
         return {
             "tags": db.get_tag_vocabulary(),
             "stock_names": db.get_stock_names(),
             "stock_aliases": db.get_stock_aliases(),
             "dynamic_tags": db.aggregate_post_tags(),
             "stats": db.tag_stats(),
+            "maintain": {
+                "last": db.get_tag_maintain_last(),
+                "llm_ready": bool(llm_cfg and getattr(llm_cfg, "api_key", "")),
+            },
         }
 
     @router.put("/tags", dependencies=[Depends(require_admin)])
@@ -2847,61 +2881,59 @@ def create_api_router(
             "dynamic_tags": db.aggregate_post_tags(),
         }
 
+    @router.post("/tags/maintain", dependencies=[Depends(require_admin)])
+    def maintain_post_tags(
+        body: TagMaintainIn, request: Request, admin: dict = Depends(require_admin)
+    ):
+        """立即跑一轮 LLM 标签维护（别名/$标记$/清误标），可选接着回填。
+
+        与每日调度任务同一套逻辑。已有维护在跑时返回 409。
+        backfill=none 只改词表；pending/all 随后按当前规则回填贴文。
+        """
+        from .scheduler import _admin_llm_config
+        from .tagging import backfill_post_tags, try_run_tag_maintenance
+
+        llm_cfg = _admin_llm_config(db, getattr(request.app.state, "llm_config", None))
+        result = try_run_tag_maintenance(db, llm_cfg)
+        if result is None:
+            raise HTTPException(status_code=409, detail="标签维护正在进行")
+        backfill = None
+        if body.backfill != "none":
+            backfill = backfill_post_tags(db, body.backfill)
+        last = dict(result)
+        last["at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if backfill is not None:
+            last["backfill"] = {"mode": body.backfill, **backfill}
+        db.set_tag_maintain_last(last)
+        db.set_setting("stock_alias_last_date", time.strftime("%Y-%m-%d"))
+        _audit(
+            admin,
+            "maintain_post_tags",
+            detail=(
+                f"backfill={body.backfill} aliases=+{len(result.get('added_aliases') or [])} "
+                f"names=+{len(result.get('added_stock_names') or [])} "
+                f"cleaned={result.get('cleaned') or 0}"
+            ),
+        )
+        return {**result, "backfill": backfill, "at": last["at"]}
+
     @router.post("/tags/backfill", dependencies=[Depends(require_admin)])
-    def backfill_post_tags(body: TagBackfillIn, admin: dict = Depends(require_admin)):
+    def backfill_post_tags_api(body: TagBackfillIn, admin: dict = Depends(require_admin)):
         """按当前规则回填/重算贴文标签（关键词规则，零成本）。
 
         mode=pending（默认）只处理尚未打标的帖（''/NULL）；mode=all 全量重算，
         覆盖全部历史标签（含零命中帖标记为 []）。两种模式都用 id 游标扫一遍，
         不会无限循环。保存词表不触发此操作，全量重算必须由管理员显式发起。
         """
-        from .tagging import rule_tag_posts, stock_tag_posts
+        from .tagging import backfill_post_tags
 
-        tag_rules = db.get_tag_vocabulary()
-        stock_names = db.get_stock_names()
-        stock_aliases = db.get_stock_aliases()
-        processed = 0
-        tagged_count = 0
-        below_id: int | None = None  # None 表示从最新开始，之后按每批最小 id 推进
-        while True:
-            batch = db.list_posts(
-                limit=500, untagged_only=body.mode == "pending", below_id=below_id
-            )
-            if not batch:
-                break
-            posts = [
-                Post(
-                    platform=p["platform"],
-                    kol_id=p["kol_id"],
-                    kol_name=p["kol_name"],
-                    external_id=p["external_id"],
-                    title=p["title"],
-                    content=p["content"],
-                    url=p["url"],
-                    published_at=p["published_at"],
-                    category=p.get("category_name") or "",
-                    post_type=p.get("post_type") or "",
-                    images=p.get("images") or [],
-                )
-                for p in batch
-            ]
-            tagged = rule_tag_posts(posts, tag_rules)
-            stock_tagged = stock_tag_posts(posts, stock_names, aliases=stock_aliases)
-            for i, post in enumerate(posts):
-                # 合并：话题（≤3）+ 股票（≤2）；空列表也回写（零命中标记为已处理）
-                merged = list((tagged.get(i) or [])[:3]) + list((stock_tagged.get(i) or [])[:2])
-                db.update_post_tags(batch[i]["id"], merged)
-                if merged:
-                    tagged_count += 1
-            processed += len(batch)
-            # 游标推进到本批最小 id（ORDER BY id DESC），下一批只扫更早的帖
-            below_id = min(p["id"] for p in batch)
+        result = backfill_post_tags(db, body.mode)
         _audit(
             admin,
             "backfill_post_tags",
-            detail=f"mode={body.mode} processed={processed} tagged={tagged_count}",
+            detail=f"mode={body.mode} processed={result['processed']} tagged={result['tagged']}",
         )
-        return {"processed": processed, "tagged": tagged_count}
+        return result
 
     @router.get("/posts", dependencies=[Depends(require_admin)])
     def list_posts(limit: int = 100, platform: str | None = None, kol_id: int | None = None, q: str | None = None, offset: int = 0):

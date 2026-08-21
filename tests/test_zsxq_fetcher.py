@@ -486,3 +486,100 @@ def test_purge_unreferenced_zsxq_files(tmp_path):
     assert result["bytes"] == len(b"keep")
     assert (dest / "22.pdf").exists()
     assert not (dest / "99.pdf").exists()
+
+
+def _comments_ok(topic_id, comments, **extra):
+    body = {"succeeded": True, "resp_data": {"comments": comments, **extra}}
+    return httpx.Response(200, json=body)
+
+
+def _comment(cid, name, text, likes=0):
+    return {
+        "comment_id": cid,
+        "create_time": "2026-08-21T08:00:00.000+0800",
+        "owner": {"name": name},
+        "text": text,
+        "likes_count": likes,
+    }
+
+
+class _CommentsDB:
+    """带 get_post_detail 的最小 FakeDB；settings 可注入。"""
+
+    def __init__(self, stored=None, **settings):
+        self._stored = stored or {}
+        self._settings = settings or {}
+
+    def get_setting(self, key):
+        return self._settings.get(key)
+
+    def get_post_detail(self, platform, external_id):
+        return dict(self._stored.get(external_id, {}))
+
+
+def test_fetch_collects_comments_for_new_topic():
+    """新主题有评论时抓取并写入 detail；请求打到 /topics/{id}/comments。"""
+    topic = _topic(1, "正文")
+    topic["comments_count"] = 2
+    db = _CommentsDB()
+    handler = _Handler(
+        {
+            "topics": _ok([topic]),
+            "topics/1/comments": _comments_ok(1, [_comment(11, "甲", "好文", 3), _comment(12, "乙", "顶")]),
+        }
+    )
+    client = httpx.Client(transport=httpx.MockTransport(handler), timeout=10)
+    posts = ZsxqFetcher(db=db, client=client).fetch({"id": 9, "name": "g", "external_id": "123"})
+    detail = posts[0].detail or {}
+    assert detail["comments"] == [
+        {"comment_id": "11", "create_time": "2026-08-21T08:00:00.000+0800", "owner": "甲", "text": "好文", "likes_count": 3},
+        {"comment_id": "12", "create_time": "2026-08-21T08:00:00.000+0800", "owner": "乙", "text": "顶", "likes_count": 0},
+    ]
+    assert detail["comments_count"] == 2
+    assert any("/topics/1/comments" in c for c in handler.calls)
+
+
+def test_fetch_preserves_stored_comments_for_existing_topic():
+    """已存过评论的主题刷新签名 URL 时沿用本地评论，不再请求评论接口。"""
+    topic = _topic(1, "正文")
+    topic["comments_count"] = 5
+    stored_comments = [{"comment_id": "11", "create_time": "t", "owner": "甲", "text": "旧评论", "likes_count": 1}]
+    db = _CommentsDB(stored={"1": {"comments": stored_comments}})
+    handler = _Handler({"topics": _ok([topic])})  # 无 /comments 路由 → 若误请求会 404
+    client = httpx.Client(transport=httpx.MockTransport(handler), timeout=10)
+    posts = ZsxqFetcher(db=db, client=client).fetch({"id": 9, "name": "g", "external_id": "123"})
+    detail = posts[0].detail or {}
+    assert detail["comments"] == stored_comments
+    assert not any("/comments" in c for c in handler.calls)
+
+
+def test_fetch_skips_comments_when_disabled():
+    """zsxq_fetch_comments=0 时不抓评论，detail 不写 comments。"""
+    topic = _topic(1, "正文")
+    topic["comments_count"] = 3
+    db = _CommentsDB(zsxq_fetch_comments="0")
+    handler = _Handler({"topics": _ok([topic])})
+    client = httpx.Client(transport=httpx.MockTransport(handler), timeout=10)
+    posts = ZsxqFetcher(db=db, client=client).fetch({"id": 9, "name": "g", "external_id": "123"})
+    detail = posts[0].detail or {}
+    assert "comments" not in detail
+
+
+def test_fetch_respects_comment_budget_per_round():
+    """单轮评论请求预算耗尽后不再发起新的评论请求。"""
+    t1 = _topic(1, "一"); t1["comments_count"] = 1
+    t2 = _topic(2, "二"); t2["comments_count"] = 1
+    db = _CommentsDB(zsxq_comment_budget="1")
+    handler = _Handler(
+        {
+            "topics": _ok([t1, t2]),
+            "topics/1/comments": _comments_ok(1, [_comment(11, "甲", "c1")]),
+            "topics/2/comments": _comments_ok(2, [_comment(21, "乙", "c2")]),
+        }
+    )
+    client = httpx.Client(transport=httpx.MockTransport(handler), timeout=10)
+    posts = ZsxqFetcher(db=db, client=client).fetch({"id": 9, "name": "g", "external_id": "123"})
+    comment_requests = [c for c in handler.calls if "/comments" in c]
+    assert len(comment_requests) == 1  # 预算只有 1 次
+    assert (posts[0].detail or {}).get("comments_count") == 1
+    assert "comments" not in (posts[1].detail or {})

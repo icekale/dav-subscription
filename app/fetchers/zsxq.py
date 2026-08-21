@@ -23,8 +23,10 @@ from ..avatar_cache import cache_avatar, cache_image_file, headers_for
 from .base import Fetcher, Post, ThreadLocalClient, format_published_at, strip_html
 from .zsxq_inspect import (
     classify_topic,
+    collect_comments,
     collect_files,
     collect_images,
+    comment_coverage,
     group_profile,
     topics_cursor,
 )
@@ -36,6 +38,8 @@ DEFAULT_PAGE_LIMIT = 20
 DEFAULT_MAX_PAGES = 3
 DEFAULT_DELAY = 1.0
 DEFAULT_FILE_DELAY = 1.0
+DEFAULT_MAX_COMMENT_PAGES = 3
+DEFAULT_COMMENT_BUDGET = 30
 # 后台 Cookie 存储键（与雪球/ima 同一套 db settings）
 ZSXQ_COOKIE_KEY = "zsxq_cookie"
 ZSXQ_COOKIE_TIME_KEY = "zsxq_cookie_updated_at"
@@ -86,6 +90,37 @@ def _max_pages(db) -> int:
 
 def prefetch_enabled(db) -> bool:
     return bool(db) and (db.get_setting("zsxq_prefetch_files") or "") == "1"
+
+
+def _comments_enabled(db) -> bool:
+    """是否抓取评论（默认开；后台可关）。"""
+    if db is None:
+        return True
+    raw = (db.get_setting("zsxq_fetch_comments") or os.environ.get("ZSXQ_FETCH_COMMENTS", "")).strip()
+    return raw != "0"
+
+
+def _max_comment_pages(db) -> int:
+    raw = ""
+    if db is not None:
+        raw = db.get_setting("zsxq_max_comment_pages") or ""
+    raw = raw or os.environ.get("ZSXQ_MAX_COMMENT_PAGES", "")
+    try:
+        return max(1, min(10, int(raw)))
+    except (TypeError, ValueError):
+        return DEFAULT_MAX_COMMENT_PAGES
+
+
+def _comment_budget(db) -> int:
+    """每轮最多发起的评论请求数（保护限流；增量新帖一般十几个内）。"""
+    raw = ""
+    if db is not None:
+        raw = db.get_setting("zsxq_comment_budget") or ""
+    raw = raw or os.environ.get("ZSXQ_COMMENT_BUDGET", "")
+    try:
+        return max(1, min(200, int(raw)))
+    except (TypeError, ValueError):
+        return DEFAULT_COMMENT_BUDGET
 
 
 
@@ -390,6 +425,60 @@ class ZsxqFetcher(Fetcher):
         self._file_cache[file_id] = url
         return url
 
+    def _fetch_comments(self, token: str, topic_id: str, comments_count: int) -> list[dict]:
+        """分页拉某主题全部已存评论（有界，默认最多 3 页）。"""
+        comments: list[dict] = []
+        end_time = None
+        max_pages = _max_comment_pages(self.db)
+        want = min(int(comments_count or 0), 500)
+        pages = 0
+        while pages < max_pages and len(comments) < want:
+            params = {"count": DEFAULT_PAGE_LIMIT}
+            if end_time:
+                params["end_time"] = end_time
+            payload = self._get(
+                token, f"/topics/{topic_id}/comments", params, delay_key="zsxq_fetch_delay_seconds"
+            )
+            comments.extend(collect_comments(payload))
+            cov = comment_coverage(comments_count, payload)
+            if not cov["has_more"] or not cov["next_end_time"]:
+                break
+            end_time = cov["next_end_time"]
+            pages += 1
+        # 按 comment_id 去重
+        seen: set[str] = set()
+        uniq: list[dict] = []
+        for c in comments:
+            if c["comment_id"] and c["comment_id"] not in seen:
+                seen.add(c["comment_id"])
+                uniq.append(c)
+        return uniq
+
+    def _comments_for(self, topic_id: str, topic: dict, token: str) -> list[dict] | None:
+        """返回该主题应入库的评论列表；None 表示不抓取、detail 不写 comments。
+
+        已存过评论的（含旧帖升级后）直接沿用，刷新签名 URL 时不丢；
+        新主题按 comments_count 决定是否抓取，并受单轮预算保护。
+        """
+        if self.db is None:
+            return None
+        get_detail = getattr(self.db, "get_post_detail", None)
+        stored = get_detail("zsxq", topic_id).get("comments") if get_detail else None
+        if stored is not None:
+            return stored
+        count = int(topic.get("comments_count") or 0)
+        if not _comments_enabled(self.db) or count <= 0:
+            return None
+        if getattr(self, "_comments_budget", 0) <= 0:
+            return None
+        self._comments_budget -= 1
+        try:
+            return self._fetch_comments(token, topic_id, count)
+        except (RuntimeError, ZsxqError) as exc:
+            logger.info("知识星球评论抓取失败 topic=%s err=%s", topic_id, exc)
+            return None
+
+
     # ---- 主流程 ----
 
     def fetch(self, kol: dict, token: str | None = None) -> list[Post]:
@@ -399,6 +488,7 @@ class ZsxqFetcher(Fetcher):
         group_id = str(kol.get("external_id") or "").strip()
         if not group_id:
             raise RuntimeError(f"知识星球缺少 external_id kol={kol['name']}")
+        self._comments_budget = _comment_budget(self.db)
         topics: list[dict] = []
         end_time = None
         max_pages = _max_pages(self.db)
@@ -461,6 +551,11 @@ class ZsxqFetcher(Fetcher):
         # 过滤空 content（列表里一些无声主题）
         if not content and not images and not files:
             content = title or "（无声主题）"
+        detail = {"files": files, "raw": topic}
+        comments = self._comments_for(topic_id, topic, token)
+        if comments is not None:
+            detail["comments"] = comments
+            detail["comments_count"] = len(comments)
         return Post(
             platform=self.platform,
             kol_id=kol["id"],
@@ -473,7 +568,7 @@ class ZsxqFetcher(Fetcher):
             post_type=kind,
             category="星球",
             images=images,
-            detail={"files": files, "raw": topic},
+            detail=detail,
         )
 
     def _sync_group_profile(self, kol: dict, topics: list[dict], token: str) -> None:

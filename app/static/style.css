@@ -992,7 +992,7 @@ body.lightbox-open { overflow: hidden; }
 .tl-new-badge-btn {
   display: inline-flex; align-items: center; white-space: nowrap;
   height: 40px; padding: 0 16px 0 10px; line-height: 1; gap: 8px;
-  overflow: visible;
+  overflow: hidden;
   border: none; background: var(--color-accent); color: var(--color-white);
   font-size: var(--text-sm); font-weight: var(--font-weight-semibold);
   border-radius: var(--radius-pill);
@@ -1005,13 +1005,13 @@ body.lightbox-open { overflow: hidden; }
   outline-offset: 2px;
 }
 .tl-badge-arrow {
-  width: 14px; height: 14px; flex-shrink: 0; margin-right: 6px;
+  width: 14px; height: 14px; flex-shrink: 0;
 }
-.tl-badge-avatars { display: inline-flex; align-items: center; margin-right: 2px; isolation: isolate; }
+.tl-badge-avatars { display: inline-flex; align-items: center; isolation: isolate; }
 .tl-badge-avatars > * {
   position: relative; flex-shrink: 0;
-  width: 52px; height: 52px; border-radius: var(--radius-pill);
-  border: 2.5px solid var(--color-white); margin-left: -18px;
+  width: 20px; height: 20px; border-radius: 50%;
+  border: 2px solid var(--color-white); margin-left: -8px;
   box-sizing: border-box;
 }
 .tl-badge-avatars > *:nth-child(1) { z-index: 3; margin-left: 0; }
@@ -1020,7 +1020,7 @@ body.lightbox-open { overflow: hidden; }
 .tl-badge-avatars img { object-fit: cover; display: block; background: rgba(255, 255, 255, 0.2); }
 .tl-badge-avatars .ph {
   background: rgba(255, 255, 255, 0.28); color: var(--color-white);
-  font-size: var(--text-icon); font-weight: var(--font-weight-bold);
+  font-size: var(--text-xs); font-weight: var(--font-weight-bold);
   display: inline-flex; align-items: center; justify-content: center;
 }
 @keyframes tl-new-slide {
@@ -1796,7 +1796,7 @@ pre.content-cell { white-space: pre-wrap; overflow-wrap: break-word; min-width: 
   .icon-badge-bar .star-icon { width: 20px; height: 20px; }
   .home-filter-content[hidden] { display: none; }
   .home-head .icon-badge-bar { margin-top: 10px; }
-  .tl-new-badge-btn { min-height: 44px; overflow: visible; }
+  .tl-new-badge-btn { min-height: 44px; overflow: hidden; }
   .kol-item { flex-wrap: wrap; }
   .kol-item .btn-sub { width: 100%; min-height: 44px; }
   .kol-item .btn-sm.danger { min-height: 44px; }
