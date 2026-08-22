@@ -22,7 +22,7 @@ const CHANNEL_ICONS = {
 };
 const CHANNEL_LABELS = { telegram: "Telegram", feishu: "飞书", wecom: "企业微信", bark: "Bark", webpush: "浏览器通知" };
 const USER_CHANNEL_KEYS = ["telegram", "feishu", "wecom", "bark", "webpush"];
-const APP_VERSION = "1.12.35";
+const APP_VERSION = "1.12.36";
 const PLATFORM_TABS = ["", "xueqiu", "combination", "weibo", "twitter", "zsxq"];
 const STATS_TABS = ["overview", "health", "plaza", "config", "cookies", "proxies"];
 const TL_PLATFORMS = PLATFORM_TABS.map((p) => [p, p ? PLATFORM_LABELS[p] : "全部"]);
@@ -3377,86 +3377,97 @@ async function loadAdminStats() {
           <div><h2 class="section-title">抓取设置</h2>
           <p class="section-meta">按抓取档位分组配置；保存后即时生效，无需重启。</p></div>
         </header>
-        <div class="cfg-grid">
-          <div class="cfg-group">
-            <p class="cfg-group-title">基础轮询</p>
-            <div class="cfg-fields">
-              <label class="cfg-field" title="全局轮询间隔（所有大V的最低抓取频率）">
-                <span>轮询间隔<span class="cfg-unit">秒</span></span>
-                <input id="pc-interval" type="number" class="form-control" min="1" max="3600" value="${s.polling_config.interval_seconds}">
-              </label>
-              <label class="cfg-field" title="标记为「优先」的大V用更短间隔抓取，新帖更早送达">
-                <span>优先大V间隔<span class="cfg-unit">秒</span></span>
-                <input id="pc-priority" type="number" class="form-control" min="1" max="600" value="${s.polling_config.priority_interval_seconds}">
-              </label>
-              <label class="cfg-field" title="普通大V帖子按此周期合并推送摘要；0 = 实时单条推送">
-                <span>合并推送周期<span class="cfg-unit">秒</span></span>
-                <input id="pc-digest" type="number" class="form-control" min="0" max="86400" value="${s.polling_config.digest_interval_seconds}">
-              </label>
+        <div class="cfg-stack">
+          <div class="cfg-grid">
+            <div class="cfg-group">
+              <p class="cfg-group-title">基础轮询</p>
+              <div class="cfg-fields">
+                <label class="cfg-field" title="全局轮询间隔（所有大V的最低抓取频率）">
+                  <span>轮询间隔<span class="cfg-unit">秒</span></span>
+                  <input id="pc-interval" type="number" class="form-control" min="1" max="3600" value="${s.polling_config.interval_seconds}">
+                </label>
+                <label class="cfg-field" title="标记为「优先」的大V用更短间隔抓取，新帖更早送达">
+                  <span>优先大V间隔<span class="cfg-unit">秒</span></span>
+                  <input id="pc-priority" type="number" class="form-control" min="1" max="600" value="${s.polling_config.priority_interval_seconds}">
+                </label>
+                <label class="cfg-field" title="普通大V帖子按此周期合并推送摘要；0 = 实时单条推送">
+                  <span>合并推送周期<span class="cfg-unit">秒</span></span>
+                  <input id="pc-digest" type="number" class="form-control" min="0" max="86400" value="${s.polling_config.digest_interval_seconds}">
+                </label>
+              </div>
+            </div>
+            <div class="cfg-group">
+              <p class="cfg-group-title">自适应降频 <span class="hint">无新帖自动拉长</span></p>
+              <div class="cfg-fields">
+                <label class="cfg-field" title="普通大V长期无新帖时封顶的空轮间隔，控制对平台的请求频率">
+                  <span>普通大V空轮封顶<span class="cfg-unit">秒</span></span>
+                  <input id="pc-nc" type="number" class="form-control" min="5" max="86400" value="${s.polling_config.normal_idle_cap_seconds}">
+                </label>
+                <label class="cfg-field" title="优先大V长期无新帖时封顶的空轮间隔">
+                  <span>优先大V空轮封顶<span class="cfg-unit">秒</span></span>
+                  <input id="pc-pc" type="number" class="form-control" min="5" max="86400" value="${s.polling_config.priority_idle_cap_seconds}">
+                </label>
+                <label class="cfg-field" title="X 直抓失败期间封顶的抓取间隔，失败期放慢以免空打接口">
+                  <span>X失败封顶<span class="cfg-unit">秒</span></span>
+                  <input id="pc-xc" type="number" class="form-control" min="5" max="86400" value="${s.polling_config.x_fallback_cap_seconds}">
+                </label>
+              </div>
+            </div>
+            <div class="cfg-group">
+              <p class="cfg-group-title">雪球组合 <span class="hint">调仓实时推送</span></p>
+              <div class="cfg-fields">
+                <label class="cfg-field" title="组合抓取频率；无新帖时自动拉长（2 倍步进），调仓出现即恢复">
+                  <span>组合基础间隔<span class="cfg-unit">秒</span></span>
+                  <input id="pc-cb" type="number" class="form-control" min="5" max="3600" value="${s.polling_config.combination_base_seconds}">
+                </label>
+                <label class="cfg-field" title="组合长期无调仓时封顶的空轮间隔，避免空转刷接口">
+                  <span>组合空轮封顶<span class="cfg-unit">秒</span></span>
+                  <input id="pc-cc" type="number" class="form-control" min="5" max="86400" value="${s.polling_config.combination_idle_cap_seconds}">
+                </label>
+              </div>
+            </div>
+            <div class="cfg-group">
+              <p class="cfg-group-title">次要大V <span class="hint">低频合并</span></p>
+              <div class="cfg-fields">
+                <label class="cfg-field" title="次要大V基础抓取间隔（低于普通大V频率）">
+                  <span>抓取间隔<span class="cfg-unit">秒</span></span>
+                  <input id="pc-si" type="number" class="form-control" min="60" max="86400" value="${s.polling_config.secondary_interval_seconds}">
+                </label>
+                <label class="cfg-field" title="次要大V长期无新帖时封顶的空轮间隔">
+                  <span>空轮封顶<span class="cfg-unit">秒</span></span>
+                  <input id="pc-sc" type="number" class="form-control" min="60" max="86400" value="${s.polling_config.secondary_idle_cap_seconds}">
+                </label>
+                <label class="cfg-field" title="次要大V帖子按此周期合并推送；0 = 实时推送">
+                  <span>推送周期<span class="cfg-unit">秒</span></span>
+                  <input id="pc-sd" type="number" class="form-control" min="0" max="86400" value="${s.polling_config.secondary_digest_interval_seconds}">
+                </label>
+                <label class="cfg-field" title="合并推送最低条数：周期内积压不足此数则不推送、继续攒，够数才推">
+                  <span>最低条数<span class="cfg-unit">条</span></span>
+                  <input id="pc-sd-min" type="number" class="form-control" min="1" max="100" value="${s.polling_config.secondary_min_digest_count ?? 1}">
+                </label>
+              </div>
             </div>
           </div>
           <div class="cfg-group">
-            <p class="cfg-group-title">雪球组合 <span class="hint">调仓实时推送</span></p>
-            <div class="cfg-fields">
-              <label class="cfg-field" title="组合抓取频率；无新帖时自动拉长（2 倍步进），调仓出现即恢复">
-                <span>组合基础间隔<span class="cfg-unit">秒</span></span>
-                <input id="pc-cb" type="number" class="form-control" min="5" max="3600" value="${s.polling_config.combination_base_seconds}">
-              </label>
-              <label class="cfg-field" title="组合长期无调仓时封顶的空轮间隔，避免空转刷接口">
-                <span>组合空轮封顶<span class="cfg-unit">秒</span></span>
-                <input id="pc-cc" type="number" class="form-control" min="5" max="86400" value="${s.polling_config.combination_idle_cap_seconds}">
-              </label>
-            </div>
-          </div>
-          <div class="cfg-group">
-            <p class="cfg-group-title">自适应降频 <span class="hint">无新帖自动拉长</span></p>
-            <div class="cfg-fields">
-              <label class="cfg-field" title="普通大V长期无新帖时封顶的空轮间隔，控制对平台的请求频率">
-                <span>普通大V空轮封顶<span class="cfg-unit">秒</span></span>
-                <input id="pc-nc" type="number" class="form-control" min="5" max="86400" value="${s.polling_config.normal_idle_cap_seconds}">
-              </label>
-              <label class="cfg-field" title="优先大V长期无新帖时封顶的空轮间隔">
-                <span>优先大V空轮封顶<span class="cfg-unit">秒</span></span>
-                <input id="pc-pc" type="number" class="form-control" min="5" max="86400" value="${s.polling_config.priority_idle_cap_seconds}">
-              </label>
-              <label class="cfg-field" title="X 直抓失败期间封顶的抓取间隔，失败期放慢以免空打接口">
-                <span>X失败封顶<span class="cfg-unit">秒</span></span>
-                <input id="pc-xc" type="number" class="form-control" min="5" max="86400" value="${s.polling_config.x_fallback_cap_seconds}">
-              </label>
-            </div>
-          </div>
-          <div class="cfg-group">
-            <p class="cfg-group-title">次要大V <span class="hint">低频合并</span></p>
-            <div class="cfg-fields">
-              <label class="cfg-field" title="次要大V基础抓取间隔（低于普通大V频率）">
-                <span>抓取间隔<span class="cfg-unit">秒</span></span>
-                <input id="pc-si" type="number" class="form-control" min="60" max="86400" value="${s.polling_config.secondary_interval_seconds}">
-              </label>
-              <label class="cfg-field" title="次要大V长期无新帖时封顶的空轮间隔">
-                <span>空轮封顶<span class="cfg-unit">秒</span></span>
-                <input id="pc-sc" type="number" class="form-control" min="60" max="86400" value="${s.polling_config.secondary_idle_cap_seconds}">
-              </label>
-              <label class="cfg-field" title="次要大V帖子按此周期合并推送；0 = 实时推送">
-                <span>推送周期<span class="cfg-unit">秒</span></span>
-                <input id="pc-sd" type="number" class="form-control" min="0" max="86400" value="${s.polling_config.secondary_digest_interval_seconds}">
-              </label>
-              <label class="cfg-field" title="合并推送最低条数：周期内积压不足此数则不推送、继续攒，够数才推">
-                <span>最低条数<span class="cfg-unit">条</span></span>
-                <input id="pc-sd-min" type="number" class="form-control" min="1" max="100" value="${s.polling_config.secondary_min_digest_count ?? 1}">
-              </label>
-            </div>
-          </div>
-          <div class="cfg-group">
-            <p class="cfg-group-title">X 通道</p>
-            <div class="cfg-fields">
+            <p class="cfg-group-title">通道</p>
+            <div class="cfg-flags">
               <label class="cfg-field cfg-check" title="X 内容自动翻译成中文（配置 TWITTER_COOKIE 后走 X 官方翻译，质量同网页版）">
                 <input id="pc-translate" type="checkbox" ${s.polling_config.translate_twitter_content ? "checked" : ""}>
-                <span>X 内容自动翻译成中文</span>
-                <span class="cfg-check-desc">配置 TWITTER_COOKIE 后走 X 官方翻译，质量同网页版</span>
+                <span class="cfg-flag-text">
+                  <span>X 内容自动翻译成中文</span>
+                  <span class="cfg-check-desc">配置 TWITTER_COOKIE 后走 X 官方翻译，质量同网页版</span>
+                </span>
+              </label>
+              <label class="cfg-field cfg-check" title="关闭后全部退回旧版 sendMessage + HTML，配图走相册">
+                <input id="pc-tg-rich" type="checkbox" ${s.polling_config.telegram_rich_messages !== false ? "checked" : ""}>
+                <span class="cfg-flag-text">
+                  <span>Telegram Rich Message</span>
+                  <span class="cfg-check-desc">标题分层、表格、图文一条；关掉则用原来的 HTML</span>
+                </span>
               </label>
             </div>
           </div>
-          <div class="cfg-group">
+          <div class="cfg-group cfg-group--zsxq">
             <p class="cfg-group-title">知识星球</p>
             <div class="cfg-fields">
               <label class="cfg-field" title="每星球每轮最多翻几页，每页 20 条">
@@ -3473,13 +3484,17 @@ async function loadAdminStats() {
               </label>
               <label class="cfg-field cfg-check" title="抓到新帖时就把 PDF 拉到本地；默认关闭，点开再下，省日限">
                 <input id="pc-zq-prefetch" type="checkbox" ${s.polling_config.zsxq_prefetch_files ? "checked" : ""}>
-                <span>抓取时预缓存附件</span>
-                <span class="cfg-check-desc">打开后新帖 PDF 会立刻落到本地，费配额；默认点开再下</span>
+                <span class="cfg-flag-text">
+                  <span>抓取时预缓存附件</span>
+                  <span class="cfg-check-desc">打开后新帖 PDF 会立刻落到本地，费配额；默认点开再下</span>
+                </span>
               </label>
               <label class="cfg-field cfg-check" title="新帖自动抓评论入库（可一并推送）；旧帖不动">
                 <input id="pc-zq-comments" type="checkbox" ${s.polling_config.zsxq_fetch_comments ? "checked" : ""}>
-                <span>抓取评论</span>
-                <span class="cfg-check-desc">新主题的评论在抓帖时一并入库</span>
+                <span class="cfg-flag-text">
+                  <span>抓取评论</span>
+                  <span class="cfg-check-desc">新主题的评论在抓帖时一并入库</span>
+                </span>
               </label>
               <label class="cfg-field" title="单主题评论最多翻几页（每页 20 条）">
                 <span>评论翻页<span class="cfg-unit">页</span></span>
@@ -3491,49 +3506,43 @@ async function loadAdminStats() {
               </label>
               <label class="cfg-field cfg-check" title="用 App 通道请求头（xiaomiquan UA + X-Request-Id/X-Version）代替浏览器头；默认关，等你复测日限差异确认有收益再开">
                 <input id="pc-zq-app" type="checkbox" ${s.polling_config.zsxq_app_channel ? "checked" : ""}>
-                <span>App 通道头</span>
-                <span class="cfg-check-desc">伪称 Android 客户端请求；与 web 通道共用账号配额</span>
+                <span class="cfg-flag-text">
+                  <span>App 通道头</span>
+                  <span class="cfg-check-desc">伪称 Android 客户端请求；与 web 通道共用账号配额</span>
+                </span>
               </label>
-              <label class="cfg-field" title="App 通道 UA 里的设备标识：Android 版本 + 品牌_型号，空格自动压成下划线">
+              <label class="cfg-field cfg-field--wide" title="App 通道 UA 里的设备标识：Android 版本 + 品牌_型号，空格自动压成下划线">
                 <span>设备标识<span class="cfg-unit">RELEASE BRAND_MODEL</span></span>
                 <input id="pc-zq-app-device" type="text" class="form-control" maxlength="64" value="${s.polling_config.zsxq_app_device ?? "16 OnePlus_PJD110"}">
               </label>
             </div>
-            <p class="muted" id="zq-cache-stat" style="margin-top:12px">附件缓存 ${zcSize} / ${zc.files || 0} 个文件</p>
-            <div class="toolbar" style="margin-top:8px">
+            <div class="cfg-foot">
+              <p class="muted" id="zq-cache-stat">附件缓存 ${zcSize} / ${zc.files || 0} 个文件</p>
               <button type="button" class="btn-ghost" onclick="purgeZsxqCache()">清理未引用</button>
             </div>
           </div>
-          <div class="cfg-group">
-            <p class="cfg-group-title">Telegram 推送</p>
-            <div class="cfg-fields">
-              <label class="cfg-field cfg-check" title="关闭后全部退回旧版 sendMessage + HTML，配图走相册">
-                <input id="pc-tg-rich" type="checkbox" ${s.polling_config.telegram_rich_messages !== false ? "checked" : ""}>
-                <span>Telegram Rich Message</span>
-                <span class="cfg-check-desc">标题分层、表格、图文一条；关掉则用原来的 HTML。保存后即时生效</span>
-              </label>
+          <div class="cfg-ops">
+            <div class="cfg-group">
+              <p class="cfg-group-title">保活与定时</p>
+              <div class="cfg-fields">
+                <label class="cfg-field" title="雪球保活探测间隔；0 = 关闭自动保活">
+                  <span>雪球探测<span class="cfg-unit">秒</span></span>
+                  <input id="pc-probe" type="number" class="form-control" min="0" max="86400" value="${s.polling_config.source_probe_interval_seconds}">
+                </label>
+                <label class="cfg-field" title="登录态自动保活间隔；0 = 关闭">
+                  <span>cookie保活<span class="cfg-unit">秒</span></span>
+                  <input id="pc-keepalive" type="number" class="form-control" min="0" max="86400" value="${s.polling_config.cookie_keepalive_interval_seconds}">
+                </label>
+                <label class="cfg-field" title="每日精选推送的小时（0-23，北京时间）">
+                  <span>每日精选<span class="cfg-unit">时</span></span>
+                  <input id="pc-daily" type="number" class="form-control" min="0" max="23" value="${s.polling_config.daily_report_hour}">
+                </label>
+              </div>
+            </div>
+            <div class="cfg-save-row">
+              <button type="button" class="btn-normal" id="pc-save" onclick="savePollingConfig()">保存抓取设置</button>
             </div>
           </div>
-          <div class="cfg-group">
-            <p class="cfg-group-title">保活与定时</p>
-            <div class="cfg-fields">
-              <label class="cfg-field" title="雪球保活探测间隔；0 = 关闭自动保活">
-                <span>雪球探测<span class="cfg-unit">秒</span></span>
-                <input id="pc-probe" type="number" class="form-control" min="0" max="86400" value="${s.polling_config.source_probe_interval_seconds}">
-              </label>
-              <label class="cfg-field" title="登录态自动保活间隔；0 = 关闭">
-                <span>cookie保活<span class="cfg-unit">秒</span></span>
-                <input id="pc-keepalive" type="number" class="form-control" min="0" max="86400" value="${s.polling_config.cookie_keepalive_interval_seconds}">
-              </label>
-              <label class="cfg-field" title="每日精选推送的小时（0-23，北京时间）">
-                <span>每日精选<span class="cfg-unit">时</span></span>
-                <input id="pc-daily" type="number" class="form-control" min="0" max="23" value="${s.polling_config.daily_report_hour}">
-              </label>
-            </div>
-          </div>
-        </div>
-        <div class="cfg-save-row">
-          <button class="btn-normal" onclick="savePollingConfig()">保存抓取设置</button>
         </div>
       </section>
     </div>
@@ -3807,12 +3816,16 @@ async function savePollingConfig() {
     zsxq_app_channel: $("#pc-zq-app").checked,
     zsxq_app_device: $("#pc-zq-app-device").value.trim(),
   };
+  const btn = $("#pc-save");
+  if (btn) btn.disabled = true;
   try {
     await api("/api/admin/polling-config", { method: "PUT", body: JSON.stringify(body) });
     // 标准操作反馈 toast；不重建页面（loadAdminStats 会整页重建并跳回监控总览）
     flash("抓取设置已保存，即时生效");
   } catch (err) {
     flash(err.message, "error");
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 

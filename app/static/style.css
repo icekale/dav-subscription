@@ -484,16 +484,104 @@ textarea.form-control {
 .ak-filters { margin-top: 12px; }
 .ak-platform-tabs { margin-top: 12px; }
 
-/* 抓取设置分组栅格：按抓取档位分组（基础轮询/雪球组合/自适应降频/次要大V/X通道/保活定时），
-   固定两列（6 组 = 3 行 × 2 列），避免超宽屏 auto-fit 无限加列把卡片拉成横排一长条；窄屏折单列 */
+/* 抓取设置：频率两列 → 通道 → 知识星球通栏 → 保活与保存。
+   不用 masonry 两列，避免知识星球把左列撑出空洞。 */
+.cfg-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
 .cfg-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 14px;
-  margin-top: 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+  align-items: start;
+}
+.cfg-grid .cfg-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3) var(--space-4);
+}
+.cfg-grid .cfg-field {
+  flex: none;
+  min-width: 0;
+}
+.cfg-flags {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3) var(--space-4);
+  margin-top: 12px;
+}
+.cfg-flags .cfg-field.cfg-check {
+  flex: none;
+  min-width: 0;
+}
+.cfg-flag-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.cfg-flag-text > span:first-child {
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-strong);
+  line-height: 1.35;
+}
+.cfg-group--zsxq .cfg-fields {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.cfg-group--zsxq .cfg-field {
+  flex: none;
+  min-width: 0;
+}
+.cfg-group--zsxq .cfg-field.cfg-check,
+.cfg-group--zsxq .cfg-field--wide {
+  grid-column: 1 / -1;
+}
+.cfg-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-top: var(--space-4);
+}
+.cfg-foot .muted { margin: 0; }
+.cfg-ops {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-4);
+  align-items: end;
+}
+.cfg-ops .cfg-fields {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.cfg-ops .cfg-field {
+  flex: none;
+  min-width: 0;
+}
+.cfg-ops .cfg-save-row {
+  margin: 0;
+  padding-bottom: 2px;
+}
+#st-config .cfg-save-row .btn-normal {
+  min-height: 44px;
+  height: 44px;
+}
+.cfg-field .cfg-unit { margin-left: 0.25em; }
+@media (max-width: 800px) {
+  .cfg-grid { grid-template-columns: 1fr; }
+  .cfg-group--zsxq .cfg-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 720px) {
+  .cfg-flags { grid-template-columns: 1fr; }
 }
 @media (max-width: 640px) {
-  .cfg-grid { grid-template-columns: 1fr; }
+  .cfg-ops { grid-template-columns: 1fr; }
+  .cfg-ops .cfg-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cfg-ops .cfg-save-row .btn-normal { width: 100%; }
 }
 .cfg-group {
   background: var(--color-surface-soft);
@@ -547,14 +635,24 @@ textarea.form-control {
 textarea.proxy-import { min-height: 96px; }
 .cfg-field.cfg-check {
   flex-direction: row;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
-  min-height: var(--control-height-xl);
+  min-height: 44px;
   font-size: var(--text-sm);
   color: var(--color-text);
   flex: 1 1 100%;
 }
-.cfg-field.cfg-check input { margin: 0; }
+.cfg-field.cfg-check input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin: 4px 0 0;
+  flex-shrink: 0;
+  accent-color: var(--color-accent);
+}
+.cfg-field.cfg-check input:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
 .cfg-field.cfg-check .cfg-check-desc {
   color: var(--color-text-muted);
   font-size: var(--text-xs);
