@@ -22,7 +22,7 @@ const CHANNEL_ICONS = {
 };
 const CHANNEL_LABELS = { telegram: "Telegram", feishu: "飞书", wecom: "企业微信", bark: "Bark", webpush: "浏览器通知" };
 const USER_CHANNEL_KEYS = ["telegram", "feishu", "wecom", "bark", "webpush"];
-const APP_VERSION = "1.12.38";
+const APP_VERSION = "1.12.39";
 const PLATFORM_TABS = ["", "xueqiu", "combination", "weibo", "twitter", "zsxq"];
 const STATS_TABS = ["overview", "health", "plaza", "config", "cookies", "proxies"];
 const TL_PLATFORMS = PLATFORM_TABS.map((p) => [p, p ? PLATFORM_LABELS[p] : "全部"]);
