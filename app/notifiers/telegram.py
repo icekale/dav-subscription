@@ -207,6 +207,7 @@ class TelegramNotifier(Notifier):
         self.client = client or httpx.Client(timeout=15, proxy=config.proxy or None)
         self.favorite = favorite
         self.keyword = keyword
+        self.rich_messages = bool(getattr(config, "rich_messages", True))
 
     def _post(self, url: str, **kw) -> httpx.Response:
         """POST 并容忍瞬时网络故障：TLS 握手超时等 TransportError 立即重试一次。
@@ -220,12 +221,12 @@ class TelegramNotifier(Notifier):
             logger.warning("Telegram 网络瞬时故障，立即重试")
             return self.client.post(url, **kw)
 
-    def _send(self, data: dict) -> None:
+    def _send_api(self, method: str, data: dict) -> None:
         if not self.bot_token or not self.chat_id:
             raise RuntimeError("未配置 telegram bot_token/chat_id")
         _tg_rate_limiter.wait()
-        url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
-        resp = self._post(url, data={"chat_id": self.chat_id, **data})
+        url = f"https://api.telegram.org/bot{self.bot_token}/{method}"
+        resp = self._post(url, data=data)
         resp.raise_for_status()
         result = resp.json()
         # 429 限流：按 Telegram 给出的 retry_after 等待后重试一次
@@ -235,11 +236,53 @@ class TelegramNotifier(Notifier):
             )
             time.sleep(retry_after)
             _tg_rate_limiter.wait()
-            resp = self._post(url, data={"chat_id": self.chat_id, **data})
+            resp = self._post(url, data=data)
             resp.raise_for_status()
             result = resp.json()
         if not result.get("ok"):
             raise RuntimeError(f"Telegram 返回错误: {result}")
+
+    def _send(self, data: dict) -> None:
+        self._send_api("sendMessage", {"chat_id": self.chat_id, **data})
+
+    def _send_rich(self, html: str, reply_markup: list | None = None) -> None:
+        payload: dict = {
+            "chat_id": self.chat_id,
+            "rich_message": json.dumps(
+                {"html": html, "skip_entity_detection": True},
+                ensure_ascii=False,
+            ),
+        }
+        if reply_markup:
+            payload["reply_markup"] = json.dumps(
+                {"inline_keyboard": reply_markup},
+                ensure_ascii=False,
+            )
+        self._send_api("sendRichMessage", payload)
+
+    def _deliver(
+        self,
+        html: str,
+        fallback_text: str,
+        reply_markup: list | None = None,
+    ) -> None:
+        if self.rich_messages:
+            try:
+                self._send_rich(html, reply_markup=reply_markup)
+                return
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Telegram Rich Message 失败，回退 HTML: %s", exc)
+        data: dict = {
+            "text": fallback_text,
+            "parse_mode": "HTML",
+            "disable_web_page_preview": True,
+        }
+        if reply_markup:
+            data["reply_markup"] = json.dumps(
+                {"inline_keyboard": reply_markup},
+                ensure_ascii=False,
+            )
+        self._send(data)
 
     def notify(self, post: Post) -> None:
         # 带图帖子：先发文字消息，再发图片相册——正文在上、图片在下（同飞书卡片布局）

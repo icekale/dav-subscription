@@ -1,4 +1,11 @@
+import json
+from urllib.parse import parse_qs
+
+import httpx
+
+from app.config import TelegramConfig
 from app.fetchers.base import Post
+from app.notifiers.telegram import TelegramNotifier
 from app.notifiers.telegram_rich import build_telegram_rich_html
 
 
@@ -46,3 +53,65 @@ def test_zsxq_rich_omits_original_link():
     html = build_telegram_rich_html(post)
     assert "查看原文" not in html
     assert "href=" not in html
+
+
+def _form(request) -> dict:
+    return parse_qs(request.read().decode("utf-8"))
+
+
+def test_deliver_uses_send_rich_message():
+    sent = {}
+
+    def handler(request):
+        sent["url"] = str(request.url)
+        sent.update(_form(request))
+        return httpx.Response(200, json={"ok": True})
+
+    tg = TelegramNotifier(
+        TelegramConfig(bot_token="123:abc", chat_id="456"),
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    tg._deliver("<h2>x</h2>", fallback_text="<b>x</b>", reply_markup=[[{"text": "🔗 查看原文", "url": "https://weibo.com/1"}]])
+    assert sent["url"].endswith("/sendRichMessage")
+    rich = json.loads(sent["rich_message"][0])
+    assert rich["html"] == "<h2>x</h2>"
+    assert rich["skip_entity_detection"] is True
+    assert "parse_mode" not in sent
+    kb = json.loads(sent["reply_markup"][0])
+    assert kb["inline_keyboard"][0][0]["url"] == "https://weibo.com/1"
+
+
+def test_deliver_falls_back_to_send_message_on_rich_error():
+    urls = []
+
+    def handler(request):
+        urls.append(str(request.url))
+        if "sendRichMessage" in str(request.url):
+            return httpx.Response(200, json={"ok": False, "error_code": 400, "description": "Bad Request"})
+        return httpx.Response(200, json={"ok": True})
+
+    tg = TelegramNotifier(
+        TelegramConfig(bot_token="123:abc", chat_id="456"),
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    tg._deliver("<h2>x</h2>", fallback_text="<b>x</b>")
+    assert any(u.endswith("/sendRichMessage") for u in urls)
+    assert any(u.endswith("/sendMessage") for u in urls)
+
+
+def test_deliver_skips_rich_when_flag_off():
+    urls = []
+
+    def handler(request):
+        urls.append(str(request.url))
+        form = _form(request)
+        assert form.get("text") == ["<b>x</b>"]
+        assert form.get("parse_mode") == ["HTML"]
+        return httpx.Response(200, json={"ok": True})
+
+    tg = TelegramNotifier(
+        TelegramConfig(bot_token="123:abc", chat_id="456", rich_messages=False),
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    tg._deliver("<h2>x</h2>", fallback_text="<b>x</b>")
+    assert urls and all(u.endswith("/sendMessage") for u in urls)
