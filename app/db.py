@@ -886,6 +886,13 @@ class DB:
         sql += " ORDER BY k.id"
         return [r["id"] for r in self._rows(sql, params)]
 
+    def count_enabled_kols_by_platform(self) -> dict[str, int]:
+        """各平台当前启用的大V数（广场「自动」显隐用）。"""
+        rows = self._rows(
+            "SELECT platform, COUNT(*) AS n FROM kols WHERE enabled = 1 GROUP BY platform"
+        )
+        return {row["platform"]: _to_int(row["n"]) for row in rows}
+
     def count_kols(
         self,
         platform: str | None = None,
@@ -2188,8 +2195,12 @@ class DB:
         tag: str | None = None,
         include_secondary: bool = False,
         since_id: int | None = None,
+        exclude_platforms: list[str] | None = None,
     ) -> list[dict]:
         if not kol_ids:
+            return []
+        hidden = [p for p in (exclude_platforms or []) if p]
+        if platform and hidden and platform in hidden:
             return []
         placeholders = ", ".join("?" * len(kol_ids))
         conds = [f"p.kol_id IN ({placeholders})"]
@@ -2204,6 +2215,10 @@ class DB:
         if platform:
             conds.append("p.platform = ?")
             params.append(platform)
+        elif hidden:
+            hide_ph = ", ".join("?" * len(hidden))
+            conds.append(f"p.platform NOT IN ({hide_ph})")
+            params.extend(hidden)
         if category_id:
             conds.append("k.category_id = ?")
             params.append(category_id)

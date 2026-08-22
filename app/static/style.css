@@ -562,6 +562,77 @@ textarea.proxy-import { min-height: 96px; }
 }
 .cfg-save-row { display: flex; align-items: center; gap: 12px; margin-top: 18px; }
 
+.plaza-src {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 16px;
+  padding: 12px 0;
+  border-bottom: var(--border-default);
+}
+.plaza-src:last-child { border-bottom: 0; }
+.plaza-src-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.plaza-src-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+}
+.plaza-src-icon .pt-icon { width: 20px; height: 20px; }
+.plaza-src-icon[data-platform="xueqiu"] .pt-icon,
+.plaza-src-icon[data-platform="combination"] .pt-icon { color: var(--color-brand-xueqiu); }
+.plaza-src-icon[data-platform="weibo"] .pt-icon { color: var(--color-brand-weibo); }
+.plaza-src-icon[data-platform="twitter"] .pt-icon { color: var(--color-brand-twitter); }
+.plaza-src-icon[data-platform="zsxq"] .pt-icon { color: var(--color-brand-zsxq); }
+.plaza-src-copy { min-width: 0; }
+.plaza-src-name {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-strong);
+}
+.plaza-src-meta {
+  margin: 4px 0 0;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+.plaza-src-modes {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.plaza-src-mode {
+  height: 44px;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 12px;
+  border: var(--border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+}
+.plaza-src-mode:hover { border-color: var(--color-accent-text); color: var(--color-accent-text); }
+.plaza-src-mode.selected {
+  background: var(--color-accent);
+  border-color: var(--color-accent-text);
+  color: var(--color-white);
+  font-weight: var(--font-weight-semibold);
+}
+@media (max-width: 640px) {
+  .plaza-src { flex-direction: column; align-items: stretch; }
+  .plaza-src-modes { width: 100%; }
+  .plaza-src-mode { flex: 1; }
+}
+
 /* 备份页：路径占满剩余宽度，时刻/份数按内容定宽，避免三列均分把数字框拉得过宽 */
 .backup-grid {
   display: grid;

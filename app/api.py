@@ -34,6 +34,12 @@ from .bot_core import BIND_CODE_TTL
 from .db import _UNSET, ALLOWED_PLATFORMS, DB, days_until_purge
 from .feed import build_rss_xml
 from .fetchers.base import PLATFORM_LABELS
+from .plaza import (
+    plaza_hidden_platforms,
+    plaza_source_rows,
+    plaza_visible_platforms,
+    set_plaza_visibility,
+)
 from .fetchers.combination import extract_cube_symbol, resolve_combination_profile
 from .fetchers.ima import (
     IMA_API_KEY_KEY,
@@ -476,6 +482,10 @@ class PollingConfigIn(BaseModel):
     zsxq_app_device: str | None = None
     zsxq_ws_enabled: bool | None = None
     zsxq_ws_address: str | None = None
+
+
+class PlazaSourcesIn(BaseModel):
+    visibility: dict[str, str]
 
 
 class CookieIn(BaseModel):
@@ -1262,6 +1272,7 @@ def create_api_router(
         profile["vapid_public_key"] = vapid_pub
         profile["webpush_count"] = db.count_webpush_subscriptions(user["id"])
         profile["webpush_bound"] = profile["webpush_count"] > 0
+        profile["plaza_platforms"] = plaza_visible_platforms(db)
         return profile
 
     @router.put("/me")
@@ -1661,6 +1672,7 @@ def create_api_router(
             tag=tag,
             include_secondary=bool(include_secondary),
             since_id=since_id,
+            exclude_platforms=plaza_hidden_platforms(db),
         )
 
     @router.get("/kols/{kol_id}")
@@ -1836,6 +1848,20 @@ def create_api_router(
                     "from_env": True,
                 }
         return status
+
+    @router.get("/admin/plaza-sources", dependencies=[Depends(require_admin)])
+    def get_plaza_sources():
+        return {"sources": plaza_source_rows(db)}
+
+    @router.put("/admin/plaza-sources")
+    def update_plaza_sources(body: PlazaSourcesIn, admin: dict = Depends(require_admin)):
+        try:
+            sources = set_plaza_visibility(db, body.visibility or {})
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
+        changed = ",".join(f"{p}={m}" for p, m in sorted((body.visibility or {}).items()))
+        _audit(admin, "update_plaza_sources", "", changed[:200])
+        return {"sources": sources}
 
     @router.get("/admin/polling-config", dependencies=[Depends(require_admin)])
     def get_polling_config():
@@ -3175,6 +3201,7 @@ def create_api_router(
                 },
             },
             "polling_config": _effective_polling(),
+            "plaza_sources": plaza_source_rows(db),
             "zsxq_cache": zsxq_cache_stats(db),
             "recent_source_events": db.recent_source_events(30),
             "kol_health": kol_health,

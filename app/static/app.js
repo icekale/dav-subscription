@@ -22,9 +22,9 @@ const CHANNEL_ICONS = {
 };
 const CHANNEL_LABELS = { telegram: "Telegram", feishu: "飞书", wecom: "企业微信", bark: "Bark", webpush: "浏览器通知" };
 const USER_CHANNEL_KEYS = ["telegram", "feishu", "wecom", "bark", "webpush"];
-const APP_VERSION = "1.12.30";
+const APP_VERSION = "1.12.31";
 const PLATFORM_TABS = ["", "xueqiu", "combination", "weibo", "twitter", "zsxq"];
-const STATS_TABS = ["overview", "health", "config", "cookies", "proxies"];
+const STATS_TABS = ["overview", "health", "plaza", "config", "cookies", "proxies"];
 const TL_PLATFORMS = PLATFORM_TABS.map((p) => [p, p ? PLATFORM_LABELS[p] : "全部"]);
 const STAR_SVG = `<svg class="star-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5l2.95 5.98 6.6.96-4.78 4.66 1.13 6.58L12 17.6l-5.9 3.1 1.13-6.58L2.45 9.44l6.6-.96L12 2.5z"/></svg>`;
 // 次要（降频）铃铛图标：线性风格，与 TRASH_ICON 一致（stroke=currentColor）
@@ -1002,6 +1002,24 @@ const TL_SKELETON = `<div class="tl-skeleton">${Array(4).fill(`
   </div>`;
 
 
+function plazaVisibleSet() {
+  const list = state.user && Array.isArray(state.user.plaza_platforms)
+    ? state.user.plaza_platforms
+    : PLATFORM_TABS.filter(Boolean);
+  return new Set(list);
+}
+
+function tlPlazaEntries() {
+  const vis = plazaVisibleSet();
+  return TL_PLATFORMS.filter(([p]) => !p || vis.has(p));
+}
+
+function ensurePlazaPlatformSelection() {
+  if (state.timelinePlatform && !plazaVisibleSet().has(state.timelinePlatform)) {
+    state.timelinePlatform = "";
+  }
+}
+
 function isMobileTimelineFilter() {
   return window.matchMedia("(max-width: 768px)").matches;
 }
@@ -1037,6 +1055,7 @@ function tlApplyRailSearch() {
 
 async function renderTimeline(seq) {
   setPageTitle("最新动态");
+  ensurePlazaPlatformSelection();
   ensureWideTimelineWatch();
   // 离开期间筛选条件未变且有缓存 → 直接恢复列表并检测新帖，不重新加载（保留阅读位置）
   const reuse = _tlPosts.length && _tlLoadedFilter === tlFilterKey();
@@ -1209,7 +1228,7 @@ async function refreshTimeline() {
 }
 
 function tlPillsHtml() {
-  return TL_PLATFORMS.map(([p, label]) => {
+  return tlPlazaEntries().map(([p, label]) => {
     const selected = state.timelinePlatform === p;
     const short = platformShortLabel(p);
     return `
@@ -2639,7 +2658,7 @@ function statsTabFromHash() {
 }
 
 function switchStatsTab(name) {
-  // 数据源页分段导航：监控总览 / 大V健康 / 抓取设置 / Cookie 管理 / 代理
+  // 数据源页分段导航：监控总览 / 大V健康 / 广场显示 / 抓取设置 / Cookie 管理 / 代理
   if (!STATS_TABS.includes(name)) name = "overview";
   document.querySelectorAll(".settings-tab[data-tab]").forEach((b) => {
     const on = b.dataset.tab === name;
@@ -3333,6 +3352,7 @@ async function loadAdminStats() {
     <div class="settings-tabs" role="tablist" aria-label="数据源管理">
       <button type="button" class="settings-tab active" role="tab" id="tab-overview" aria-selected="true" aria-controls="st-overview" data-tab="overview" onclick="switchStatsTab('overview')">监控总览</button>
       <button type="button" class="settings-tab" role="tab" id="tab-health" aria-selected="false" aria-controls="st-health" data-tab="health" onclick="switchStatsTab('health')">大V健康</button>
+      <button type="button" class="settings-tab" role="tab" id="tab-plaza" aria-selected="false" aria-controls="st-plaza" data-tab="plaza" onclick="switchStatsTab('plaza')">广场显示</button>
       <button type="button" class="settings-tab" role="tab" id="tab-config" aria-selected="false" aria-controls="st-config" data-tab="config" onclick="switchStatsTab('config')">抓取设置</button>
       <button type="button" class="settings-tab" role="tab" id="tab-cookies" aria-selected="false" aria-controls="st-cookies" data-tab="cookies" onclick="switchStatsTab('cookies')">Cookie 管理</button>
       <button type="button" class="settings-tab" role="tab" id="tab-proxies" aria-selected="false" aria-controls="st-proxies" data-tab="proxies" onclick="switchStatsTab('proxies')">代理</button>
@@ -3368,6 +3388,15 @@ async function loadAdminStats() {
         <header class="section-head"><div><h2 class="section-title">大V抓取健康</h2>
         <p class="section-meta">按「最近抓到新帖时间」从旧到新排列，顶部即长期无更新的候选排查对象。</p></div></header>
         <div id="kol-health"></div>
+      </section>
+    </div>
+    <div id="st-plaza" class="settings-tab-panel" role="tabpanel" aria-labelledby="tab-plaza" style="display:none">
+      <section class="section-panel">
+        <header class="section-head">
+          <div><h2 class="section-title">动态广场显示</h2>
+          <p class="section-meta">控制时间线角标和「全部」里的内容。自动：该源启用大V 为 0 时隐藏；也可手动显示或隐藏。</p></div>
+        </header>
+        <div id="plaza-sources">${plazaSourceRowsHtml(s.plaza_sources)}</div>
       </section>
     </div>
     <div id="st-config" class="settings-tab-panel" role="tabpanel" aria-labelledby="tab-config" style="display:none">
@@ -3596,6 +3625,56 @@ async function loadAdminStats() {
   }, 30000);
 }
 
+function plazaSourceEffect(row) {
+  if (row.mode === "hide") return "已手动隐藏";
+  if (row.mode === "show") return "已手动显示";
+  return row.enabled_kols > 0 ? "有启用大V，自动显示" : "启用大V 为 0，自动隐藏";
+}
+
+function plazaSourceRowsHtml(rows) {
+  const modes = [["auto", "自动"], ["show", "显示"], ["hide", "隐藏"]];
+  return (rows || []).map((row) => {
+    const label = PLATFORM_LABELS[row.platform] || row.platform;
+    const shown = row.visible ? "广场显示中" : "广场已隐藏";
+    return `<div class="plaza-src" data-platform="${escapeHtml(row.platform)}">
+      <div class="plaza-src-head">
+        <span class="plaza-src-icon" data-platform="${escapeHtml(row.platform)}">${PLATFORM_ICONS[row.platform] || ""}</span>
+        <div class="plaza-src-copy">
+          <p class="plaza-src-name">${escapeHtml(label)}</p>
+          <p class="plaza-src-meta">启用大V ${row.enabled_kols} · ${shown} · ${plazaSourceEffect(row)}</p>
+        </div>
+      </div>
+      <div class="plaza-src-modes" role="radiogroup" aria-label="${escapeHtml(label)} 广场显示">
+        ${modes.map(([value, text]) => `
+          <button type="button" class="plaza-src-mode ${row.mode === value ? "selected" : ""}" role="radio" data-platform="${escapeHtml(row.platform)}" data-mode="${value}" aria-checked="${row.mode === value}" onclick="setPlazaSourceMode(this.dataset.platform,this.dataset.mode)">${text}</button>`).join("")}
+      </div>
+    </div>`;
+  }).join("");
+}
+
+function applyPlazaSources(sources) {
+  const box = $("#plaza-sources");
+  if (box) box.innerHTML = plazaSourceRowsHtml(sources);
+  if (state.user) {
+    state.user.plaza_platforms = (sources || []).filter((row) => row.visible).map((row) => row.platform);
+  }
+}
+
+async function setPlazaSourceMode(platform, mode) {
+  const current = document.querySelector(`.plaza-src[data-platform="${CSS.escape(platform)}"] .plaza-src-mode.selected`);
+  if (current && current.dataset.mode === mode) return;
+  try {
+    const data = await api("/api/admin/plaza-sources", {
+      method: "PUT",
+      body: JSON.stringify({ visibility: { [platform]: mode } }),
+    });
+    applyPlazaSources(data.sources);
+    flash("广场显示已更新");
+  } catch (err) {
+    flash(err.message, "error");
+  }
+}
+
 function renderStatsData(s) {
   const banner = cookieRepairBanner(s);
   const cards = $("#stats-cards");
@@ -3639,6 +3718,7 @@ function renderStatsData(s) {
     if (alerts.xueqiu_probe_alert_at) chips.push(`<span class="channel-status status-warn"><i class="dot"></i>雪球探测告警 ${fmtTs(alerts.xueqiu_probe_alert_at)}</span>`);
     ops.innerHTML = `<div class="row" style="gap:10px;flex-wrap:wrap">${chips.join("")}</div>`;
   }
+  if (s.plaza_sources) applyPlazaSources(s.plaza_sources);
   const tbody = $("#sources-table");
   if (tbody) {
     tbody.innerHTML = (s.sources || []).map((src) => {
@@ -6836,7 +6916,11 @@ async function router() {
     if (page === "home") await renderHome(renderSeq);
     else if (page === "combinations") await renderCombinations(renderSeq);
     else if (page === "mysubs") await renderMySubs(renderSeq);
-    else if (page === "zsxq") { state.timelinePlatform = "zsxq"; location.replace("#/timeline"); return; }
+    else if (page === "zsxq") {
+      state.timelinePlatform = plazaVisibleSet().has("zsxq") ? "zsxq" : "";
+      location.replace("#/timeline");
+      return;
+    }
     else if (page === "timeline") await renderTimeline(renderSeq);
     else if (page === "settings") await renderSettings(renderSeq);
     else if (page === "more") await renderMore(renderSeq);

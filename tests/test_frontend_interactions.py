@@ -348,6 +348,25 @@ def test_mobile_home_filter_reuses_native_and_shared_controls():
     assert "state.homeQ || state.homeCategory" in _fn_body("homeHasFilters")
 
 
+def test_plaza_source_visibility_admin_and_pills():
+    """管理员可设广场数据源自动/显示/隐藏；角标和旧 #/zsxq 都认可见列表。"""
+    src = APP_JS.read_text()
+    css = STYLE_CSS.read_text()
+    assert 'STATS_TABS = ["overview", "health", "plaza", "config", "cookies", "proxies"]' in src
+    assert 'data-tab="plaza"' in _fn_body("loadAdminStats")
+    assert "动态广场显示" in _fn_body("loadAdminStats")
+    assert "plazaSourceRowsHtml(s.plaza_sources)" in _fn_body("loadAdminStats")
+    assert "plaza_platforms" in _fn_body("plazaVisibleSet")
+    assert "tlPlazaEntries()" in _fn_body("tlPillsHtml")
+    assert "ensurePlazaPlatformSelection()" in _fn_body("renderTimeline")
+    assert 'plazaVisibleSet().has("zsxq")' in src
+    assert "/api/admin/plaza-sources" in _fn_body("setPlazaSourceMode")
+    assert "applyPlazaSources(data.sources)" in _fn_body("setPlazaSourceMode")
+    assert "applyPlazaSources(s.plaza_sources)" in _fn_body("renderStatsData")
+    assert ".plaza-src-mode" in css
+    assert "44px" in re.search(r"\.plaza-src-mode\s*\{([^}]*)\}", css).group(1)
+
+
 def test_zsxq_is_plaza_badge_not_sidebar_page():
     """知识星球走动态广场角标，不单独占侧栏；旧 #/zsxq 跳回时间线。"""
     src = APP_JS.read_text()
