@@ -49,12 +49,24 @@ def _original_link(post: Post) -> str:
     return f"<p>{_a(post.url, '查看原文')}</p>"
 
 
-def _media_block(images: list[str]) -> str:
+def _https_images(images: list[str]) -> list[str]:
     urls = [u for u in images if isinstance(u, str) and u.startswith(("http://", "https://"))]
-    urls = urls[:RICH_IMAGE_MAX]
+    return urls[:RICH_IMAGE_MAX]
+
+
+def build_rich_message_media(images: list[str]) -> list[dict]:
+    """Bot API 10.2：html 里的 tg://photo?id= 必须对应 rich_message.media。"""
+    return [
+        {"id": f"p{i}", "media": {"type": "photo", "media": url}}
+        for i, url in enumerate(_https_images(images))
+    ]
+
+
+def _media_block(images: list[str]) -> str:
+    urls = _https_images(images)
     if not urls:
         return ""
-    imgs = "".join(f'<img src="{_e(u)}">' for u in urls)
+    imgs = "".join(f'<img src="tg://photo?id=p{i}">' for i in range(len(urls)))
     if len(urls) == 1:
         return f"<figure>{imgs}</figure>"
     return f"<tg-collage>{imgs}</tg-collage>"

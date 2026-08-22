@@ -301,7 +301,7 @@ def test_telegram_notify_sends_one_rich_message_with_images():
     calls = []
 
     class FakeTelegram(TelegramNotifier):
-        def _send_rich(self, html, reply_markup=None):
+        def _send_rich(self, html, reply_markup=None, media=None):
             calls.append(("rich", html))
 
         def _send(self, data):
@@ -326,7 +326,7 @@ def test_telegram_image_album_fails_falls_back_to_photo():
     calls = []
 
     class FakeTelegram(TelegramNotifier):
-        def _send_rich(self, html, reply_markup=None):
+        def _send_rich(self, html, reply_markup=None, media=None):
             raise RuntimeError("no collage")
 
         def _send(self, data):

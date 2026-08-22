@@ -250,13 +250,18 @@ class TelegramNotifier(Notifier):
     def _send(self, data: dict) -> None:
         self._send_api("sendMessage", {"chat_id": self.chat_id, **data})
 
-    def _send_rich(self, html: str, reply_markup: list | None = None) -> None:
+    def _send_rich(
+        self,
+        html: str,
+        reply_markup: list | None = None,
+        media: list | None = None,
+    ) -> None:
+        rich: dict = {"html": html, "skip_entity_detection": True}
+        if media:
+            rich["media"] = media
         payload: dict = {
             "chat_id": self.chat_id,
-            "rich_message": json.dumps(
-                {"html": html, "skip_entity_detection": True},
-                ensure_ascii=False,
-            ),
+            "rich_message": json.dumps(rich, ensure_ascii=False),
         }
         if reply_markup:
             payload["reply_markup"] = json.dumps(
@@ -320,7 +325,7 @@ class TelegramNotifier(Notifier):
         self._deliver(html, fallback_text=fallback, reply_markup=keyboard)
 
     def _send_rich_with_images(self, post: Post) -> None:
-        from .telegram_rich import build_telegram_rich_html
+        from .telegram_rich import build_rich_message_media, build_telegram_rich_html
 
         keyboard = (
             [[{"text": "🔗 查看原文", "url": post.url}]]
@@ -330,7 +335,7 @@ class TelegramNotifier(Notifier):
         html = build_telegram_rich_html(post, self.favorite, self.keyword)
         if self.rich_messages:
             try:
-                self._send_rich(html, keyboard)
+                self._send_rich(html, keyboard, media=build_rich_message_media(post.images))
                 return
             except Exception as exc:  # noqa: BLE001
                 # token-free log (do not stringify HTTPStatusError)

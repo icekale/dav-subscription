@@ -184,7 +184,8 @@ def test_rich_html_embeds_single_figure():
     post.images = ["https://a/1.jpg"]
     html = build_telegram_rich_html(post)
     assert "<figure>" in html
-    assert 'src="https://a/1.jpg"' in html
+    assert 'src="tg://photo?id=p0"' in html
+    assert "https://a/1.jpg" not in html
     assert "<tg-collage>" not in html
 
 
@@ -196,14 +197,17 @@ def test_rich_html_embeds_collage():
     html = build_telegram_rich_html(post)
     assert "<tg-collage>" in html
     assert html.count("<img ") == 9
+    assert 'src="tg://photo?id=p8"' in html
     assert "https://a/9.jpg" not in html
+    assert "tg://photo?id=p9" not in html
 
 
 def test_notify_with_images_sends_one_rich_message():
-    urls = []
+    sent = {}
 
     def handler(request):
-        urls.append(str(request.url))
+        sent["url"] = str(request.url)
+        sent.update(parse_qs(request.read().decode("utf-8")))
         return httpx.Response(200, json={"ok": True})
 
     from app.fetchers.base import Post
@@ -218,16 +222,20 @@ def test_notify_with_images_sends_one_rich_message():
         TelegramConfig(bot_token="t", chat_id="1"),
         client=httpx.Client(transport=httpx.MockTransport(handler)),
     ).notify(post)
-    assert len(urls) == 1
-    assert urls[0].endswith("/sendRichMessage")
+    assert sent["url"].endswith("/sendRichMessage")
+    rich = json.loads(sent["rich_message"][0])
+    assert rich["html"].count("<img ") == 2
+    assert rich["media"][0]["id"] == "p0"
+    assert rich["media"][0]["media"]["media"] == "https://a/1.jpg"
+    assert rich["media"][1]["media"]["media"] == "https://a/2.jpg"
 
 
 def test_notify_images_fall_back_to_text_then_album():
     calls = []
 
     class Fake(TelegramNotifier):
-        def _send_rich(self, html, reply_markup=None):
-            calls.append(("rich", html))
+        def _send_rich(self, html, reply_markup=None, media=None):
+            calls.append(("rich", html, media))
             raise RuntimeError("no collage")
 
         def _send(self, data):
@@ -240,6 +248,7 @@ def test_notify_images_fall_back_to_text_then_album():
     post.images = ["https://a/1.jpg", "https://a/2.jpg"]
     Fake(TelegramConfig(bot_token="t", chat_id="1"), client=httpx.Client()).notify(post)
     assert calls[0][0] == "rich" and "<tg-collage>" in calls[0][1]
+    assert calls[0][2][0]["media"]["media"] == "https://a/1.jpg"
     assert calls[1][0] == "text"
     assert calls[2] == ("album", ["https://a/1.jpg", "https://a/2.jpg"])
 
