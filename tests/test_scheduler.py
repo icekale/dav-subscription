@@ -55,6 +55,19 @@ class FakeFetcherError:
         raise RuntimeError("boom")
 
 
+class SelectiveFetcher:
+    """指定 id 抛错，其余按 kol_id 回帖（空列表也算出成功）。"""
+
+    def __init__(self, fail_ids, posts=None):
+        self.fail_ids = set(fail_ids)
+        self.posts = posts or []
+
+    def fetch(self, kol):
+        if kol["id"] in self.fail_ids:
+            raise RuntimeError("boom")
+        return [p for p in self.posts if p.kol_id == kol["id"]]
+
+
 class FakeNotifier:
     channel = "test"
 
@@ -897,6 +910,94 @@ def test_source_failure_alert_and_recovery(monkeypatch):
     clock["t"] += 3600
     poll_once(db, {"xueqiu": FakeFetcher([make_post(kid)])}, [notifier], states, interval_seconds=0)
     assert any("数据源已恢复" in t for t in notifier.texts)
+
+
+def test_three_different_kols_failing_once_does_not_alert(monkeypatch):
+    db = make_db()
+    a = add_kol_subscribed(db, "xueqiu", "A", "a1")
+    b = add_kol_subscribed(db, "xueqiu", "B", "b1")
+    c = add_kol_subscribed(db, "xueqiu", "C", "c1")
+    notifier = FakeNotifier()
+    monkeypatch.setattr("app.scheduler.time.monotonic", lambda: 1000.0)
+    poll_once(
+        db,
+        {"xueqiu": SelectiveFetcher({a, b, c})},
+        [notifier],
+        {},
+        interval_seconds=0,
+    )
+    assert not any("数据源告警" in t for t in notifier.texts)
+    assert not any("数据源已恢复" in t for t in notifier.texts)
+
+
+def test_recovery_only_for_the_kol_that_was_alerted(monkeypatch):
+    db = make_db()
+    a = add_kol_subscribed(db, "xueqiu", "药神", "yao")
+    b = add_kol_subscribed(db, "xueqiu", "超级鹿鼎公", "luding")
+    notifier = FakeNotifier()
+    states = {}
+    clock = {"t": 0.0}
+    monkeypatch.setattr("app.scheduler.time.monotonic", lambda: clock["t"])
+
+    for _ in range(3):
+        clock["t"] += 3600
+        poll_once(
+            db,
+            {"xueqiu": SelectiveFetcher({a})},
+            [notifier],
+            states,
+            interval_seconds=0,
+        )
+    assert any("数据源告警" in t and "药神" in t for t in notifier.texts)
+    assert not any("超级鹿鼎公" in t and "数据源告警" in t for t in notifier.texts)
+
+    clock["t"] += 3600
+    poll_once(
+        db,
+        {"xueqiu": SelectiveFetcher({a}, [make_post(b)])},
+        [notifier],
+        states,
+        interval_seconds=0,
+    )
+    assert not any("数据源已恢复" in t for t in notifier.texts)
+
+    clock["t"] += 3600
+    poll_once(
+        db,
+        {"xueqiu": SelectiveFetcher(set(), [make_post(a)])},
+        [notifier],
+        states,
+        interval_seconds=0,
+    )
+    recovered = [t for t in notifier.texts if "数据源已恢复" in t]
+    assert len(recovered) == 1
+    assert "药神" in recovered[0]
+    assert "超级鹿鼎公" not in recovered[0]
+
+
+def test_cooldown_blocks_alert_does_not_arm_recovery(monkeypatch):
+    db = make_db()
+    kid = add_kol_subscribed(db, "xueqiu", "A", "1")
+    db.set_setting("source_alert_xueqiu", str(int(time.time())))
+    notifier = FakeNotifier()
+    states = {}
+    clock = {"t": 0.0}
+    monkeypatch.setattr("app.scheduler.time.monotonic", lambda: clock["t"])
+
+    for _ in range(3):
+        clock["t"] += 3600
+        poll_once(db, {"xueqiu": FakeFetcherError()}, [notifier], states, interval_seconds=0)
+    assert not any("数据源告警" in t for t in notifier.texts)
+
+    clock["t"] += 3600
+    poll_once(
+        db,
+        {"xueqiu": FakeFetcher([make_post(kid)])},
+        [notifier],
+        states,
+        interval_seconds=0,
+    )
+    assert not any("数据源已恢复" in t for t in notifier.texts)
 
 
 def test_digest_buffers_non_priority_and_flushes(monkeypatch):

@@ -366,14 +366,15 @@ def _keyword_hit(keywords: list[str], post: Post) -> bool:
 
 
 class PlatformState:
-    """每个平台连续失败次数、退避截止时间与各 KOL 空轮计数。"""
+    """每个平台的抓取退避，以及按大 V 隔离的告警状态。"""
 
     def __init__(self):
         self.fail_count = 0
         self.skip_until = 0.0
         self.last_fetched: dict[int, float] = {}
         self.empty_rounds: dict[int, int] = {}  # 无新帖连续空轮数，驱动自适应降频
-        self.alerted = False
+        self.kol_fails: dict[int, int] = {}
+        self.alerted_kols: set[int] = set()
 
 
 # 告警总开关：默认 None 时回退环境变量 ALERTS_ENABLED（兼容测试与老配置）；
@@ -434,16 +435,17 @@ def _daily_ok(db: DB, key: str) -> bool:
 
 def maybe_alert_source_failure(
     db: DB, notifiers: list[Notifier], platform: str, kol_name: str, detail: str, fail_count: int
-) -> None:
-    """数据源连续失败时向管理员推送告警（每平台每 6 小时最多一次）。"""
+) -> bool:
+    """数据源连续失败时向管理员推送告警（每平台每 6 小时最多一次）。发出了返回 True。"""
     if not _alerts_enabled() or not _cooldown_ok(db, f"source_alert_{platform}", SOURCE_ALERT_INTERVAL):
-        return
+        return False
     label = PLATFORM_LABELS.get(platform, platform)
     _send_admin_text(
         notifiers,
         f"⚠️ 数据源告警：{label}「{kol_name}」连续失败 {fail_count} 次。\n错误：{detail[:200]}",
         "数据源告警",
     )
+    return True
 
 
 def maybe_alert_source_recovered(
@@ -851,11 +853,13 @@ def _fetch_kol_once(
                 st["fail"] += 1
                 st["err"] = str(exc)[:300]
                 st["kol"] = kol["name"]
-            if state.fail_count == SOURCE_FAIL_THRESHOLD or state.fail_count % 10 == 0:
-                maybe_alert_source_failure(
-                    db, notifiers, kol["platform"], kol["name"], str(exc), state.fail_count
-                )
-                state.alerted = True
+            kol_fail = state.kol_fails.get(kol["id"], 0) + 1
+            state.kol_fails[kol["id"]] = kol_fail
+            if kol_fail == SOURCE_FAIL_THRESHOLD or kol_fail % 10 == 0:
+                if maybe_alert_source_failure(
+                    db, notifiers, kol["platform"], kol["name"], str(exc), kol_fail
+                ):
+                    state.alerted_kols.add(kol["id"])
         logger.warning(
             "抓取失败 platform=%s kol=%s err=%s 下次尝试 %.0fs 后",
             kol["platform"],
@@ -874,9 +878,10 @@ def _fetch_kol_once(
         return
     note_fetch_proxy(fetcher, True)
     with state_lock:
-        if state.alerted:
+        if kol["id"] in state.alerted_kols:
             maybe_alert_source_recovered(db, notifiers, kol["platform"], kol["name"])
-            state.alerted = False
+            state.alerted_kols.discard(kol["id"])
+        state.kol_fails[kol["id"]] = 0
         state.fail_count = 0
         state.last_fetched[kol["id"]] = now
         if round_stats is not None:
