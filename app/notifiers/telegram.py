@@ -296,24 +296,20 @@ class TelegramNotifier(Notifier):
         self._send_text_message(post)
 
     def _send_text_message(self, post: Post) -> None:
+        from .telegram_rich import build_telegram_rich_html
+
         keyboard = (
             [[{"text": "🔗 查看原文", "url": post.url}]]
             if show_original(post.platform, post.url)
             else []
         )
-        text = (
-            build_combination_text(post)
-            if post.platform == "combination" and post.detail
-            else build_telegram_text(post, self.favorite, self.keyword)
-        )
-        self._send(
-            {
-                "text": text,
-                "parse_mode": "HTML",
-                "disable_web_page_preview": True,
-                "reply_markup": json.dumps({"inline_keyboard": keyboard}, ensure_ascii=False),
-            }
-        )
+        if post.platform == "combination" and post.detail:
+            text = build_combination_text(post)
+            self._deliver(text, fallback_text=text, reply_markup=keyboard)
+            return
+        html = build_telegram_rich_html(post, self.favorite, self.keyword)
+        fallback = build_telegram_text(post, self.favorite, self.keyword)
+        self._deliver(html, fallback_text=fallback, reply_markup=keyboard)
 
     def _send_text_with_images(self, post: Post) -> None:
         self._send_text_message(post)

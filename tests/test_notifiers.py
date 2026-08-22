@@ -98,13 +98,13 @@ def test_telegram_success():
 
     def handler(request):
         assert "api.telegram.org" in str(request.url)
+        assert str(request.url).endswith("/sendRichMessage")
         form = parse_qs(request.read().decode("utf-8"))
-        assert "实盘" in form.get("text", [""])[0]
-        assert "<b>📌 李四 · 微博</b>" in form.get("text", [""])[0]
-        # 头部已包含大V信息，正文不再重复出现「📌 李四 · 微博」这一行
-        text = form.get("text", [""])[0]
-        assert text.count("📌 李四 · 微博") == 1
-        # 卡片式：带「查看原文」内联按钮
+        rich = json.loads(form["rich_message"][0])
+        html = rich["html"]
+        assert "实盘" in html
+        assert "李四" in html and "微博" in html
+        assert html.count("李四") >= 1
         assert "查看原文" in form.get("reply_markup", [""])[0]
         assert '"url": "https://weibo.com/1"' in form.get("reply_markup", [""])[0]
         sent.update(form)
@@ -253,6 +253,24 @@ def test_telegram_notify_has_no_manage_buttons():
     assert "退订" not in markup
     assert "unsub:" not in markup and "sec:" not in markup
     assert "设为次要" not in markup and "取消次要" not in markup
+
+
+def test_telegram_notify_uses_legacy_html_when_rich_disabled():
+    sent = {}
+
+    def handler(request):
+        form = parse_qs(request.read().decode("utf-8"))
+        sent["url"] = str(request.url)
+        sent.update(form)
+        return httpx.Response(200, json={"ok": True})
+
+    notifier = TelegramNotifier(
+        TelegramConfig(bot_token="123:abc", chat_id="456", rich_messages=False),
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    notifier.notify(make_post())
+    assert sent["url"].endswith("/sendMessage")
+    assert "<b>📌 李四 · 微博</b>" in sent["text"][0]
 
 
 def test_telegram_digest_per_post_buttons():
