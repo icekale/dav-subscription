@@ -296,7 +296,7 @@ class TelegramNotifier(Notifier):
         self._send_text_message(post)
 
     def _send_text_message(self, post: Post) -> None:
-        from .telegram_rich import build_telegram_rich_html
+        from .telegram_rich import build_combination_rich_html, build_telegram_rich_html
 
         keyboard = (
             [[{"text": "🔗 查看原文", "url": post.url}]]
@@ -304,8 +304,9 @@ class TelegramNotifier(Notifier):
             else []
         )
         if post.platform == "combination" and post.detail:
-            text = build_combination_text(post)
-            self._deliver(text, fallback_text=text, reply_markup=keyboard)
+            html = build_combination_rich_html(post)
+            fallback = build_combination_text(post)
+            self._deliver(html, fallback_text=fallback, reply_markup=keyboard)
             return
         html = build_telegram_rich_html(post, self.favorite, self.keyword)
         fallback = build_telegram_text(post, self.favorite, self.keyword)

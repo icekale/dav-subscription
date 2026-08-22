@@ -49,6 +49,38 @@ def _original_link(post: Post) -> str:
     return f"<p>{_a(post.url, '查看原文')}</p>"
 
 
+def build_combination_rich_html(post: Post) -> str:
+    detail = post.detail or {}
+    stats = detail.get("stats") or []
+    actions = detail.get("actions") or []
+    cash = detail.get("cash") or ""
+    parts = [_heading(f"{post.kol_name} · 雪球组合 · 调仓", 2)]
+    if stats:
+        rows = [[str(k), str(v)] for k, v in stats]
+        parts.append(_table(["指标", "数值"], rows))
+    if actions:
+        rows = []
+        for a in actions:
+            stock = a.get("stock") or ""
+            symbol = a.get("symbol") or ""
+            name = f"{stock}（{symbol}）" if symbol else stock
+            rows.append(
+                [
+                    str(a.get("type") or "调整"),
+                    name,
+                    str(a.get("prev") or "0.0%"),
+                    str(a.get("target") or "0.0%"),
+                ]
+            )
+        parts.append(_table(["操作", "标的", "原仓位", "目标仓位"], rows))
+    if cash:
+        parts.append(_p(f"现金 {cash}"))
+    if post.published_at:
+        parts.append(_p(str(post.published_at)))
+    parts.append(_original_link(post))
+    return "".join(parts)
+
+
 def build_telegram_rich_html(post: Post, favorite: bool = False, keyword: bool = False) -> str:
     platform = PLATFORM_LABELS.get(post.platform, post.platform)
     kind = " · 回复" if post.post_type == "reply" else ""

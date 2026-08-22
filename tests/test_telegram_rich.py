@@ -25,6 +25,40 @@ def make_post() -> Post:
     )
 
 
+def make_combination_post() -> Post:
+    return Post(
+        platform="combination",
+        kol_id=2,
+        kol_name="伯言-A股",
+        external_id="1",
+        title="伯言-A股 调仓",
+        content="年化 27.1%",
+        url="https://xueqiu.com/P/ZH3623878",
+        published_at="2026-08-04",
+        detail={
+            "stats": [("年化", "27.1%"), ("净值", "1.271")],
+            "actions": [
+                {"type": "清仓", "stock": "永杉锂业", "symbol": "SH603399", "prev": "21.1%", "target": "0.0%"},
+                {"type": "新建", "stock": "天华新能", "symbol": "SZ300390", "prev": "0.0%", "target": "20.0%"},
+            ],
+            "cash": "80.0%",
+        },
+    )
+
+
+def test_combination_rich_uses_tables():
+    from app.notifiers.telegram_rich import build_combination_rich_html
+
+    html = build_combination_rich_html(make_combination_post())
+    assert "<h2>" in html and "伯言-A股" in html
+    assert html.count("<table>") == 2
+    assert "年化" in html and "27.1%" in html
+    assert "清仓" in html and "永杉锂业" in html and "SH603399" in html
+    assert "21.1%" in html and "0.0%" in html
+    assert "80.0%" in html
+    assert 'href="https://xueqiu.com/P/ZH3623878"' in html
+
+
 def test_single_post_rich_has_heading_paragraphs_tags():
     html = build_telegram_rich_html(make_post())
     assert "<h2>" in html and "张三" in html and "雪球" in html
