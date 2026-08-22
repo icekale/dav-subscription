@@ -1,5 +1,14 @@
 const { request, resolveAvatar } = require("../../utils/api");
-const { platformLabel } = require("../../utils/labels");
+const { PLATFORM_LABELS, platformLabel } = require("../../utils/labels");
+
+const PLAZA_TAB_ORDER = ["xueqiu", "combination", "weibo", "twitter", "zsxq"];
+
+function plazaTabs(visible) {
+  const vis = new Set(Array.isArray(visible) ? visible : PLAZA_TAB_ORDER);
+  return [{ value: "", label: "全部" }].concat(
+    PLAZA_TAB_ORDER.filter((p) => vis.has(p)).map((p) => ({ value: p, label: PLATFORM_LABELS[p] }))
+  );
+}
 
 Page({
   data: {
@@ -7,13 +16,7 @@ Page({
     groups: [],
     platform: "",
     loading: true,
-    platforms: [
-      { value: "", label: "全部" },
-      { value: "xueqiu", label: "雪球" },
-      { value: "combination", label: "雪球组合" },
-      { value: "weibo", label: "微博" },
-      { value: "twitter", label: "X" },
-    ],
+    platforms: plazaTabs(PLAZA_TAB_ORDER),
   },
 
   onShow() {
@@ -26,7 +29,10 @@ Page({
 
   async load() {
     try {
-      const q = this.data.platform ? `?platform=${this.data.platform}` : "";
+      const me = await request("/api/me");
+      const platforms = plazaTabs(me.plaza_platforms);
+      const selected = platforms.some((p) => p.value === this.data.platform) ? this.data.platform : "";
+      const q = selected ? `?platform=${selected}` : "";
       const kols = (await request(`/api/catalog${q}`)).map((k) => ({
         ...k,
         platform_label: platformLabel(k.platform),
@@ -38,7 +44,7 @@ Page({
         (byCat[key] = byCat[key] || []).push(k);
       }
       const groups = Object.entries(byCat).map(([name, items]) => ({ name, items }));
-      this.setData({ kols, groups, loading: false });
+      this.setData({ kols, groups, platforms, platform: selected, loading: false });
     } catch (err) {
       this.setData({ loading: false });
       wx.showToast({ title: err.message, icon: "none" });

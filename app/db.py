@@ -1208,19 +1208,6 @@ class DB:
     def delete_webpush_subscriptions(self, user_id: int) -> None:
         self._execute("DELETE FROM webpush_subscriptions WHERE user_id = ?", (user_id,))
 
-    def get_user_by_feed_token(self, feed_token: str) -> dict | None:
-        rows = self._rows("SELECT * FROM users WHERE feed_token = ?", (feed_token,))
-        return rows[0] if rows else None
-
-    def ensure_feed_token(self, user_id: int) -> str:
-        """返回用户 RSS 订阅 token；没有则生成一个（长随机串，等价订阅凭证）。"""
-        user = self.get_user(user_id)
-        if user and user.get("feed_token"):
-            return user["feed_token"]
-        token = secrets.token_urlsafe(32)
-        self.update_user(user_id, feed_token=token)
-        return token
-
     def get_user_by_openid(self, openid: str) -> dict | None:
         rows = self._rows("SELECT * FROM users WHERE wechat_openid = ?", (openid,))
         return rows[0] if rows else None
@@ -1306,8 +1293,6 @@ class DB:
         revoke_tokens: bool = False,
     ) -> None:
         """一次提交用户字段与关键词；密码变更可同时撤销既有 token。"""
-        if "password_hash" in updates and "feed_token" not in updates:
-            updates = {**updates, "feed_token": secrets.token_urlsafe(32)}
         sets, params = [], []
         for key, value in updates.items():
             if key not in self._UPDATE_USER_COLUMNS:
@@ -1715,7 +1700,7 @@ class DB:
     def readable_subscribed_kol_ids(self, user_id: int, is_admin: bool = False) -> set[int]:
         """用户可读的已订阅大V集合：订阅集合 ∩ 可见集合（公开 + ACL 私有大V）。
 
-        内容读取（动态/RSS/每日精选）统一走该集合，权限判断必须在后端完成；
+        内容读取（动态/每日精选）统一走该集合，权限判断必须在后端完成；
         管理员保留对已订阅私有大V的管理访问语义，不做可见性过滤。
         """
         subscribed = self.subscribed_kol_ids(user_id)

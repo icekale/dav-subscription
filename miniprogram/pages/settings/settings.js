@@ -1,5 +1,4 @@
 const { request } = require("../../utils/api");
-const { BASE_URL } = require("../../config");
 
 function pushChannelOptions(user) {
   const selected = (user.push_channels || "")
@@ -40,7 +39,6 @@ Page({
     barkBound: false,
     keywords: [],
     keywordsInput: "",
-    feedToken: "",
     notify: true,
     dailyReport: false,
     bindCode: "",
@@ -107,7 +105,6 @@ Page({
         wecomBound: !!user.wecom_webhook,
         barkKey: user.bark_key || "",
         barkBound: !!user.bark_key,
-        feedToken: user.feed_token || "",
         tgBot: guide.telegram_bot_username || "",
         fsBotName: guide.feishu_bot_name || "",
         // 通道勾选列表随绑定状态变化（新绑定渠道要能立即出现）
@@ -277,31 +274,6 @@ Page({
       });
       wx.showToast({ title: `已保存 ${keywords.length} 个关键词`, icon: "success" });
       this.load();
-    } catch (err) {
-      wx.showToast({ title: err.message, icon: "none" });
-    }
-  },
-
-  copyFeed() {
-    const token = this.data.feedToken;
-    if (!token) return;
-    const url = `${BASE_URL}/api/feed/${token}.xml`;
-    wx.setClipboardData({
-      data: url,
-      success: () => wx.showToast({ title: "订阅源地址已复制", icon: "success" }),
-    });
-  },
-
-  async regenerateFeed() {
-    const { confirm } = await wx.showModal({
-      title: "重新生成订阅源",
-      content: "旧地址立即失效，确认？",
-    });
-    if (!confirm) return;
-    try {
-      const res = await request("/api/me/feed-token/regenerate", { method: "POST" });
-      this.setData({ feedToken: res.feed_token });
-      wx.showToast({ title: "订阅源地址已重新生成", icon: "success" });
     } catch (err) {
       wx.showToast({ title: err.message, icon: "none" });
     }

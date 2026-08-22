@@ -32,9 +32,10 @@ from . import auth, wechat
 from .avatar_cache import cache_avatar
 from .bot_core import BIND_CODE_TTL
 from .db import _UNSET, ALLOWED_PLATFORMS, DB, days_until_purge
-from .feed import build_rss_xml
 from .fetchers.base import PLATFORM_LABELS
 from .plaza import (
+    filter_plaza_rows,
+    is_plaza_hidden,
     plaza_hidden_platforms,
     plaza_source_rows,
     plaza_visible_platforms,
@@ -581,7 +582,6 @@ def public_user(user: dict) -> dict:
         "feishu_chat_id": user["feishu_chat_id"],
         "wecom_webhook": user["wecom_webhook"],
         "bark_key": user.get("bark_key") or "",
-        "feed_token": user.get("feed_token") or "",
         "notify_enabled": bool(user["notify_enabled"]),
         "daily_report_enabled": bool(user.get("daily_report")),
         "push_channels": user.get("push_channels") or "",
@@ -1219,32 +1219,8 @@ def create_api_router(
         }
 
     # ---- 我的 ----
-    @router.get("/feed/{token}.xml")
-    def rss_feed(token: str, request: Request):
-        """私有 RSS 订阅源：token 即凭证，无需登录（供 RSS 阅读器拉取）。"""
-        user = db.get_user_by_feed_token(token)
-        if user is None:
-            raise HTTPException(status_code=404, detail="feed 地址无效或已失效")
-        kol_ids = db.readable_subscribed_kol_ids(user["id"], bool(user.get("is_admin")))
-        posts = db.list_feed_posts(kol_ids, limit=50, user_id=user["id"])
-        base = str(request.base_url).rstrip("/")
-        xml = build_rss_xml(posts, user["username"], base)
-        return Response(
-            content=xml,
-            media_type="application/rss+xml; charset=utf-8",
-            headers={"Cache-Control": "no-store"},
-        )
-
-    @router.post("/me/feed-token/regenerate")
-    def regenerate_feed_token(user: dict = Depends(get_current_user)):
-        """重新生成 RSS 订阅 token：旧 token 立即失效（比如地址泄露后）。"""
-        db.update_user(user["id"], feed_token=secrets.token_urlsafe(32))
-        return {"feed_token": db.get_user(user["id"])["feed_token"]}
-
     @router.get("/me")
     def me(user: dict = Depends(get_current_user)):
-        # 首次访问即确保 feed token 存在，RSS 地址在推送设置页展示
-        db.ensure_feed_token(user["id"])
         user = db.get_user(user["id"])
         profile = public_user(user)
         profile["subscription_count"] = db.count_subscriptions(user["id"])
@@ -1532,10 +1508,21 @@ def create_api_router(
         db.update_user_password(user["id"], auth.hash_password(body.new_password))
         return {"ok": True}
 
+    def _plaza_kol_visible(user: dict, kol: dict | None) -> bool:
+        if kol is None:
+            return False
+        if user["is_admin"]:
+            return True
+        if kol["id"] not in db.visible_kol_ids(user["id"]):
+            return False
+        return not is_plaza_hidden(db, kol["platform"])
+
     # ---- 目录与订阅 ----
     @router.get("/catalog")
     def catalog(platform: str | None = None, category_id: int | None = None, user: dict = Depends(get_current_user)):
-        kols = db.list_kols(platform, category_id)
+        if is_plaza_hidden(db, platform):
+            return []
+        kols = filter_plaza_rows(db, db.list_kols(platform, category_id))
         if not user["is_admin"]:
             visible = db.visible_kol_ids(user["id"])
             kols = [k for k in kols if k["id"] in visible]
@@ -1570,7 +1557,7 @@ def create_api_router(
     @router.get("/recommendations")
     def recommendations(user: dict = Depends(get_current_user), unsubscribed: bool = False):
         """按订阅人数推荐大V。unsubscribed=1 供动态页右侧栏，排除已订。"""
-        rows = db.recommended_kols(user["id"], 16 if unsubscribed else 4)
+        rows = filter_plaza_rows(db, db.recommended_kols(user["id"], 16 if unsubscribed else 4))
         if unsubscribed:
             rows = [k for k in rows if not k["subscribed"]][:4]
         return [
@@ -1590,7 +1577,11 @@ def create_api_router(
     def subscribe(body: SubscriptionIn, user: dict = Depends(get_current_user)):
         kol = db.get_kol(body.kol_id)
         if kol is None or (
-            not user["is_admin"] and kol["id"] not in db.visible_kol_ids(user["id"])
+            not user["is_admin"]
+            and (
+                kol["id"] not in db.visible_kol_ids(user["id"])
+                or is_plaza_hidden(db, kol["platform"])
+            )
         ):
             raise HTTPException(status_code=404, detail="大V不存在")
         if body.type not in ("post", "reply", "both"):
@@ -1644,7 +1635,7 @@ def create_api_router(
 
     @router.get("/my/subscriptions")
     def my_subscriptions(user: dict = Depends(get_current_user)):
-        return db.list_subscriptions(user["id"])
+        return filter_plaza_rows(db, db.list_subscriptions(user["id"]))
 
     @router.get("/my/feed")
     def my_feed(
@@ -1678,9 +1669,7 @@ def create_api_router(
     @router.get("/kols/{kol_id}")
     def get_kol(kol_id: int, user: dict = Depends(get_current_user)):
         kol = db.get_kol(kol_id)
-        if kol is None or (
-            not user["is_admin"] and kol["id"] not in db.visible_kol_ids(user["id"])
-        ):
+        if not _plaza_kol_visible(user, kol):
             raise HTTPException(status_code=404, detail="大V不存在")
         kol["subscribed"] = kol_id in db.subscribed_kol_ids(user["id"])
         kol["subscribe_type"] = db.subscribed_kol_types(user["id"]).get(kol_id, "post")
@@ -1699,9 +1688,7 @@ def create_api_router(
     @router.get("/kols/{kol_id}/posts")
     def kol_posts(kol_id: int, limit: int = 100, user: dict = Depends(get_current_user)):
         kol = db.get_kol(kol_id)
-        if kol is None or (
-            not user["is_admin"] and kol["id"] not in db.visible_kol_ids(user["id"])
-        ):
+        if not _plaza_kol_visible(user, kol):
             raise HTTPException(status_code=404, detail="大V不存在")
         posts = db.list_posts(limit=bounded_limit(limit), kol_id=kol_id)
         subscription = db.get_subscription(user["id"], kol_id)
@@ -1713,9 +1700,7 @@ def create_api_router(
     def kol_holdings(kol_id: int, user: dict = Depends(get_current_user)):
         """组合当前持仓快照（抓取端定时写入 cube_snapshots，页面不依赖雪球在线）。"""
         kol = db.get_kol(kol_id)
-        if kol is None or (
-            not user["is_admin"] and kol["id"] not in db.visible_kol_ids(user["id"])
-        ):
+        if not _plaza_kol_visible(user, kol):
             raise HTTPException(status_code=404, detail="大V不存在")
         snap = db.get_cube_snapshot(kol_id, "holdings")
         return _cube_holdings_response(snap)
@@ -1724,9 +1709,7 @@ def create_api_router(
     def kol_nav(kol_id: int, user: dict = Depends(get_current_user)):
         """组合净值序列 [{date, value}]（抓取端定时写入，页面画曲线用）。"""
         kol = db.get_kol(kol_id)
-        if kol is None or (
-            not user["is_admin"] and kol["id"] not in db.visible_kol_ids(user["id"])
-        ):
+        if not _plaza_kol_visible(user, kol):
             raise HTTPException(status_code=404, detail="大V不存在")
         snap = db.get_cube_snapshot(kol_id, "nav")
         return _cube_nav_response(snap)

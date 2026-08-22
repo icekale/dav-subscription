@@ -22,7 +22,7 @@ const CHANNEL_ICONS = {
 };
 const CHANNEL_LABELS = { telegram: "Telegram", feishu: "飞书", wecom: "企业微信", bark: "Bark", webpush: "浏览器通知" };
 const USER_CHANNEL_KEYS = ["telegram", "feishu", "wecom", "bark", "webpush"];
-const APP_VERSION = "1.12.32";
+const APP_VERSION = "1.12.33";
 const PLATFORM_TABS = ["", "xueqiu", "combination", "weibo", "twitter", "zsxq"];
 const STATS_TABS = ["overview", "health", "plaza", "config", "cookies", "proxies"];
 const TL_PLATFORMS = PLATFORM_TABS.map((p) => [p, p ? PLATFORM_LABELS[p] : "全部"]);
@@ -273,7 +273,7 @@ function logout() {
   state.user = null;
   localStorage.removeItem("dav_token");
   clearSessionCaches();
-  location.hash = "#/timeline";
+  replaceRoute("timeline");
   $("#app-view").classList.add("hidden");
   $("#auth-view").classList.remove("hidden");
   resetAuthButtons();
@@ -328,7 +328,7 @@ const NAV = [
 
 function renderSidebar(user) {
   const navItemHtml = (item) => `
-        <button class="nav-item" data-route="${item.route}" onclick="location.hash='#/${item.route}'">
+        <button class="nav-item" data-route="${item.route}" onclick="go('${item.route}')">
           <span class="nav-icon">${item.icon}</span>
           <span class="nav-label">${item.label}</span>
         </button>`;
@@ -366,14 +366,14 @@ function renderBottomNav(user) {
   const tabs = [...MOBILE_NAV];
   if (user.is_admin) tabs.push({ route: "more", icon: PLUS_ICON, label: "更多" });
   $("#bottom-nav").innerHTML = tabs.map((t) => `
-    <button class="bnav-item" data-route="${t.route}" onclick="location.hash='#/${t.route}'">
+    <button class="bnav-item" data-route="${t.route}" onclick="go('${t.route}')">
       <span class="bnav-icon">${t.icon}</span>
       <span class="bnav-label">${t.label}</span>
     </button>`).join("");
 }
 
 async function renderMore(seq) {
-  if (!state.user.is_admin) { location.hash = "#/timeline"; return; }
+  if (!state.user.is_admin) { replaceRoute("timeline"); return; }
   setPageTitle("更多");
   const adminGroup = NAV.find((g) => g.admin) || { items: [], subs: [] };
   const adminItems = [
@@ -384,7 +384,7 @@ async function renderMore(seq) {
     <section class="section-panel">
       <div class="more-grid">
         ${adminItems.map((item) => `
-          <button class="more-item" onclick="location.hash='#/${item.route}'">
+          <button class="more-item" onclick="go('${item.route}')">
             <span class="more-icon">${item.icon}</span>
             <span class="more-label">${escapeHtml(item.label)}</span>
           </button>`).join("")}
@@ -446,7 +446,7 @@ function homeToggleFilter() {
 }
 
 function homeMobilePlatformsHtml() {
-  return TL_PLATFORMS.map(([p, label]) => {
+  return tlPlazaEntries().map(([p, label]) => {
     const short = platformShortLabel(p);
     return `
     <button class="tl-pill ${state.platform === p ? "selected" : ""}"
@@ -473,6 +473,7 @@ async function homeResetFilters() {
 // ---------- 订阅广场 ----------
 async function renderHome(seq) {
   setPageTitle("订阅广场");
+  ensurePlazaPlatformSelection();
   state.platform = "";
   const mobileHome = isMobileTimelineFilter();
   let onboardingHtml = "";
@@ -489,7 +490,7 @@ async function renderHome(seq) {
             <div class="row" style="gap:12px;flex-wrap:wrap">${recs.map((rec) => `
               <div class="kol-item" style="flex:1;min-width:230px">
                 ${avatarHtml(rec.name, rec.avatar_url)}
-                <a class="kol-info" href="#/kol/${rec.id}">
+                <a class="kol-info" href="/kol/${rec.id}">
                   <div class="base">
                     <span class="name">${escapeHtml(rec.name)}</span>
                     <span class="tag">${PLATFORM_LABELS[rec.platform] || escapeHtml(rec.platform)}</span>
@@ -502,7 +503,7 @@ async function renderHome(seq) {
                 </button>
               </div>`).join("")}
             </div>
-            <p class="muted" style="margin-top:12px">也可以先去<a href="#/settings">绑定推送渠道</a>，再回来订阅。</p>
+            <p class="muted" style="margin-top:12px">也可以先去<a href="/settings">绑定推送渠道</a>，再回来订阅。</p>
           </section>`;
       }
     } catch {
@@ -551,7 +552,7 @@ async function renderHome(seq) {
             <div class="title">想关注的大V不在列表里？</div>
             <div class="desc">提交申请，管理员审批通过后自动上架并通知你</div>
           </div>
-          <button class="btn-normal" onclick="location.hash='#/search'">申请添加</button>
+          <button class="btn-normal" onclick="go('search')">申请添加</button>
         </div>`}
       <div id="kol-list" class="kol-grid"></div>
     </section>`;
@@ -561,7 +562,7 @@ async function renderHome(seq) {
 
 function renderPlatformTabs() {
   const tabs = $("#platform-tabs");
-  if (tabs) tabs.innerHTML = PLATFORM_TABS.map((p) => platformTabHTML(p, state.platform, "switchPlatform")).join("");
+  if (tabs) tabs.innerHTML = tlPlazaEntries().map(([p]) => platformTabHTML(p, state.platform, "switchPlatform")).join("");
 }
 
 function categoryChipsHtml() {
@@ -726,8 +727,8 @@ async function toggleFavorite(kolId, btn) {
     if (kol) kol.favorite = next;
     if (btn) btn.classList.toggle("fav-on", next);
     flash(next ? "已加星标" : "已取消星标");
-    if (location.hash.startsWith("#/home")) renderHomeList();
-    else if (location.hash.startsWith("#/mysubs")) renderMySubsList();
+    if (isRoute("home")) renderHomeList();
+    else if (isRoute("mysubs")) renderMySubsList();
   } catch (err) {
     alert("操作失败: " + err.message);
   }
@@ -744,8 +745,8 @@ async function toggleSecondary(kolId, btn) {
     if (kol) kol.secondary = next;
     if (btn) btn.classList.toggle("sec-on", next);
     flash(next ? "已设为次要（降频推送）" : "已取消次要");
-    if (location.hash.startsWith("#/home")) renderHomeList();
-    else if (location.hash.startsWith("#/mysubs")) renderMySubsList();
+    if (isRoute("home")) renderHomeList();
+    else if (isRoute("mysubs")) renderMySubsList();
   } catch (err) {
     alert("操作失败: " + err.message);
   }
@@ -767,12 +768,11 @@ async function quickSubscribe(kolId, btn) {
 async function refreshKolsView() {
   // 发起前捕获当前路由令牌；完成后再写 DOM，避免局部刷新覆盖已切走的新路由
   const seq = routeRenderSeq;
-  const hash = location.hash;
-  if (hash.startsWith("#/home")) await loadHomeKols(seq); // 重拉 catalog，已订阅置顶即时生效
-  else if (hash.startsWith("#/combinations")) await renderCombinations(seq);
-  else if (hash.startsWith("#/mysubs")) await renderMySubs(seq);
-  else if (hash.startsWith("#/kol/")) await renderKolPage(Number(hash.split("/")[2] || 0), seq);
-  else if (hash.startsWith("#/search")) doSearch(seq);
+  if (isRoute("home")) await loadHomeKols(seq); // 重拉 catalog，已订阅置顶即时生效
+  else if (isRoute("combinations")) await renderCombinations(seq);
+  else if (isRoute("mysubs")) await renderMySubs(seq);
+  else if (isRoute("kol/")) await renderKolPage(Number(routePath().split("/")[1] || 0), seq);
+  else if (isRoute("search")) doSearch(seq);
 }
 
 function subTypeSwitchesHtml(kolId, current) {
@@ -819,6 +819,7 @@ async function setSubscribeType(kolId, input) {
 // ---------- 我的订阅 / 动态 ----------
 async function renderMySubs(seq) {
   setPageTitle("我的订阅");
+  ensurePlazaPlatformSelection();
   const mobileFilter = isMobileTimelineFilter();
   $("#main").innerHTML = `
     <section class="section-panel${mobileFilter ? " home-panel" : ""}">
@@ -846,7 +847,7 @@ async function renderMySubs(seq) {
 }
 
 function mysubsMobileFiltersHtml() {
-  const platforms = TL_PLATFORMS.map(([p, label]) => {
+  const platforms = tlPlazaEntries().map(([p, label]) => {
     const short = platformShortLabel(p);
     return `
     <button class="tl-pill ${state.mysubsPlatform === p ? "selected" : ""}"
@@ -869,7 +870,7 @@ function mysubsMobileFiltersHtml() {
 function renderMySubsTabs() {
   $("#mysubs-tabs").innerHTML = isMobileTimelineFilter()
     ? mysubsMobileFiltersHtml()
-    : PLATFORM_TABS.map((p) => platformTabHTML(p, state.mysubsPlatform, "switchMySubsPlatform")).join("");
+    : tlPlazaEntries().map(([p]) => platformTabHTML(p, state.mysubsPlatform, "switchMySubsPlatform")).join("");
 }
 
 function switchMySubsPlatform(platform) {
@@ -891,7 +892,7 @@ function renderMySubsList() {
   kols = [...kols].sort((a, b) => (a.category_name ? 0 : 1) - (b.category_name ? 0 : 1));
   $("#mysubs-list").innerHTML = kols.length
     ? groupedKolCards(kols)
-    : emptyState("这里还没有订阅", `<div><button class="btn-normal btn-add" onclick="location.hash='#/home'">去订阅广场看看</button></div>`);
+    : emptyState("这里还没有订阅", `<div><button class="btn-normal btn-add" onclick="go('home')">去订阅广场看看</button></div>`);
 }
 
 function toggleMySubsFav() {
@@ -924,8 +925,8 @@ async function renderCombinations(seq) {
       : emptyState(
           "还没有添加雪球组合",
           state.user?.is_admin
-            ? `<div><button class="btn-normal btn-add" onclick="location.hash='#/admin/kols'">去管理后台添加</button></div>`
-            : `<div><button class="btn-normal btn-add" onclick="location.hash='#/search'">申请添加 →</button></div>`
+            ? `<div><button class="btn-normal btn-add" onclick="go('admin/kols')">去管理后台添加</button></div>`
+            : `<div><button class="btn-normal btn-add" onclick="go('search')">申请添加 →</button></div>`
         );
   } catch (err) {
     if (!routeStillActive(seq)) return;
@@ -1015,8 +1016,15 @@ function tlPlazaEntries() {
 }
 
 function ensurePlazaPlatformSelection() {
-  if (state.timelinePlatform && !plazaVisibleSet().has(state.timelinePlatform)) {
+  const vis = plazaVisibleSet();
+  if (state.timelinePlatform && !vis.has(state.timelinePlatform)) {
     state.timelinePlatform = "";
+  }
+  if (state.platform && !vis.has(state.platform)) {
+    state.platform = "";
+  }
+  if (state.mysubsPlatform && !vis.has(state.mysubsPlatform)) {
+    state.mysubsPlatform = "";
   }
 }
 
@@ -1385,7 +1393,7 @@ function renderRailRecs(recs) {
         <div class="tl-rail-rec">
           ${avatarHtml(r.name, r.avatar_url)}
           <div class="tl-rail-rec-info">
-            <a class="tl-rail-rec-name" href="#/kol/${r.id}">${escapeHtml(r.name)}</a>
+            <a class="tl-rail-rec-name" href="/kol/${r.id}">${escapeHtml(r.name)}</a>
             <div class="tl-rail-rec-meta">${escapeHtml(PLATFORM_LABELS[r.platform] || r.platform)}${r.category_name ? " · " + escapeHtml(r.category_name) : ""}</div>
           </div>
           <button type="button"
@@ -1397,7 +1405,7 @@ function renderRailRecs(recs) {
             <span class="tl-rail-subscribe-action" aria-hidden="true">退订</span>
           </button>
         </div>`).join("")}
-      <a class="tl-rail-more" href="#/search">显示更多</a>
+      <a class="tl-rail-more" href="/search">显示更多</a>
     </section>`;
 }
 
@@ -1536,7 +1544,7 @@ function renderTimelineFeed() {
     : (hasFilter ? "没有符合条件的动态" : "还没有订阅任何大V");
   const emptyAction = hasFilter
     ? `<div><button class="btn-normal" onclick="tlResetFilters()">清除筛选</button></div>`
-    : `<div><button class="btn-normal btn-add" onclick="location.hash='#/home'">去订阅</button></div>`;
+    : `<div><button class="btn-normal btn-add" onclick="go('home')">去订阅</button></div>`;
   feed.innerHTML = posts.length
     ? html + footer
     : emptyState(emptyMsg, emptyAction);
@@ -1636,7 +1644,7 @@ function postCard(post) {
       <div class="p-header">
         ${avatarHtml(post.kol_name, post.avatar_url)}
         <div class="p-name-line">
-          <a class="p-name" href="#/kol/${post.kol_id}" title="${escapeHtml(post.kol_name)}">${escapeHtml(post.kol_name)}</a>
+          <a class="p-name" href="/kol/${post.kol_id}" title="${escapeHtml(post.kol_name)}">${escapeHtml(post.kol_name)}</a>
           <span class="p-platform" data-platform="${escapeHtml(post.platform)}" title="${escapeHtml(PLATFORM_LABELS[post.platform] || post.platform)}">
             ${PLATFORM_ICONS[post.platform] || ""}
           </span>
@@ -1679,7 +1687,7 @@ function postCard(post) {
 // ---------- 搜索 ----------
 async function renderSearch(seq) {
   setPageTitle("搜索", true);
-  const params = new URLSearchParams(location.hash.split("?")[1] || "");
+  const params = routeQuery();
   const query = params.get("q") || "";
   $("#main").innerHTML = `
     <section class="section-panel">
@@ -2257,7 +2265,7 @@ async function renderSettings(seq) {
         <header class="section-head">
           <div>
             <h2 class="section-title">动态图片</h2>
-            <p class="section-meta">关闭某位大V的图片显示后，该大V的动态图片会从网页、推送和私有 RSS 中隐藏；头像仍会显示。仅影响当前账号。</p>
+            <p class="section-meta">关闭某位大V的图片显示后，该大V的动态图片会从网页和推送中隐藏；头像仍会显示。仅影响当前账号。</p>
           </div>
         </header>
         <div id="kol-images-settings" class="muted kol-images-state" role="status">正在加载已订阅大V…</div>
@@ -2450,24 +2458,6 @@ async function renderSettings(seq) {
         </div>
         <div id="bind-result" class="muted" style="margin-top:14px"></div>
       </section>
-      <section class="section-panel">
-        <header class="section-head">
-          <div>
-            <h2 class="section-title">RSS 订阅源（用任意阅读器收动态）</h2>
-            <p class="section-meta">不想用聊天工具？把下面地址加进 Reeder / NetNewsWire / 其他任何 RSS 阅读器，就能直接收你订阅大V的动态，无需登录。</p>
-          </div>
-        </header>
-        <div class="form-row">
-          <label for="set-feed-url">你的私有订阅源地址</label>
-          <div class="row" style="gap:10px;flex-wrap:wrap">
-            <input id="set-feed-url" class="form-control" style="flex:1;min-width:280px" readonly
-              value="${location.origin}/api/feed/${escapeHtml(state.user.feed_token || "")}.xml">
-            <button class="btn-normal" onclick="copyFeedUrl()">复制</button>
-            <button class="btn-ghost" onclick="regenerateFeedToken()">重新生成</button>
-          </div>
-        </div>
-        <p class="muted">⚠️ 地址内含订阅凭证，泄露后别人能读到你的关注流；泄露了就点「重新生成」立即作废旧地址。</p>
-      </section>
       </div>`;
     _pushStatusHtml = channelStatusHtml(state.user);
     settingsPollTimer = setInterval(refreshSettingsStatus, 10000);
@@ -2481,7 +2471,7 @@ async function renderSettings(seq) {
 
 function reloadKolImageSettingsIfNeeded() {
   if (!_kolImageReloadNeeded || _kolImagePendingIds.size) return;
-  if (location.hash.replace(/^#\/?/, "").split("?")[0] !== "settings") return;
+  if (!isRoute("settings")) return;
   _kolImageReloadNeeded = false;
   loadKolImageSettings(routeRenderSeq);
 }
@@ -2531,7 +2521,7 @@ function renderKolImageSettings() {
   if (!_kolImageSubscriptions.length) {
     target.innerHTML = emptyState(
       "还没有订阅大V",
-      `<div><button type="button" class="btn-normal btn-add" onclick="location.hash='#/home'">去订阅广场</button></div>`
+      `<div><button type="button" class="btn-normal btn-add" onclick="go('home')">去订阅广场</button></div>`
     );
     return;
   }
@@ -2616,7 +2606,7 @@ async function toggleKolImages(kolId, input) {
   } finally {
     _kolImagePendingIds.delete(kolId);
     _kolImageDataRevision += 1;
-    const isCurrentSettings = location.hash.replace(/^#\/?/, "").split("?")[0] === "settings";
+    const isCurrentSettings = isRoute("settings");
     if (!routeStillActive(seq) && isCurrentSettings) _kolImageReloadNeeded = true;
     if (_kolImagePendingIds.size === 0 && _kolImageReloadNeeded) {
       reloadKolImageSettingsIfNeeded();
@@ -2653,7 +2643,7 @@ function switchSettingsTab(name) {
 }
 
 function statsTabFromHash() {
-  const tab = new URLSearchParams(location.hash.split("?")[1] || "").get("tab") || "overview";
+  const tab = routeQuery().get("tab") || "overview";
   return STATS_TABS.includes(tab) ? tab : "overview";
 }
 
@@ -2672,8 +2662,8 @@ function switchStatsTab(name) {
     el.style.display = on ? "" : "none";
     el.hidden = !on;
   });
-  const next = name === "overview" ? "#/admin/stats" : `#/admin/stats?tab=${name}`;
-  if (location.hash !== next) history.replaceState(null, "", next);
+  const next = name === "overview" ? "/admin/stats" : `/admin/stats?tab=${name}`;
+  if (location.pathname + location.search !== next) history.replaceState(null, "", next);
   if (name === "proxies") loadProxyAdmin();
 }
 
@@ -3217,24 +3207,6 @@ async function saveLlm() {
   try {
     await api("/api/me", { method: "PUT", body: JSON.stringify(payload) });
     flash(payload.llm_api_key ? "已保存" : "AI 摘要已关闭");
-    await reloadSettings();
-  } catch (err) {
-    flash(err.message, "error");
-  }
-}
-
-function copyFeedUrl() {
-  const input = $("#set-feed-url");
-  if (!input || !input.value) return;
-  copyText(input.value, "订阅源地址已复制");
-}
-
-async function regenerateFeedToken() {
-  if (!confirm("重新生成后旧地址立即失效，确认？")) return;
-  try {
-    const res = await api("/api/me/feed-token/regenerate", { method: "POST" });
-    state.user.feed_token = res.feed_token;
-    flash("订阅源地址已重新生成");
     await reloadSettings();
   } catch (err) {
     flash(err.message, "error");
@@ -4200,7 +4172,7 @@ async function clearSavedCookie(kind, label) {
   try {
     await api(`/api/admin/cookies/${kind}`, { method: "DELETE" });
     flash(`已清除「${label}」Cookie`);
-    history.replaceState(null, "", "#/admin/stats?tab=cookies");
+    history.replaceState(null, "", "/admin/stats?tab=cookies");
     await loadAdminStats();
     focusCookieField(kind);
   } catch (err) {
@@ -4222,7 +4194,7 @@ async function saveXueqiuCookie() {
       body: JSON.stringify({ cookie }),
     });
     flash("雪球 Cookie 已保存，即时生效");
-    history.replaceState(null, "", "#/admin/stats?tab=cookies");
+    history.replaceState(null, "", "/admin/stats?tab=cookies");
     await loadAdminStats();
     focusCookieField("xueqiu");
   } catch (err) {
@@ -4242,7 +4214,7 @@ async function saveZsxqCookie() {
       body: JSON.stringify({ cookie }),
     });
     flash("知识星球 Cookie 已保存，即时生效");
-    history.replaceState(null, "", "#/admin/stats?tab=cookies");
+    history.replaceState(null, "", "/admin/stats?tab=cookies");
     await loadAdminStats();
     focusCookieField("zsxq");
   } catch (err) {
@@ -4264,7 +4236,7 @@ async function saveImaCredentials() {
       body: { cookie, openapi_clientid: cid, openapi_apikey: key },
     });
     flash("ima 凭证已保存");
-    history.replaceState(null, "", "#/admin/stats?tab=cookies");
+    history.replaceState(null, "", "/admin/stats?tab=cookies");
     await loadAdminStats();
     focusCookieField("ima");
   } catch (e) {
@@ -4284,7 +4256,7 @@ async function saveTwitterCookie() {
       body: JSON.stringify({ cookie }),
     });
     flash("X Cookie 已保存，即时生效");
-    history.replaceState(null, "", "#/admin/stats?tab=cookies");
+    history.replaceState(null, "", "/admin/stats?tab=cookies");
     await loadAdminStats();
     focusCookieField("twitter");
   } catch (err) {
@@ -6908,10 +6880,58 @@ if (window.matchMedia) {
 
 // ---------- 路由 ----------
 let routeRenderSeq = 0; // 每次路由切换递增；异步渲染完成后凭此丢弃过期响应
+const SPA_PREFIXES = new Set([
+  "timeline", "home", "combinations", "mysubs", "settings",
+  "search", "kol", "more", "admin", "zsxq",
+]);
 
 function routeStillActive(seq) {
   // 令牌必须是整数且等于当前路由序号；局部刷新必须在发起请求前捕获 routeRenderSeq 并回传
   return Number.isInteger(seq) && seq === routeRenderSeq;
+}
+
+function normalizeRoute(path) {
+  const raw = String(path || "").replace(/^#\/?/, "").replace(/^\/+/, "");
+  const [pathname, query] = raw.split("?");
+  const clean = pathname || "timeline";
+  return query ? `/${clean}?${query}` : `/${clean}`;
+}
+
+function routePath() {
+  return location.pathname.replace(/^\/+/, "") || "timeline";
+}
+
+function routeQuery() {
+  return new URLSearchParams(location.search);
+}
+
+function isRoute(prefix) {
+  const path = routePath();
+  return prefix.endsWith("/") ? path.startsWith(prefix) : path === prefix || path.startsWith(prefix + "/");
+}
+
+function isSpaPath(pathname) {
+  const first = String(pathname || "").replace(/^\/+/, "").split("/")[0] || "";
+  return SPA_PREFIXES.has(first);
+}
+
+function go(path) {
+  const url = normalizeRoute(path);
+  if (location.pathname + location.search !== url) history.pushState(null, "", url);
+  router();
+}
+
+function replaceRoute(path) {
+  const url = normalizeRoute(path);
+  if (location.pathname + location.search !== url) history.replaceState(null, "", url);
+  router();
+}
+
+function migrateHashRoute() {
+  const hash = location.hash;
+  if (!hash || hash === "#" || hash === "#main") return;
+  if (!hash.startsWith("#/")) return;
+  history.replaceState(null, "", normalizeRoute(hash));
 }
 
 async function router() {
@@ -6922,9 +6942,7 @@ async function router() {
   stopTimelinePoll();
   // 离开动态页前记录滚动位置，切回时恢复阅读位置
   if (document.querySelector("#feed")) _tlSavedScrollY = window.scrollY;
-  const hash = location.hash.replace(/^#\/?/, "") || "timeline";
-  // 先去掉 query（#/search?q=xxx），再按路径分段
-  const path = hash.split("?")[0];
+  const path = routePath();
   const [page, rawParam] = path.split("/");
   // 管理后台默认全景概览：/admin 与 /admin/dashboard 等价，侧边栏高亮才能对上
   const param = page === "admin" && !rawParam ? "dashboard" : rawParam;
@@ -6959,7 +6977,7 @@ async function router() {
     else if (page === "mysubs") await renderMySubs(renderSeq);
     else if (page === "zsxq") {
       state.timelinePlatform = plazaVisibleSet().has("zsxq") ? "zsxq" : "";
-      location.replace("#/timeline");
+      replaceRoute("timeline");
       return;
     }
     else if (page === "timeline") await renderTimeline(renderSeq);
@@ -6968,15 +6986,15 @@ async function router() {
     else if (page === "search") await renderSearch(renderSeq);
     else if (page === "kol") await renderKolPage(Number(param), renderSeq);
     else if (page === "admin") {
-      if (!state.user.is_admin) { location.hash = "#/timeline"; return; }
+      if (!state.user.is_admin) { replaceRoute("timeline"); return; }
       // 分类管理/标签管理已合并为 admin/vocab：旧书签自动跳转
       if (param === "categories" || param === "tags") {
-        location.hash = "#/admin/vocab";
+        replaceRoute("admin/vocab");
         return;
       }
       await renderAdmin(param || "dashboard", renderSeq);
     }
-    else { location.hash = "#/timeline"; await renderTimeline(renderSeq); }
+    else { replaceRoute("timeline"); return; }
   } catch (err) {
     // 只在当前路由仍是本次渲染目标时才写错误状态，避免旧路由的错误覆盖新页面
     if (routeStillActive(renderSeq)) $("#main").innerHTML = emptyState(err.message);
@@ -7007,8 +7025,7 @@ async function doLogin(e) {
     });
     state.token = data.token;
     localStorage.setItem("dav_token", data.token);
-    location.hash = "#/timeline";
-    router();
+    go("timeline");
   } catch (err) {
     $("#auth-error").textContent = err.message;
     btn.disabled = false;
@@ -7033,8 +7050,7 @@ async function doRegister(e) {
     });
     state.token = data.token;
     localStorage.setItem("dav_token", data.token);
-    location.hash = "#/timeline";
-    router();
+    go("timeline");
   } catch (err) {
     $("#reg-error").textContent = err.message;
     btn.disabled = false;
@@ -7067,7 +7083,24 @@ document.querySelectorAll(".switch-btn").forEach((btn) =>
   btn.addEventListener("click", () => switchAuthMode(btn.dataset.mode))
 );
 $("#btn-back").addEventListener("click", () => history.back());
-window.addEventListener("hashchange", router);
+document.addEventListener("click", (e) => {
+  const a = e.target.closest("a[href]");
+  if (!a || a.target === "_blank" || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+  const url = new URL(a.getAttribute("href"), location.href);
+  if (url.origin !== location.origin) return;
+  if (url.pathname === location.pathname && url.search === location.search && url.hash) return;
+  if (!isSpaPath(url.pathname)) return;
+  e.preventDefault();
+  go(url.pathname.replace(/^\/+/, "") + url.search);
+});
+migrateHashRoute();
+window.addEventListener("popstate", router);
+window.addEventListener("hashchange", () => {
+  const hash = location.hash;
+  if (!hash.startsWith("#/")) return; // 保留 #main
+  migrateHashRoute();
+  router();
+});
 
 // PWA：注册 Service Worker（HTTP 或私有模式下失败静默，不影响功能）
 if ("serviceWorker" in navigator) {

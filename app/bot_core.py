@@ -6,6 +6,7 @@ import time
 from math import ceil
 
 from .fetchers.base import PLATFORM_LABELS
+from .plaza import filter_plaza_rows, is_plaza_hidden
 
 HELP_TEXT = (
     "📌 V Push机器人\n"
@@ -148,10 +149,7 @@ class SubscriptionBot:
 
     def list_payload(self, user: dict, arg: str = "") -> tuple[str, int, int]:
         """构造 /list 文案与分页信息，供文本/键盘/卡片复用。"""
-        kols = self.db.list_kols()
-        if not user.get("is_admin"):
-            visible = self.db.visible_kol_ids(user["id"])
-            kols = [k for k in kols if k["id"] in visible]
+        kols = self._catalog_kols(user)
         subscribed = self.db.subscribed_kol_ids(user["id"])
         page = int(arg.strip()) if arg.strip().isdigit() else 1
         total = len(kols)
@@ -275,10 +273,7 @@ class SubscriptionBot:
         kw = (keyword or "").strip().lower()
         if not kw:
             return "用法：/search 关键词，如 /search 茅台", []
-        kols = self.db.list_kols()
-        if not user.get("is_admin"):
-            visible = self.db.visible_kol_ids(user["id"])
-            kols = [k for k in kols if k["id"] in visible]
+        kols = self._catalog_kols(user)
         subscribed = self.db.subscribed_kol_ids(user["id"])
         matches = [
             {
@@ -346,5 +341,17 @@ class SubscriptionBot:
                 return kol if self._visible_to(user, kol["id"]) else None
         return None
 
+    def _catalog_kols(self, user: dict) -> list[dict]:
+        kols = self.db.list_kols()
+        if user.get("is_admin"):
+            return kols
+        visible = self.db.visible_kol_ids(user["id"])
+        return filter_plaza_rows(self.db, [k for k in kols if k["id"] in visible])
+
     def _visible_to(self, user: dict, kol_id: int) -> bool:
-        return bool(user.get("is_admin")) or kol_id in self.db.visible_kol_ids(user["id"])
+        if user.get("is_admin"):
+            return True
+        if kol_id not in self.db.visible_kol_ids(user["id"]):
+            return False
+        kol = self.db.get_kol(kol_id)
+        return bool(kol) and not is_plaza_hidden(self.db, kol["platform"])

@@ -132,10 +132,7 @@ class FeishuBot:
         self._send_card(chat_id, self._build_list_card(user, page, pages))
 
     def _build_list_card(self, user: dict, page: int, pages: int) -> dict:
-        kols = self.db.list_kols()
-        if not user.get("is_admin"):
-            visible = self.db.visible_kol_ids(user["id"])
-            kols = [k for k in kols if k["id"] in visible]
+        kols = self.core._catalog_kols(user)
         subscribed = self.db.subscribed_kol_ids(user["id"])
         text, _, _ = self.core.list_payload(user, str(page))
         start = (page - 1) * LIST_PAGE_SIZE

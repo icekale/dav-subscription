@@ -55,6 +55,17 @@ def plaza_hidden_platforms(db: DB) -> list[str]:
     return [row["platform"] for row in plaza_source_rows(db) if not row["visible"]]
 
 
+def is_plaza_hidden(db: DB, platform: str | None) -> bool:
+    return bool(platform) and platform in set(plaza_hidden_platforms(db))
+
+
+def filter_plaza_rows(db: DB, rows: list[dict], key: str = "platform") -> list[dict]:
+    hidden = set(plaza_hidden_platforms(db))
+    if not hidden:
+        return list(rows)
+    return [row for row in rows if row.get(key) not in hidden]
+
+
 def set_plaza_visibility(db: DB, updates: dict[str, str]) -> list[dict]:
     """合并写入部分平台的 mode，返回最新 rows。非法平台/mode 抛 ValueError。"""
     visibility = parse_plaza_visibility(db.get_setting(PLAZA_VISIBILITY_KEY))

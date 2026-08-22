@@ -119,19 +119,6 @@
     <button class="btn btn-ghost btn-block" style="margin-top:16rpx" bindtap="saveKeywords">保存关键词</button>
   </view>
   <view class="card">
-    <view class="card-title">RSS 订阅源</view>
-    <view class="notice-line" style="color:var(--text-muted);font-size:24rpx;line-height:1.8">
-      把订阅源地址加进任意 RSS 阅读器，即可直接收你订阅大V的动态，无需登录。
-    </view>
-    <view class="row" style="gap:16rpx;margin-top:16rpx">
-      <button class="btn btn-ghost" style="flex:1" bindtap="copyFeed">复制订阅源地址</button>
-      <button class="btn btn-ghost" style="flex:1" bindtap="regenerateFeed">重新生成</button>
-    </view>
-    <view class="notice-line" style="color:var(--text-faint);font-size:22rpx;margin-top:8rpx">
-      地址内含订阅凭证，泄露后别人能读到你的关注流；泄露了就点「重新生成」立即作废。
-    </view>
-  </view>
-  <view class="card">
     <view class="form-item">
       <view class="form-label">新帖推送开关</view>
       <switch checked="{{notify}}" color="#1677ff" bindchange="onNotify" />

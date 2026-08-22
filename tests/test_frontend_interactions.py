@@ -358,7 +358,13 @@ def test_plaza_source_visibility_admin_and_pills():
     assert "plazaSourceRowsHtml(s.plaza_sources)" in _fn_body("loadAdminStats")
     assert "plaza_platforms" in _fn_body("plazaVisibleSet")
     assert "tlPlazaEntries()" in _fn_body("tlPillsHtml")
+    assert "tlPlazaEntries()" in _fn_body("renderPlatformTabs")
+    assert "tlPlazaEntries()" in _fn_body("homeMobilePlatformsHtml")
+    assert "tlPlazaEntries()" in _fn_body("renderMySubsTabs")
+    assert "tlPlazaEntries()" in _fn_body("mysubsMobileFiltersHtml")
     assert "ensurePlazaPlatformSelection()" in _fn_body("renderTimeline")
+    assert "ensurePlazaPlatformSelection()" in _fn_body("renderHome")
+    assert "ensurePlazaPlatformSelection()" in _fn_body("renderMySubs")
     assert 'plazaVisibleSet().has("zsxq")' in src
     assert "/api/admin/plaza-sources" in _fn_body("setPlazaSourceMode")
     assert "applyPlazaSources(data.sources)" in _fn_body("setPlazaSourceMode")
@@ -458,8 +464,9 @@ def test_kol_image_settings_is_fourth_push_section_and_loads_independently():
 
     assert push.count('<section class="section-panel">') == 4
     assert push.index("关键词提醒") < push.index("动态图片")
-    for copy in ("网页", "推送", "私有 RSS", "头像仍会显示", "仅影响当前账号"):
+    for copy in ("网页", "推送", "头像仍会显示", "仅影响当前账号"):
         assert copy in push
+    assert "RSS" not in push
     assert 'id="kol-images-settings"' in push
     assert "正在加载已订阅大V" in push and 'class="muted' in push
 

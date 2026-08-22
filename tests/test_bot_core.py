@@ -1,5 +1,6 @@
 from app.bot_core import SubscriptionBot
 from app.db import DB
+from app.plaza import set_plaza_visibility
 
 
 def make_bot():
@@ -142,3 +143,18 @@ def test_search_excludes_private_kol_for_normal_user():
 
     bot.handle("telegram_chat_id", "111", "u1", "/search 私有")
     assert "没有找到" in sent[-1]
+
+
+def test_list_and_search_hide_plaza_hidden_platform():
+    db, bot, sent = make_bot()
+    xq = db.add_kol("xueqiu", "雪球大V", "x1")
+    zq = db.add_kol("zsxq", "前沿信息收录", "28888112822211")
+    set_plaza_visibility(db, {"zsxq": "hide"})
+
+    bot.handle("telegram_chat_id", "111", "u1", "/list")
+    assert f"{xq}. 雪球大V" in sent[-1]
+    assert f"{zq}. 前沿信息收录" not in sent[-1]
+    bot.handle("telegram_chat_id", "111", "u1", "/search 前沿")
+    assert "没有找到" in sent[-1]
+    bot.handle("telegram_chat_id", "111", "u1", f"/sub {zq}")
+    assert "没找到该大V" in sent[-1]

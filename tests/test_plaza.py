@@ -81,6 +81,18 @@ def test_plaza_sources_api_and_feed_filter():
     zsxq = next(row for row in hid.json()["sources"] if row["platform"] == "zsxq")
     assert zsxq["visible"] is False and zsxq["mode"] == "hide"
     assert "zsxq" not in client.get("/api/me", headers=uh).json()["plaza_platforms"]
+    assert all(k["platform"] != "zsxq" for k in client.get("/api/catalog", headers=uh).json())
+    assert client.get("/api/catalog?platform=zsxq", headers=uh).json() == []
+    assert all(r["platform"] != "zsxq" for r in client.get("/api/recommendations", headers=uh).json())
+    assert all(k["platform"] != "zsxq" for k in client.get("/api/my/subscriptions", headers=uh).json())
+    assert client.get(f"/api/kols/{zq}", headers=uh).status_code == 404
+    assert client.get(f"/api/kols/{zq}/posts", headers=uh).status_code == 404
+    assert client.get(f"/api/kols/{zq}", headers=admin).status_code == 200
+    uh2 = user_headers(client, "plazahidden")
+    assert (
+        client.post("/api/subscriptions", headers=uh2, json={"kol_id": zq, "type": "post"}).status_code
+        == 404
+    )
     stats_zsxq = next(
         row
         for row in client.get("/api/stats", headers=admin).json()["plaza_sources"]
@@ -110,3 +122,4 @@ def test_plaza_sources_api_and_feed_filter():
     assert "zsxq" not in client.get("/api/me", headers=uh).json()["plaza_platforms"]
     assert client.get("/api/my/feed?platform=zsxq", headers=uh).json() == []
     assert [p["external_id"] for p in client.get("/api/my/feed", headers=uh).json()] == ["xq1"]
+    assert all(k["platform"] != "zsxq" for k in client.get("/api/catalog", headers=uh).json())

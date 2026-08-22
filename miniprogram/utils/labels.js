@@ -5,6 +5,7 @@ const PLATFORM_LABELS = {
   weibo: "微博",
   twitter: "X",
   ima: "ima",
+  zsxq: "星球",
 };
 
 const SUB_TYPE_LABELS = {

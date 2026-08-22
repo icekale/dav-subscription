@@ -1,184 +1,28 @@
-"""RSS 订阅源导出：build_rss_xml 渲染 + /api/feed/<token>.xml 路由。"""
-import logging
-import tempfile
+"""私有 RSS 已下线：路由、token、前端入口都不应再出现。"""
 from pathlib import Path
 
-from fastapi.testclient import TestClient
+from test_api import make_client, user_headers
 
-from app.db import DB
-from app.feed import build_rss_xml
-from app.main import create_app
+ROOT = Path(__file__).parent.parent
 
 
-def make_client(name="feed_test.db"):
-    tmp = tempfile.mkdtemp()
-    app = create_app(config=None, db_path=Path(tmp) / name)
-    return TestClient(app)
-
-
-def _seed_user_and_sub(client, username="feed_user", code="FEED01"):
-    db: DB = client.app.state.db
-    db.add_register_code(code)
-    resp = client.post(
-        "/api/auth/register",
-        json={"username": username, "password": "secret123", "code": code},
-    )
-    assert resp.status_code == 200, resp.text
-    token = resp.json()["token"]
-    uid = resp.json()["user"]["id"]
-    kid = db.add_kol("xueqiu", "雪球大V", "x1", category_id=None)
-    db.add_subscription(uid, kid, type="post")
-    db.insert_post(
-        platform="xueqiu",
-        kol_id=kid,
-        external_id="p1",
-        title="标题",
-        content="正文内容 <b>加粗</b>\n第二行",
-        url="https://xueqiu.com/1/2",
-        published_at="2026-08-07 10:00:00",
-        post_type="",
-        images=["https://img.example.com/1.jpg"],
-    )
-    return {"Authorization": f"Bearer {token}"}, uid
-
-
-def test_build_rss_xml_basic():
-    posts = [
-        {
-            "platform": "xueqiu",
-            "kol_id": 1,
-            "kol_name": "雪球大V",
-            "external_id": "p1",
-            "title": "标题",
-            "content": "正文内容 <b>加粗</b>\n第二行",
-            "url": "https://xueqiu.com/1/2",
-            "published_at": "2026-08-07 10:00:00",
-            "post_type": "reply",
-            "category_name": "实盘",
-            "images": ["https://img.example.com/1.jpg"],
-        }
-    ]
-    xml = build_rss_xml(posts, "alice", "https://dav.example.com")
-    assert "<rss version=\"2.0\">" in xml
-    assert "V Push · alice 的关注动态" in xml
-    # 标题含平台标签 + 回复标记
-    assert "[雪球]" in xml
-    assert "回复" in xml
-    # HTML 转义（正文里的 <b> 不应原样进 XML）
-    assert "<b>" not in xml
-    assert "加粗" in xml
-    # guid 用 platform/external_id，pubDate 为 RFC 2822
-    assert "xueqiu/p1" in xml
-    assert "Aug 2026" in xml
-    # enclosure 图床地址在
-    assert "img.example.com" in xml
-
-
-def test_build_rss_xml_escape_and_missing_fields():
-    posts = [
-        {
-            "platform": "weibo",
-            "kol_id": 1,
-            "kol_name": "A&B",
-            "external_id": "w1",
-            "title": "",
-            "content": "",
-            "url": "",
-            "published_at": "",
-            "category_name": None,
-            "images": [],
-        }
-    ]
-    xml = build_rss_xml(posts, "bob", "")
-    assert "A&amp;B" in xml
-    assert "（无正文）" in xml
-    assert "微博" in xml
-    # 空发布时间的兜底（当前时间，东八区 RFC2822）
-    assert "+0800" in xml
-
-
-def test_feed_route_requires_token_and_renders():
+def test_rss_feed_route_and_token_are_gone():
     client = make_client()
-    headers, _ = _seed_user_and_sub(client)
+    headers = user_headers(client, "norss1")
     me = client.get("/api/me", headers=headers).json()
-    token = me["feed_token"]
-    assert token
-
-    resp = client.get(f"/api/feed/{token}.xml")
-    assert resp.status_code == 200
-    assert "application/rss+xml" in resp.headers["content-type"]
-    assert "雪球大V" in resp.text
-    assert "正文内容" in resp.text
-    # 未登录也可访问（RSS 阅读器场景）
-    assert resp.text.startswith("<?xml")
+    assert "feed_token" not in me
+    assert client.get("/api/feed/anything.xml").status_code == 404
+    assert client.post("/api/me/feed-token/regenerate", headers=headers).status_code in (404, 405)
 
 
-def test_private_rss_hides_enclosure_per_subscription():
-    client = make_client()
-    hidden_headers, hidden_uid = _seed_user_and_sub(client)
-    db: DB = client.app.state.db
-    kid = db.list_kols()[0]["id"]
-    db.set_subscription_hide_images(hidden_uid, kid, True)
-    db.add_register_code("FEED03")
-    normal = client.post(
-        "/api/auth/register",
-        json={"username": "feed_images_normal", "password": "secret123", "code": "FEED03"},
-    ).json()
-    normal_headers = {"Authorization": f"Bearer {normal['token']}"}
-    db.add_subscription(normal["user"]["id"], kid)
-    hidden_token = client.get("/api/me", headers=hidden_headers).json()["feed_token"]
-    normal_token = client.get("/api/me", headers=normal_headers).json()["feed_token"]
-
-    hidden_xml = client.get(f"/api/feed/{hidden_token}.xml").text
-    normal_xml = client.get(f"/api/feed/{normal_token}.xml").text
-
-    assert "<enclosure" not in hidden_xml
-    assert "https://img.example.com/1.jpg" not in hidden_xml
-    assert "<enclosure" in normal_xml
-    assert "https://img.example.com/1.jpg" in normal_xml
-
-
-def test_feed_route_404_on_bad_token():
-    client = make_client()
-    resp = client.get("/api/feed/not-a-real-token.xml")
-    assert resp.status_code == 404
-
-
-def test_feed_token_regenerate_invalidates_old():
-    client = make_client()
-    headers, _ = _seed_user_and_sub(client)
-    old = client.get("/api/me", headers=headers).json()["feed_token"]
-
-    resp = client.post("/api/me/feed-token/regenerate", headers=headers)
-    assert resp.status_code == 200
-    new = resp.json()["feed_token"]
-    assert new != old
-
-    assert client.get(f"/api/feed/{old}.xml").status_code == 404
-    assert client.get(f"/api/feed/{new}.xml").status_code == 200
-
-
-def test_feed_token_redacted_in_access_log(caplog):
-    client = make_client()
-    headers, _ = _seed_user_and_sub(client)
-    token = client.get("/api/me", headers=headers).json()["feed_token"]
-    with caplog.at_level(logging.DEBUG, logger="app.access"):
-        assert client.get(f"/api/feed/{token}.xml").status_code == 200
-    joined = "\n".join(caplog.messages)
-    assert token not in joined
-    assert "/api/feed/" in joined
-
-
-def test_feed_route_empty_subscriptions():
-    client = make_client()
-    db: DB = client.app.state.db
-    db.add_register_code("FEED02")
-    resp = client.post(
-        "/api/auth/register",
-        json={"username": "nobody", "password": "secret123", "code": "FEED02"},
-    )
-    token = resp.json()["token"]
-    me = client.get("/api/me", headers={"Authorization": f"Bearer {token}"}).json()
-    resp = client.get(f"/api/feed/{me['feed_token']}.xml")
-    assert resp.status_code == 200
-    assert "<item>" not in resp.text
+def test_rss_module_and_ui_removed():
+    assert not (ROOT / "app" / "feed.py").exists()
+    app_js = (ROOT / "app" / "static" / "app.js").read_text()
+    assert "copyFeedUrl" not in app_js
+    assert "RSS 订阅源" not in app_js
+    assert "set-feed-url" not in app_js
+    wxml = (ROOT / "miniprogram" / "pages" / "settings" / "settings.wxml").read_text()
+    assert "RSS" not in wxml
+    js = (ROOT / "miniprogram" / "pages" / "settings" / "settings.js").read_text()
+    assert "copyFeed" not in js
+    assert "feed-token" not in js

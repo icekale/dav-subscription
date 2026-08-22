@@ -1214,25 +1214,6 @@ def test_change_password_api():
     assert client.post("/api/auth/login", json={"username": "pwuser", "password": "newpass123"}).status_code == 200
 
 
-def test_change_password_rotates_feed_token():
-    client = make_client()
-    headers = user_headers(client, "pwfeed")
-    old = client.get("/api/me", headers=headers).json()["feed_token"]
-    assert old
-    assert client.get(f"/api/feed/{old}.xml").status_code == 200
-    assert client.post(
-        "/api/me/password",
-        headers=headers,
-        json={"old_password": "pass123456", "new_password": "newpass123"},
-    ).status_code == 200
-    assert client.get(f"/api/feed/{old}.xml").status_code == 404
-    login = client.post("/api/auth/login", json={"username": "pwfeed", "password": "newpass123"})
-    new_headers = {"Authorization": f"Bearer {login.json()['token']}"}
-    new = client.get("/api/me", headers=new_headers).json()["feed_token"]
-    assert new and new != old
-    assert client.get(f"/api/feed/{new}.xml").status_code == 200
-
-
 def test_channel_claim_conflict():
     client = make_client()
     headers_a = user_headers(client, "user_a")
@@ -1464,7 +1445,7 @@ def test_admin_user_list_hides_credentials():
     # 当前用户自己的 /api/me 仍返回设置页面需要的字段
     me = client.get("/api/me", headers={"Authorization": f"Bearer {reg.json()['token']}"}).json()
     assert me["bark_key"] == "AaBbCcDdEeFf1234567890"
-    assert me["feed_token"] == "topsecretfeedtoken123"
+    assert "feed_token" not in me
     assert me["wecom_webhook"] == "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=wc1"
     assert me["llm_api_key"] == "sk-llmsecret123"
 
@@ -3617,20 +3598,6 @@ def test_bark_key_duplicate_rejected():
     assert client.get("/api/me", headers=h1).json()["bark_key"] == "AaBbCcDdEeFf1234567890"
 
 
-# ---- feed token API ----
-def test_feed_token_in_me():
-    client = make_client()
-    headers = user_headers(client, "feed_me")
-    me = client.get("/api/me", headers=headers).json()
-    assert me["feed_token"]  # 首次访问自动生成
-
-    resp = client.post("/api/me/feed-token/regenerate", headers=headers)
-    assert resp.status_code == 200
-    new = resp.json()["feed_token"]
-    assert new != me["feed_token"]
-    assert client.get("/api/me", headers=headers).json()["feed_token"] == new
-
-
 # ---- 账号级失败锁定（防 IP 轮换爆破）----
 def test_account_lock_blocks_distributed_bruteforce():
     """轮换 IP 绕过单 IP 限流时，账号级锁定仍然生效（即使密码正确也拒绝）。"""
@@ -4023,8 +3990,8 @@ def test_backfill_tags_untagged_posts(monkeypatch):
 
 
 
-def test_private_kol_content_denied_on_feed_and_rss():
-    """公开转私有并撤销 ACL 后，动态 feed 与 RSS 都不再返回该大V帖子。"""
+def test_private_kol_content_denied_on_feed():
+    """公开转私有并撤销 ACL 后，动态 feed 不再返回该大V帖子。"""
     client = make_client()
     admin_headers = auth_headers(client)
     r = register(client, "privuser", "pass123456")
@@ -4043,13 +4010,6 @@ def test_private_kol_content_denied_on_feed_and_rss():
     db.update_kol(kid, is_private=True)
     feed2 = client.get("/api/my/feed", headers=user_headers_h).json()
     assert all(p["external_id"] != "p1" for p in feed2)
-
-    # RSS 同样不返回
-    db.update_user(uid, feed_token="tok_priv_1")
-    xml_resp = client.get("/api/feed/tok_priv_1.xml")
-    assert xml_resp.status_code == 200
-    assert "application/rss+xml" in xml_resp.headers["content-type"]
-    assert "公开帖子" not in xml_resp.text
 
     # 管理员订阅后仍可读（管理访问语义保留）
     admin_uid = db.get_user_by_username("testadmin")["id"]

@@ -1,5 +1,5 @@
 /* V Push Service Worker —— network-first：静态外壳离线可用，API 永不缓存 */
-const CACHE = "dav-shell-v91";
+const CACHE = "dav-shell-v93";
 const SHELL = [
   "/",
   "/app.js",
@@ -38,7 +38,6 @@ self.addEventListener("fetch", (e) => {
   }
   if (e.request.method !== "GET" || url.origin !== self.location.origin) return;
   if (url.pathname.startsWith("/api/")) return; // 动态数据永不缓存
-  if (url.pathname.startsWith("/feed/")) return; // 私有 RSS：token 即凭证，永不缓存
   e.respondWith(networkFirst(e.request));
 });
 

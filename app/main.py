@@ -10,6 +10,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException
 
 from . import auth
 from .api import create_api_router
@@ -28,13 +29,6 @@ WORKERS_ENV = "DAV_UI_ONLY"
 logger = logging.getLogger(__name__)
 
 
-def redact_access_path(path: str) -> str:
-    """RSS 路径里的 feed_token 是凭证，访问日志只保留路由形态。"""
-    if path.startswith("/api/feed/") and path.endswith(".xml"):
-        return "/api/feed/[redacted].xml"
-    return path
-
-
 def background_workers_enabled() -> bool:
     """调度器/机器人等后台任务是否启用（DAV_UI_ONLY=1 时关闭）。"""
     return os.environ.get(WORKERS_ENV, "0") != "1"
@@ -48,6 +42,18 @@ def docs_enabled() -> bool:
     return os.environ.get("WEB_ENABLE_DOCS", "0") == "1"
 
 
+SPA_PREFIXES = frozenset({
+    "timeline", "home", "combinations", "mysubs", "settings",
+    "search", "kol", "more", "admin", "zsxq",
+})
+
+
+def is_spa_path(path: str) -> bool:
+    """History API 前端路径：第一段在白名单内则回退 index.html。"""
+    first = path.replace("\\", "/").strip("/").split("/", 1)[0]
+    return first in SPA_PREFIXES
+
+
 class _NoCacheStaticFiles(StaticFiles):
     """html/js/css 每次请求都重新校验（ETag/304），避免浏览器缓存旧版本前端。"""
 
@@ -56,6 +62,14 @@ class _NoCacheStaticFiles(StaticFiles):
         if str(full_path).endswith((".html", ".js", ".css")):
             response.headers["Cache-Control"] = "no-cache"
         return response
+
+    async def get_response(self, path, scope):
+        try:
+            return await super().get_response(path, scope)
+        except HTTPException as exc:
+            if exc.status_code == 404 and is_spa_path(path):
+                return await super().get_response("index.html", scope)
+            raise
 
 setup_logging()
 access_logger = logging.getLogger("app.access")
@@ -224,7 +238,7 @@ def create_app(config=None, db_path: str | Path | None = None) -> FastAPI:
             if payload:
                 user = payload.get("name") or ""
         line = (
-            f"{request.method} {redact_access_path(request.url.path)} -> {response.status_code} "
+            f"{request.method} {request.url.path} -> {response.status_code} "
             f"({duration_ms:.0f}ms) user={user}"
         )
         if duration_ms >= 1000:
