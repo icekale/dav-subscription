@@ -1728,6 +1728,76 @@ def test_xueqiu_cookie_write_and_batch_rss_url(monkeypatch, tmp_path):
     assert any(k["external_id"] == "elonmusk" for k in kols)
 
 
+def test_admin_can_clear_saved_cookies(monkeypatch):
+    """管理员可清除已保存 Cookie；未知源拒绝，空清除可重复。"""
+    seed = {}
+    monkeypatch.setattr("app.api.write_xueqiu_seed_cookie", lambda cookie: seed.update(cookie=cookie))
+    client = make_client()
+    headers = auth_headers(client)
+    user = register(client, "plainuser", "pass123456")
+    user_headers = {"Authorization": f"Bearer {user.json()['token']}"}
+
+    assert client.delete("/api/admin/cookies/nope", headers=headers).status_code == 400
+    assert client.delete("/api/admin/cookies/xueqiu", headers=user_headers).status_code == 403
+
+    assert (
+        client.post(
+            "/api/admin/xueqiu-cookie",
+            headers=headers,
+            json={"cookie": "xq_a_token=abc; u=123"},
+        ).status_code
+        == 200
+    )
+    resp = client.delete("/api/admin/cookies/xueqiu", headers=headers)
+    assert resp.status_code == 200 and resp.json()["ok"] is True
+    assert seed.get("cookie") == ""
+    assert client.get("/api/admin/xueqiu-cookie", headers=headers).json()["set"] is False
+    assert client.get("/api/stats", headers=headers).json()["xueqiu_cookie"]["set"] is False
+    assert client.delete("/api/admin/cookies/xueqiu", headers=headers).status_code == 200
+
+    assert (
+        client.post(
+            "/api/admin/twitter-cookie",
+            headers=headers,
+            json={"cookie": "auth_token=a; ct0=b"},
+        ).status_code
+        == 200
+    )
+    assert client.delete("/api/admin/cookies/twitter", headers=headers).status_code == 200
+    assert client.get("/api/admin/twitter-cookie", headers=headers).json()["set"] is False
+
+    assert (
+        client.post(
+            "/api/admin/zsxq-cookie",
+            headers=headers,
+            json={"cookie": "zsxq_access_token=abc"},
+        ).status_code
+        == 200
+    )
+    assert client.delete("/api/admin/cookies/zsxq", headers=headers).status_code == 200
+    assert client.get("/api/admin/zsxq-cookie", headers=headers).json()["set"] is False
+
+    client.app.state.db.set_setting("weibo_cookie", "SUB=x")
+    client.app.state.db.set_setting("weibo_cookie_updated_at", "1")
+    assert client.delete("/api/admin/cookies/weibo", headers=headers).status_code == 200
+    assert not (client.app.state.db.get_setting("weibo_cookie") or "")
+    assert client.get("/api/stats", headers=headers).json()["weibo_cookie"]["set"] is False
+
+    assert (
+        client.post(
+            "/api/admin/ima-credentials",
+            headers=headers,
+            json={"cookie": "IMA-TOKEN=t; IMA-UID=1", "openapi_clientid": "cid", "openapi_apikey": "key"},
+        ).status_code
+        == 200
+    )
+    assert client.delete("/api/admin/cookies/ima", headers=headers).status_code == 200
+    ima = client.get("/api/admin/ima-credentials", headers=headers).json()
+    assert ima["cookie"]["set"] is False
+    assert ima["openapi_clientid"]["set"] is True
+    assert client.get("/api/stats", headers=headers).json()["ima_credentials"]["cookie"]["set"] is False
+
+
 def test_kol_request_flow(monkeypatch):
     # 审批时会自动解析昵称/头像，测试里避免真实网络请求
     monkeypatch.setattr("app.api.resolve_profile", lambda uid, cookie="", db=None: {})

@@ -22,7 +22,7 @@ const CHANNEL_ICONS = {
 };
 const CHANNEL_LABELS = { telegram: "Telegram", feishu: "飞书", wecom: "企业微信", bark: "Bark", webpush: "浏览器通知" };
 const USER_CHANNEL_KEYS = ["telegram", "feishu", "wecom", "bark", "webpush"];
-const APP_VERSION = "1.12.31";
+const APP_VERSION = "1.12.32";
 const PLATFORM_TABS = ["", "xueqiu", "combination", "weibo", "twitter", "zsxq"];
 const STATS_TABS = ["overview", "health", "plaza", "config", "cookies", "proxies"];
 const TL_PLATFORMS = PLATFORM_TABS.map((p) => [p, p ? PLATFORM_LABELS[p] : "全部"]);
@@ -3562,17 +3562,20 @@ async function loadAdminStats() {
           <div><h2 class="section-title">雪球 Cookie</h2>
           <p class="section-meta">${cookieUpdatedLabel(xq)}${xq.preview ? ` · 预览 ${escapeHtml(xq.preview)}` : ""}${s.keepalive_interval_seconds > 0 ? ` · 每 ${Math.round(s.keepalive_interval_seconds / 3600)} 小时探测` : ""}。登录 xueqiu.com → F12 → Application → Cookies，复制整串后保存，即时生效。</p></div>
         </header>
+        <label class="field-label" for="xq-cookie">雪球 Cookie</label>
         <textarea id="xq-cookie" class="form-control cookie-paste" rows="4" placeholder="xq_a_token=...; u=..."></textarea>
         <div class="toolbar" style="margin-top:12px">
           <button type="button" class="btn-normal" onclick="saveXueqiuCookie()">保存雪球 Cookie</button>
           <button type="button" class="btn-ghost" onclick="pasteCookieField('xq-cookie')">从剪贴板填入</button>
+          ${xq.set && !xq.from_env ? `<button type="button" class="btn-ghost danger" onclick="clearSavedCookie('xueqiu','雪球')" aria-label="清除雪球 Cookie">清除</button>` : ""}
         </div>
       </section>
       <section class="section-panel">
         <header class="section-head"><div><h2 class="section-title">微博 Cookie</h2>
         <p class="section-meta">${cookieUpdatedLabel(s.weibo_cookie)}。用微博 App 扫码后自动保存，无需复制。</p></div></header>
-        <div>
-          <button type="button" class="btn-normal" onclick="startWeiboQr()">微博扫码登录</button>
+        <div class="toolbar">
+          <button type="button" class="btn-normal" id="wb-qr-start" onclick="startWeiboQr()">微博扫码登录</button>
+          ${s.weibo_cookie?.set && !s.weibo_cookie.from_env ? `<button type="button" class="btn-ghost danger" onclick="clearSavedCookie('weibo','微博')" aria-label="清除微博 Cookie">清除</button>` : ""}
         </div>
         <div id="wb-qr-box" class="qr-box"></div>
       </section>
@@ -3581,23 +3584,27 @@ async function loadAdminStats() {
           <div><h2 class="section-title">X Cookie</h2>
           <p class="section-meta">${cookieUpdatedLabel(tw)}${tw.preview ? ` · 预览 ${escapeHtml(tw.preview)}` : ""}。登录 x.com → F12 → Application → Cookies，复制整串（需含 auth_token 与 ct0），保存即时生效。</p></div>
         </header>
+        <label class="field-label" for="tw-cookie">X Cookie</label>
         <textarea id="tw-cookie" class="form-control cookie-paste" rows="4" placeholder="auth_token=...; ct0=..."></textarea>
         <div class="toolbar" style="margin-top:12px">
           <button type="button" class="btn-normal" onclick="saveTwitterCookie()">保存 X Cookie</button>
           <button type="button" class="btn-ghost" onclick="pasteCookieField('tw-cookie')">从剪贴板填入</button>
+          ${tw.set && !tw.from_env ? `<button type="button" class="btn-ghost danger" onclick="clearSavedCookie('twitter','X')" aria-label="清除 X Cookie">清除</button>` : ""}
         </div>
       </section>
       <section class="section-panel">
         <header class="section-head"><div><h2 class="section-title">ima 凭证</h2>
         <p class="section-meta">模式：${ima.mode || "未配置"}${ima.openapi_clientid?.set ? ` · clientid ${escapeHtml(ima.openapi_clientid.preview || "")}` : ""}。Cookie 用 scripts/ima_qr_login.py 扫码捕获（x-ima-cookie）；OpenAPI 凭证登录 ima.qq.com/agent-interface 生成，取全文必须。</p></div></header>
-        <label class="field-label">网页 Cookie（x-ima-cookie）</label>
+        <label class="field-label" for="ima-cookie">网页 Cookie（x-ima-cookie）</label>
         <textarea id="ima-cookie" class="form-control cookie-paste" rows="3" placeholder="IMA-TOKEN=...; IMA-UID=..."></textarea>
-        <label class="field-label" style="margin-top:8px;display:block">OpenAPI Client ID / API Key</label>
+        <label class="field-label" for="ima-cid" style="margin-top:8px;display:block">OpenAPI Client ID</label>
         <input id="ima-cid" class="form-control" placeholder="Client ID" style="margin-top:6px">
+        <label class="field-label" for="ima-key" style="margin-top:8px;display:block">OpenAPI API Key</label>
         <input id="ima-key" class="form-control" placeholder="API Key" style="margin-top:6px" type="password">
         <div class="toolbar" style="margin-top:12px">
           <button type="button" class="btn-normal" onclick="saveImaCredentials()">保存 ima 凭证</button>
           <button type="button" class="btn-ghost" onclick="pasteCookieField('ima-cookie')">从剪贴板填入 Cookie</button>
+          ${ima.cookie?.set && !ima.cookie.from_env ? `<button type="button" class="btn-ghost danger" onclick="clearSavedCookie('ima','ima')" aria-label="清除 ima Cookie">清除 Cookie</button>` : ""}
         </div>
       </section>
       <section class="section-panel">
@@ -3605,10 +3612,12 @@ async function loadAdminStats() {
           <div><h2 class="section-title">知识星球 Cookie</h2>
           <p class="section-meta">${cookieUpdatedLabel(zq)}${zq.preview ? ` · 预览 ${escapeHtml(zq.preview)}` : ""}。登录 wx.zsxq.com → F12 → Application → Cookies，复制整串（需含 zsxq_access_token），保存即时生效。</p></div>
         </header>
+        <label class="field-label" for="zq-cookie">知识星球 Cookie</label>
         <textarea id="zq-cookie" class="form-control cookie-paste" rows="3" placeholder="zsxq_access_token=..."></textarea>
         <div class="toolbar" style="margin-top:12px">
           <button type="button" class="btn-normal" onclick="saveZsxqCookie()">保存知识星球 Cookie</button>
           <button type="button" class="btn-ghost" onclick="pasteCookieField('zq-cookie')">从剪贴板填入</button>
+          ${zq.set && !zq.from_env ? `<button type="button" class="btn-ghost danger" onclick="clearSavedCookie('zsxq','知识星球')" aria-label="清除知识星球 Cookie">清除</button>` : ""}
         </div>
       </section>
     </div>
@@ -4177,6 +4186,30 @@ async function testProxyNode(proxyId) {
   }
 }
 
+function focusCookieField(kind) {
+  const focusId = { xueqiu: "xq-cookie", weibo: "wb-qr-start", twitter: "tw-cookie", ima: "ima-cookie", zsxq: "zq-cookie" }[kind];
+  if (focusId) $(`#${focusId}`)?.focus();
+}
+
+let _cookieClearPending = false;
+
+async function clearSavedCookie(kind, label) {
+  if (_cookieClearPending) return;
+  if (!confirm(`清除「${label}」Cookie？清除后该数据源会停止抓取，直到重新保存。`)) return;
+  _cookieClearPending = true;
+  try {
+    await api(`/api/admin/cookies/${kind}`, { method: "DELETE" });
+    flash(`已清除「${label}」Cookie`);
+    history.replaceState(null, "", "#/admin/stats?tab=cookies");
+    await loadAdminStats();
+    focusCookieField(kind);
+  } catch (err) {
+    flash(err.message, "error");
+  } finally {
+    _cookieClearPending = false;
+  }
+}
+
 async function saveXueqiuCookie() {
   const cookie = $("#xq-cookie").value.trim();
   if (!cookie) {
@@ -4191,6 +4224,7 @@ async function saveXueqiuCookie() {
     flash("雪球 Cookie 已保存，即时生效");
     history.replaceState(null, "", "#/admin/stats?tab=cookies");
     await loadAdminStats();
+    focusCookieField("xueqiu");
   } catch (err) {
     flash(err.message, "error");
   }
@@ -4210,6 +4244,7 @@ async function saveZsxqCookie() {
     flash("知识星球 Cookie 已保存，即时生效");
     history.replaceState(null, "", "#/admin/stats?tab=cookies");
     await loadAdminStats();
+    focusCookieField("zsxq");
   } catch (err) {
     flash(err.message, "error");
   }
@@ -4219,16 +4254,21 @@ async function saveImaCredentials() {
   const cookie = $("#ima-cookie")?.value?.trim() || "";
   const cid = $("#ima-cid")?.value?.trim() || "";
   const key = $("#ima-key")?.value?.trim() || "";
-  if (!cookie && !(cid && key)) { alert("需至少填 Cookie 或 OpenAPI 凭证（clientid + apikey）"); return; }
+  if (!cookie && !(cid && key)) {
+    flash("需至少填 Cookie 或 OpenAPI 凭证（clientid + apikey）", "error");
+    return;
+  }
   try {
     await api("/api/admin/ima-credentials", {
       method: "POST",
       body: { cookie, openapi_clientid: cid, openapi_apikey: key },
     });
-    alert("ima 凭证已保存");
-    loadAdminStats();
+    flash("ima 凭证已保存");
+    history.replaceState(null, "", "#/admin/stats?tab=cookies");
+    await loadAdminStats();
+    focusCookieField("ima");
   } catch (e) {
-    alert("保存失败: " + (e.message || e));
+    flash(e.message || "保存失败", "error");
   }
 }
 
@@ -4246,6 +4286,7 @@ async function saveTwitterCookie() {
     flash("X Cookie 已保存，即时生效");
     history.replaceState(null, "", "#/admin/stats?tab=cookies");
     await loadAdminStats();
+    focusCookieField("twitter");
   } catch (err) {
     flash(err.message, "error");
   }

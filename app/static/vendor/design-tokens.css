@@ -178,6 +178,8 @@
   --color-success-soft: rgba(106, 155, 120, 0.18);
   --color-warning-soft: rgba(241, 165, 60, 0.16);
   --color-danger-soft: rgba(248, 113, 113, 0.16);
+  --color-danger: #f87171;
+  --color-danger-strong: #fca5a5;
 
   /* 平台品牌色（深色下 X 黑色不可见 → 浅灰） */
   --color-brand-xueqiu: #4a9aff;

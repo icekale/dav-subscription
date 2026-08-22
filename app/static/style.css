@@ -1619,6 +1619,10 @@ pre.content-cell { white-space: pre-wrap; overflow-wrap: break-word; min-width: 
   font-family: var(--font-mono);
   font-size: var(--text-sm);
 }
+#st-cookies .btn-normal {
+  min-height: 44px;
+  height: 44px;
+}
 .bind-code {
   font-family: var(--font-mono);
   font-size: var(--text-body);

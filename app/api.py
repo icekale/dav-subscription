@@ -1990,6 +1990,29 @@ def create_api_router(
         _audit(admin, "set_zsxq_cookie", "", f"len={len(cookie)}")
         return {"ok": True}
 
+    _COOKIE_CLEAR = {
+        "xueqiu": (XUEQIU_COOKIE_KEY, XUEQIU_COOKIE_TIME_KEY),
+        "weibo": (WEIBO_COOKIE_KEY, "weibo_cookie_updated_at"),
+        "twitter": (TWITTER_COOKIE_KEY, TWITTER_COOKIE_TIME_KEY),
+        "ima": (IMA_COOKIE_KEY, IMA_COOKIE_TIME_KEY),
+        "zsxq": (ZSXQ_COOKIE_KEY, ZSXQ_COOKIE_TIME_KEY),
+    }
+
+    @router.delete("/admin/cookies/{kind}", dependencies=[Depends(require_admin)])
+    def clear_saved_cookie(kind: str, admin: dict = Depends(require_admin)):
+        keys = _COOKIE_CLEAR.get(kind)
+        if not keys:
+            raise HTTPException(status_code=400, detail="未知 Cookie 源")
+        db.set_setting(keys[0], "")
+        db.set_setting(keys[1], "")
+        if kind == "xueqiu":
+            try:
+                write_xueqiu_seed_cookie("")
+            except Exception:  # noqa: BLE001 - sidecar sync must not fail the admin request
+                logger.warning("雪球 sidecar seed cookie 清空失败")
+        _audit(admin, "clear_cookie", kind, "")
+        return {"ok": True}
+
     @router.post("/admin/zsxq-cache/purge", dependencies=[Depends(require_admin)])
     def purge_zsxq_cache(admin: dict = Depends(require_admin)):
         result = purge_unreferenced_zsxq_files(db)
@@ -3195,6 +3218,7 @@ def create_api_router(
             "zsxq_cookie": zsxq_status,
             "ima_credentials": {
                 "mode": ("openapi" if (db.get_setting(IMA_CLIENT_ID_KEY) or os.environ.get("IMA_OPENAPI_CLIENTID", "")) and (db.get_setting(IMA_API_KEY_KEY) or os.environ.get("IMA_OPENAPI_APIKEY", "")) else ("cookie" if db.get_setting(IMA_COOKIE_KEY) or os.environ.get("IMA_COOKIE", "") else "none")),
+                "cookie": _cookie_status(IMA_COOKIE_KEY, IMA_COOKIE_TIME_KEY),
                 "openapi_clientid": {
                     "set": bool(db.get_setting(IMA_CLIENT_ID_KEY) or os.environ.get("IMA_OPENAPI_CLIENTID", "")),
                     "preview": _cred_preview(db.get_setting(IMA_CLIENT_ID_KEY) or os.environ.get("IMA_OPENAPI_CLIENTID", "")),

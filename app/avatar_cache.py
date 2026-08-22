@@ -76,12 +76,11 @@ def cache_avatar(db, kol_id: int, remote_url: str, client: httpx.Client | None =
     if not url or url.startswith("/avatars/"):
         return url
     kol = db.get_kol(kol_id)
-    if (
-        kol
-        and kol.get("avatar_source") == url
-        and (kol.get("avatar_url") or "").startswith("/avatars/")
-    ):
-        return kol["avatar_url"]
+    local = (kol.get("avatar_url") or "") if kol else ""
+    if kol and kol.get("avatar_source") == url and local.startswith("/avatars/"):
+        cached = Path(db.path).parent / local.lstrip("/")
+        if cached.is_file() and cached.stat().st_size > 0:
+            return local
     owns_client = client is None
     client = client or httpx.Client(timeout=15, follow_redirects=True, headers=headers_for(url))
     try:

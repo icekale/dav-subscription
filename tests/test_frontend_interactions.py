@@ -779,6 +779,90 @@ def test_stats_cookie_repair_deep_link():
     assert "src.xueqiu && !src.xueqiu.ok" in repair
 
 
+def test_cookie_clear_is_confirmed_delete_and_hidden_when_unset():
+    """已保存 Cookie 才显示清除；确认后走 DELETE，不用 alert。"""
+    render = _fn_body("loadAdminStats")
+    clear = _fn_body("clearSavedCookie")
+
+    assert "clearSavedCookie('xueqiu'" in render
+    assert "clearSavedCookie('weibo'" in render
+    assert "clearSavedCookie('twitter'" in render
+    assert "clearSavedCookie('ima'" in render
+    assert "clearSavedCookie('zsxq'" in render
+    assert "from_env" in render
+    assert "btn-ghost danger" in render
+    assert 'aria-label="清除雪球 Cookie"' in render
+    assert 'aria-label="清除微博 Cookie"' in render
+    assert 'aria-label="清除 X Cookie"' in render
+    assert 'aria-label="清除 ima Cookie"' in render
+    assert 'aria-label="清除知识星球 Cookie"' in render
+    assert ">清除 Cookie<" in render
+
+    assert "confirm(" in clear
+    assert "停止抓取" in clear
+    assert "直到重新保存" in clear
+    assert 'method: "DELETE"' in clear
+    assert "/api/admin/cookies/" in clear
+    assert "flash(" in clear
+    assert "alert(" not in clear
+    assert "loadAdminStats()" in clear
+    assert "_cookieClearPending" in clear
+    assert "focusCookieField(" in clear
+    assert 'for="xq-cookie"' in render
+    assert 'for="tw-cookie"' in render
+    assert 'for="zq-cookie"' in render
+    assert 'for="ima-cookie"' in render
+    assert 'for="ima-cid"' in render
+    assert 'for="ima-key"' in render
+    assert 'id="wb-qr-start"' in render
+
+
+def test_cookie_save_restores_focus_after_rebuild():
+    """保存后整页重绘，焦点要回到刚操作的输入框，和清除同一套。"""
+    focus = _fn_body("focusCookieField")
+    assert "xq-cookie" in focus
+    assert "wb-qr-start" in focus
+    assert "tw-cookie" in focus
+    assert "ima-cookie" in focus
+    assert "zq-cookie" in focus
+    assert ".focus()" in focus
+    for name in ("saveXueqiuCookie", "saveTwitterCookie", "saveZsxqCookie", "saveImaCredentials"):
+        body = _fn_body(name)
+        assert "loadAdminStats()" in body
+        assert "focusCookieField(" in body
+        assert body.index("loadAdminStats()") < body.index("focusCookieField(")
+
+
+def test_cookie_tab_primary_buttons_are_44px():
+    """Cookie 管理主按钮提到 44px；不改全局 --control-height-2xl，避免登录/筛选错位。"""
+    css = STYLE_CSS.read_text()
+    block = re.search(r"#st-cookies\s+\.btn-normal\s*\{([^}]*)\}", css)
+    assert block, "缺少 #st-cookies .btn-normal"
+    assert "44px" in block.group(1)
+    tokens = (APP_JS.parent / "vendor" / "design-tokens.css").read_text()
+    root = re.search(r"^:root\s*\{", tokens, re.M)
+    assert root
+    # 只断言浅色 :root 里仍是 42px，避免误伤深色块
+    light = tokens.split(":root.theme-dark")[0]
+    assert "--control-height-2xl: 42px" in light
+
+
+def test_ima_credentials_save_uses_flash_not_alert():
+    """ima 凭证保存与清除同一套 toast，不再弹系统框。"""
+    body = _fn_body("saveImaCredentials")
+    assert "flash(" in body
+    assert "alert(" not in body
+
+
+def test_dark_danger_token_meets_cookie_clear_contrast():
+    """深色危险字色单独提亮，避免清除按钮掉到 4.5:1 以下。"""
+    tokens = (APP_JS.parent / "vendor" / "design-tokens.css").read_text()
+    dark = re.search(r":root\.theme-dark\s*\{([^}]*(?:\{[^}]*\}[^}]*)*)\}", tokens)
+    assert dark, "missing :root.theme-dark"
+    assert "--color-danger: #f87171" in dark.group(0)
+    assert "--color-danger-strong: #fca5a5" in dark.group(0)
+
+
 def test_admin_stats_has_zsxq_cache_settings():
     """抓取设置里有知识星球组；保存带上翻页/间隔/预缓存；清理走独立接口不整页重建。"""
     stats = _fn_body("loadAdminStats")

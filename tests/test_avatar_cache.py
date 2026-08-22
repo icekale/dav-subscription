@@ -34,6 +34,13 @@ def test_cache_avatar_downloads_once(tmp_path):
     assert url2 == url1
     assert hits["n"] == 1
 
+    # 本地文件丢了：必须重新下载，不能只信 DB 路径
+    (tmp_path / "avatars" / f"{kid}.jpg").unlink()
+    url3 = cache_avatar(db, kid, "https://img.example/a.jpg", client=client)
+    assert url3 == url1
+    assert (tmp_path / "avatars" / f"{kid}.jpg").exists()
+    assert hits["n"] == 2
+
 
 def test_cache_avatar_rejects_non_image_and_failure(tmp_path):
     db = make_db(tmp_path)
