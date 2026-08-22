@@ -23,6 +23,7 @@ from .base import Notifier, why_badges
 from .telegram_rich import (
     DND_MAX_ITEMS,
     DIGEST_MAX_ITEMS,
+    build_telegram_daily_rich,
     build_telegram_digest_rich,
     build_telegram_dnd_rich,
 )
@@ -421,12 +422,9 @@ class TelegramNotifier(Notifier):
         )
 
     def send_daily(self, posts: list[Post]) -> None:
-        self._send(
-            {
-                "text": build_telegram_daily(posts),
-                "parse_mode": "HTML",
-                "disable_web_page_preview": True,
-            }
+        self._deliver(
+            build_telegram_daily_rich(posts),
+            fallback_text=build_telegram_daily(posts),
         )
 
     def send_dnd_summary(self, posts: list[Post], title: str | None = None) -> None:

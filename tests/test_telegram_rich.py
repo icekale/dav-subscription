@@ -299,3 +299,18 @@ def test_dnd_rich_names_each_item():
     assert "免打扰时段汇总" in html
     assert "<ol>" in html
     assert "<b>张三</b>" in html
+
+
+def test_daily_rich_is_table():
+    from app.notifiers.telegram_rich import build_telegram_daily_rich
+
+    fav = make_post()
+    fav.favorite = True
+    fav.kol_name = "重点"
+    other = make_post()
+    other.kol_name = "普通"
+    html = build_telegram_daily_rich([other, fav])
+    assert "<h2>" in html and "今日大V精选" in html
+    assert "<table>" in html
+    assert html.index("重点") < html.index("普通")
+    assert "关注" in html

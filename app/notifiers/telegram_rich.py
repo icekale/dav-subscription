@@ -138,6 +138,31 @@ def build_telegram_digest_rich(posts: list[Post], kol_name: str, platform: str) 
     return "".join(parts)
 
 
+def build_telegram_daily_rich(posts: list[Post]) -> str:
+    ordered = [p for p in posts if p.favorite] + [p for p in posts if not p.favorite]
+    visible, extra = ordered[:DIGEST_MAX_ITEMS], ordered[DIGEST_MAX_ITEMS:]
+    rows = []
+    for post in visible:
+        rows.append(
+            [
+                "是" if post.favorite else "",
+                post.kol_name,
+                digest_body(post, full=False, max_chars=100),
+                post.published_at or "",
+            ]
+        )
+    parts = [_heading("今日大V精选", 2), _table(["关注", "大V", "摘要", "时间"], rows)]
+    if extra:
+        more = "".join(
+            f"<li><b>{_e(p.kol_name)}</b> {_e(digest_body(p, full=False, max_chars=100))}</li>"
+            for p in extra
+        )
+        parts.append(
+            f"<details><summary>{_e(f'还有 {len(extra)} 条未展示')}</summary><ol>{more}</ol></details>"
+        )
+    return "".join(parts)
+
+
 def build_telegram_dnd_rich(posts: list[Post], title: str | None = None) -> str:
     heading = title or "免打扰时段汇总"
     parts = [_heading(f"{heading}（{len(posts)} 条新动态）", 2)]
