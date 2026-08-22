@@ -3,6 +3,7 @@ from urllib.parse import parse_qs
 
 import httpx
 
+from app import logging_setup
 from app.config import TelegramConfig
 from app.fetchers.base import Post
 from app.notifiers.telegram import TelegramNotifier
@@ -119,3 +120,24 @@ def test_deliver_skips_rich_when_flag_off():
     )
     tg._deliver("<h2>x</h2>", fallback_text="<b>x</b>")
     assert urls and all(u.endswith("/sendMessage") for u in urls)
+
+
+def test_deliver_http_error_fallback_does_not_log_bot_token():
+    logging_setup.setup_logging("DEBUG")
+    token = "123456:secret-token"
+    urls = []
+
+    def handler(request):
+        urls.append(str(request.url))
+        if "sendRichMessage" in str(request.url):
+            return httpx.Response(400, json={"ok": False, "description": "Bad Request"})
+        return httpx.Response(200, json={"ok": True})
+
+    tg = TelegramNotifier(
+        TelegramConfig(bot_token=token, chat_id="456"),
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    tg._deliver("<h2>x</h2>", fallback_text="<b>x</b>")
+    assert any(u.endswith("/sendRichMessage") for u in urls)
+    assert any(u.endswith("/sendMessage") for u in urls)
+    assert token not in "\n".join(logging_setup.recent_logs(limit=500))

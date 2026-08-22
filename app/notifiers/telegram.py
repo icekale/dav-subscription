@@ -272,7 +272,11 @@ class TelegramNotifier(Notifier):
                 self._send_rich(html, keyboard)
                 return
             except Exception as exc:  # noqa: BLE001 — 任意失败都回退，保证送达
-                logger.warning("Telegram Rich Message 失败，回退 HTML: %s", exc)
+                if isinstance(exc, httpx.HTTPStatusError):
+                    detail = f"{type(exc).__name__} {exc.response.status_code}"
+                else:
+                    detail = type(exc).__name__
+                logger.warning("Telegram Rich Message 失败，回退 HTML: %s", detail)
         self._send(
             {
                 "text": fallback_text,
