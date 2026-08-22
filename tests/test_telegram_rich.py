@@ -83,11 +83,13 @@ def test_deliver_uses_send_rich_message():
 
 def test_deliver_falls_back_to_send_message_on_rich_error():
     urls = []
+    fallback_form = {}
 
     def handler(request):
         urls.append(str(request.url))
         if "sendRichMessage" in str(request.url):
             return httpx.Response(200, json={"ok": False, "error_code": 400, "description": "Bad Request"})
+        fallback_form.update(_form(request))
         return httpx.Response(200, json={"ok": True})
 
     tg = TelegramNotifier(
@@ -97,6 +99,7 @@ def test_deliver_falls_back_to_send_message_on_rich_error():
     tg._deliver("<h2>x</h2>", fallback_text="<b>x</b>")
     assert any(u.endswith("/sendRichMessage") for u in urls)
     assert any(u.endswith("/sendMessage") for u in urls)
+    assert "inline_keyboard" in json.loads(fallback_form["reply_markup"][0])
 
 
 def test_deliver_skips_rich_when_flag_off():
@@ -107,6 +110,7 @@ def test_deliver_skips_rich_when_flag_off():
         form = _form(request)
         assert form.get("text") == ["<b>x</b>"]
         assert form.get("parse_mode") == ["HTML"]
+        assert "inline_keyboard" in json.loads(form["reply_markup"][0])
         return httpx.Response(200, json={"ok": True})
 
     tg = TelegramNotifier(

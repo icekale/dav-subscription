@@ -266,23 +266,23 @@ class TelegramNotifier(Notifier):
         fallback_text: str,
         reply_markup: list | None = None,
     ) -> None:
+        keyboard = reply_markup or []
         if self.rich_messages:
             try:
-                self._send_rich(html, reply_markup=reply_markup)
+                self._send_rich(html, keyboard)
                 return
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001 — 任意失败都回退，保证送达
                 logger.warning("Telegram Rich Message 失败，回退 HTML: %s", exc)
-        data: dict = {
-            "text": fallback_text,
-            "parse_mode": "HTML",
-            "disable_web_page_preview": True,
-        }
-        if reply_markup:
-            data["reply_markup"] = json.dumps(
-                {"inline_keyboard": reply_markup},
-                ensure_ascii=False,
-            )
-        self._send(data)
+        self._send(
+            {
+                "text": fallback_text,
+                "parse_mode": "HTML",
+                "disable_web_page_preview": True,
+                "reply_markup": json.dumps(
+                    {"inline_keyboard": keyboard}, ensure_ascii=False
+                ),
+            }
+        )
 
     def notify(self, post: Post) -> None:
         # 带图帖子：先发文字消息，再发图片相册——正文在上、图片在下（同飞书卡片布局）
