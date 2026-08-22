@@ -20,9 +20,13 @@ from ..fetchers.base import (
 )
 from ..url_safety import safe_get
 from .base import Notifier, why_badges
+from .telegram_rich import (
+    DND_MAX_ITEMS,
+    DIGEST_MAX_ITEMS,
+    build_telegram_digest_rich,
+    build_telegram_dnd_rich,
+)
 
-DIGEST_MAX_ITEMS = 10
-DND_MAX_ITEMS = 10
 logger = logging.getLogger(__name__)
 # Telegram 单 bot 全局约 30 条/秒；广播推送时留足余量，避免触发 429。
 # 高水位保护：发送频率低于上限时零开销，瞬时积压时自动平滑限速。
@@ -410,15 +414,11 @@ class TelegramNotifier(Notifier):
             raise RuntimeError(f"Telegram 返回错误: {result}")
 
     def send_digest(self, posts: list[Post], kol_name: str, platform: str) -> None:
-        keyboard = _numbered_url_rows(posts, DIGEST_MAX_ITEMS)
-        data = {
-            "text": build_telegram_digest(posts, kol_name, platform),
-            "parse_mode": "HTML",
-            "disable_web_page_preview": True,
-        }
-        if keyboard:
-            data["reply_markup"] = json.dumps({"inline_keyboard": keyboard}, ensure_ascii=False)
-        self._send(data)
+        self._deliver(
+            build_telegram_digest_rich(posts, kol_name, platform),
+            fallback_text=build_telegram_digest(posts, kol_name, platform),
+            reply_markup=_numbered_url_rows(posts, DIGEST_MAX_ITEMS),
+        )
 
     def send_daily(self, posts: list[Post]) -> None:
         self._send(
@@ -430,15 +430,11 @@ class TelegramNotifier(Notifier):
         )
 
     def send_dnd_summary(self, posts: list[Post], title: str | None = None) -> None:
-        keyboard = _numbered_url_rows(posts, DND_MAX_ITEMS)
-        data = {
-            "text": build_telegram_dnd_summary(posts, title=title),
-            "parse_mode": "HTML",
-            "disable_web_page_preview": True,
-        }
-        if keyboard:
-            data["reply_markup"] = json.dumps({"inline_keyboard": keyboard}, ensure_ascii=False)
-        self._send(data)
+        self._deliver(
+            build_telegram_dnd_rich(posts, title),
+            fallback_text=build_telegram_dnd_summary(posts, title=title),
+            reply_markup=_numbered_url_rows(posts, DND_MAX_ITEMS),
+        )
 
     def send_text(self, text: str, reply_markup: list | None = None) -> None:
         data: dict = {"text": text}

@@ -277,6 +277,7 @@ def test_telegram_digest_per_post_buttons():
     sent = {}
 
     def handler(request):
+        sent["url"] = str(request.url)
         form = parse_qs(request.read().decode("utf-8"))
         sent.update(form)
         return httpx.Response(200, json={"ok": True})
@@ -289,6 +290,7 @@ def test_telegram_digest_per_post_buttons():
     posts = [make_post(), make_post()]
     posts[1].external_id = "w2"
     notifier.send_digest(posts, "李四", "weibo")
+    assert sent["url"].endswith(("/sendRichMessage", "/sendMessage"))
     kb = json.loads(sent["reply_markup"][0])["inline_keyboard"]
     assert kb[0][0]["text"] == "1 🔗" and kb[0][0]["url"] == "https://weibo.com/1"
     assert kb[0][1]["text"] == "2 🔗" and kb[0][1]["url"] == "https://weibo.com/1"

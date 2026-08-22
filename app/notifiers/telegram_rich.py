@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from html import escape
 
-from ..fetchers.base import PLATFORM_LABELS, Post, attachment_lines, show_original, truncate_text
+from ..fetchers.base import PLATFORM_LABELS, Post, attachment_lines, digest_body, show_original, truncate_text
 from .base import why_badges
 
 BODY_LIMIT = 2000
@@ -120,4 +120,39 @@ def build_telegram_rich_html(post: Post, favorite: bool = False, keyword: bool =
     for line in attachment_lines(post):
         parts.append(_p(line))
     parts.append(_original_link(post))
+    return "".join(parts)
+
+
+def build_telegram_digest_rich(posts: list[Post], kol_name: str, platform: str) -> str:
+    platform_label = PLATFORM_LABELS.get(platform, platform)
+    parts = [_heading(f"{kol_name} · {platform_label}（{len(posts)} 条新动态）", 2)]
+    visible, extra = posts[:DIGEST_MAX_ITEMS], posts[DIGEST_MAX_ITEMS:]
+    full = len(posts) == 1
+    lis = "".join(f"<li>{_e(digest_body(p, full=full))}</li>" for p in visible)
+    parts.append(f"<ol>{lis}</ol>")
+    if extra:
+        more = "".join(f"<li>{_e(digest_body(p, full=False))}</li>" for p in extra)
+        parts.append(
+            f"<details><summary>{_e(f'还有 {len(extra)} 条未展示')}</summary><ol>{more}</ol></details>"
+        )
+    return "".join(parts)
+
+
+def build_telegram_dnd_rich(posts: list[Post], title: str | None = None) -> str:
+    heading = title or "免打扰时段汇总"
+    parts = [_heading(f"{heading}（{len(posts)} 条新动态）", 2)]
+    visible, extra = posts[:DND_MAX_ITEMS], posts[DND_MAX_ITEMS:]
+    lis = "".join(
+        f"<li><b>{_e(p.kol_name)}</b> {_e(digest_body(p, full=False, max_chars=100))}</li>"
+        for p in visible
+    )
+    parts.append(f"<ol>{lis}</ol>")
+    if extra:
+        more = "".join(
+            f"<li><b>{_e(p.kol_name)}</b> {_e(digest_body(p, full=False, max_chars=100))}</li>"
+            for p in extra
+        )
+        parts.append(
+            f"<details><summary>{_e(f'还有 {len(extra)} 条未展示')}</summary><ol>{more}</ol></details>"
+        )
     return "".join(parts)

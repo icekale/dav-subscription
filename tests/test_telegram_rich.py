@@ -242,3 +242,60 @@ def test_notify_images_fall_back_to_text_then_album():
     assert calls[0][0] == "rich" and "<tg-collage>" in calls[0][1]
     assert calls[1][0] == "text"
     assert calls[2] == ("album", ["https://a/1.jpg", "https://a/2.jpg"])
+
+
+def test_digest_rich_is_ordered_list():
+    from app.notifiers.telegram_rich import build_telegram_digest_rich
+
+    posts = [make_post(), make_post()]
+    posts[1].content = "另一条"
+    html = build_telegram_digest_rich(posts, "张三", "xueqiu")
+    assert "<h2>" in html and "张三" in html
+    assert "<ol>" in html and html.count("<li>") == 2
+    assert "<details>" not in html
+
+
+def test_digest_rich_overflow_uses_details():
+    from app.notifiers.telegram_rich import DIGEST_MAX_ITEMS, build_telegram_digest_rich
+
+    posts = [make_post() for _ in range(DIGEST_MAX_ITEMS + 3)]
+    html = build_telegram_digest_rich(posts, "张三", "xueqiu")
+    assert html.count("<li>") == DIGEST_MAX_ITEMS + 3
+    assert "<details>" in html
+    assert "还有 3 条" in html
+
+
+def test_send_digest_hits_rich_and_keeps_numbered_buttons():
+    sent = {}
+
+    def handler(request):
+        sent["url"] = str(request.url)
+        sent.update(parse_qs(request.read().decode("utf-8")))
+        return httpx.Response(200, json={"ok": True})
+
+    from app.fetchers.base import Post
+    from app.notifiers.telegram import TelegramNotifier
+
+    def weibo_post(eid="w1") -> Post:
+        return Post(
+            platform="weibo", kol_id=1, kol_name="李四", external_id=eid,
+            title="t", content="c", url="https://weibo.com/1", published_at="",
+        )
+
+    posts = [weibo_post("w1"), weibo_post("w2")]
+    TelegramNotifier(
+        TelegramConfig(bot_token="123:abc", chat_id="456"),
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    ).send_digest(posts, "李四", "weibo")
+    assert sent["url"].endswith("/sendRichMessage")
+    kb = json.loads(sent["reply_markup"][0])["inline_keyboard"]
+    assert kb[0][0]["text"] == "1 🔗"
+
+
+def test_dnd_rich_names_each_item():
+    from app.notifiers.telegram_rich import build_telegram_dnd_rich
+
+    html = build_telegram_dnd_rich([make_post()])
+    assert "免打扰时段汇总" in html
+    assert "<ol>" in html
+    assert "<b>张三</b>" in html
