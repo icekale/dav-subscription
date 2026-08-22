@@ -643,7 +643,8 @@ def test_digest_builders():
     posts[1].content = "d"
 
     text = build_telegram_digest(posts, "李四", "weibo")
-    assert "📌 李四 · 微博" in text and "2 条新动态" in text and "1." in text and "2." in text
+    assert "📌 李四 · 微博" in text and "1." in text and "2." in text
+    assert "条新动态" not in text
 
     card = build_feishu_digest_card(posts, "李四", "weibo")
     assert "2 条新动态" in card["header"]["title"]["content"]
@@ -652,7 +653,7 @@ def test_digest_builders():
     # 单条动态不加序号，避免出现孤立的 "1."
     single = [posts[0]]
     text1 = build_telegram_digest(single, "李四", "weibo")
-    assert "（1 条新动态）" in text1 and "1." not in text1
+    assert "条新动态" not in text1 and "1." not in text1
     assert "\n1. " not in text1
 
     card1 = build_feishu_digest_card(single, "李四", "weibo")
@@ -672,7 +673,7 @@ def test_digest_single_item_shows_full_content():
     long = "今天市场高开低走，" * 30  # 300 字长文
     single[0].content = long
     for text in (build_telegram_digest(single, "李四", "weibo"),):
-        assert "（1 条新动态）" in text
+        assert "📌 李四 · 微博" in text
         assert long[:120] in text
         assert "…" not in text
 

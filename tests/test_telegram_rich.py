@@ -50,35 +50,40 @@ def test_combination_rich_uses_tables():
     from app.notifiers.telegram_rich import build_combination_rich_html
 
     html = build_combination_rich_html(make_combination_post())
-    assert "<p><b>伯言-A股 · 雪球组合 · 调仓</b></p>" in html
+    assert "<p><b>📌 伯言-A股 · 雪球组合 · 调仓</b></p>" in html
+    assert "🕐 2026-08-04" in html
     assert html.count("<table") == 1
     assert "年化" in html and "27.1%" in html
     assert "清仓" in html and "永杉锂业" in html and "SH603399" in html
     assert "21.1%" in html and "0.0%" in html
-    assert "80.0%" in html
-    assert 'href="https://xueqiu.com/P/ZH3623878"' in html
+    assert "💵 现金 80.0%" in html
+    assert "🗑 清仓" in html and "🆕 新建" in html
+    assert "查看原文" not in html
 
 
 def test_single_post_rich_has_heading_paragraphs_tags():
     html = build_telegram_rich_html(make_post())
-    assert "<p><b>张三 · 雪球</b></p>" in html
+    assert "<p><b>📌 张三 · 雪球</b></p>" in html
     assert "&lt;b&gt;大涨&lt;/b&gt;" in html
     assert "今天 &lt;b&gt;大涨&lt;/b&gt;<br>第二段" in html
     assert "<hr>" not in html
     assert "<footer>" in html
     assert "宏观" in html and "白酒" in html
-    assert "实盘" in html
-    assert 'href="https://xueqiu.com/1"' in html
+    assert "🗂 实盘" in html
+    assert "🕐 2026-08-04" in html
+    assert "查看原文" not in html
+    assert "href=" not in html
     assert "<script>" not in html
-    assert "🔔" not in html and "📌" not in html
+    assert "🔔" not in html
+    assert html.count("📌") == 1
 
 
 def test_single_post_rich_marks_badges_and_reply_quote():
     post = make_post()
     post.post_type = "reply"
     html = build_telegram_rich_html(post, favorite=True, keyword=True)
-    assert "特别关注" in html
-    assert "命中关键词" in html
+    assert "🔔 特别关注" in html
+    assert "🔑 命中关键词" in html
     assert "回复" in html
     assert "<blockquote>" in html
 
@@ -261,7 +266,7 @@ def test_digest_rich_is_ordered_list():
     posts = [make_post(), make_post()]
     posts[1].content = "另一条"
     html = build_telegram_digest_rich(posts, "张三", "xueqiu")
-    assert "<p><b>张三 · 雪球</b></p>" in html
+    assert "<p><b>📌 张三 · 雪球</b></p>" in html
     assert "<ol>" in html and html.count("<li>") == 2
     assert "<details>" not in html
 
@@ -307,7 +312,7 @@ def test_dnd_rich_names_each_item():
     from app.notifiers.telegram_rich import build_telegram_dnd_rich
 
     html = build_telegram_dnd_rich([make_post()])
-    assert "免打扰时段汇总" in html
+    assert "📵 免打扰时段汇总" in html
     assert "<ol>" not in html
     assert "<b>张三</b>" in html
 
@@ -329,8 +334,10 @@ def test_daily_rich_is_named_list():
     other = make_post()
     other.kol_name = "普通"
     html = build_telegram_daily_rich([other, fav])
-    assert "<p><b>今日大V精选</b></p>" in html
+    assert "<p><b>📊 今日大V精选</b></p>" in html
+    assert "⭐ 重点" in html
     assert "<ol>" in html
     assert "<table>" not in html
     assert html.index("重点") < html.index("普通")
-    assert "<b>重点</b>" in html
+    assert "<b>⭐ 重点</b>" in html
+    assert "<b>普通</b>" in html

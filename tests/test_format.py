@@ -59,9 +59,10 @@ def test_telegram_text_escapes_html():
     # 头部为加粗的大V名，帖子标题作为正文兜底
     assert "<b>📌 张三 · 雪球</b>" in text
     assert "&lt;b&gt;大涨&lt;/b&gt;" in text
+    assert "🕐 2026-08-04" in text
     # 正文不再重复出现「📌 张三 · 雪球」这一行
     assert text.count("📌 张三 · 雪球") == 1
-    assert 'href="https://xueqiu.com/1"' in text
+    assert "查看原文" not in text
     # 正文为空时用帖子标题兜底
     empty = make_post()
     empty.content = ""
@@ -100,10 +101,12 @@ def make_combination_post() -> Post:
 def test_combination_text_layout():
     text = build_combination_text(make_combination_post())
     assert "<b>📌 伯言-A股 · 雪球组合 · 调仓</b>" in text
-    assert "<b>年化</b> 27.1%　<b>净值</b> 1.271" in text
-    assert "🗑 <b>清仓</b>　永杉锂业（SH603399）" in text
-    assert "　　21.1% → 0.0%" in text
-    assert "💵 现金 <b>80.0%</b>" in text
+    assert "年化 27.1% · 净值 1.271" in text
+    assert "🗑 清仓　永杉锂业（SH603399）" in text
+    assert "🆕 新建　天华新能（SZ300390）" in text
+    assert "21.1% → 0.0%" in text
+    assert "💵 现金 80.0% · 🕐 2026-08-04" in text
+    assert "查看原文" not in text
     # 每个操作独立成块，避免挤在一行
     assert text.count("→") == 2
 

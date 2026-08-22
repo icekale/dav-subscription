@@ -13,7 +13,6 @@ import httpx
 from ..fetchers.base import (
     PLATFORM_LABELS,
     Post,
-    attachment_lines,
     digest_body,
     show_original,
     truncate_text,
@@ -23,6 +22,7 @@ from .base import Notifier, why_badges
 from .telegram_rich import (
     DND_MAX_ITEMS,
     DIGEST_MAX_ITEMS,
+    action_label,
     build_telegram_daily_rich,
     build_telegram_digest_rich,
     build_telegram_dnd_rich,
@@ -59,54 +59,70 @@ class _RateLimiter:
 _tg_rate_limiter = _RateLimiter(TG_MAX_MESSAGES_PER_SECOND)
 
 
+def _file_lines(post: Post) -> list[str]:
+    files = ((post.detail or {}).get("files") or []) if post.detail else []
+    links: list[str] = []
+    for item in files:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "附件")
+        url = str(item.get("url") or "")
+        if url.startswith(("http://", "https://")):
+            links.append(f'📎 <a href="{escape(url)}">{escape(name)}</a>')
+    if links:
+        links.append("附件链接可能过期")
+    return links
+
+
+def _meta_label(post: Post) -> str:
+    tags = [t for t in (post.tags or []) if t]
+    category = f"🗂 {post.category}" if post.category else ""
+    return " · ".join(x for x in [category, *tags] if x)
+
+
 def build_telegram_text(post: Post, favorite: bool = False, keyword: bool = False) -> str:
     platform = PLATFORM_LABELS.get(post.platform, post.platform)
     body = truncate_text(post.content, 2000) or post.title or "（无正文）"
     kind = " · 回复" if post.post_type == "reply" else ""
-    badges = why_badges(favorite, keyword)
     lines = [f"<b>📌 {escape(post.kol_name)} · {platform}{kind}</b>"]
-    if badges:
-        lines.append(badges)
+    reason = why_badges(favorite, keyword)
+    if reason:
+        lines.append(reason)
     lines.extend(["", escape(body)])
-    if post.category:
-        lines.append(f"🗂 {escape(post.category)}")
-    lines.extend(
-        [
-            f"🕐 {escape(post.published_at)}",
-        ]
-    )
-    lines.extend(attachment_lines(post))
-    if show_original(post.platform, post.url):
-        lines.append(f'🔗 <a href="{escape(post.url)}">查看原文</a>')
+    label = _meta_label(post)
+    if label:
+        lines.append(escape(label))
+    if post.published_at:
+        lines.append(f"🕐 {escape(post.published_at)}")
+    lines.extend(_file_lines(post))
     return "\n".join(lines)
 
 
 def build_combination_text(post: Post) -> str:
-    """组合调仓专用排版：收益统计 + 分组调仓明细，信息分层、留白更清晰。"""
+    """组合调仓：收益一行 + 逐笔仓位，身份层与 Rich 一致。"""
     detail = post.detail or {}
     stats = detail.get("stats") or []
     actions = detail.get("actions") or []
     cash = detail.get("cash") or ""
     lines = [f"<b>📌 {escape(post.kol_name)} · 雪球组合 · 调仓</b>", ""]
     if stats:
-        lines.append("　".join(f"<b>{escape(k)}</b> {escape(v)}" for k, v in stats))
+        lines.append(escape(" · ".join(f"{k} {v}" for k, v in stats)))
         lines.append("")
     for a in actions:
         a_type = a.get("type") or "调整"
-        icon = {"清仓": "🗑", "新建": "🆕", "增持": "➕", "减持": "➖"}.get(a_type, "•")
-        head = f"{icon} <b>{escape(a_type)}</b>　{escape(a.get('stock') or '')}"
+        stock = a.get("stock") or ""
         symbol = a.get("symbol") or ""
-        if symbol:
-            head += f"（{escape(symbol)}）"
-        lines.append(head)
-        lines.append(f"　　{escape(a.get('prev') or '0.0%')} → {escape(a.get('target') or '0.0%')}")
+        name = f"{stock}（{symbol}）" if symbol else stock
+        lines.append(f"{escape(action_label(a_type))}　{escape(name)}")
+        lines.append(f"{escape(a.get('prev') or '0.0%')} → {escape(a.get('target') or '0.0%')}")
         lines.append("")
+    foot = []
     if cash:
-        lines.append(f"💵 现金 <b>{escape(cash)}</b>")
+        foot.append(f"💵 现金 {cash}")
     if post.published_at:
-        lines.append(f"🕐 {escape(post.published_at)}")
-    if post.url:
-        lines.append(f'🔗 <a href="{escape(post.url)}">查看原文</a>')
+        foot.append(f"🕐 {post.published_at}")
+    if foot:
+        lines.append(escape(" · ".join(foot)))
     return "\n".join(lines).rstrip()
 
 
@@ -126,27 +142,38 @@ def _numbered_url_rows(posts: list[Post], max_items: int) -> list[list[dict]]:
     return rows
 
 
+def _list_item(
+    post: Post,
+    *,
+    named: bool,
+    full: bool,
+    max_chars: int,
+    prefix: str,
+    mark_favorite: bool = False,
+) -> list[str]:
+    body = digest_body(post, full=full, max_chars=max_chars)
+    when = (post.published_at or "").strip()
+    star = "⭐ " if mark_favorite and post.favorite else ""
+    lead = f"<b>{escape(star + post.kol_name)}</b> " if named else ""
+    if full:
+        rows = [f"{prefix}{lead}{escape(body)}"]
+        if when:
+            rows.append(f"🕐 {escape(when)}")
+        return rows
+    tail = f" · 🕐 {when}" if when else ""
+    return [f"{prefix}{lead}{escape(body)}{escape(tail)}"]
+
+
 def build_telegram_digest(posts: list[Post], kol_name: str, platform: str) -> str:
     """合并摘要：同一大V多条新动态合并成一条消息。"""
     platform_label = PLATFORM_LABELS.get(platform, platform)
-    lines = [
-        f"<b>📌 {escape(kol_name)} · {platform_label}</b>（{len(posts)} 条新动态）",
-        "",
-    ]
+    lines = [f"<b>📌 {escape(kol_name)} · {platform_label}</b>", ""]
     numbered = len(posts) > 1
     for i, post in enumerate(posts[:DIGEST_MAX_ITEMS], 1):
-        body = digest_body(post, full=len(posts) == 1)
         prefix = f"{i}. " if numbered else ""
-        lines.append(f"{prefix}{escape(body)}")
-        time_line = f"🕐 {escape(post.published_at)}" if post.published_at else ""
-        link = (
-            f'🔗 <a href="{escape(post.url)}">查看原文</a>'
-            if show_original(post.platform, post.url)
-            else ""
+        lines.extend(
+            _list_item(post, named=False, full=len(posts) == 1, max_chars=120, prefix=prefix)
         )
-        meta = " · ".join(x for x in (time_line, link) if x)
-        if meta:
-            lines.append(f"　{meta}")
         lines.append("")
     if len(posts) > DIGEST_MAX_ITEMS:
         lines.append(f"… 还有 {len(posts) - DIGEST_MAX_ITEMS} 条未展示")
@@ -157,17 +184,15 @@ def build_telegram_daily(posts: list[Post]) -> str:
     """每日精选：把用户订阅的所有大V今日动态汇总成一条。"""
     lines = ["<b>📊 今日大V精选</b>", ""]
     ordered = [p for p in posts if p.favorite] + [p for p in posts if not p.favorite]
-    for i, post in enumerate(ordered[:DIGEST_MAX_ITEMS], 1):
-        star = "⭐ " if post.favorite else ""
-        body = digest_body(post, full=False, max_chars=100)
-        lines.append(f"{i}. <b>{star}{escape(post.kol_name)}</b>：{escape(body)}")
-        meta_parts = []
-        if post.published_at:
-            meta_parts.append(f"🕐 {escape(post.published_at)}")
-        if show_original(post.platform, post.url):
-            meta_parts.append(f'🔗 <a href="{escape(post.url)}">查看原文</a>')
-        if meta_parts:
-            lines.append(f"　{' · '.join(meta_parts)}")
+    visible = ordered[:DIGEST_MAX_ITEMS]
+    numbered = len(visible) > 1
+    for i, post in enumerate(visible, 1):
+        prefix = f"{i}. " if numbered else ""
+        lines.extend(
+            _list_item(
+                post, named=True, full=False, max_chars=100, prefix=prefix, mark_favorite=True
+            )
+        )
         lines.append("")
     if len(posts) > DIGEST_MAX_ITEMS:
         lines.append(f"… 还有 {len(posts) - DIGEST_MAX_ITEMS} 条未展示")
@@ -177,17 +202,12 @@ def build_telegram_daily(posts: list[Post]) -> str:
 def build_telegram_dnd_summary(posts: list[Post], title: str | None = None) -> str:
     """免打扰/次要大V汇总：一次列出缓冲的新动态（最多 10 条）。"""
     heading = title or "📵 免打扰时段汇总"
-    lines = [f"<b>{escape(heading)}</b>（{len(posts)} 条新动态）", ""]
-    numbered = len(posts) > 1
-    for i, post in enumerate(posts[:DND_MAX_ITEMS], 1):
-        body = digest_body(post, full=False, max_chars=100)
+    lines = [f"<b>{escape(heading)}</b>", ""]
+    visible = posts[:DND_MAX_ITEMS]
+    numbered = len(visible) > 1
+    for i, post in enumerate(visible, 1):
         prefix = f"{i}. " if numbered else ""
-        lines.append(f"{prefix}<b>{escape(post.kol_name)}</b> · {escape(body)}")
-        time_line = f"🕐 {escape(post.published_at)}" if post.published_at else ""
-        link = f'🔗 <a href="{escape(post.url)}">原文</a>' if show_original(post.platform, post.url) else ""
-        meta = " · ".join(x for x in (time_line, link) if x)
-        if meta:
-            lines.append(f"　{meta}")
+        lines.extend(_list_item(post, named=True, full=False, max_chars=100, prefix=prefix))
         lines.append("")
     if len(posts) > DND_MAX_ITEMS:
         lines.append(f"… 还有 {len(posts) - DND_MAX_ITEMS} 条未展示")
