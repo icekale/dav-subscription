@@ -175,3 +175,70 @@ def test_deliver_http_error_fallback_does_not_log_bot_token():
     assert any(u.endswith("/sendRichMessage") for u in urls)
     assert any(u.endswith("/sendMessage") for u in urls)
     assert token not in "\n".join(logging_setup.recent_logs(limit=500))
+
+
+def test_rich_html_embeds_single_figure():
+    from app.notifiers.telegram_rich import build_telegram_rich_html
+
+    post = make_post()
+    post.images = ["https://a/1.jpg"]
+    html = build_telegram_rich_html(post)
+    assert "<figure>" in html
+    assert 'src="https://a/1.jpg"' in html
+    assert "<tg-collage>" not in html
+
+
+def test_rich_html_embeds_collage():
+    from app.notifiers.telegram_rich import build_telegram_rich_html
+
+    post = make_post()
+    post.images = [f"https://a/{i}.jpg" for i in range(12)]
+    html = build_telegram_rich_html(post)
+    assert "<tg-collage>" in html
+    assert html.count("<img ") == 9
+    assert "https://a/9.jpg" not in html
+
+
+def test_notify_with_images_sends_one_rich_message():
+    urls = []
+
+    def handler(request):
+        urls.append(str(request.url))
+        return httpx.Response(200, json={"ok": True})
+
+    from app.fetchers.base import Post
+    from app.notifiers.telegram import TelegramNotifier
+
+    post = Post(
+        platform="weibo", kol_id=1, kol_name="李四", external_id="w1",
+        title="t", content="c", url="https://weibo.com/1", published_at="",
+        images=["https://a/1.jpg", "https://a/2.jpg"],
+    )
+    TelegramNotifier(
+        TelegramConfig(bot_token="t", chat_id="1"),
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    ).notify(post)
+    assert len(urls) == 1
+    assert urls[0].endswith("/sendRichMessage")
+
+
+def test_notify_images_fall_back_to_text_then_album():
+    calls = []
+
+    class Fake(TelegramNotifier):
+        def _send_rich(self, html, reply_markup=None):
+            calls.append(("rich", html))
+            raise RuntimeError("no collage")
+
+        def _send(self, data):
+            calls.append(("text", data.get("text")))
+
+        def _send_media_group(self, post):
+            calls.append(("album", post.images))
+
+    post = make_post()
+    post.images = ["https://a/1.jpg", "https://a/2.jpg"]
+    Fake(TelegramConfig(bot_token="t", chat_id="1"), client=httpx.Client()).notify(post)
+    assert calls[0][0] == "rich" and "<tg-collage>" in calls[0][1]
+    assert calls[1][0] == "text"
+    assert calls[2] == ("album", ["https://a/1.jpg", "https://a/2.jpg"])

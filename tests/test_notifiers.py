@@ -295,10 +295,13 @@ def test_telegram_digest_per_post_buttons():
     assert not any(b.get("callback_data") for row in kb for b in row)
 
 
-def test_telegram_notify_sends_text_then_image_album():
+def test_telegram_notify_sends_one_rich_message_with_images():
     calls = []
 
     class FakeTelegram(TelegramNotifier):
+        def _send_rich(self, html, reply_markup=None):
+            calls.append(("rich", html))
+
         def _send(self, data):
             calls.append(("text", data.get("text")))
 
@@ -312,17 +315,18 @@ def test_telegram_notify_sends_text_then_image_album():
     post = make_post()
     post.images = ["https://a/1.jpg", "https://a/2.jpg"]
     tg.notify(post)
-    assert calls == [
-        ("text", calls[0][1]),
-        ("album", ["https://a/1.jpg", "https://a/2.jpg"]),
-    ]
-    assert "📌" in calls[0][1] and "查看原文" in calls[0][1]
+    assert len(calls) == 1
+    assert calls[0][0] == "rich"
+    assert "<tg-collage>" in calls[0][1]
 
 
 def test_telegram_image_album_fails_falls_back_to_photo():
     calls = []
 
     class FakeTelegram(TelegramNotifier):
+        def _send_rich(self, html, reply_markup=None):
+            raise RuntimeError("no collage")
+
         def _send(self, data):
             calls.append(("text", data.get("text")))
 

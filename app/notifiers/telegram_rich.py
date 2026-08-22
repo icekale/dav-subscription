@@ -49,6 +49,17 @@ def _original_link(post: Post) -> str:
     return f"<p>{_a(post.url, '查看原文')}</p>"
 
 
+def _media_block(images: list[str]) -> str:
+    urls = [u for u in images if isinstance(u, str) and u.startswith(("http://", "https://"))]
+    urls = urls[:RICH_IMAGE_MAX]
+    if not urls:
+        return ""
+    imgs = "".join(f'<img src="{_e(u)}">' for u in urls)
+    if len(urls) == 1:
+        return f"<figure>{imgs}</figure>"
+    return f"<tg-collage>{imgs}</tg-collage>"
+
+
 def build_combination_rich_html(post: Post) -> str:
     detail = post.detail or {}
     stats = detail.get("stats") or []
@@ -94,6 +105,7 @@ def build_telegram_rich_html(post: Post, favorite: bool = False, keyword: bool =
     if post.post_type == "reply":
         body_html = f"<blockquote>{body_html}</blockquote>"
     parts.append(body_html)
+    parts.append(_media_block(post.images or []))
     parts.append("<hr>")
     meta: list[str] = []
     if post.category:

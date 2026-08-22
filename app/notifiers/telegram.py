@@ -289,9 +289,11 @@ class TelegramNotifier(Notifier):
         )
 
     def notify(self, post: Post) -> None:
-        # 带图帖子：先发文字消息，再发图片相册——正文在上、图片在下（同飞书卡片布局）
-        if post.images and not (post.platform == "combination" and post.detail):
-            self._send_text_with_images(post)
+        if post.platform == "combination" and post.detail:
+            self._send_text_message(post)
+            return
+        if post.images:
+            self._send_rich_with_images(post)
             return
         self._send_text_message(post)
 
@@ -312,17 +314,43 @@ class TelegramNotifier(Notifier):
         fallback = build_telegram_text(post, self.favorite, self.keyword)
         self._deliver(html, fallback_text=fallback, reply_markup=keyboard)
 
-    def _send_text_with_images(self, post: Post) -> None:
-        self._send_text_message(post)
+    def _send_rich_with_images(self, post: Post) -> None:
+        from .telegram_rich import build_telegram_rich_html
+
+        keyboard = (
+            [[{"text": "🔗 查看原文", "url": post.url}]]
+            if show_original(post.platform, post.url)
+            else []
+        )
+        html = build_telegram_rich_html(post, self.favorite, self.keyword)
+        if self.rich_messages:
+            try:
+                self._send_rich(html, keyboard)
+                return
+            except Exception as exc:  # noqa: BLE001
+                # token-free log (do not stringify HTTPStatusError)
+                detail = type(exc).__name__
+                if isinstance(exc, httpx.HTTPStatusError):
+                    detail = f"{detail} {exc.response.status_code}"
+                logger.warning("Telegram Rich 配图失败，回退相册: %s", detail)
+        fallback = build_telegram_text(post, self.favorite, self.keyword)
+        self._send(
+            {
+                "text": fallback,
+                "parse_mode": "HTML",
+                "disable_web_page_preview": True,
+                "reply_markup": json.dumps({"inline_keyboard": keyboard}, ensure_ascii=False),
+            }
+        )
         try:
             self._send_media_group(post)
-        except Exception as exc:  # noqa: BLE001 - 相册失败降级为逐张发送
-            logger.warning("Telegram 相册发送失败，降级为逐张发送: %s", exc)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Telegram 相册发送失败，降级为逐张发送: %s", type(exc).__name__)
             for image_url in post.images[:4]:
                 try:
                     self._send_photo_url(image_url)
                 except Exception as inner:  # noqa: BLE001
-                    logger.warning("Telegram 图片发送失败 url=%s err=%s", image_url, inner)
+                    logger.warning("Telegram 图片发送失败 err=%s", type(inner).__name__)
 
     def _download_images(self, urls: list[str]) -> list[bytes]:
         blobs: list[bytes] = []
