@@ -51,7 +51,7 @@ def test_combination_rich_uses_tables():
 
     html = build_combination_rich_html(make_combination_post())
     assert "<h2>" in html and "伯言-A股" in html
-    assert html.count("<table>") == 2
+    assert html.count("<table>") == 1
     assert "年化" in html and "27.1%" in html
     assert "清仓" in html and "永杉锂业" in html and "SH603399" in html
     assert "21.1%" in html and "0.0%" in html
@@ -63,12 +63,14 @@ def test_single_post_rich_has_heading_paragraphs_tags():
     html = build_telegram_rich_html(make_post())
     assert "<h2>" in html and "张三" in html and "雪球" in html
     assert "&lt;b&gt;大涨&lt;/b&gt;" in html
-    assert "<p>第二段</p>" in html
-    assert "<hr>" in html
+    assert "今天 &lt;b&gt;大涨&lt;/b&gt;<br>第二段" in html
+    assert "<hr>" not in html
+    assert "<em>" in html
     assert "宏观" in html and "白酒" in html
     assert "实盘" in html
     assert 'href="https://xueqiu.com/1"' in html
     assert "<script>" not in html
+    assert "🔔" not in html and "📌" not in html
 
 
 def test_single_post_rich_marks_badges_and_reply_quote():
@@ -306,11 +308,19 @@ def test_dnd_rich_names_each_item():
 
     html = build_telegram_dnd_rich([make_post()])
     assert "免打扰时段汇总" in html
-    assert "<ol>" in html
+    assert "<ol>" not in html
     assert "<b>张三</b>" in html
 
 
-def test_daily_rich_is_table():
+def test_digest_single_uses_paragraphs():
+    from app.notifiers.telegram_rich import build_telegram_digest_rich
+
+    html = build_telegram_digest_rich([make_post()], "张三", "xueqiu")
+    assert "<ol>" not in html
+    assert "今天 &lt;b&gt;大涨&lt;/b&gt;<br>第二段" in html
+
+
+def test_daily_rich_is_named_list():
     from app.notifiers.telegram_rich import build_telegram_daily_rich
 
     fav = make_post()
@@ -320,6 +330,7 @@ def test_daily_rich_is_table():
     other.kol_name = "普通"
     html = build_telegram_daily_rich([other, fav])
     assert "<h2>" in html and "今日大V精选" in html
-    assert "<table>" in html
+    assert "<ol>" in html
+    assert "<table>" not in html
     assert html.index("重点") < html.index("普通")
-    assert "关注" in html
+    assert "<b>重点</b>" in html
