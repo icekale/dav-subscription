@@ -19,6 +19,15 @@ def test_fetch_handler_still_guards_method_and_origin():
     assert re.search(r'url\.origin !== self\.location\.origin', fetch_block)
 
 
+def test_fetch_handler_navigate_falls_back_to_shell():
+    src = SW_JS.read_text()
+    fetch_block = src[src.index('self.addEventListener("fetch"'):]
+    assert 'request.mode === "navigate"' in fetch_block
+    assert "networkFirstNavigate" in src
+    nav = src[src.index("async function networkFirstNavigate"):]
+    assert 'caches.match("/")' in nav
+
+
 def test_shell_assets_and_registration_present():
     """离线外壳与注册入口仍存在。"""
     src = SW_JS.read_text()

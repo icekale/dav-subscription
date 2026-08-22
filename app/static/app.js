@@ -22,7 +22,7 @@ const CHANNEL_ICONS = {
 };
 const CHANNEL_LABELS = { telegram: "Telegram", feishu: "飞书", wecom: "企业微信", bark: "Bark", webpush: "浏览器通知" };
 const USER_CHANNEL_KEYS = ["telegram", "feishu", "wecom", "bark", "webpush"];
-const APP_VERSION = "1.12.33";
+const APP_VERSION = "1.12.34";
 const PLATFORM_TABS = ["", "xueqiu", "combination", "weibo", "twitter", "zsxq"];
 const STATS_TABS = ["overview", "health", "plaza", "config", "cookies", "proxies"];
 const TL_PLATFORMS = PLATFORM_TABS.map((p) => [p, p ? PLATFORM_LABELS[p] : "全部"]);
@@ -5536,8 +5536,8 @@ async function adminGenerateCodes() {
 }
 
 async function loadAdminVocab() {
-  // 深链：#/admin/vocab?tab=tags 进标签 Tab，其余值（含无参数）进分类 Tab
-  const params = new URLSearchParams(location.hash.split("?")[1] || "");
+  // 深链：/admin/vocab?tab=tags 进标签 Tab，其余值（含无参数）进分类 Tab
+  const params = routeQuery();
   const tab = params.get("tab") === "tags" ? "tags" : "categories";
   if (!routeStillActive(_adminRenderSeq)) return;
   $("#admin-body").innerHTML = `
@@ -5546,8 +5546,8 @@ async function loadAdminVocab() {
         <div><h2 class="section-title">标签分类</h2>
         <p class="section-meta">分类按大V分组（订阅广场/动态页/管理列表筛选）；标签按关键词规则给贴文内容自动打标。</p></div>
         <div class="settings-tabs" role="tablist" aria-label="标签分类">
-          <button class="settings-tab ${tab === "categories" ? "active" : ""}" data-tab="categories" onclick="location.hash='#/admin/vocab'">分类</button>
-          <button class="settings-tab ${tab === "tags" ? "active" : ""}" data-tab="tags" onclick="location.hash='#/admin/vocab?tab=tags'">标签</button>
+          <button class="settings-tab ${tab === "categories" ? "active" : ""}" data-tab="categories" onclick="go('admin/vocab')">分类</button>
+          <button class="settings-tab ${tab === "tags" ? "active" : ""}" data-tab="tags" onclick="go('admin/vocab?tab=tags')">标签</button>
         </div>
       </header>
       <div id="vocab-tab-body" class="settings-tab-panel"></div>

@@ -56,11 +56,11 @@ def test_refresh_kols_view_covers_all_card_routes():
     """refreshKolsView 必须覆盖所有出现订阅卡片的页面。"""
     body = _fn_body("refreshKolsView")
     for route_call in (
-        'startsWith("#/home")',
-        'startsWith("#/combinations")',
-        'startsWith("#/mysubs")',
-        'startsWith("#/kol/")',
-        'startsWith("#/search")',
+        'isRoute("home")',
+        'isRoute("combinations")',
+        'isRoute("mysubs")',
+        'isRoute("kol/")',
+        'isRoute("search")',
     ):
         assert route_call in body, f"refreshKolsView 缺少 {route_call} 路由分支"
     assert "loadHomeKols" in body
@@ -382,7 +382,7 @@ def test_zsxq_is_plaza_badge_not_sidebar_page():
     assert "PLATFORM_ICONS" in src and "M13.012 0c.874" in src
     assert 'route: "zsxq"' not in src
     assert "async function renderZsxq" not in src
-    assert 'location.replace("#/timeline")' in src
+    assert 'replaceRoute("timeline")' in src
     assert "--color-brand-zsxq" in css
     assert 'data-platform="zsxq"' in css
     assert "state.platform" not in _fn_body("homeHasFilters")
@@ -493,7 +493,7 @@ def test_kol_image_loader_is_route_guarded_local_and_retryable():
 
     assert "emptyState(" in render
     assert "还没有订阅大V" in render
-    assert "#/home" in render
+    assert "/home" in render or "go('home')" in render
 
 
 def test_kol_image_loader_latest_generation_and_revision_win():
@@ -633,7 +633,7 @@ def test_kol_image_toggle_recovers_stale_route_after_returning_to_settings():
     cleanup = body[body.index("finally"):]
 
     assert "_kolImagePendingIds.delete(kolId)" in cleanup
-    assert 'location.hash.replace(/^#\\/?/, "").split("?")[0] === "settings"' in cleanup
+    assert 'isRoute("settings")' in cleanup
     assert "if (routeStillActive(seq))" in cleanup
     assert "_kolImageReloadNeeded = true" in cleanup
     assert "reloadKolImageSettingsIfNeeded()" in cleanup
@@ -660,7 +660,7 @@ def test_kol_image_same_route_pending_load_reloads_after_last_toggle():
     assert "renderKolImageSettings()" not in cleanup
 
     assert "if (!_kolImageReloadNeeded || _kolImagePendingIds.size)" in reload_if_needed
-    assert 'location.hash.replace(/^#\\/?/, "").split("?")[0] !== "settings"' in reload_if_needed
+    assert 'if (!isRoute("settings")) return' in reload_if_needed
     assert "_kolImageReloadNeeded = false" in reload_if_needed
     assert "loadKolImageSettings(routeRenderSeq)" in reload_if_needed
     assert reload_if_needed.index("_kolImageReloadNeeded = false") < reload_if_needed.index(
@@ -768,12 +768,12 @@ def test_proxy_admin_hardens_write_paths():
 
 
 def test_stats_cookie_repair_deep_link():
-    """Cookie 失效要从总览一键进 Cookie 管理，并吃 #/admin/stats?tab=cookies。"""
+    """Cookie 失效要从总览一键进 Cookie 管理，并吃 /admin/stats?tab=cookies。"""
     src = APP_JS.read_text()
     assert "function cookieRepairItems" in src
     assert "function cookieRepairBanner" in src
     assert "function statsTabFromHash" in src
-    assert "#/admin/stats?tab=" in _fn_body("switchStatsTab")
+    assert "/admin/stats?tab=" in _fn_body("switchStatsTab")
     assert "statsTabFromHash()" in _fn_body("loadAdminStats")
     assert "saveTwitterCookie()" in _fn_body("loadAdminStats")
     assert "saveZsxqCookie()" in _fn_body("loadAdminStats")

@@ -93,7 +93,7 @@ def test_build_webpush_payload_truncates_and_marks():
     assert "特别关注" in payload["body"]
     assert "命中关键词" in payload["body"]
     assert len(payload["body"]) <= 180
-    assert payload["url"] == "/#/timeline"
+    assert payload["url"] == "/timeline"
 
 
 def test_notifier_posts_encrypted_body_and_drops_gone(monkeypatch):

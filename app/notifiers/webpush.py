@@ -210,7 +210,7 @@ def build_webpush_payload(post: Post, favorite: bool = False, keyword: bool = Fa
     return {
         "title": title,
         "body": body[:MAX_BODY],
-        "url": "/#/timeline",
+        "url": "/timeline",
         "tag": f"post-{post.platform}-{post.external_id}"[:80],
     }
 
@@ -224,7 +224,7 @@ def build_webpush_digest_payload(posts: list[Post], kol_name: str, platform: str
     return {
         "title": f"{kol_name} · {platform_label}（{len(posts)} 条）"[:60],
         "body": ("；".join(lines) + extra)[:MAX_BODY],
-        "url": "/#/timeline",
+        "url": "/timeline",
         "tag": f"digest-{platform}-{kol_name}"[:80],
     }
 
@@ -238,7 +238,7 @@ def build_webpush_summary_payload(posts: list[Post], title: str) -> dict:
     return {
         "title": title[:60],
         "body": ("；".join(lines) + extra)[:MAX_BODY],
-        "url": "/#/timeline",
+        "url": "/timeline",
         "tag": title[:80],
     }
 

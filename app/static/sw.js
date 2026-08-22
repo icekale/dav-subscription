@@ -1,5 +1,5 @@
 /* V Push Service Worker —— network-first：静态外壳离线可用，API 永不缓存 */
-const CACHE = "dav-shell-v93";
+const CACHE = "dav-shell-v94";
 const SHELL = [
   "/",
   "/app.js",
@@ -38,6 +38,10 @@ self.addEventListener("fetch", (e) => {
   }
   if (e.request.method !== "GET" || url.origin !== self.location.origin) return;
   if (url.pathname.startsWith("/api/")) return; // 动态数据永不缓存
+  if (e.request.mode === "navigate") {
+    e.respondWith(networkFirstNavigate(e.request));
+    return;
+  }
   e.respondWith(networkFirst(e.request));
 });
 
@@ -72,6 +76,16 @@ self.addEventListener("notificationclick", (e) => {
     await self.clients.openWindow(url);
   })());
 });
+
+async function networkFirstNavigate(req) {
+  try {
+    const fresh = await fetch(req);
+    if (fresh && fresh.ok) return fresh;
+  } catch {
+    /* 离线 */
+  }
+  return (await caches.match("/")) || Response.error();
+}
 
 async function networkFirst(req) {
   try {
