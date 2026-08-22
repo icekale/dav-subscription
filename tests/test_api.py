@@ -2206,6 +2206,7 @@ def test_polling_config_get_and_update():
     headers = auth_headers(client)
     cfg = client.get("/api/admin/polling-config", headers=headers).json()
     assert cfg["interval_seconds"] > 0 and cfg["daily_report_hour"] == 20
+    assert cfg["telegram_rich_messages"] is True
 
     resp = client.put(
         "/api/admin/polling-config",
@@ -2223,6 +2224,19 @@ def test_polling_config_get_and_update():
     )
     assert resp.json()["translate_twitter_content"] is True
     assert client.get("/api/admin/polling-config", headers=headers).json()["translate_twitter_content"] is True
+    resp = client.put(
+        "/api/admin/polling-config",
+        headers=headers,
+        json={"telegram_rich_messages": False},
+    )
+    assert resp.json()["telegram_rich_messages"] is False
+    assert client.get("/api/admin/polling-config", headers=headers).json()["telegram_rich_messages"] is False
+    resp = client.put(
+        "/api/admin/polling-config",
+        headers=headers,
+        json={"telegram_rich_messages": True},
+    )
+    assert resp.json()["telegram_rich_messages"] is True
 
     # 超范围被拒绝
     resp = client.put(

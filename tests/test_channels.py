@@ -114,6 +114,23 @@ def test_build_channel_notifier_binds_and_passes_flags(monkeypatch):
         assert seen.get("keyword") is True  # 四个渠道都必须透传横切标记
 
 
+def test_build_telegram_notifier_honors_admin_rich_flag(monkeypatch):
+    cfg = make_config()
+    cfg.telegram.rich_messages = True
+
+    class Fake:
+        def __init__(self, *args, **kwargs):
+            self.rich_messages = True
+
+    monkeypatch.setattr("app.notifiers.telegram.TelegramNotifier", Fake)
+    off = SimpleNamespace(get_setting=lambda key: "0")
+    n = build_channel_notifier("telegram", make_user(telegram_chat_id="1"), cfg, db=off)
+    assert n.rich_messages is False
+    unset = SimpleNamespace(get_setting=lambda key: None)
+    n = build_channel_notifier("telegram", make_user(telegram_chat_id="1"), cfg, db=unset)
+    assert n.rich_messages is True
+
+
 def test_deliver_post_success_writes_log(monkeypatch):
     db = SimpleNamespace()
     notifier = SimpleNamespace(notify=lambda post: None)

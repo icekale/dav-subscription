@@ -3505,6 +3505,16 @@ async function loadAdminStats() {
             </div>
           </div>
           <div class="cfg-group">
+            <p class="cfg-group-title">Telegram 推送</p>
+            <div class="cfg-fields">
+              <label class="cfg-field cfg-check" title="关闭后全部退回旧版 sendMessage + HTML，配图走相册">
+                <input id="pc-tg-rich" type="checkbox" ${s.polling_config.telegram_rich_messages !== false ? "checked" : ""}>
+                <span>Telegram Rich Message</span>
+                <span class="cfg-check-desc">标题分层、表格、图文一条；关掉则用原来的 HTML。保存后即时生效</span>
+              </label>
+            </div>
+          </div>
+          <div class="cfg-group">
             <p class="cfg-group-title">保活与定时</p>
             <div class="cfg-fields">
               <label class="cfg-field" title="雪球保活探测间隔；0 = 关闭自动保活">
@@ -3777,6 +3787,7 @@ async function savePollingConfig() {
     cookie_keepalive_interval_seconds: Number($("#pc-keepalive").value),
     daily_report_hour: Number($("#pc-daily").value),
     translate_twitter_content: $("#pc-translate").checked,
+    telegram_rich_messages: $("#pc-tg-rich") ? $("#pc-tg-rich").checked : true,
     combination_base_seconds: Number($("#pc-cb").value),
     combination_idle_cap_seconds: Number($("#pc-cc").value),
     normal_idle_cap_seconds: Number($("#pc-nc").value),

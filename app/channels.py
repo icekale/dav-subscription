@@ -102,7 +102,7 @@ def build_channel_notifier(
 
         if not user.get("telegram_chat_id"):
             raise RuntimeError("用户未绑定 Telegram")
-        return TelegramNotifier(
+        notifier = TelegramNotifier(
             notifiers_config.telegram,
             client=client,
             chat_id=user["telegram_chat_id"],
@@ -110,6 +110,13 @@ def build_channel_notifier(
             favorite=favorite,
             keyword=keyword,
         )
+        if db is not None:
+            from .telegram_rich_flag import get_telegram_rich_messages
+
+            notifier.rich_messages = get_telegram_rich_messages(
+                db, getattr(notifiers_config.telegram, "rich_messages", True)
+            )
+        return notifier
     if channel == "feishu":
         from .feishu_personal import build_personal_feishu_kwargs
         from .notifiers.feishu import FeishuNotifier

@@ -461,6 +461,7 @@ class PollingConfigIn(BaseModel):
     cookie_keepalive_interval_seconds: int | None = None
     daily_report_hour: int | None = None
     translate_twitter_content: bool | None = None
+    telegram_rich_messages: bool | None = None
     # 采集频率档位（无新帖自适应降频参数，后台可调即时生效）
     combination_base_seconds: int | None = None
     combination_idle_cap_seconds: int | None = None
@@ -1063,6 +1064,12 @@ def create_api_router(
         out["translate_twitter_content"] = (
             db.get_setting("config_translate_twitter_content") == "1"
         )
+        from .telegram_rich_flag import get_telegram_rich_messages
+
+        yaml_rich = True
+        if notifiers_config is not None and getattr(notifiers_config, "telegram", None):
+            yaml_rich = bool(getattr(notifiers_config.telegram, "rich_messages", True))
+        out["telegram_rich_messages"] = get_telegram_rich_messages(db, yaml_rich)
         out["zsxq_max_pages"] = _max_pages(db)
         out["zsxq_fetch_delay_seconds"] = _delay(db, "zsxq_fetch_delay_seconds", DEFAULT_DELAY)
         out["zsxq_file_delay_seconds"] = _delay(db, "zsxq_file_delay_seconds", DEFAULT_FILE_DELAY)
@@ -1867,6 +1874,11 @@ def create_api_router(
                 "1" if body.translate_twitter_content else "0",
             )
             changed.append("translate_twitter_content")
+        if body.telegram_rich_messages is not None:
+            from .telegram_rich_flag import set_telegram_rich_messages
+
+            set_telegram_rich_messages(db, body.telegram_rich_messages)
+            changed.append("telegram_rich_messages")
         if body.zsxq_max_pages is not None:
             if not (1 <= body.zsxq_max_pages <= 20):
                 raise HTTPException(status_code=400, detail="zsxq_max_pages 需在 1-20 之间")
