@@ -30,6 +30,7 @@ class TelegramConfig:
     chat_id: str = ""
     proxy: str = ""
     bot_username: str = ""
+    rich_messages: bool = True
 
 
 @dataclass
@@ -156,6 +157,7 @@ _ENV_MAP = {
     "TELEGRAM_BOT_TOKEN": ("notifiers", "telegram", "bot_token"),
     "TELEGRAM_CHAT_ID": ("notifiers", "telegram", "chat_id"),
     "TELEGRAM_PROXY": ("notifiers", "telegram", "proxy"),
+    "TELEGRAM_RICH_MESSAGES": ("notifiers", "telegram", "rich_messages"),
     "TELEGRAM_BOT_USERNAME": ("notifiers", "telegram", "bot_username"),
     "FEISHU_BOT_NAME": ("notifiers", "feishu", "bot_name"),
     "FEISHU_CREDENTIAL_KEY": ("notifiers", "feishu", "credential_key"),
@@ -236,6 +238,7 @@ def _validate(config: Config) -> None:
         ("polling.notify_on_start", config.polling, "notify_on_start", bool),
         ("web.allow_register", config.web, "allow_register", bool),
         ("web.trust_proxy", config.web, "trust_proxy", bool),
+        ("notifiers.telegram.rich_messages", config.notifiers.telegram, "rich_messages", bool),
         ("alerts_enabled", config, "alerts_enabled", bool),
     )
     for label, obj, attr, expected in checks:

@@ -12,6 +12,7 @@ ALL_ENV = [
     "TELEGRAM_BOT_TOKEN",
     "TELEGRAM_CHAT_ID",
     "TELEGRAM_PROXY",
+    "TELEGRAM_RICH_MESSAGES",
     "XUEQIU_COOKIE",
     "WEIBO_COOKIE",
     "WEIBO_TOKEN",
@@ -118,6 +119,22 @@ def test_priority_interval_seconds_must_be_positive(tmp_path, monkeypatch):
     )
     with pytest.raises(ValueError):
         load_config(tmp_path / "config.yaml")
+
+
+def test_telegram_rich_messages_default_true(tmp_path, monkeypatch):
+    for name in ALL_ENV:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.chdir(tmp_path)
+    config = load_config(tmp_path / "nope.yaml")
+    assert config.notifiers.telegram.rich_messages is True
+
+
+def test_telegram_rich_messages_env_off(tmp_path, monkeypatch):
+    for name in ALL_ENV:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("TELEGRAM_RICH_MESSAGES", "0")
+    config = load_config(tmp_path / "nope.yaml")
+    assert config.notifiers.telegram.rich_messages is False
 
 
 def test_web_trust_proxy_default_false_and_env_override(tmp_path, monkeypatch):
